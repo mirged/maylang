@@ -1,0 +1,5 @@
+#!/bin/sh
+# Resolve the compiler relative to this launcher so runtime.may is found even
+# when mayc is reached through PATH from a nested project directory.
+mayc_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$mayc_dir/mayc_new" "$@"

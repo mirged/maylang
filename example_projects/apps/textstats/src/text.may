@@ -1,0 +1,49 @@
+// text.may — tokenisation helpers.
+//
+// Pure Maylang on top of the prelude's char/string primitives, so it compiles
+// on the native target as well as the VM.
+
+fun is_letter_code(c: Any) -> Any {
+    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+}
+
+fun is_digit_code(c: Any) -> Any { return c >= 48 && c <= 57; }
+
+/// Turn every control/whitespace character into a single space.
+fun normalize_ws(text: Any) -> Any {
+    mut out: Any = "";
+    for i: Any in 0..len(text) {
+        let c: Any = char_at(text, i);
+        if (c == 10 || c == 9 || c == 13 || c == 12) {
+            out = out + " ";
+        } else {
+            out = out + char_from(c);
+        }
+    }
+    return out;
+}
+
+/// Drop everything that is not a letter or digit (punctuation, symbols).
+fun strip_punct(word: Any) -> Any {
+    mut out: Any = "";
+    for i: Any in 0..len(word) {
+        let c: Any = char_at(word, i);
+        if (is_letter_code(c) || is_digit_code(c)) {
+            out = out + char_from(c);
+        }
+    }
+    return out;
+}
+
+/// Split normalised text into clean, lower-cased words.
+fun words(text: Any) -> Any {
+    let raw: Any = split(normalize_ws(text), " ");
+    mut out: Any = [];
+    for i: Any in 0..len(raw) {
+        let cleaned: Any = strip_punct(to_lower(raw[i]));
+        if (len(cleaned) > 0) {
+            push(out, cleaned);
+        }
+    }
+    return out;
+}

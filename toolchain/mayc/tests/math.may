@@ -1,0 +1,9 @@
+print(sqrt(16.0), abs(-5), abs(-2.5));
+print(floor(2.7), ceil(2.1), round(2.5), round(2.4), trunc(2.9));
+print(min(3, 7), max(3, 7), clamp(10, 0, 5), clamp(-1, 0, 5));
+print(sign(-5), sign(0), sign(9));
+print(even(4), odd(3));
+print(pow(2.0, 10.0), sqrt(2.0));
+print(pi() > 3.14, e() > 2.7);
+print(sin(0.0), cos(0.0));
+print(log2(8.0), log10(1000.0), ln(e()));

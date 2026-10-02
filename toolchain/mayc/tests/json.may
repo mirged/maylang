@@ -1,0 +1,7 @@
+let doc: Any = json_parse("{\"name\": \"Ada\", \"age\": 36, \"scores\": [1, 2, 3], \"ok\": true, \"x\": null}");
+print(doc.name, doc.age, doc.scores, doc.ok, doc.x);
+print(json_stringify({"b": 2, "a": 1, "l": [1, 2], "t": true, "n": nil}));
+print(json_stringify([1, "two", 3.5, false]));
+print(json_parse("[1, 2, 3]") |> sum);
+print(json_stringify({"nested": {"deep": [1, {"x": 2}]}}));
+print(may { json_parse("{bad") } otherwise { err.kind });

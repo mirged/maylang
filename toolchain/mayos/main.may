@@ -1,0 +1,18 @@
+import "src/hardware.may";
+import "src/console.may";
+import "src/memory.may";
+import "src/disk.may";
+import "src/filesystem.may";
+import "src/shell.may";
+
+clear_screen();
+text(addr("\n  MAYOS / a kernel written in raw Maylang\n"));
+text(addr("  x86-64 long mode | serial + VGA | PIT 100 Hz\n\n"));
+if (arena_available()) {
+    disk_init(); fs_mount();
+    text(addr("BOOT_OK\n"));
+    run_shell();
+} else {
+    text(addr("BOOT_ERROR: 8..16 MiB arena is not usable RAM.\n"));
+    boot_error_exit();
+}

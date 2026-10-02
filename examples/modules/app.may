@@ -1,0 +1,9 @@
+// Imports expose public names; module declarations keep separate namespaces.
+import "util.may";
+from "util" import TAU, clamp;
+
+print("square(12) =", square(12));
+print("cube(4) =", cube(4));
+print("TAU =", TAU);
+print("clamp(15, 0, 10) =", clamp(15, 0, 10));
+print("clamp(-5, 0, 10) =", clamp(-5, 0, 10));

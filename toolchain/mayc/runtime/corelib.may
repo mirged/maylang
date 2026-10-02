@@ -1,0 +1,38 @@
+// Small portable libraries. These functions use the common core runtime ABI.
+fun str(value: Any) -> Str { return str_of(value); }
+fun alloc(bytes: Int) -> Ptr { return __core_alloc(bytes); }
+fun memcpy(destination: Ptr, source: Ptr, bytes: Int) -> Nil { __core_copy(destination, source, bytes); return; }
+fun substring(s: Str, start: Int, count: Int) -> Str { return __core_substring(s, start, count); }
+fun str_concat(a: Str, b: Str) -> Str { return a + b; }
+fun range(start: Int, stop: Int) -> List<Int> {
+    let values: List<Int> = []; mut n: Int = start;
+    while (n < stop) { push(values, n); n += 1; }
+    return values;
+}
+fun sum(values: Any) -> Int {
+    mut result: Int = 0;
+    for value: Any in values { result += value; }
+    return result;
+}
+fun clamp(value: Int, low: Int, high: Int) -> Int { return min(max(value, low), high); }
+fun gcd(a: Int, b: Int) -> Int {
+    mut x: Int = abs(a); mut y: Int = abs(b);
+    while (y != 0) { let remainder: Int = x % y; x = y; y = remainder; }
+    return x;
+}
+fun lcm(a: Int, b: Int) -> Int { if (a == 0 or b == 0) { return 0; } return abs((a / gcd(a, b)) * b); }
+fun is_space_code(c: Int) -> Bool { return c == 32 or c == 9 or c == 10 or c == 13; }
+fun trim(s: Str) -> Str {
+    mut start: Int = 0; mut stop: Int = len(s);
+    while (start < stop and is_space_code(char_at(s, start))) { start += 1; }
+    while (stop > start and is_space_code(char_at(s, stop - 1))) { stop -= 1; }
+    return substring(s, start, stop - start);
+}
+fun repeat(s: Str, n: Int) -> Str {
+    mut out: Str = ""; mut part: Str = s; mut left: Int = n;
+    while (left > 0) {
+        if (left % 2 == 1) { out = out + part; }
+        left /= 2; if (left > 0) { part = part + part; }
+    }
+    return out;
+}

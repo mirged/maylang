@@ -1,0 +1,2 @@
+let TAU: Any = 6.28;
+fun square(x: Any) -> Any { return x * x; }

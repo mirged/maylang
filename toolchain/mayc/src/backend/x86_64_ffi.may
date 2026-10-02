@@ -1,0 +1,71 @@
+import "../emitter.may";
+import "../symbols.may";
+import "../state.may";
+import "../ffi.may";
+import "x86_64.may";
+fun ffi_emit_call(ctx: Any, rec: Any) -> Any {
+    // Keep original tagged arguments as GC roots while converting into raw slots.
+    let raw: Any = [];
+    for i: Any in 0..rec.pc {
+        let slot: Any = loc_add(ctx, addr("0ffi"), 4);
+        push(raw, slot);
+        ld_local(ctx, 8 * (i + 1)); e8(ctx, 80);
+        mov_imm(ctx, rec.ffiArgs[i]); e8(ctx, 80);
+        call_rt2(ctx, addr("rt_ffi_arg"), len("rt_ffi_arg"));
+        if (rec.ffiArgs[i] == 5) {
+            // movq xmm0, rax; cvtsd2ss xmm0,xmm0; movd eax,xmm0.
+            for byte: Any in [102,72,15,110,192,242,15,90,192,102,15,126,192] { e8(ctx, byte); }
+        }
+        st_local(ctx, 8 * (slot + 1));
+    }
+    mut integer: Any = 0; mut floating: Any = 0;
+    let locations: Any = []; let stacked: Any = [];
+    for i: Any in 0..rec.pc {
+        let kind: Any = rec.ffiArgs[i];
+        if (kind == 4 or kind == 5) {
+            if (floating < 8) { push(locations, [1, floating]); floating += 1; }
+            else { push(locations, [2, 0]); push(stacked, i); }
+        } else {
+            if (integer < 6) { push(locations, [0, integer]); integer += 1; }
+            else { push(locations, [2, 0]); push(stacked, i); }
+        }
+    }
+    if (len(stacked) % 2 == 1) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 236); e8(ctx, 8); }
+    mut i: Any = len(stacked) - 1;
+    while (i >= 0) { ld_local(ctx, 8 * (raw[stacked[i]] + 1)); e8(ctx, 80); i -= 1; }
+    for index: Any in 0..rec.pc {
+        let location: Any = locations[index];
+        if (location[0] != 2) {
+            ld_local(ctx, 8 * (raw[index] + 1));
+            if (location[0] == 0) { mov_argreg(ctx, location[1]); }
+            else { e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 110); e8(ctx, 192 + location[1] * 8); }
+        }
+    }
+    ld_abs(ctx, rec.ffiSlot);
+    e8(ctx, 73); e8(ctx, 137); e8(ctx, 195); // mov r11, rax
+    mov_imm(ctx, floating);
+    x86_root_registers(ctx);
+    e8(ctx, 65); e8(ctx, 255); e8(ctx, 211); // call r11, stack aligned to 16 bytes
+    let stackBytes: Any = ((len(stacked) + 1) / 2) * 16;
+    if (stackBytes > 0) { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, stackBytes); }
+    if (rec.ffiResult == 2) { e8(ctx, 72); e8(ctx, 99); e8(ctx, 192); } // sign-extend C int
+    if (rec.ffiResult == 3) { e8(ctx, 137); e8(ctx, 192); } // zero-extend C unsigned
+    if (rec.ffiResult == 8) { e8(ctx, 15); e8(ctx, 182); e8(ctx, 192); } // C _Bool is a byte
+    if (rec.ffiResult == 5) { e8(ctx, 243); e8(ctx, 15); e8(ctx, 90); e8(ctx, 192); }
+    if (rec.ffiResult == 4 or rec.ffiResult == 5) {
+        e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 126); e8(ctx, 192); // movq rax, xmm0
+    }
+    e8(ctx, 80); mov_imm(ctx, rec.ffiResult); e8(ctx, 80);
+    call_rt2(ctx, addr("rt_ffi_result"), len("rt_ffi_result"));
+    return 0;
+}
+
+fun ffi_start(ctx: Any) -> Any {
+    // The loader supplies its finalizer in rdx. Let libc initialize and shut
+    // down the process, including constructors, stdio flushing and atexit.
+    for byte: Any in [73,137,209,72,139,52,36,72,141,84,36,8,49,201,69,49,192,72,131,228,240,80,84] { e8(ctx, byte); }
+    addr_lab(ctx, 1, 0); mov_argreg(ctx, 0);
+    ld_abs(ctx, ctx.ffiStartSlot);
+    e8(ctx, 255); e8(ctx, 208); e8(ctx, 244);
+    return 0;
+}

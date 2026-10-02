@@ -1,0 +1,14 @@
+fun safe_div(a: Any, b: Any) -> Any { if b == 0 { return Err("div by zero"); } return Ok(a / b); }
+fun compute(a: Any, b: Any) -> Any { let q: Any = safe_div(a, b)?; return Ok(q + 100); }
+let r: Any = compute(10, 2);
+print(r.ok, r.value);
+let r2: Any = compute(10, 0);
+print(r2.ok, r2.error);
+let s: Any = Some(5);
+let n: Any = None();
+print(s.ok, s.value, n);
+fun first_even(xs: Any) -> Any {
+    for x: Any in xs { if x % 2 == 0 { return Ok(x); } }
+    return Err("none even");
+}
+print(first_even([1,3,4])?, first_even([1,3]).error);

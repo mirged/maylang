@@ -1,0 +1,20 @@
+mut s: Any = 0;
+for i: Any in 1..=10 { s = s + i; }
+print(s);
+for i: Any in 10..=1 { s = s + i; }
+print(s);
+mut t: Any = "";
+for c: Any in ["a", "b", "c"] { t = t + c; }
+print(t);
+for x: Any in [10, 20, 30] { print("li", x); }
+let m: Any = {"a": 1, "b": 2};
+mut ks: Any = [];
+for k: Any in sort(keys(m)) { push(ks, k); }
+print(ks);
+mut n: Any = 0;
+while n < 5 { n = n + 1; if n == 2 { continue; } print("w", n); }
+print(n);
+mut n2: Any = 0;
+while true { n2 = n2 + 1; if n2 >= 3 { break; } }
+print(n2);
+for i: Any in 0..3 { for j: Any in 0..3 { if j == 1 { continue; } print("n", i, j); } }

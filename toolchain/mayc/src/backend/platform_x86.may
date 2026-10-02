@@ -1,0 +1,56 @@
+import "../emitter.may";
+import "../state.may";
+import "x86_64.may";
+// Internal SysV functions adapt only these OS calls to Windows x64's four
+// argument registers, 32-byte shadow space and 16-byte call-site alignment.
+fun win_import_call(ctx: Any, index: Any) -> Any {
+    x86_root_registers(ctx);
+    e8(ctx, 255); e8(ctx, 21);
+    let offset: Any = ctx.code.length; e32(ctx, 0);
+    fx(ctx, 7, offset, ctx.platform[0] + index * 8);
+    return 0;
+}
+
+fun x86_host(ctx: Any, name: Any, args: Any) -> Any {
+    if (ctx.runtime != "core" or ctx.mode != 0) { die_str("mayc: platform primitives are internal to the core runtime\n"); }
+    if (ctx.target.os == "windows") {
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 236); e8(ctx, 48);
+        if (name == "__host_write") {
+            e8(ctx, 185); e32(ctx, -11); win_import_call(ctx, 0); // GetStdHandle(STD_OUTPUT_HANDLE)
+            e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);
+            cg_expr(ctx, args); e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
+            cg_expr(ctx, args.next); e8(ctx, 73); e8(ctx, 137); e8(ctx, 192);
+            e8(ctx, 76); e8(ctx, 141); e8(ctx, 76); e8(ctx, 36); e8(ctx, 40);
+            e8(ctx, 72); e8(ctx, 199); e8(ctx, 68); e8(ctx, 36); e8(ctx, 32); e32(ctx, 0);
+            win_import_call(ctx, 1); // WriteFile(handle, data, count, &written, NULL)
+            test_rax(ctx); let failed: Any = newlab(ctx); let done: Any = newlab(ctx);
+            jcc(ctx, 132, failed);
+            e8(ctx, 139); e8(ctx, 68); e8(ctx, 36); e8(ctx, 40); jmp(ctx, done);
+            placelab(ctx, failed); mov_imm(ctx, -1); placelab(ctx, done);
+        } else if (name == "__host_alloc") {
+            cg_expr(ctx, args); e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
+            e8(ctx, 49); e8(ctx, 201);
+            e8(ctx, 65); e8(ctx, 184); e32(ctx, 12288);
+            e8(ctx, 65); e8(ctx, 185); e32(ctx, 4);
+            win_import_call(ctx, 2); // VirtualAlloc(NULL, bytes, RESERVE|COMMIT, READWRITE)
+        } else {
+            cg_expr(ctx, args); e8(ctx, 137); e8(ctx, 193); win_import_call(ctx, 3);
+            e8(ctx, 15); e8(ctx, 11); // ExitProcess must not return
+        }
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 48);
+    } else {
+        if (name == "__host_write") {
+            cg_expr(ctx, args); e8(ctx, 72); e8(ctx, 137); e8(ctx, 198);
+            cg_expr(ctx, args.next); e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
+            e8(ctx, 191); e32(ctx, 1); mov_imm(ctx, 1);
+        } else if (name == "__host_alloc") {
+            cg_expr(ctx, args); e8(ctx, 72); e8(ctx, 137); e8(ctx, 198);
+            e8(ctx, 49); e8(ctx, 255); e8(ctx, 186); e32(ctx, 3);
+            e8(ctx, 65); e8(ctx, 186); e32(ctx, 34);
+            e8(ctx, 73); e8(ctx, 199); e8(ctx, 192); e32(ctx, -1);
+            e8(ctx, 69); e8(ctx, 49); e8(ctx, 201); mov_imm(ctx, 9);
+        } else { cg_expr(ctx, args); e8(ctx, 72); e8(ctx, 137); e8(ctx, 199); mov_imm(ctx, 60); }
+        e8(ctx, 15); e8(ctx, 5);
+    }
+    return 0;
+}

@@ -1,0 +1,23 @@
+{
+  "authors": [],
+  "dependencies": {
+    "algo": "../../../stdlib/algo.may",
+    "format": "../../../stdlib/format.may",
+    "io": "../../../stdlib/io.may",
+    "path": "../../../stdlib/path.may",
+    "csv": "../../../stdlib/csv.may"
+  },
+  "description": "A transactional binary key-value log with checksums, mmap, recovery and atomic compaction",
+  "entry": "main.may",
+  "modules": [
+    "src/os.may",
+    "src/codec.may",
+    "src/storage.may",
+    "src/report.may",
+    "main.may"
+  ],
+  "name": "rivet",
+  "output": "build/rivet",
+  "target": "linux",
+  "version": "0.1.0"
+}

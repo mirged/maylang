@@ -1,0 +1,11 @@
+let xs: Any = [1,2,3,4,5];
+print(map(xs, |x: Any| -> Any { return x * 2; }));
+print(filter(xs, |x: Any| -> Any { return x % 2 == 1; }));
+print(reduce(xs, |a: Any,b: Any| -> Any { return a + b; }, 0));
+print(reduce(xs, |a: Any,b: Any| -> Any { return a + b; }, 100));
+print(any(xs, |x: Any| -> Any { return x > 4; }), any(xs, |x: Any| -> Any { return x > 9; }));
+print(all(xs, |x: Any| -> Any { return x > 0; }), all(xs, |x: Any| -> Any { return x > 2; }));
+print(count(xs, |x: Any| -> Any { return x > 2; }));
+print(each(xs, |x: Any| -> Any { return print("e", x); }));
+print(times(3, |i: Any| -> Any { return print("t", i); }));
+print(xs |> filter(|x: Any| -> Any { return x % 2 == 1; }) |> map(|x: Any| -> Any { return x * 10; }) |> sum);

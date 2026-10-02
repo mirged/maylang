@@ -1,0 +1,169 @@
+// ml/tensor.may — dense row-major tensors and small linear algebra routines.
+// Tensors are maps: {data: flat list, shape: dimensions}. This intentionally
+// transparent representation is portable to both VM and native builds.
+
+fun tensor_size(shape: Any) -> Any { return reduce(shape, |n: Any, d: Any| -> Any { return n * d; }, 1); }
+fun tensor(data: Any, shape: Any) -> Any {
+    for dim: Any in shape { if (type(dim) != "Int" || dim < 0) { fail("tensor dimensions must be nonnegative integers"); } }
+    if (tensor_size(shape) != len(data)) { fail("tensor data length does not match shape"); }
+    return {"data": data, "shape": slice(shape, 0, len(shape))};
+}
+fun tensor_scalar(x: Any) -> Any { return tensor([x], []); }
+fun tensor_vector(xs: Any) -> Any { return tensor(slice(xs, 0, len(xs)), [len(xs)]); }
+fun tensor_matrix(rows: Any) -> Any {
+    if (len(rows) == 0) { return tensor([], [0, 0]); }
+    let cols: Any = len(rows[0]);
+    for row: Any in rows { if (len(row) != cols) { fail("tensor_matrix rows must have equal length"); } }
+    return tensor(reduce(rows, |acc: Any, row: Any| -> Any { return acc + row; }, []), [len(rows), cols]);
+}
+fun tensor_zeros(shape: Any) -> Any { return tensor([0.0 for _: Any in 0..tensor_size(shape)], shape); }
+fun tensor_ones(shape: Any) -> Any { return tensor([1.0 for _: Any in 0..tensor_size(shape)], shape); }
+fun tensor_full(shape: Any, value: Any) -> Any { return tensor([value for _: Any in 0..tensor_size(shape)], shape); }
+fun tensor_arange(start: Any, stop: Any, step: Any) -> Any {
+    if (step == 0) { fail("tensor_arange step cannot be zero"); }
+    mut values: Any = []; mut x: Any = start;
+    if (step > 0) { while (x < stop) { push(values, x); x = x + step; } }
+    else { while (x > stop) { push(values, x); x = x + step; } }
+    return tensor_vector(values);
+}
+fun tensor_eye(n: Any) -> Any {
+    return tensor_matrix([[if (r == c) { 1.0 } else { 0.0 } for c: Any in 0..n] for r: Any in 0..n]);
+}
+fun tensor_rank(t: Any) -> Any { return len(t.shape); }
+fun tensor_numel(t: Any) -> Any { return len(t.data); }
+fun tensor_reshape(t: Any, shape: Any) -> Any { return tensor(t.data, shape); }
+fun tensor_at(t: Any, index: Any) -> Any { return t.data[index]; }
+fun tensor_at2(t: Any, row: Any, col: Any) -> Any {
+    if (tensor_rank(t) != 2) { fail("tensor_at2 requires rank 2"); }
+    if (row < 0 || row >= t.shape[0] || col < 0 || col >= t.shape[1]) { fail("tensor index out of bounds"); }
+    return t.data[row * t.shape[1] + col];
+}
+fun tensor_map(t: Any, f: Any) -> Any { return tensor([f(x) for x: Any in t.data], t.shape); }
+fun tensor_same_shape(a: Any, b: Any) -> Any {
+    if (len(a) != len(b)) { return false; }
+    for i: Any in 0..len(a) { if (a[i] != b[i]) { return false; } }
+    return true;
+}
+fun tensor_broadcast_shape(a: Any, b: Any) -> Any {
+    let rank: Any = max(len(a), len(b)); mut out: Any = [];
+    for i: Any in 0..rank {
+        let ai: Any = i - (rank - len(a)); let bi: Any = i - (rank - len(b));
+        let da: Any = if (ai < 0) { 1 } else { a[ai] };
+        let db: Any = if (bi < 0) { 1 } else { b[bi] };
+        if (da != db && da != 1 && db != 1) { fail("tensor shapes are not broadcast-compatible"); }
+        push(out, if (da == 1) { db } else { da });
+    }
+    return out;
+}
+fun tensor_broadcast_to(t: Any, shape: Any) -> Any {
+    let rank: Any = len(shape); let input_rank: Any = len(t.shape);
+    if (input_rank > rank) { fail("cannot broadcast tensor to lower rank"); }
+    for i: Any in 0..input_rank {
+        let dim: Any = t.shape[i]; let out_dim: Any = shape[rank - input_rank + i];
+        if (dim != out_dim && dim != 1) { fail("tensor shapes are not broadcast-compatible"); }
+    }
+    mut out: Any = [];
+    for index: Any in 0..tensor_size(shape) {
+        mut source_index: Any = 0; mut source_stride: Any = 1;
+        mut output_stride: Any = 1; mut axis: Any = rank - 1;
+        while (axis >= 0) {
+            let coordinate: Any = (index / output_stride) % shape[axis];
+            let source_axis: Any = axis - (rank - input_rank);
+            if (source_axis >= 0 && t.shape[source_axis] != 1) {
+                source_index = source_index + coordinate * source_stride;
+                source_stride = source_stride * t.shape[source_axis];
+            } else if (source_axis >= 0) { source_stride = source_stride * t.shape[source_axis]; }
+            output_stride = output_stride * shape[axis];
+            axis = axis - 1;
+        }
+        push(out, t.data[source_index]);
+    }
+    return tensor(out, shape);
+}
+fun tensor_broadcast_zip(a: Any, b: Any, f: Any) -> Any {
+    let shape: Any = tensor_broadcast_shape(a.shape, b.shape);
+    return tensor_zip(tensor_broadcast_to(a, shape), tensor_broadcast_to(b, shape), f);
+}
+fun tensor_add_broadcast(a: Any, b: Any) -> Any { return tensor_broadcast_zip(a, b, |x: Any, y: Any| -> Any { return x + y; }); }
+fun tensor_sub_broadcast(a: Any, b: Any) -> Any { return tensor_broadcast_zip(a, b, |x: Any, y: Any| -> Any { return x - y; }); }
+fun tensor_mul_broadcast(a: Any, b: Any) -> Any { return tensor_broadcast_zip(a, b, |x: Any, y: Any| -> Any { return x * y; }); }
+fun tensor_div_broadcast(a: Any, b: Any) -> Any { return tensor_broadcast_zip(a, b, |x: Any, y: Any| -> Any { return x / y; }); }
+fun tensor_zip(a: Any, b: Any, f: Any) -> Any {
+    if (!tensor_same_shape(a.shape, b.shape)) { fail("tensor shapes must match"); }
+    return tensor([f(a.data[i], b.data[i]) for i: Any in 0..len(a.data)], a.shape);
+}
+fun tensor_add(a: Any, b: Any) -> Any { return tensor_zip(a, b, |x: Any, y: Any| -> Any { return x + y; }); }
+fun tensor_sub(a: Any, b: Any) -> Any { return tensor_zip(a, b, |x: Any, y: Any| -> Any { return x - y; }); }
+fun tensor_mul(a: Any, b: Any) -> Any { return tensor_zip(a, b, |x: Any, y: Any| -> Any { return x * y; }); }
+fun tensor_scale(t: Any, factor: Any) -> Any { return tensor_map(t, |x: Any| -> Any { return x * factor; }); }
+fun tensor_add_scalar(t: Any, value: Any) -> Any { return tensor_map(t, |x: Any| -> Any { return x + value; }); }
+fun tensor_abs(t: Any) -> Any { return tensor_map(t, |x: Any| -> Any { return abs(x); }); }
+fun tensor_sqrt(t: Any) -> Any { return tensor_map(t, |x: Any| -> Any { return sqrt(x); }); }
+fun tensor_exp(t: Any) -> Any { return tensor_map(t, |x: Any| -> Any { return exp(x); }); }
+fun tensor_log(t: Any) -> Any { return tensor_map(t, |x: Any| -> Any { return ln(x); }); }
+fun tensor_clip(t: Any, lo: Any, hi: Any) -> Any { return tensor_map(t, |x: Any| -> Any { return max(lo, min(hi, x)); }); }
+fun tensor_sum(t: Any) -> Any { return sum(t.data); }
+fun tensor_mean(t: Any) -> Any { return if (len(t.data) == 0) { nil } else { tensor_sum(t) / (1.0 * len(t.data)) }; }
+fun tensor_dot(a: Any, b: Any) -> Any {
+    if (tensor_rank(a) != 1 || tensor_rank(b) != 1 || len(a.data) != len(b.data)) { fail("tensor_dot requires equal-length vectors"); }
+    return sum([a.data[i] * b.data[i] for i: Any in 0..len(a.data)]);
+}
+fun tensor_transpose(t: Any) -> Any {
+    if (tensor_rank(t) != 2) { fail("tensor_transpose requires rank 2"); }
+    let rows: Any = t.shape[0]; let cols: Any = t.shape[1];
+    return tensor_matrix([[tensor_at2(t, r, c) for r: Any in 0..rows] for c: Any in 0..cols]);
+}
+fun tensor_sum_axis(t: Any, axis: Any) -> Any {
+    if (tensor_rank(t) == 0) { fail("cannot reduce scalar tensor along an axis"); }
+    let ax: Any = if (axis < 0) { tensor_rank(t) + axis } else { axis };
+    if (ax < 0 || ax >= tensor_rank(t)) { fail("tensor axis out of bounds"); }
+    let outer: Any = tensor_size(slice(t.shape, 0, ax));
+    let width: Any = t.shape[ax]; let inner: Any = tensor_size(slice(t.shape, ax + 1, len(t.shape)));
+    let shape: Any = slice(t.shape, 0, ax) + slice(t.shape, ax + 1, len(t.shape));
+    mut data: Any = [];
+    for o: Any in 0..outer { for i: Any in 0..inner {
+        let values: Any = [t.data[(o * width + w) * inner + i] for w: Any in 0..width];
+        push(data, sum(values));
+    } }
+    return tensor(data, shape);
+}
+fun tensor_mean_axis(t: Any, axis: Any) -> Any {
+    let ax: Any = if (axis < 0) { tensor_rank(t) + axis } else { axis };
+    if (ax < 0 || ax >= tensor_rank(t)) { fail("tensor axis out of bounds"); }
+    let n: Any = t.shape[ax];
+    if (n == 0) { fail("cannot take mean of an empty tensor axis"); }
+    return tensor_scale(tensor_sum_axis(t, ax), 1.0 / n);
+}
+fun tensor_softmax_rows(t: Any) -> Any {
+    if (tensor_rank(t) != 2) { fail("tensor_softmax_rows expects a matrix"); }
+    let rows: Any = t.shape[0]; let cols: Any = t.shape[1];
+    return tensor_matrix([tensor_softmax(tensor_vector(slice(t.data, r * cols, (r + 1) * cols))).data for r: Any in 0..rows]);
+}
+fun tensor_concat_vectors(a: Any, b: Any) -> Any {
+    if (tensor_rank(a) != 1 || tensor_rank(b) != 1) { fail("tensor_concat_vectors requires vectors"); }
+    return tensor(a.data + b.data, [len(a.data) + len(b.data)]);
+}
+fun tensor_rows(t: Any, start: Any, stop: Any) -> Any {
+    if (tensor_rank(t) != 2 || start < 0 || stop < start || stop > t.shape[0]) { fail("invalid tensor row slice"); }
+    return tensor(slice(t.data, start * t.shape[1], stop * t.shape[1]), [stop - start, t.shape[1]]);
+}
+fun tensor_matmul(a: Any, b: Any) -> Any {
+    if (tensor_rank(a) != 2 || tensor_rank(b) != 2 || a.shape[1] != b.shape[0]) {
+        fail("tensor_matmul expects [m,k] and [k,n] matrices");
+    }
+    let m: Any = a.shape[0]; let k: Any = a.shape[1]; let n: Any = b.shape[1];
+    return tensor_matrix([[sum([tensor_at2(a, r, i) * tensor_at2(b, i, c) for i: Any in 0..k]) for c: Any in 0..n] for r: Any in 0..m]);
+}
+fun tensor_argmax(t: Any) -> Any {
+    if (len(t.data) == 0) { return -1; }
+    mut best: Any = 0;
+    for i: Any in 1..len(t.data) { if (t.data[i] > t.data[best]) { best = i; } }
+    return best;
+}
+fun tensor_softmax(t: Any) -> Any {
+    if (tensor_rank(t) != 1) { fail("tensor_softmax currently expects a vector"); }
+    if (len(t.data) == 0) { return t; }
+    let m: Any = reduce(t.data, |a: Any, b: Any| -> Any { return max(a, b); }, t.data[0]);
+    let exps: Any = [exp(x - m) for x: Any in t.data]; let z: Any = sum(exps);
+    return tensor([x / z for x: Any in exps], t.shape);
+}

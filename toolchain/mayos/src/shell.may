@@ -1,0 +1,185 @@
+import "hardware.may";
+import "console.may";
+import "memory.may";
+import "filesystem.may";
+
+// Buffers stay in the reserved mailbox page, outside the allocation arena.
+let LINE: Int = 2097408;
+let ARGS: Int = 2097920;
+mut argument_count: Int = 0;
+
+fun equals(address: Int, literal: Ptr) -> Bool {
+    mut i: Int = 0;
+    while (load8(address + i) == load8(literal + i)) {
+        if (load8(address + i) == 0) { return 1 == 1; }
+        i += 1;
+    }
+    return 0 == 1;
+}
+fun arg(index: Int) -> Int {
+    if (index < 0 or index >= argument_count) { return 0; }
+    return load64(ARGS + index * 8);
+}
+fun parse_number(address: Int) -> Int {
+    if (address == 0 or load8(address) == 0) { return -1; }
+    mut base: Int = 10; mut position: Int = 0; mut value: Int = 0;
+    if (load8(address) == 48 and (load8(address + 1) == 120 or load8(address + 1) == 88)) {
+        base = 16; position = 2;
+        if (load8(address + position) == 0) { return -1; }
+    }
+    while (load8(address + position) != 0) {
+        let byte: Int = load8(address + position);
+        mut digit: Int = -1;
+        if (byte >= 48 and byte <= 57) { digit = byte - 48; }
+        else if (byte >= 97 and byte <= 102) { digit = byte - 87; }
+        else if (byte >= 65 and byte <= 70) { digit = byte - 55; }
+        if (digit < 0 or digit >= base or value > (2147483647 - digit) / base) { return -1; }
+        value = value * base + digit; position += 1;
+    }
+    return value;
+}
+fun tokenize() -> Nil {
+    argument_count = 0;
+    mut position: Int = 0; mut output: Int = 0;
+    while (load8(LINE + position) != 0) {
+        while (load8(LINE + position) == 32) { position += 1; }
+        if (load8(LINE + position) == 0) { return; }
+        if (argument_count >= 4) { argument_count = -1; return; }
+        store64(ARGS + argument_count * 8, LINE + output); argument_count += 1;
+        if (load8(LINE + position) == 34) {
+            position += 1;
+            while (load8(LINE + position) != 34) {
+                mut byte: Int = load8(LINE + position);
+                if (byte == 0) { argument_count = -1; return; }
+                position += 1;
+                if (byte == 92) {
+                    byte = load8(LINE + position); position += 1;
+                    if (byte == 110) { byte = 10; }
+                    else if (byte == 116) { byte = 9; }
+                    else if (byte != 34 and byte != 92) { argument_count = -1; return; }
+                }
+                store8(LINE + output, byte); output += 1;
+            }
+            position += 1;
+            if (load8(LINE + position) != 0 and load8(LINE + position) != 32) { argument_count = -1; return; }
+        } else {
+            while (load8(LINE + position) != 0 and load8(LINE + position) != 32) {
+                store8(LINE + output, load8(LINE + position)); output += 1; position += 1;
+            }
+        }
+        let ended: Int = if (load8(LINE + position) == 0) { 1 } else { 0 };
+        if (ended == 0) { position += 1; }
+        store8(LINE + output, 0); output += 1;
+        if (ended == 1) { return; }
+    }
+    return;
+}
+fun help() -> Nil {
+    text(addr("help                 show this command list\n"));
+    text(addr("info                 boot and kernel information\n"));
+    text(addr("mmap                 physical memory map from GRUB\n"));
+    text(addr("uptime               PIT interrupt ticks and seconds\n"));
+    text(addr("mem                  allocation arena usage\n"));
+    text(addr("alloc N              allocate N zeroed bytes, aligned to 16\n"));
+    text(addr("fill ADDR N BYTE     fill an allocated range (N <= 4096)\n"));
+    text(addr("dump ADDR N          hex dump an allocated range (N <= 256)\n"));
+    text(addr("checksum ADDR N      Adler-32 of an allocated range\n"));
+    text(addr("selftest             test allocator, memory, arithmetic and timer\n"));
+    text(addr("disk                 disk and filesystem status\n"));
+    text(addr("format yes           erase files and initialise MayFS\n"));
+    text(addr("ls                   list persistent files\n"));
+    text(addr("write NAME TEXT      save text (use quotes for spaces)\n"));
+    text(addr("cat NAME             display a file; binary bytes become dots\n"));
+    text(addr("rm NAME              delete a file\n"));
+    text(addr("save NAME ADDR N     save allocated memory (N <= 480)\n"));
+    text(addr("load NAME            load file into a new memory allocation\n"));
+    text(addr("clear                clear VGA and terminal screen\n"));
+    text(addr("shutdown             exit QEMU cleanly\n"));
+    return;
+}
+fun bad_arguments() -> Nil { text(addr("ERR invalid arguments; use help.\n")); return; }
+fun execute() -> Nil {
+    tokenize();
+    if (argument_count == 0) { return; }
+    if (argument_count < 0) { bad_arguments(); return; }
+    let command: Int = arg(0);
+    if (equals(command, addr("help")) and argument_count == 1) { help(); }
+    else if (equals(command, addr("info")) and argument_count == 1) {
+        text(addr("MayOS 0.2 / strict mayc --raw / x86-64 ring 0\n"));
+        text(addr("Kernel entry: 0x401000 / identity mapping: first 1 GiB\n"));
+        text(addr("Interrupts: IDT + PIC + PIT (~100 Hz); COM1 115200 8N1\n"));
+        text(addr("Boot magic: ")); hex_number(load64(2097160));
+        text(addr(" / kernel ELF bytes: ")); decimal(load64(2097184)); text(addr("\n"));
+    } else if (equals(command, addr("mmap")) and argument_count == 1) { show_memory_map(); }
+    else if (equals(command, addr("mem")) and argument_count == 1) { show_heap(); }
+    else if (equals(command, addr("uptime")) and argument_count == 1) {
+        let now: Int = ticks(); decimal(now); text(addr(" ticks / ")); decimal(now / 100); text(addr(" seconds\n"));
+    } else if (equals(command, addr("alloc")) and argument_count == 2) {
+        let address: Int = allocate(parse_number(arg(1)));
+        if (address == 0) { text(addr("ERR allocation refused.\n")); }
+        else { text(addr("ALLOC ")); hex_number(address); text(addr("\n")); }
+    } else if (equals(command, addr("fill")) and argument_count == 4) {
+        let address: Int = parse_number(arg(1)); let size: Int = parse_number(arg(2)); let byte: Int = parse_number(arg(3));
+        if (accessible(address, size) and byte >= 0 and byte <= 255) {
+            mut i: Int = 0;
+            while (i < size) { store8(address + i, byte); i += 1; }
+            text(addr("FILLED ")); decimal(size); text(addr(" bytes\n"));
+        } else { text(addr("ERR range outside allocated memory or invalid byte.\n")); }
+    } else if (equals(command, addr("dump")) and argument_count == 3) {
+        let address: Int = parse_number(arg(1)); let size: Int = parse_number(arg(2));
+        if (accessible(address, size) and size <= 256) { dump_memory(address, size); }
+        else { text(addr("ERR range outside allocated memory or dump exceeds 256 bytes.\n")); }
+    } else if (equals(command, addr("checksum")) and argument_count == 3) {
+        let address: Int = parse_number(arg(1)); let size: Int = parse_number(arg(2));
+        if (accessible(address, size)) { text(addr("ADLER32 ")); hex_number(checksum(address, size)); text(addr("\n")); }
+        else { text(addr("ERR range outside allocated memory.\n")); }
+    } else if (equals(command, addr("selftest")) and argument_count == 1) {
+        let before: Int = ticks();
+        while (ticks() - before < 3) { idle_cpu(); }
+        if (memory_selftest() and ticks() > before and 7 * 9 == 63 and 12345 / 10 == 1234) {
+            text(addr("SELFTEST PASS: allocator, bytes, checksum, arithmetic, PIT\n"));
+        } else { text(addr("SELFTEST FAIL\n")); }
+    } else if (equals(command, addr("disk")) and argument_count == 1) { fs_info(); }
+    else if (equals(command, addr("format")) and argument_count == 2 and equals(arg(1), addr("yes"))) { fs_format(); }
+    else if (equals(command, addr("ls")) and argument_count == 1) { fs_list(); }
+    else if (equals(command, addr("write")) and argument_count == 3) {
+        mut length: Int = 0;
+        while (load8(arg(2) + length) != 0) { length += 1; }
+        fs_put(arg(1), arg(2), length);
+    } else if (equals(command, addr("cat")) and argument_count == 2) { fs_cat(arg(1)); }
+    else if (equals(command, addr("rm")) and argument_count == 2) { fs_remove(arg(1)); }
+    else if (equals(command, addr("load")) and argument_count == 2) { fs_load(arg(1)); }
+    else if (equals(command, addr("save")) and argument_count == 4) {
+        let address: Int = parse_number(arg(2)); let length: Int = parse_number(arg(3));
+        if (accessible(address, length) and length <= 480) { fs_put(arg(1), address, length); }
+        else { text(addr("ERR save needs an allocated range of 1..480 bytes.\n")); }
+    } else if (equals(command, addr("clear")) and argument_count == 1) {
+        clear_screen(); serial_byte(27); text(addr("[2J")); serial_byte(27); text(addr("[H"));
+    } else if (equals(command, addr("shutdown")) and argument_count == 1) {
+        text(addr("MayOS shutdown.\n")); shutdown();
+    } else { bad_arguments(); }
+    return;
+}
+fun run_shell() -> Nil {
+    mut length: Int = 0; mut overflow: Int = 0; mut saw_cr: Int = 0;
+    text(addr("Type help for commands.\nmayos> "));
+    while (1 == 1) {
+        let byte: Int = read_char();
+        if (byte < 0) { idle_cpu(); continue; }
+        if (byte == 10 and saw_cr == 1) { saw_cr = 0; continue; }
+        saw_cr = 0;
+        if (byte == 13 or byte == 10) {
+            if (byte == 13) { saw_cr = 1; }
+            put_char(10); store8(LINE + length, 0);
+            if (overflow == 1) { text(addr("ERR line too long (maximum 127 bytes).\n")); }
+            else { execute(); }
+            length = 0; overflow = 0; text(addr("mayos> "));
+        } else if (byte == 8 or byte == 127) {
+            if (length > 0 and overflow == 0) { length -= 1; put_char(8); }
+        } else if (byte >= 32 and byte < 127) {
+            if (length < 127 and overflow == 0) { store8(LINE + length, byte); length += 1; put_char(byte); }
+            else { overflow = 1; }
+        }
+    }
+    return;
+}

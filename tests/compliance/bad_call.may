@@ -1,0 +1,1 @@
+print(may { let x=42; x() } otherwise { "caught" });

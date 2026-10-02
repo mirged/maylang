@@ -1,0 +1,133 @@
+// fs.may — filesystem and path helpers for maypkg.
+//
+// Maylang gives us read_file / write_file / file_exists, env and args, but no
+// directory listing and no process spawning. maypkg therefore works from a
+// declared entry point and its import graph instead of walking directories,
+// and emits shell scripts for the steps the language cannot perform itself.
+
+pub fun cwd() -> Any { return env("PWD") ?? "."; }
+pub fun home() -> Any { return env("HOME") ?? "."; }
+
+pub fun exists(path: Any) -> Any { return file_exists(path); }
+
+pub fun read_or(path: Any, fallback: Any) -> Any {
+    return may { read_file(path) } otherwise { fallback };
+}
+
+pub fun write(path: Any, content: Any) -> Any {
+    write_file(path, content);
+    return nil;
+}
+
+pub fun is_abs(p: Any) -> Any { return starts_with(p, "/"); }
+
+/// Directory entries of `path` (empty when it is not a readable directory).
+pub fun list(path: Any) -> Any {
+    return may { read_dir(path) } otherwise { [] };
+}
+
+/// `mkdir -p`: create `path` and any missing parents.
+pub fun mkdirs(path: Any) -> Any {
+    let p: Any = normpath(path);
+    if (p == "." || p == "/" || exists(p)) { return nil; }
+    mkdirs(dirname(p));
+    may { mkdir(p) } otherwise { nil };
+    return nil;
+}
+
+pub fun join_path(a: Any, b: Any) -> Any {
+    if (len(a) == 0) { return b; }
+    if (len(b) == 0) { return a; }
+    if (ends_with(a, "/")) { return a + b; }
+    return a + "/" + b;
+}
+
+fun substr(s: Any, a: Any, b: Any) -> Any { return join(slice(s, a, b), ""); }
+
+fun last_char(s: Any, ch: Any) -> Any {
+    mut r: Any = -1;
+    mut i: Any = 0;
+    while (i < len(s)) {
+        if (s[i] == ch) { r = i; }
+        i = i + 1;
+    }
+    return r;
+}
+
+pub fun dirname(p: Any) -> Any {
+    let i: Any = last_char(p, "/");
+    if (i < 0) { return "."; }
+    if (i == 0) { return "/"; }
+    return substr(p, 0, i);
+}
+
+pub fun basename(p: Any) -> Any {
+    let i: Any = last_char(p, "/");
+    if (i < 0) { return p; }
+    return substr(p, i + 1, len(p));
+}
+
+pub fun extname(p: Any) -> Any {
+    let b: Any = basename(p);
+    let i: Any = last_char(b, ".");
+    if (i <= 0) { return ""; }
+    return substr(b, i + 1, len(b));
+}
+
+/// Collapse `.`, `..` and repeated slashes without touching the filesystem.
+pub fun normpath(p: Any) -> Any {
+    let abs: Any = is_abs(p);
+    let parts: Any = split(p, "/");
+    mut out: Any = [];
+    for part: Any in parts {
+        if (part == "" || part == ".") { continue; }
+        if (part == "..") {
+            if (len(out) > 0 && out[len(out) - 1] != "..") {
+                out = slice(out, 0, len(out) - 1);
+            } else if (!abs) {
+                push(out, "..");
+            }
+        } else {
+            push(out, part);
+        }
+    }
+    let j: Any = join(out, "/");
+    if (abs) { return "/" + j; }
+    if (j == "") { return "."; }
+    return j;
+}
+
+/// Directories searched for `import`ed modules, mirroring the compiler:
+/// `$MAYLANG_STDLIB` (colon-separated) wins, otherwise a set of conventional
+/// locations plus the directory of the running executable and `~/.maylang`.
+pub fun stdlib_dirs() -> Any {
+    let envv: Any = env("MAYLANG_STDLIB");
+    if (envv != nil && len(trim(envv)) > 0) {
+        mut dirs: Any = [];
+        for d: Any in split(envv, ":") { if (len(d) > 0) { push(dirs, d); } }
+        return dirs;
+    }
+    mut dirs: Any = ["stdlib", "../stdlib", "../../stdlib", "../../../stdlib"];
+    let h: Any = env("HOME");
+    if (h != nil) { push(dirs, join_path(join_path(h, ".maylang"), "stdlib")); }
+    let exe: Any = args()[0] ?? "";
+    if (len(exe) > 0) {
+        mut d: Any = dirname(exe);
+        mut i: Any = 0;
+        while (i < 4 && len(d) > 0 && d != "." && d != "/") {
+            push(dirs, join_path(d, "stdlib"));
+            d = dirname(d);
+            i = i + 1;
+        }
+    }
+    return dirs;
+}
+
+/// The first stdlib directory that actually contains `prelude.may`, or "". An
+/// empty result means the compiler's own default search should be left alone.
+pub fun stdlib_path() -> Any {
+    for d: Any in stdlib_dirs() {
+        if (file_exists(join_path(d, "prelude.may"))) { return d; }
+    }
+    return "";
+}

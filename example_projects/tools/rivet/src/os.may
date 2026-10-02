@@ -1,0 +1,109 @@
+// Linux x86-64 only. Explicit partial-write loops and fsync durability.
+import "../../../../stdlib/path.may";
+import "../../../../stdlib/io.may";
+
+struct Mapping { address: Int, size: Int }
+
+fun raw_byte(value: Int) -> Str {
+    // chr is Unicode-aware. A fresh one-byte string plus store8 represents
+    // an exact binary byte, including 0x80..0xff, without UTF-8 expansion.
+    let byte: Str = chr(0);
+    store8(addr(byte), value);
+    return byte;
+}
+fun byte_length(text: Str) -> Int {
+    // Maylang len counts Unicode characters. The native string layout stores
+    // the byte count in the word immediately before addr(text).
+    return load64(int(addr(text)) - 8);
+}
+
+fun os_error(operation: Str, result: Int) -> Nil {
+    if (result < 0) { fail(operation + " failed (errno " + str(0 - result) + ")"); }
+    return;
+}
+fun safe_path(path: Str) -> Nil {
+    if (len(path) == 0 or contains(path, chr(0))) { fail("invalid empty or NUL-containing path"); }
+    return;
+}
+fun open_file(path: Str, flags: Int) -> Int {
+    safe_path(path);
+    let fd: Int = syscall(2, cstr(path), flags + 131072, 384); // O_NOFOLLOW, 0600
+    os_error("open " + path, fd);
+    return fd;
+}
+fun lock_database(path: Str, exclusive: Bool) -> Int {
+    let fd: Int = open_file(path + ".lock", 66); // O_RDWR | O_CREAT
+    os_error("flock", syscall(73, fd, if (exclusive) { 2 } else { 1 }));
+    return fd;
+}
+fun close_file(fd: Int) -> Nil { os_error("close", syscall(3, fd)); return; }
+fun sync_file(fd: Int) -> Nil { os_error("fsync", syscall(74, fd)); return; }
+fun sync_directory(path: Str) -> Nil {
+    let parent: Str = path_dirname(path);
+    let fd: Int = open_file(parent, 65536); // O_DIRECTORY
+    sync_file(fd); close_file(fd);
+    return;
+}
+fun write_memory(fd: Int, address: Int, size: Int) -> Nil {
+    mut done: Int = 0;
+    while (done < size) {
+        let result: Int = syscall(1, fd, address + done, size - done);
+        if (result == -4) { continue; } // EINTR
+        os_error("write", result);
+        if (result == 0) { fail("write made no progress"); }
+        done += result;
+    }
+    return;
+}
+fun write_text(fd: Int, text: Str) -> Nil {
+    // addr returns a tagged pointer; int explicitly converts the static type.
+    write_memory(fd, int(addr(text)), byte_length(text));
+    return;
+}
+fun map_file(path: Str, limit: Int) -> Mapping {
+    let fd: Int = open_file(path, 0);
+    let size: Int = syscall(8, fd, 0, 2); // lseek(SEEK_END)
+    os_error("file size", size);
+    if (size > limit) { close_file(fd); fail("file exceeds " + str(limit) + " bytes"); }
+    if (size == 0) { close_file(fd); return Mapping(0, 0); }
+    let address: Int = syscall(9, 0, size, 1, 2, fd, 0); // mmap(PROT_READ, MAP_PRIVATE)
+    os_error("mmap", address);
+    close_file(fd);
+    return Mapping(address, size);
+}
+fun unmap_file(mapping: Mapping) -> Nil {
+    if (mapping.size > 0) { os_error("munmap", syscall(11, mapping.address, mapping.size)); }
+    return;
+}
+fun memory_text(address: Int, size: Int) -> Str {
+    let chunks: List<Str> = [];
+    mut position: Int = 0;
+    while (position < size) {
+        mut chunk: Str = "";
+        let stop: Int = min(position + 256, size);
+        while (position < stop) { chunk += raw_byte(load8(address + position)); position += 1; }
+        push(chunks, chunk);
+    }
+    return join(chunks, "");
+}
+fun process_args() -> List<Str> {
+    // The current runtime args() drops empty arguments. Read the Linux
+    // NUL-delimited command line so empty keys/values keep their positions.
+    let blob: Str = io_read_text("/proc/self/cmdline");
+    let address: Int = int(addr(blob));
+    let result: List<Str> = [];
+    mut start: Int = 0;
+    for i: Int in 0..byte_length(blob) {
+        if (load8(address + i) == 0) {
+            push(result, memory_text(address + start, i - start)); start = i + 1;
+        }
+    }
+    return result;
+}
+fun read_value_file(path: Str) -> Str {
+    let mapping: Mapping = map_file(path, 65536);
+    unmap_file(mapping);
+    let value: Str = io_read_text(path);
+    if (byte_length(value) > 65536) { fail("value file exceeds 65536 bytes"); }
+    return value;
+}

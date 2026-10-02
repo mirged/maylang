@@ -1,0 +1,32 @@
+// Lexical scopes, captures, ABI overflow arguments, tail calls and unwinding.
+let x: Any = 1;
+{
+    let x: Any = 2;
+    let get: Any = fun() -> Any { return x };
+    { let x: Any = 3; print(x); }
+    print(x, get());
+}
+print(x);
+fun make() -> Any {
+    mut x: Any = 10;
+    let first: Any = fun() -> Any { x += 1; return x };
+    { let x: Any = 90; print((fun() -> Any { return x })()); }
+    return first
+}
+let next: Any = make();
+print(next(), next());
+fun nine(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any, g: Any, h: Any, i: Any) -> Any { return a + b + c + d + e + f + g + h + i }
+print(nine(1, 2, 3, 4, 5, 6, 7, 8, 9));
+fun tail(n: Any, acc: Any) -> Any { return if n == 0 { acc } else { tail(n - 1, acc + n) } }
+print(tail(100000, 0));
+fun early() -> Any { return may { return 17; } otherwise { 0 } }
+print(early());
+print(may { fail("later") } otherwise { 23 });
+mut calls: Any = 0;
+fun mark() -> Any { calls += 1; return 8 }
+let disabled: Any = 0;
+print(false and mark(), true or mark(), disabled and mark(), calls);
+print(-2 ** 2, 2 ** 3 ** 2, 2 + 3 * 4);
+let annotated: List<Int> = [1, 2, 3];
+fun typed(n: Int) -> Int { return n + 1 }
+print(typed(annotated[0]));

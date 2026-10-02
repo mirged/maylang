@@ -1,0 +1,84 @@
+{
+  "Function": {
+    "prefix": "fun",
+    "body": [
+      "fun ${1:name}(${2:arg}: ${3:Int}) -> ${4:Int} {",
+      "\treturn ${0:value};",
+      "}"
+    ],
+    "description": "Declare a function"
+  },
+  "Mutable binding": {
+    "prefix": "mut",
+    "body": [
+      "mut ${1:name}: ${2:Int} = ${3:value};",
+      "$0"
+    ],
+    "description": "Declare a mutable binding"
+  },
+  "If": {
+    "prefix": "if",
+    "body": [
+      "if (${1:condition}) {",
+      "\t${2}",
+      "} else {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "If / else"
+  },
+  "For loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item}: ${2:Int} in ${3:iterable} {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "For loop"
+  },
+  "Speculative may": {
+    "prefix": "may",
+    "body": [
+      "may {",
+      "\t${1}",
+      "} otherwise {",
+      "\t${0}",
+      "}"
+    ],
+    "description": "Speculative execution with a fallback"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match (${1:value}) {",
+      "\t${2:pattern} => ${3:result},",
+      "\t_ => ${0},",
+      "}"
+    ],
+    "description": "Pattern match"
+  },
+  "Import": {
+    "prefix": "import",
+    "body": [
+      "import \"${1:module}.may\";",
+      "$0"
+    ],
+    "description": "Import a module"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} { ${2:field}: ${3:Int} }",
+      "$0"
+    ],
+    "description": "Declare a struct"
+  },
+  "Immutable binding": {
+    "prefix": "let",
+    "body": [
+      "let ${1:name}: ${2:Int} = ${3:value};",
+      "$0"
+    ],
+    "description": "Declare an immutable typed binding"
+  }
+}

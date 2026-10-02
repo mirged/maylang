@@ -1,0 +1,109 @@
+import "codec.may";
+import "os.may";
+import "../../../../stdlib/algo.may";
+
+fun load_database(path: Str) -> Database { return replay(map_file(path, MAX_LOG)); }
+fun require_clean(database: Database) -> Nil {
+    if (database.tail > 0) { fail("uncommitted tail: " + str(database.tail) + " bytes; run recover before writing"); }
+    return;
+}
+fun create_database(path: Str) -> Nil {
+    let fd: Int = open_file(path, 193); // O_WRONLY | O_CREAT | O_EXCL
+    write_text(fd, FILE_HEADER); sync_file(fd); close_file(fd); sync_directory(path);
+    return;
+}
+fun append_transaction(path: Str, database: Database, operations: List<Operation>) -> Nil {
+    require_clean(database);
+    // Validate the complete batch and resulting index before touching disk.
+    let encoded: Str = encode_transaction(database.last_transaction + 1, operations);
+    if (database.mapping.size + byte_length(encoded) > MAX_LOG) { fail("log would exceed 16 MiB; compact first"); }
+    if (len(database.frames) + len(operations) + 2 > 65536) { fail("log would exceed 65536 frames; compact first"); }
+    mut projected: Map<Str, Entry> = merge({}, database.entries);
+    for operation: Operation in operations {
+        if (operation.kind == 2) { projected[operation.key] = Entry(0, byte_length(operation.value), 0); }
+        else { projected = remove(projected, operation.key); }
+    }
+    if (len(keys(projected)) > 8192) { fail("batch would exceed 8192 live keys"); }
+    let fd: Int = open_file(path, 1025); // O_WRONLY | O_APPEND
+    write_text(fd, encoded); sync_file(fd); close_file(fd);
+    return;
+}
+fun recover_database(path: Str, database: Database) -> Int {
+    // Replay has already verified every complete frame. Corrupt frames never
+    // reach this function. Only the incomplete/uncommitted suffix is removed.
+    let fd: Int = open_file(path, 1);
+    os_error("ftruncate", syscall(77, fd, database.committed_end));
+    sync_file(fd); close_file(fd);
+    return database.tail;
+}
+fun sorted_keys(database: Database) -> List<Str> { return merge_sort(keys(database.entries)); }
+fun entry_for(database: Database, key: Str) -> Entry {
+    if (!has(database.entries, key)) { fail("key not found: " + key); }
+    return database.entries[key] ?? Entry(0, 0, 0);
+}
+fun output_value(database: Database, key: Str, path: Str) -> Nil {
+    let entry: Entry = entry_for(database, key);
+    if (path == "") { write_memory(1, database.mapping.address + entry.offset, entry.size); }
+    else {
+        // Do not allow a get output to truncate the database or its lock.
+        // O_EXCL also protects other existing files and hard-link aliases.
+        let fd: Int = open_file(path, 193);
+        write_memory(fd, database.mapping.address + entry.offset, entry.size);
+        sync_file(fd); close_file(fd); sync_directory(path);
+    }
+    return;
+}
+fun extend_adler(checksum: Int, address: Int, size: Int) -> Int {
+    mut a: Int = checksum % 65536; mut b: Int = checksum / 65536;
+    for i: Int in 0..size { a = (a + load8(address + i)) % 65521; b = (b + a) % 65521; }
+    return b * 65536 + a;
+}
+fun copy_entry(fd: Int, database: Database, transaction: Int, key: Str) -> Nil {
+    let entry: Entry = entry_for(database, key);
+    let header: Str = "RVF1" + u32(28 + byte_length(key) + entry.size) + u32(transaction) + u32(2) + u32(byte_length(key)) + u32(entry.size) + key;
+    let checksum: Int = extend_adler(adler_memory(int(addr(header)), byte_length(header)), database.mapping.address + entry.offset, entry.size);
+    write_text(fd, header);
+    write_memory(fd, database.mapping.address + entry.offset, entry.size);
+    write_text(fd, u32(checksum));
+    return;
+}
+fun compact_database(path: Str, database: Database) -> Int {
+    require_clean(database);
+    let temporary: Str = path + ".compact." + str(syscall(39)); // getpid
+    let fd: Int = open_file(temporary, 193);
+    may {
+        write_text(fd, FILE_HEADER);
+        mut transaction: Int = 0; mut batch_size: Int = 0; mut count: Int = 0;
+        mut size: Int = 16;
+        for key: Str in sorted_keys(database) {
+            let entry: Entry = entry_for(database, key);
+            let record_size: Int = 28 + byte_length(key) + entry.size;
+            if (count > 0 and (count == 1024 or batch_size + record_size > MAX_TRANSACTION)) {
+                write_text(fd, encode_frame(transaction, 4, "", "")); count = 0;
+            }
+            if (count == 0) {
+                transaction += 1; batch_size = 56; size += 56;
+                write_text(fd, encode_frame(transaction, 1, "", ""));
+            }
+            batch_size += record_size; size += record_size;
+            if (size > MAX_LOG) { fail("compacted log exceeds 16 MiB"); }
+            copy_entry(fd, database, transaction, key); count += 1;
+        }
+        if (count > 0) { write_text(fd, encode_frame(transaction, 4, "", "")); }
+        sync_file(fd); close_file(fd);
+        // Verify the completed replacement before the atomic rename.
+        let checked: Database = load_database(temporary);
+        require_clean(checked);
+        if (len(keys(checked.entries)) != len(keys(database.entries))) { fail("compaction verification failed"); }
+        unmap_file(checked.mapping);
+        os_error("rename", syscall(82, cstr(temporary), cstr(path)));
+        sync_directory(path);
+        return size;
+    } otherwise {
+        // A failed replacement leaves the original untouched until rename.
+        syscall(3, fd); syscall(87, cstr(temporary));
+        fail(err.message);
+        return 0;
+    }
+    return 0;
+}

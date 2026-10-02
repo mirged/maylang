@@ -1,0 +1,39 @@
+// functional.may — higher-order helpers.
+
+fun identity(x: Any) -> Any { return x }
+fun constantly(value: Any) -> Any { return fun(_: Any) -> Any { return value } }
+
+fun compose(f: Any, g: Any) -> Any { return fun(x: Any) -> Any { return f(g(x)) } }
+fun compose3(f: Any, g: Any, h: Any) -> Any { return fun(x: Any) -> Any { return f(g(h(x))) } }
+
+fun flip(f: Any) -> Any { return fun(a: Any, b: Any) -> Any { return f(b, a) } }
+fun curry(f: Any) -> Any { return fun(a: Any) -> Any { return fun(b: Any) -> Any { return f(a, b) } } }
+fun uncurry(f: Any) -> Any { return fun(a: Any, b: Any) -> Any { return f(a)(b) } }
+
+fun apply_n(f: Any, x: Any, n: Any) -> Any {
+    mut out: Any = x;
+    for _: Any in 1..=n { out = f(out); }
+    return out
+}
+
+/// Run a value through a list of functions in order.
+fun pipeline(x: Any, fs: Any) -> Any { return reduce(fs, |acc: Any, f: Any| -> Any { return f(acc); }, x) }
+
+/// Compose a list of functions into a single function.
+fun compose_all(fs: Any) -> Any { return fun(x: Any) -> Any { return pipeline(x, fs) } }
+
+/// Cache results of a single-argument function by stringified argument.
+fun memoize(f: Any) -> Any {
+    let cache: Any = {};
+    let cached: Any = fun(arg: Any) -> Any {
+        let key: Any = str(arg);
+        if (has(cache, key)) { return cache[key]; }
+        let value: Any = f(arg);
+        cache[key] = value;
+        return value
+    };
+    return cached
+}
+
+/// Partial application of the first argument.
+fun partial_first(f: Any, first: Any) -> Any { return fun(rest: Any) -> Any { return f(first, rest) } }

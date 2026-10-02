@@ -1,0 +1,122 @@
+// dom.may — a compact DOM stored in flat arenas.
+//
+// Nodes are never referenced by pointer: every node is an index into NODES,
+// which keeps the tree friendly to the conservative collector and lets the
+// whole document be rebuilt cheaply after JavaScript mutates it.
+
+struct Node {
+    tag: Str,                  // lowercase element name, or "#text"
+    text: Str,                 // text content for "#text" nodes
+    attrs: Map<Str, Str>,
+    children: List<Int>,
+    parent: Int,
+}
+
+mut NODES: List<Node> = [];
+mut DOM_ROOT: Int = 0 - 1;
+
+fun dom_reset() -> Nil {
+    NODES = [];
+    DOM_ROOT = 0 - 1;
+    return;
+}
+
+fun dom_new(tag: Str, text: Str) -> Int {
+    let n: Node = Node(tag, text, {}, [], 0 - 1);
+    push(NODES, n);
+    return len(NODES) - 1;
+}
+
+fun dom_count() -> Int { return len(NODES); }
+fun dom_root() -> Int { return DOM_ROOT; }
+fun dom_set_root(i: Int) -> Nil { DOM_ROOT = i; return; }
+
+fun dom_append(parent: Int, child: Int) -> Nil {
+    if (parent < 0) { return; }
+    mut p: Node = NODES[parent];
+    push(p.children, child);
+    NODES[parent] = p;
+    mut c: Node = NODES[child];
+    c.parent = parent;
+    NODES[child] = c;
+    return;
+}
+
+fun dom_insert_before(parent: Int, child: Int, before: Int) -> Nil {
+    if (parent < 0) { return; }
+    mut p: Node = NODES[parent];
+    mut out: List<Int> = [];
+    for k: Int in p.children {
+        if (k == before) { push(out, child); }
+        push(out, k);
+    }
+    p.children = out;
+    NODES[parent] = p;
+    mut c: Node = NODES[child];
+    c.parent = parent;
+    NODES[child] = c;
+    return;
+}
+
+fun dom_tag(i: Int) -> Str { return NODES[i].tag; }
+fun dom_is_text(i: Int) -> Bool { return NODES[i].tag == "#text"; }
+fun dom_text(i: Int) -> Str { return NODES[i].text; }
+fun dom_parent(i: Int) -> Int { return NODES[i].parent; }
+fun dom_children(i: Int) -> List<Int> { return NODES[i].children; }
+fun dom_child_count(i: Int) -> Int { return len(NODES[i].children); }
+
+fun dom_set_text(i: Int, text: Str) -> Nil {
+    mut n: Node = NODES[i];
+    n.text = text;
+    NODES[i] = n;
+    return;
+}
+
+fun dom_set_tag(i: Int, tag: Str) -> Nil {
+    mut n: Node = NODES[i];
+    n.tag = tag;
+    NODES[i] = n;
+    return;
+}
+
+fun dom_attr(i: Int, name: Str) -> Str {
+    let a: Map<Str, Str> = NODES[i].attrs;
+    if (has(a, name)) { return a[name] ?? ""; }
+    return "";
+}
+
+fun dom_has_attr(i: Int, name: Str) -> Bool { return has(NODES[i].attrs, name); }
+
+fun dom_set_attr(i: Int, name: Str, value: Str) -> Nil {
+    mut n: Node = NODES[i];
+    n.attrs[name] = value;
+    NODES[i] = n;
+    return;
+}
+
+// Split a class attribute into a list of class names.
+fun dom_classes(i: Int) -> List<Str> {
+    let raw: Str = dom_attr(i, "class");
+    if (len(raw) == 0) { return []; }
+    mut out: List<Str> = [];
+    for part: Str in split(raw, " ") {
+        let t: Str = trim(part);
+        if (len(t) > 0) { push(out, t); }
+    }
+    return out;
+}
+
+fun dom_id(i: Int) -> Str { return dom_attr(i, "id"); }
+
+// Depth-first list of all element (non-text) descendants, self first.
+fun dom_descendants(i: Int) -> List<Int> {
+    mut out: List<Int> = [];
+    dom_collect(i, out);
+    return out;
+}
+
+fun dom_collect(i: Int, out: List<Int>) -> Nil {
+    if (not dom_is_text(i)) { push(out, i); }
+    for c: Int in NODES[i].children { dom_collect(c, out); }
+    return;
+}

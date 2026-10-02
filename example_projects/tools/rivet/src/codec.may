@@ -1,0 +1,106 @@
+import "os.may";
+
+let FILE_HEADER: Str = "RIVET01\n" + chr(1) + chr(0) + chr(0) + chr(0) + chr(0) + chr(0) + chr(0) + chr(0);
+let MAX_LOG: Int = 16777216;
+let MAX_TRANSACTION: Int = 1048576;
+
+struct Operation { kind: Int, key: Str, value: Str }
+struct Entry { offset: Int, size: Int, transaction: Int }
+struct Frame { offset: Int, size: Int, transaction: Int, kind: Int, key: Str, value_offset: Int, value_size: Int, committed: Bool }
+struct Database {
+    mapping: Mapping, entries: Map<Str, Entry>, frames: List<Frame>,
+    transactions: Int, last_transaction: Int, committed_end: Int, tail: Int
+}
+
+fun u32(value: Int) -> Str {
+    if (value < 0 or value > 4294967295) { fail("unsigned 32-bit overflow"); }
+    return raw_byte(value % 256) + raw_byte(value / 256 % 256) + raw_byte(value / 65536 % 256) + raw_byte(value / 16777216 % 256);
+}
+fun read_u32(address: Int) -> Int {
+    return load8(address) + load8(address + 1) * 256 + load8(address + 2) * 65536 + load8(address + 3) * 16777216;
+}
+fun adler_memory(address: Int, size: Int) -> Int {
+    mut a: Int = 1; mut b: Int = 0;
+    for i: Int in 0..size { a = (a + load8(address + i)) % 65521; b = (b + a) % 65521; }
+    return b * 65536 + a;
+}
+fun encode_frame(transaction: Int, kind: Int, key: Str, value: Str) -> Str {
+    let body: Str = "RVF1" + u32(28 + byte_length(key) + byte_length(value)) + u32(transaction) + u32(kind) +
+        u32(byte_length(key)) + u32(byte_length(value)) + key + value;
+    return body + u32(adler_memory(int(addr(body)), byte_length(body)));
+}
+fun validate_operation(operation: Operation) -> Nil {
+    if (operation.kind != 2 and operation.kind != 3) { fail("invalid operation kind"); }
+    if (byte_length(operation.key) < 1 or byte_length(operation.key) > 1024 or contains(operation.key, chr(0))) {
+        fail("keys must be 1..1024 bytes without NUL");
+    }
+    if (byte_length(operation.value) > 65536) { fail("value exceeds 65536 bytes"); }
+    if (operation.kind == 3 and byte_length(operation.value) != 0) { fail("delete record has a value"); }
+    return;
+}
+fun encode_transaction(transaction: Int, operations: List<Operation>) -> Str {
+    if (len(operations) < 1 or len(operations) > 1024) { fail("batch requires 1..1024 operations"); }
+    let parts: List<Str> = [encode_frame(transaction, 1, "", "")];
+    mut size: Int = 56;
+    for operation: Operation in operations {
+        validate_operation(operation);
+        size += 28 + byte_length(operation.key) + byte_length(operation.value);
+        if (size > MAX_TRANSACTION) { fail("transaction exceeds 1 MiB"); }
+        push(parts, encode_frame(transaction, operation.kind, operation.key, operation.value));
+    }
+    push(parts, encode_frame(transaction, 4, "", ""));
+    return join(parts, "");
+}
+fun corrupt(offset: Int, message: Str) -> Nil {
+    fail("corrupt log at byte " + str(offset) + ": " + message);
+    return;
+}
+fun replay(mapping: Mapping) -> Database {
+    if (mapping.size < 16) { fail("truncated database header"); }
+    if (memory_text(mapping.address, 16) != FILE_HEADER) { fail("unsupported database header"); }
+    let database: Database = Database(mapping, {}, [], 0, 0, 16, 0);
+    mut offset: Int = 16; mut pending: Int = 0; mut start: Int = 0;
+    let operations: List<Frame> = [];
+    while (offset < mapping.size) {
+        let remaining: Int = mapping.size - offset;
+        if (remaining < 28) { break; }
+        let address: Int = mapping.address + offset;
+        if (memory_text(address, 4) != "RVF1") { corrupt(offset, "bad frame magic"); }
+        let size: Int = read_u32(address + 4);
+        let transaction: Int = read_u32(address + 8);
+        let kind: Int = read_u32(address + 12);
+        let key_size: Int = read_u32(address + 16);
+        let value_size: Int = read_u32(address + 20);
+        if (key_size > 1024 or value_size > 65536 or size != 28 + key_size + value_size) { corrupt(offset, "invalid lengths"); }
+        if (kind < 1 or kind > 4 or transaction == 0) { corrupt(offset, "invalid frame type or transaction"); }
+        if (size > remaining) { break; }
+        if (read_u32(address + size - 4) != adler_memory(address, size - 4)) { corrupt(offset, "checksum mismatch"); }
+        let key: Str = memory_text(address + 24, key_size);
+        let frame: Frame = Frame(offset, size, transaction, kind, key, offset + 24 + key_size, value_size, false);
+        if (offset + size - database.committed_end > MAX_TRANSACTION) { corrupt(offset, "transaction exceeds 1 MiB"); }
+        if (kind == 1) {
+            if (pending != 0 or transaction != database.last_transaction + 1 or key_size != 0 or value_size != 0) { corrupt(offset, "invalid BEGIN"); }
+            pending = transaction; start = len(database.frames);
+        } else if (kind == 4) {
+            if (pending != transaction or len(operations) == 0 or key_size != 0 or value_size != 0) { corrupt(offset, "invalid COMMIT"); }
+            for operation: Frame in operations {
+                if (operation.kind == 2) { database.entries[operation.key] = Entry(operation.value_offset, operation.value_size, transaction); }
+                else { database.entries = remove(database.entries, operation.key); }
+            }
+            if (len(keys(database.entries)) > 8192) { fail("database exceeds 8192 live keys"); }
+            for i: Int in start..len(database.frames) { database.frames[i].committed = true; }
+            frame.committed = true;
+            database.transactions += 1; database.last_transaction = transaction;
+            database.committed_end = offset + size; pending = 0;
+            while (len(operations) > 0) { pop(operations); }
+        } else {
+            if (pending != transaction or key_size == 0 or contains(key, chr(0)) or (kind == 3 and value_size != 0)) { corrupt(offset, "operation outside transaction or invalid key/value"); }
+            if (len(operations) >= 1024) { corrupt(offset, "too many operations"); }
+            push(operations, frame);
+        }
+        if (len(database.frames) >= 65536) { fail("log exceeds 65536 frames; compact it sooner"); }
+        push(database.frames, frame); offset += size;
+    }
+    database.tail = mapping.size - database.committed_end;
+    return database;
+}

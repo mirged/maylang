@@ -1,0 +1,57 @@
+// STARFALL SALVAGE — a tiny command-driven deep-space recovery game.
+import "src/model.may";
+import "src/game.may";
+import "src/view.may";
+
+fun help() -> Any {
+    print("STARFALL SALVAGE  /  recovery log");
+    print("Commands: status | scan | salvage | repair | refuel | jump | log | help");
+    print("Each action advances one shift. Your ship is the last thing between");
+    return print("you and a very expensive rescue beacon. Keep the hull above zero.");
+}
+
+fun dispatch(state: Any, command: Any) -> Any {
+    if (state.rescued && command != "status" && command != "log" && command != "help") {
+        print("Flight complete. Read the recorder, or use `reset` for another run.");
+        return nil;
+    }
+    if (state.hull <= 0 && command != "status" && command != "log" && command != "help") {
+        print("The Wayfarer is lost. Use `reset` to begin a new flight.");
+        return nil;
+    }
+    return match (command) {
+        "status" => show_status(state),
+        "scan" => scan_sector(state),
+        "salvage" => salvage(state),
+        "repair" => repair(state),
+        "refuel" => refuel(state),
+        "jump" => jump(state),
+        "log" => show_log(state),
+        "help" => help(),
+        _ => { print("Unknown command: " + command); help(); }
+    };
+}
+
+let argv: Any = args();
+let state: Any = if (len(argv) > 1 && argv[1] == "demo") { fresh_state() } else { load_state() };
+if (len(argv) <= 1 || argv[1] == "help") {
+    help();
+    print("");
+    print("Try: starfall scan, starfall salvage, starfall status");
+} else if (argv[1] == "demo") {
+    state.sector = 2;
+    help();
+    print("");
+    dispatch(state, "status");
+    dispatch(state, "scan");
+    dispatch(state, "salvage");
+    dispatch(state, "status");
+    print("");
+    print("Demo only: progress was not saved. Launch without `demo` to play.");
+} else if (argv[1] == "reset") {
+    save_state(fresh_state());
+    print("New flight registered. May the stars be salvageable.");
+} else {
+    dispatch(state, argv[1]);
+    save_state(state);
+}

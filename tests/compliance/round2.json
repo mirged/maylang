@@ -1,0 +1,271 @@
+[
+  {
+    "name": "call_integer_min",
+    "expected": "caught\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "caught\n",
+      "stdout_hex": "6361756768740a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "cycle_caught",
+    "expected": "[<cycle>]\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[<cycle>]\n",
+      "stdout_hex": "5b3c6379636c653e5d0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "json_confirm",
+    "expected": "\"\\u00e9\"\né\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "\"\\u00e9\"\né\n",
+      "stdout_hex": "225c7530306539220ac3a90a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "valid_max_literal",
+    "expected": "1152921504606846975\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "1152921504606846975\n",
+      "stdout_hex": "313135323932313530343630363834363937350a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "valid_large_literal",
+    "expected": "144115188075855872\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "144115188075855872\n",
+      "stdout_hex": "3134343131353138383037353835353837320a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "max_runtime",
+    "expected": "1152921504606846975\narithmetic\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "1152921504606846975\narithmetic\n",
+      "stdout_hex": "313135323932313530343630363834363937350a61726974686d657469630a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "min_runtime_neg",
+    "expected": "-1152921504606846976\narithmetic\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "-1152921504606846976\narithmetic\n",
+      "stdout_hex": "2d313135323932313530343630363834363937360a61726974686d657469630a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "min_runtime_div",
+    "expected": "arithmetic\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "arithmetic\n",
+      "stdout_hex": "61726974686d657469630a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "compound_index",
+    "expected": "[15] 1\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[15] 1\n",
+      "stdout_hex": "5b31355d20310a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "compound_receiver",
+    "expected": "[15] 1\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[15] 1\n",
+      "stdout_hex": "5b31355d20310a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "json_trailing",
+    "expected": "caught\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "caught\n",
+      "stdout_hex": "6361756768740a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "missing_expr",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/missing_expr.may:1:9: unexpected token\nlet x = ;\n        ^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "missing_brace",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/missing_brace.may:2:1: unexpected token\n\n^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "dangling_operator",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/dangling_operator.may:1:11: unexpected token\nprint(1 + );\n          ^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "module_isolation",
+    "expected": "11 22\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "11 22\n",
+      "stdout_hex": "31312032320a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "module_private",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/module_private.may:2:7: `secret` is private in /home/mirged/Projects/maylang/tests/compliance/module_a.may\nprint(a.secret);\n      ^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "arithmetic_oracle",
+    "expected": "457715\n266754\n-385577\n419141\n-1\n-902102\n-53557\n12099\n-583008\n0\n527484\n-253629\n205664902976\n-580295\n954108\n-407115\n-219647279058\n543476\n48616\n0\n-483197986465\n80210\n774289198116\n412425\n-1597285\n924687\n1037830\n0\n291361660254\n-255756719070\n-393972925360\n1453977\n-388383\n-644373\n-1\n-433879\n-387244025014\n1573224\n342071\n2\n-507911\n914985\n630742998288\n0\n0\n-978124\n-482785\n130317\n-101510\n-541978\n-1\n-16854\n690887\n1\n3\n0\n109633\n1793396\n1182389\n429650\n160794708048\n-2\n-192556\n472365668064\n-749171\n1021645\n541331181075\n95120\n68529\n-1015397\n131159\n420\n192145\n-745673484707\n734987718845\n-558572\n1436236\n-1\n58149\n474201\n383597\n-97838\n1\n-555827\n-181484\n1\n278459006163\n-81238\n-180048\n-35500434312\n-339001\n-1134440\n-910478\n-449200\n1149266\n19531783858\n-106046\n130855\n-287229\n1\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "457715\n266754\n-385577\n419141\n-1\n-902102\n-53557\n12099\n-583008\n0\n527484\n-253629\n205664902976\n-580295\n954108\n-407115\n-219647279058\n543476\n48616\n0\n-483197986465\n80210\n774289198116\n412425\n-1597285\n924687\n1037830\n0\n291361660254\n-255756719070\n-393972925360\n1453977\n-388383\n-644373\n-1\n-433879\n-387244025014\n1573224\n342071\n2\n-507911\n914985\n630742998288\n0\n0\n-978124\n-482785\n130317\n-101510\n-541978\n-1\n-16854\n690887\n1\n3\n0\n109633\n1793396\n1182389\n429650\n160794708048\n-2\n-192556\n472365668064\n-749171\n1021645\n541331181075\n95120\n68529\n-1015397\n131159\n420\n192145\n-745673484707\n734987718845\n-558572\n1436236\n-1\n58149\n474201\n383597\n-97838\n1\n-555827\n-181484\n1\n278459006163\n-81238\n-180048\n-35500434312\n-339001\n-1134440\n-910478\n-449200\n1149266\n19531783858\n-106046\n130855\n-287229\n1\n",
+      "stdout_hex": "3435373731350a3236363735340a2d3338353537370a3431393134310a2d310a2d3930323130320a2d35333535370a31323039390a2d3538333030380a300a3532373438340a2d3235333632390a3230353636343930323937360a2d3538303239350a3935343130380a2d3430373131350a2d3231393634373237393035380a3534333437360a34383631360a300a2d3438333139373938363436350a38303231300a3737343238393139383131360a3431323432350a2d313539373238350a3932343638370a313033373833300a300a3239313336313636303235340a2d3235353735363731393037300a2d3339333937323932353336300a313435333937370a2d3338383338330a2d3634343337330a2d310a2d3433333837390a2d3338373234343032353031340a313537333232340a3334323037310a320a2d3530373931310a3931343938350a3633303734323939383238380a300a300a2d3937383132340a2d3438323738350a3133303331370a2d3130313531300a2d3534313937380a2d310a2d31363835340a3639303838370a310a330a300a3130393633330a313739333339360a313138323338390a3432393635300a3136303739343730383034380a2d320a2d3139323535360a3437323336353636383036340a2d3734393137310a313032313634350a3534313333313138313037350a39353132300a36383532390a2d313031353339370a3133313135390a3432300a3139323134350a2d3734353637333438343730370a3733343938373731383834350a2d3535383537320a313433363233360a2d310a35383134390a3437343230310a3338333539370a2d39373833380a310a2d3535353832370a2d3138313438340a310a3237383435393030363136330a2d38313233380a2d3138303034380a2d33353530303433343331320a2d3333393030310a2d313133343434300a2d3931303437380a2d3434393230300a313134393236360a31393533313738333835380a2d3130363034360a3133303835350a2d3238373232390a310a",
+      "stderr": ""
+    },
+    "passed": true
+  }
+]

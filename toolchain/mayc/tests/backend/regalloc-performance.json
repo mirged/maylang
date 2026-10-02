@@ -1,0 +1,51 @@
+{
+  "workload": "Collatz for seeds 1..50000; 20000 three-element list allocations",
+  "checksum": "5025114 400020000",
+  "timing": "whole process, compilation excluded, one warm-up",
+  "results": {
+    "baseline": {
+      "median_ms": 55.057,
+      "samples_ms": [
+        53.302,
+        51.366,
+        55.7,
+        52.721,
+        56.176,
+        55.057,
+        52.37,
+        56.784,
+        56.566
+      ]
+    },
+    "mayc": {
+      "median_ms": 52.499,
+      "samples_ms": [
+        46.27,
+        65.465,
+        48.263,
+        64.085,
+        52.499,
+        57.694,
+        49.916,
+        48.429,
+        57.392
+      ]
+    },
+    "python": {
+      "median_ms": 378.378,
+      "samples_ms": [
+        388.65,
+        388.853,
+        367.748,
+        420.002,
+        378.378,
+        369.51,
+        369.749,
+        371.23,
+        395.204
+      ]
+    }
+  },
+  "speedup_vs_baseline": 1.05,
+  "speedup_vs_python": 7.21
+}

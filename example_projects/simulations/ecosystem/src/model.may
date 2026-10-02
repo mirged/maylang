@@ -1,0 +1,39 @@
+// Shared domain records. Any is confined to ML models, RNGs and report/JSON data.
+struct Config {
+    generations: Int, seed: Int, population: Int, width: Int, ticks: Int,
+    report_every: Int, checkpoint_every: Int, mutation_rate: Float,
+    mutation_step: Float, output: Str
+}
+struct Genome { traits: List<Float>, weights: List<Int> }
+struct Creature {
+    id: Int, parent: Int, lineage: Int, genome: Genome, brain: Any,
+    x: Int, y: Int, energy: Float, body: Float, health: Float,
+    plants: Float, scavenged: Float, hunted: Float, attacks: Int, kills: Int,
+    moved: Int, reproduction: Float
+}
+struct Egg { id: Int, parent: Int, lineage: Int, genome: Genome, x: Int, y: Int, energy: Float, body: Float }
+struct Cell { plants: Float, carrion: Float, nutrients: Float, fertility: Float }
+struct Totals {
+    births: Int, eggs: Int, nursery_deaths: Int, kills: Int, attacks: Int, first_hunt: Int,
+    starved: Int, natural_deaths: Int, plant_energy: Float,
+    scavenged_energy: Float, hunted_energy: Float, heat: Float, sunlight: Float,
+    initial_energy: Float
+}
+struct World {
+    config: Config, rng: Any, generation: Int, next_id: Int,
+    cells: List<Cell>, creatures: List<Creature>, totals: Totals,
+    history: List<Any>, csv: List<Str>, elapsed: Float
+}
+fun default_config() -> Config {
+    return Config(100000, 42, 16, 6, 8, 1000, 10000, 0.04, 0.24, "ecosystem-run");
+}
+fun empty_totals() -> Totals { return Totals(0, 0, 0, 0, 0, -1, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0); }
+fun bounded(value: Float, lo: Float, hi: Float) -> Float {
+    return if (value < lo) { lo } else if (value > hi) { hi } else { value };
+}
+fun smaller(a: Float, b: Float) -> Float { return if (a < b) { a } else { b }; }
+fun wrap(value: Int, width: Int) -> Int { return (value % width + width) % width; }
+fun cell_index(x: Int, y: Int, width: Int) -> Int { return wrap(y, width) * width + wrap(x, width); }
+fun mass(genome: Genome) -> Float { return 0.65 + 1.35 * genome.traits[0]; }
+fun body_energy(genome: Genome) -> Float { return 2.0 + 2.0 * mass(genome); }
+fun full_health(genome: Genome) -> Float { return 2.4 * mass(genome); }

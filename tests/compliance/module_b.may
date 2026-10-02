@@ -1,0 +1,1 @@
+let secret=22; pub fun value() { secret }

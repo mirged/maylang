@@ -1,0 +1,10 @@
+let m: Any = {};
+for i: Any in 0..10 { m[str(i)] = i * i; }
+print(len(m), m["5"], m["9"]);
+print(sort(keys(m)));
+print(values({"b": 2, "a": 1}));
+let counts: Any = {};
+for w: Any in ["a", "b", "a", "c", "a", "b"] {
+    counts[w] = (get(counts, w, 0)) + 1;
+}
+print(counts);

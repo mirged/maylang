@@ -1,0 +1,12 @@
+#!/bin/sh
+# Launch the checked-in bootstrap compiler kept with generated build outputs.
+mayc_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_dir=$(CDPATH= cd -- "$mayc_dir/../.." && pwd)
+mkdir -p "$mayc_dir/build/bin"
+ln -sf "$mayc_dir/runtime.may" "$mayc_dir/build/bin/runtime.may"
+ln -sf "$mayc_dir/native.may" "$mayc_dir/build/bin/native.may"
+ln -sf "$repo_dir/stdlib/prelude.may" "$mayc_dir/build/bin/prelude.may"
+if [ ! -e "$mayc_dir/build/bin/runtime" ]; then
+    ln -s "$mayc_dir/runtime" "$mayc_dir/build/bin/runtime"
+fi
+exec "$mayc_dir/build/bin/mayc_new" "$@"

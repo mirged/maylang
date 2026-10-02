@@ -1,0 +1,86 @@
+import "src/os.may";
+import "src/codec.may";
+import "src/storage.may";
+import "src/report.may";
+
+fun usage() -> Nil {
+    print("RIVET / a small database with an inspectable binary log");
+    print("rivet init DB                     create an empty database");
+    print("rivet put DB KEY VALUE            commit a value");
+    print("rivet put-file DB KEY FILE        commit binary file contents (up to 64 KiB)");
+    print("rivet get DB KEY [--out NEWFILE]   raw value to stdout or a new file");
+    print("rivet delete DB KEY               commit a tombstone");
+    print("rivet batch DB JSONFILE           commit an atomic array of put/delete operations");
+    print("rivet list DB [PREFIX]            sorted keys, sizes and transaction IDs");
+    print("rivet stats DB                    storage and committed-tail metrics");
+    print("rivet inspect DB                  inspect every binary frame and byte offset");
+    print("rivet recover DB                  discard only an uncommitted/torn suffix");
+    print("rivet compact DB                  atomically replace history with live values");
+    print("Linux x86-64 / strict mayc / stdlib / maypkg");
+    return;
+}
+fun check_arity(argv: List<Str>, low: Int, high: Int) -> Nil {
+    if (len(argv) < low or len(argv) > high) { fail("wrong number of arguments; see rivet help"); }
+    return;
+}
+fun rivet_main(argv: List<Str>) -> Int {
+    if (len(argv) < 2 or argv[1] == "help" or argv[1] == "--help" or argv[1] == "-h") { usage(); return 0; }
+    let command: Str = argv[1];
+    if (!has(["init", "put", "put-file", "get", "delete", "batch", "list", "stats", "inspect", "recover", "compact"], command)) {
+        fail("unknown command: " + command);
+    }
+    check_arity(argv, 3, 6);
+    let path: Str = argv[2];
+    safe_path(path);
+    let exclusive: Bool = has(["init", "put", "put-file", "delete", "batch", "recover", "compact"], command);
+    // Every reader and writer coordinates on the stable sidecar inode,
+    // including while compaction replaces the database inode itself.
+    let lock: Int = lock_database(path, exclusive);
+    if (command == "init") {
+        check_arity(argv, 3, 3); create_database(path); close_file(lock);
+        print("created " + path); return 0;
+    }
+    let database: Database = load_database(path);
+    if (command == "put" or command == "put-file") {
+        check_arity(argv, 5, 5);
+        let value: Str = if (command == "put-file") { read_value_file(argv[4]) } else { argv[4] };
+        append_transaction(path, database, [Operation(2, argv[3], value)]);
+        print("committed transaction " + str(database.last_transaction + 1));
+    } else if (command == "delete") {
+        check_arity(argv, 4, 4);
+        append_transaction(path, database, [Operation(3, argv[3], "")]);
+        print("committed transaction " + str(database.last_transaction + 1));
+    } else if (command == "batch") {
+        check_arity(argv, 4, 4);
+        let operations: List<Operation> = parse_batch(argv[3]);
+        append_transaction(path, database, operations);
+        print("committed " + str(len(operations)) + " operations in transaction " + str(database.last_transaction + 1));
+    } else if (command == "get") {
+        if (len(argv) != 4 and len(argv) != 6) { fail("get requires KEY and optional --out NEWFILE"); }
+        if (len(argv) == 6 and argv[4] != "--out") { fail("expected --out NEWFILE"); }
+        let destination: Str = if (len(argv) == 6) { argv[5] } else { "" };
+        output_value(database, argv[3], destination);
+    } else if (command == "list") {
+        check_arity(argv, 3, 4);
+        print_keys(database, if (len(argv) == 4) { argv[3] } else { "" });
+    } else if (command == "stats") { check_arity(argv, 3, 3); print_stats(database); }
+    else if (command == "inspect") { check_arity(argv, 3, 3); inspect_database(database); }
+    else if (command == "recover") {
+        check_arity(argv, 3, 3);
+        let removed: Int = recover_database(path, database);
+        print("recovered " + str(removed) + " uncommitted bytes; preserved " + str(database.transactions) + " transactions");
+    } else if (command == "compact") {
+        check_arity(argv, 3, 3);
+        let size: Int = compact_database(path, database);
+        print("compacted " + str(database.mapping.size) + " -> " + str(size) + " bytes");
+    }
+    unmap_file(database.mapping); close_file(lock);
+    return 0;
+}
+
+may { exit(rivet_main(process_args())); } otherwise {
+    // Keep stdout byte-clean for `get` pipelines.
+    let message: Str = "rivet: " + err.message + "\n";
+    write_text(2, message);
+    exit(2);
+};

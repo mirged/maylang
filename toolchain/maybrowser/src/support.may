@@ -1,0 +1,300 @@
+// support.may — the only place that talks to the native support shim.
+//
+// Everything here is a thin, flat wrapper: fonts, glyph masks, image decoding,
+// PNG encoding and fetching.  The browser engine itself never touches C.
+
+extern "libmaybrowser.so" {
+    fun mb_font_load(path: Str) -> Int = "mb_font_load";
+    fun mb_font_free(id: Int) -> Void = "mb_font_free";
+    fun mb_font_ascent(id: Int, px: Float) -> Float = "mb_font_ascent";
+    fun mb_font_descent(id: Int, px: Float) -> Float = "mb_font_descent";
+    fun mb_font_line_gap(id: Int, px: Float) -> Float = "mb_font_line_gap";
+    fun mb_glyph_advance(id: Int, px: Float, cp: Int) -> Float = "mb_glyph_advance";
+    fun mb_glyph_kern(id: Int, px: Float, a: Int, b: Int) -> Float = "mb_glyph_kern";
+    fun mb_glyph_bitmap(id: Int, px: Float, cp: Int) -> Ptr = "mb_glyph_bitmap";
+    fun mb_image_load(path: Str) -> Ptr = "mb_image_load";
+    fun mb_image_load_mem(data: Ptr, len: Int) -> Ptr = "mb_image_load_mem";
+    fun mb_image_load_b64(data: Str) -> Ptr = "mb_image_load_b64";
+    fun mb_png_write(path: Str, data: Ptr, w: Int, h: Int, comp: Int) -> Int = "mb_png_write";
+    fun mb_fetch_file(url: Str, path: Str) -> Int = "mb_fetch_file";
+    fun mb_free(p: Ptr) -> Void = "mb_free";
+    fun mb_alloc(n: Int) -> Ptr = "mb_alloc";
+}
+
+// ------------------------------------------------------------------ fonts
+
+mut SUP_FONT_REG: Int = -1;
+mut SUP_FONT_BOLD: Int = -1;
+mut SUP_FONT_MONO: Int = -1;
+mut SUP_FONT_SERIF: Int = -1;
+
+fun sup_try_font(paths: List<Str>) -> Int {
+    for path: Str in paths {
+        if (file_exists(path)) {
+            let id: Int = mb_font_load(path);
+            if (id >= 0) { return id; }
+        }
+    }
+    return 0 - 1;
+}
+
+fun sup_fonts_init() -> Nil {
+    if (SUP_FONT_REG >= 0) { return; }
+    SUP_FONT_REG = sup_try_font([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/lato/Lato-Regular.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    ]);
+    SUP_FONT_BOLD = sup_try_font([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/lato/Lato-Bold.ttf",
+    ]);
+    SUP_FONT_MONO = sup_try_font([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+    ]);
+    SUP_FONT_SERIF = sup_try_font([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+    ]);
+    if (SUP_FONT_BOLD < 0) { SUP_FONT_BOLD = SUP_FONT_REG; }
+    if (SUP_FONT_MONO < 0) { SUP_FONT_MONO = SUP_FONT_REG; }
+    if (SUP_FONT_SERIF < 0) { SUP_FONT_SERIF = SUP_FONT_REG; }
+    return;
+}
+
+// Pick a loaded face from a CSS font-family list plus a weight.
+fun sup_font_id(family: Str, weight: Int) -> Int {
+    sup_fonts_init();
+    let fam: Str = to_lower(family);
+    if (contains(fam, "mono")) { return SUP_FONT_MONO; }
+    if (contains(fam, "serif") and not contains(fam, "sans")) { return SUP_FONT_SERIF; }
+    if (contains(fam, "georgia") or contains(fam, "times")) { return SUP_FONT_SERIF; }
+    if (weight >= 600) { return SUP_FONT_BOLD; }
+    return SUP_FONT_REG;
+}
+
+fun sup_ascent(id: Int, px: Float) -> Float { return mb_font_ascent(id, px); }
+fun sup_descent(id: Int, px: Float) -> Float { return mb_font_descent(id, px); }
+fun sup_line_gap(id: Int, px: Float) -> Float { return mb_font_line_gap(id, px); }
+
+fun sup_advance(id: Int, px: Float, cp: Int) -> Float {
+    if (cp == 9) { return mb_glyph_advance(id, px, 32) * 4.0; }
+    return mb_glyph_advance(id, px, cp);
+}
+
+// Width of a UTF-8 string in pixels, including kerning pairs.
+fun sup_measure(id: Int, px: Float, s: Str) -> Int {
+    mut total: Float = 0.0;
+    mut prev: Int = 0 - 1;
+    for ch: Str in s {
+        let cp: Int = char_at(ch, 0);
+        if (prev >= 0) { total = total + mb_glyph_kern(id, px, prev, cp); }
+        total = total + sup_advance(id, px, cp);
+        prev = cp;
+    }
+    if (total < 0.0) { return 0; }
+    return int(total + 0.5);
+}
+
+// Width of a single word without kerning against neighbours.
+fun sup_measure_word(id: Int, px: Float, s: Str) -> Int {
+    return sup_measure(id, px, s);
+}
+
+fun sup_kern(id: Int, px: Float, a: Int, b: Int) -> Int {
+    return int(mb_glyph_kern(id, px, a, b) + 0.5);
+}
+
+fun sup_glyph(id: Int, px: Float, cp: Int) -> Ptr {
+    return mb_glyph_bitmap(id, px, cp);
+}
+
+// ------------------------------------------------------------- memory -> Str
+
+// Decode a UTF-8 byte range at a raw pointer into a Maylang string.
+fun sup_ptr_str(p: Ptr, start: Int, length: Int) -> Str {
+    if (length <= 0) { return ""; }
+    let out: Str = repeat("\0", length);
+    let destination: Ptr = addr(out);
+    for i: Int in 0..length { store8(destination + i, load8(p + start + i)); }
+    return out;
+}
+
+// Same, but from a Maylang string's byte storage.
+fun sup_bytes(src: Str, start: Int, stop: Int) -> Str {
+    if (stop <= start) { return ""; }
+    return sup_ptr_str(addr(src), start, stop - start);
+}
+
+// --------------------------------------------------------------- colors
+
+mut SUP_NAMED: Map<Str, Int> = {
+    "black": 0, "white": 16777215, "red": 16711680, "lime": 65280,
+    "green": 32768, "blue": 255, "yellow": 16776960, "cyan": 65535,
+    "aqua": 65535, "magenta": 16711935, "fuchsia": 16711935,
+    "silver": 12632256, "gray": 8421504, "grey": 8421504,
+    "maroon": 8388608, "olive": 8421376, "navy": 128, "purple": 8388736,
+    "teal": 32896, "orange": 16753920, "pink": 16761035,
+    "brown": 10824234, "gold": 16766720, "indigo": 4915330,
+    "violet": 15631086, "crimson": 14423100, "salmon": 16416882,
+    "tomato": 16737095, "turquoise": 4251856, "skyblue": 8900331,
+    "steelblue": 4620980, "slategray": 7372944, "darkgray": 5526612,
+    "lightgray": 13882323, "whitesmoke": 16119285, "snow": 16775930,
+    "beige": 16119260, "ivory": 16777200, "khaki": 15787660,
+    "plum": 14524637, "orchid": 14315734, "coral": 16744272,
+    "goldenrod": 14329120, "chocolate": 13789470, "firebrick": 11674146,
+    "forestgreen": 2263842, "seagreen": 3050327, "mediumseagreen": 3978097,
+    "dodgerblue": 2003199, "royalblue": 4286945, "slateblue": 6970061,
+    "midnightblue": 1644912, "rebeccapurple": 6697881,
+};
+
+fun sup_hexval(c: Int) -> Int {
+    if (c >= 48 and c <= 57) { return c - 48; }
+    if (c >= 97 and c <= 102) { return c - 97 + 10; }
+    if (c >= 65 and c <= 70) { return c - 65 + 10; }
+    return 0 - 1;
+}
+
+fun sup_rgb(r: Int, g: Int, b: Int) -> Int {
+    return (r * 65536) + (g * 256) + b;
+}
+
+// Parse a CSS color.  Returns an RGB int, or -1 for transparent/invalid.
+fun sup_color(raw: Str) -> Int {
+    let s: Str = to_lower(trim(raw));
+    if (len(s) == 0) { return 0 - 1; }
+    if (s == "transparent") { return 0 - 1; }
+    if (s == "inherit" or s == "initial" or s == "currentcolor") { return 0 - 2; }
+    if (s[0] == "#") {
+        let n: Int = len(s) - 1;
+        if (n == 3) {
+            let r: Int = sup_hexval(ord(s[1]));
+            let g: Int = sup_hexval(ord(s[2]));
+            let b: Int = sup_hexval(ord(s[3]));
+            return sup_rgb(r * 17, g * 17, b * 17);
+        }
+        if (n >= 6) {
+            let r: Int = sup_hexval(ord(s[1])) * 16 + sup_hexval(ord(s[2]));
+            let g: Int = sup_hexval(ord(s[3])) * 16 + sup_hexval(ord(s[4]));
+            let b: Int = sup_hexval(ord(s[5])) * 16 + sup_hexval(ord(s[6]));
+            return sup_rgb(r, g, b);
+        }
+        return 0 - 1;
+    }
+    if (starts_with(s, "rgb")) {
+        let lp: Int = index_of(s, "(");
+        let rp: Int = index_of(s, ")");
+        if (lp < 0 or rp < 0) { return 0 - 1; }
+        let body: Str = substring(s, lp + 1, rp - lp - 1);
+        let parts: List<Str> = split(body, ",");
+        if (len(parts) < 3) { return 0 - 1; }
+        let r: Int = sup_channel(trim(parts[0]));
+        let g: Int = sup_channel(trim(parts[1]));
+        let b: Int = sup_channel(trim(parts[2]));
+        if (r < 0 or g < 0 or b < 0) { return 0 - 1; }
+        return sup_rgb(r, g, b);
+    }
+    if (has(SUP_NAMED, s)) { return SUP_NAMED[s] ?? 0; }
+    return 0 - 1;
+}
+
+fun sup_channel(s: Str) -> Int {
+    if (ends_with(s, "%")) {
+        let v: Int = int(substring(s, 0, len(s) - 1));
+        return clamp((v * 255) / 100, 0, 255);
+    }
+    return clamp(may { int(s) } otherwise { 0 }, 0, 255);
+}
+
+// ------------------------------------------------------------------ images
+
+mut SUP_IMAGES: Map<Str, Any> = {};
+
+// Load an image path or data: URL once, returning {ptr, w, h} or nil.
+fun sup_image(src: Str) -> Any {
+    if (len(src) == 0) { return nil; }
+    if (has(SUP_IMAGES, src)) { return SUP_IMAGES[src]; }
+    mut p: Ptr = ptr(0);
+    if (starts_with(src, "data:")) {
+        let comma: Int = index_of(src, ",");
+        if (comma < 0) { SUP_IMAGES[src] = nil; return nil; }
+        p = mb_image_load_b64(substring(src, comma + 1, len(src) - comma - 1));
+    } else {
+        if (file_exists(src)) { p = mb_image_load(src); }
+    }
+    if (p == 0) { SUP_IMAGES[src] = nil; return nil; }
+    let m: Any = {"ptr": p, "w": load32(p), "h": load32(p + 4)};
+    SUP_IMAGES[src] = m;
+    return m;
+}
+
+// ------------------------------------------------------------- data: URLs
+
+mut SUP_B64: Map<Str, Int> = {
+    "A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5, "G": 6, "H": 7,
+    "I": 8, "J": 9, "K": 10, "L": 11, "M": 12, "N": 13, "O": 14, "P": 15,
+    "Q": 16, "R": 17, "S": 18, "T": 19, "U": 20, "V": 21, "W": 22, "X": 23,
+    "Y": 24, "Z": 25, "a": 26, "b": 27, "c": 28, "d": 29, "e": 30, "f": 31,
+    "g": 32, "h": 33, "i": 34, "j": 35, "k": 36, "l": 37, "m": 38, "n": 39,
+    "o": 40, "p": 41, "q": 42, "r": 43, "s": 44, "t": 45, "u": 46, "v": 47,
+    "w": 48, "x": 49, "y": 50, "z": 51, "0": 52, "1": 53, "2": 54, "3": 55,
+    "4": 56, "5": 57, "6": 58, "7": 59, "8": 60, "9": 61, "+": 62, "/": 63,
+};
+
+fun sup_b64_bytes(s: Str) -> List<Int> {
+    mut out: List<Int> = [];
+    mut acc: Int = 0;
+    mut bits: Int = 0;
+    for ch: Str in s {
+        if (has(SUP_B64, ch)) {
+            acc = (acc * 64) + (SUP_B64[ch] ?? 0);
+            bits += 6;
+            if (bits >= 8) {
+                bits -= 8;
+                push(out, (acc / pow_int(2, bits)) % 256);
+                acc = acc % pow_int(2, bits);
+            }
+        }
+    }
+    return out;
+}
+
+fun pow_int(base: Int, exp: Int) -> Int {
+    mut r: Int = 1;
+    mut i: Int = 0;
+    while (i < exp) { r = r * base; i += 1; }
+    return r;
+}
+
+fun sup_utf8_bytes_to_str(bytes: List<Int>) -> Str {
+    let out: Str = repeat("\0", len(bytes));
+    let destination: Ptr = addr(out);
+    for i: Int in 0..len(bytes) { store8(destination + i, bytes[i]); }
+    return out;
+}
+
+fun sup_data_url_text(url: Str, comma: Int) -> Str {
+    let head: Str = substring(url, 0, comma);
+    let payload: Str = substring(url, comma + 1, len(url) - comma - 1);
+    if (contains(head, "base64")) {
+        return sup_utf8_bytes_to_str(sup_b64_bytes(payload));
+    }
+    // percent-decoded plain text
+    let bytes: Ptr = addr(payload);
+    let count: Int = load64(bytes - 8);
+    mut out: List<Int> = [];
+    mut i: Int = 0;
+    while (i < count) {
+        if (load8(bytes + i) == 37 and i + 2 < count) {
+            let hi: Int = sup_hexval(load8(bytes + i + 1));
+            let lo: Int = sup_hexval(load8(bytes + i + 2));
+            if (hi >= 0 and lo >= 0) { push(out, hi * 16 + lo); i += 3; continue; }
+        }
+        push(out, load8(bytes + i));
+        i += 1;
+    }
+    return sup_utf8_bytes_to_str(out);
+}

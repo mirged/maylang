@@ -1,0 +1,17 @@
+import "formats/elf.may";
+import "formats/macho.may";
+import "formats/pe.may";
+
+// Layout runs after emission/padding and before target relocations are applied.
+fun format_layout(ctx: Any) -> Any {
+    if (ctx.target.format == "elf") { ctx.layout = elf_layout(ctx); }
+    else if (ctx.target.format == "macho") { ctx.layout = macho_layout(ctx); }
+    else { ctx.layout = pe_layout(ctx); }
+    return 0;
+}
+
+fun format_build(ctx: Any) -> Any {
+    if (ctx.target.format == "elf") { return build_elf(ctx); }
+    if (ctx.target.format == "macho") { return build_macho(ctx); }
+    return build_pe(ctx);
+}

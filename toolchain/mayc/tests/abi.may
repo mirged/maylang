@@ -1,0 +1,11 @@
+// SysV requires rsp % 16 == 8 on entry to a C callee.
+let page: Any = syscall(9, 0, 4096, 7, 34, -1, 0);
+let bytes: Any = [72, 137, 224, 131, 224, 15, 195];
+for i: Any in 0..len(bytes) { store8(page + i, bytes[i]); }
+print(ccall(page, []));
+fun nested(a: Any, b: Any, c: Any) -> Any { return ccall(page, []); }
+print(nested(1, 2, 3));
+fun eight(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any, g: Any, h: Any) -> Any { return [a, b, c, d, e, f, g, h]; }
+print(eight(1, 2, 3, 4, 5, 6, 7, 8));
+let indirect: Any = eight;
+print(indirect(11, 12, 13, 14, 15, 16, 17, 18));

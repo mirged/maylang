@@ -1,0 +1,11 @@
+{
+  "name": "mayos",
+  "version": "0.2.0",
+  "entry": "main.may",
+  "target": "linux",
+  "description": "A raw Maylang x86-64 kernel with a serial/VGA shell, PIT timer, bounded arena and persistent ATA filesystem",
+  "authors": [],
+  "dependencies": {},
+  "modules": ["src/hardware.may", "src/console.may", "src/memory.may", "src/disk.may", "src/filesystem.may", "src/shell.may", "main.may"],
+  "output": "build/kernel.elf"
+}

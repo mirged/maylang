@@ -1,0 +1,10 @@
+let n: Any = 3;
+let f: Any = 2.5;
+print("n=${n}, f=${f}, s=${"x"}");
+print("a${1 + 2}b${n * 2}c");
+print("nested ${ [1,2,3] |> sum } done");
+let m: Any = {"k": [1,2]};
+print("m=${m.k}, len=${len(m.k)}");
+print("call ${str(42)} and ${join(["a","b"], ",")}");
+print("empty ${""} end");
+print("float ${1.0 / 3.0} done");

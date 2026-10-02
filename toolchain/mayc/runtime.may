@@ -1,0 +1,2693 @@
+// runtime.may — the dynamic runtime injected into every non-raw program.
+//
+// This file is itself written in mayc's raw subset (integers, pointers,
+// syscalls), so mayc can compile it.  It is compiled first, then the user
+// program is compiled against it.
+//
+// Value encoding (matching the host backend):
+//   int    = n << 3                     (tag 000)
+//   string = ptr | 1  -> { len:u64, bytes..NUL }   (tag 001)
+//   nil    = 2                          (tag 010)
+//   false  = 3                          (tag 011)
+//   true   = 4                          (tag 100)
+//   list   = ptr | 5  -> { len:u64, cap:u64, elems.. } (tag 101)
+//   map    = ptr | 7  -> { len:u64, cap:u64, k,v.. }   (tag 111)
+
+mut HEAP: Any = 0;
+mut HP: Any = 0;
+mut HEAPEND: Any = 0;
+mut FREELIST: Any = 0;
+mut FREEBINS: Any = 0;
+mut FREECOUNT: Any = 0;
+mut FREEBIN_LOW: Any = 257;
+mut MARKSTK: Any = 0;
+mut MARKN: Any = 0;
+mut MARKMAX: Any = 0;
+mut GBASE: Any = 0;
+mut GROOTS: Any = 0;
+mut GCOUNT: Any = 0;
+mut STACKTOP: Any = 0;
+mut CSTOP: Any = 0;
+mut GCFLAG: Any = 0;
+mut GCCOUNT: Any = 0;
+mut ERRFLAG: Any = 0;
+mut ERRVAL: Any = 2;
+mut HDEPTH: Any = 0;
+mut HSTACK: Any = 0;
+
+// Print an uncaught error and exit (used when `__longjmp` finds no handler).
+fun rt_die_uncaught() -> Any {
+    mut k: Any = rt_map_get(ERRVAL, rt_from(addr("kind"), 4));
+    mut m: Any = rt_map_get(ERRVAL, rt_from(addr("message"), 7));
+    if (k == 2) { k = rt_from(addr("error"), 5); }
+    if (m == 2) { m = rt_from(addr(""), 0); }
+    let s: Any = rt_concat(rt_concat(k, rt_from(addr(": "), 2)), m);
+    rt_write(s + 7, rt_slen(s));
+    rt_write(addr("\n"), 1);
+    syscall(60, 70);
+    return 0;
+}
+
+fun rt_mkerr(kp: Any, kl: Any, s: Any) -> Any {
+    let e: Any = rt_map_new();
+    rt_map_set(e, rt_from(addr("__err"), 5), 4);
+    rt_map_set(e, rt_from(addr("message"), 7), s);
+    rt_map_set(e, rt_from(addr("kind"), 4), rt_from(kp, kl));
+    rt_map_set(e, rt_from(addr("stack"), 5), rt_from(addr(""), 0));
+    return e;
+}
+
+fun rt_failstr(s: Any) -> Any {
+    ERRFLAG = 1;
+    ERRVAL = rt_mkerr(addr("runtime"), 7, s);
+    __longjmp();
+    return 2;
+}
+
+fun rt_fail(s: Any) -> Any {
+    ERRFLAG = 1;
+    ERRVAL = rt_mkerr(addr("fail"), 4, s);
+    __longjmp();
+    return 2;
+}
+
+fun rt_failtype(s: Any) -> Any {
+    ERRFLAG = 1;
+    ERRVAL = rt_mkerr(addr("type"), 4, s);
+    __longjmp();
+    return 2;
+}
+
+fun rt_failarith(s: Any) -> Any {
+    ERRFLAG = 1;
+    ERRVAL = rt_mkerr(addr("arithmetic"), 10, s);
+    __longjmp();
+    return 2;
+}
+
+fun rt_typename(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 0) { return rt_from(addr("Int"), 3); }
+    if (t == 1) { return rt_from(addr("Str"), 3); }
+    if (t == 5) { return rt_from(addr("List"), 4); }
+    if (t == 6) { return rt_from(addr("Float"), 5); }
+    if (t == 7) { return rt_from(addr("Map"), 3); }
+    if (t == 2) { return rt_from(addr("Nil"), 3); }
+    return rt_from(addr("Bool"), 4);
+}
+
+fun rt_badop(os: Any, ol: Any, a: Any, b: Any) -> Any {
+    let m: Any = rt_concat(rt_from(addr("cannot apply `"), 14),
+        rt_concat(rt_from(os, ol),
+        rt_concat(rt_from(addr("` to "), 5),
+        rt_concat(rt_typename(a),
+        rt_concat(rt_from(addr(" and "), 5), rt_typename(b))))));
+    return rt_failtype(m);
+}
+
+fun rt_init() -> Any {
+    mut sz: Any = 268435456;
+    HEAP = syscall(9, 0, sz, 3, 34, 0 - 1, 0);
+    if (HEAP < 0) {
+        sz = 134217728;
+        HEAP = syscall(9, 0, sz, 3, 34, 0 - 1, 0);
+    }
+    if (HEAP < 0) {
+        sz = 33554432;
+        HEAP = syscall(9, 0, sz, 3, 34, 0 - 1, 0);
+    }
+    HEAPEND = HEAP + sz;
+    HP = HEAP;
+    FREELIST = 0;
+    FREEBINS = syscall(9, 0, 4096, 3, 34, 0 - 1, 0);
+    if (FREEBINS < 0) { syscall(60, 70); }
+    MARKMAX = 1048576;
+    MARKN = 0;
+    MARKSTK = syscall(9, 0, 8388608, 3, 34, 0 - 1, 0);
+    GBASE = 0;
+    GCOUNT = 0;
+    CSTOP = STACKTOP;
+    HSTACK = rt_alloc(64 * 24);
+    GCFLAG = 1;
+    return 0;
+}
+
+// ---- conservative mark-sweep collector ----------------------------------
+// Every block carries a 16-byte header: [size|mark][magic].  The payload is
+// returned to callers; payloads are tagged exactly as before.
+fun rt_candidate(w: Any) -> Any {
+    let t: Any = w % 8;
+    let p: Any = w - t;
+    if (p < HEAP + 16) { return 0; }
+    if (p >= HP) { return 0; }
+    if (load64(p - 8) != 5124095576638253) { return 0; }
+    let sz: Any = load64(p - 16);
+    let s: Any = sz - (sz % 2);
+    if (s < 16) { return 0; }
+    if (p + s - 16 > HP) { return 0; }
+    return p;
+}
+
+fun rt_setmark(p: Any) -> Any {
+    let h: Any = p - 16;
+    let v: Any = load64(h);
+    if (v % 2 == 1) { return 0; }
+    store64(h, v + 1);
+    return 1;
+}
+
+fun rt_pushmark(p: Any) -> Any {
+    if (MARKN < MARKMAX) {
+        store64(MARKSTK + MARKN * 8, p);
+        MARKN = MARKN + 1;
+    }
+    return 0;
+}
+
+fun rt_scan_word(w: Any) -> Any {
+    let q: Any = rt_candidate(w);
+    if (q != 0) {
+        if (rt_setmark(q) == 1) { rt_pushmark(q); }
+    }
+    return 0;
+}
+
+// Register the address of a global as a GC root (called once per global at
+// program start; DATA offsets are not contiguous once literals are interned).
+fun rt_gc_root(a: Any) -> Any {
+    if (GROOTS == 0) { GROOTS = rt_alloc(1048576); }
+    store64(GROOTS + GCOUNT * 8, a);
+    GCOUNT = GCOUNT + 1;
+    return 0;
+}
+
+fun rt_scan_range(lo: Any, hi: Any) -> Any {
+    mut a: Any = lo;
+    let r: Any = a % 8;
+    if (r != 0) { a = a + (8 - r); }
+    while (a + 8 <= hi) {
+        rt_scan_word(load64(a));
+        a = a + 8;
+    }
+    return 0;
+}
+
+fun rt_gc() -> Any {
+    if (GCFLAG == 0) { return 0; }
+    MARKN = 0;
+    mut i: Any = 0;
+    while (i < GCOUNT) {
+        rt_scan_word(load64(load64(GROOTS + i * 8)));
+        i = i + 1;
+    }
+    rt_scan_range(__sp(), CSTOP);
+    if (FIB_SAVE0 != 0) {
+        let lo: Any = load64(FIB_SAVE0);
+        if (STACKTOP > lo) { rt_scan_range(lo, STACKTOP); }
+    }
+    if (FIB_TAB != 0) {
+        i = 0;
+        while (i < FIB_N) {
+            let rec: Any = load64(FIB_TAB + i * 8);
+            let lo: Any = load64(rec + 0);
+            let hi: Any = load64(rec + 24);
+            if (hi > lo) { rt_scan_range(lo, hi); }
+            i = i + 1;
+        }
+    }
+    while (MARKN > 0) {
+        MARKN = MARKN - 1;
+        let p: Any = load64(MARKSTK + MARKN * 8);
+        let hdr: Any = load64(p - 16);
+        let size: Any = hdr - (hdr % 2);
+        let end: Any = p + size - 16;
+        mut a: Any = p;
+        while (a < end) {
+            rt_scan_word(load64(a));
+            a = a + 8;
+        }
+    }
+    rt_sweep();
+    GCCOUNT = GCCOUNT + 1;
+    return 0;
+}
+
+fun rt_sweep() -> Any {
+    FREELIST = 0;
+    FREECOUNT = 0; FREEBIN_LOW = 257;
+    mut bin: Any = 0;
+    while (bin < 257) { store64(FREEBINS + bin * 8, 0); bin += 1; }
+    mut run: Any = 0;
+    mut runsize: Any = 0;
+    mut p: Any = HEAP;
+    while (p < HP) {
+        let hdr: Any = load64(p);
+        let marked: Any = hdr % 2;
+        mut sz: Any = hdr - marked;
+        if (sz < 16) { sz = 16; }
+        if (marked == 0) {
+            if (run == 0) { run = p; }
+            runsize += sz;
+        } else {
+            if (run != 0) { rt_free_region(run, runsize); run = 0; runsize = 0; }
+            store64(p, sz);
+        }
+        p = p + sz;
+    }
+    if (run != 0) { HP = run; }
+    return 0;
+}
+
+fun rt_free_region(pointer: Any, size: Any) -> Any {
+    FREECOUNT += 1;
+    store64(pointer, size);
+    if (size <= 2048) {
+        if (size / 8 < FREEBIN_LOW) { FREEBIN_LOW = size / 8; }
+        let slot: Any = FREEBINS + (size / 8) * 8;
+        store64(pointer + 8, load64(slot)); store64(slot, pointer);
+    } else { store64(pointer + 8, FREELIST); FREELIST = pointer; }
+    return 0;
+}
+
+fun rt_fit(need: Any) -> Any {
+    if (need <= 2048) {
+        mut bin: Any = need / 8;
+        if (bin < FREEBIN_LOW) { bin = FREEBIN_LOW; }
+        while (bin <= 256) {
+            let slot: Any = FREEBINS + bin * 8;
+            let block: Any = load64(slot);
+            if (block != 0) {
+                FREECOUNT -= 1;
+                store64(slot, load64(block + 8));
+                if (bin == FREEBIN_LOW and load64(slot) == 0) {
+                    while (FREEBIN_LOW <= 256 and load64(FREEBINS + FREEBIN_LOW * 8) == 0) { FREEBIN_LOW += 1; }
+                }
+                let size: Any = load64(block);
+                if (size - need >= 32) { rt_free_region(block + need, size - need); store64(block, need); }
+                store64(block + 8, 5124095576638253);
+                return block + 16;
+            }
+            bin += 1;
+        }
+    }
+    mut prev: Any = 0;
+    mut cur: Any = FREELIST;
+    while (cur != 0) {
+        let sz: Any = load64(cur);
+        if (sz >= need) {
+            FREECOUNT -= 1;
+            let nxt: Any = load64(cur + 8);
+            let rem: Any = sz - need;
+            if (rem >= 32) {
+                if (prev == 0) { FREELIST = nxt; } else { store64(prev + 8, nxt); }
+                rt_free_region(cur + need, rem);
+                store64(cur, need);
+                store64(cur + 8, 5124095576638253);
+                return cur + 16;
+            } else {
+                if (prev == 0) { FREELIST = nxt; } else { store64(prev + 8, nxt); }
+                store64(cur, sz);
+                store64(cur + 8, 5124095576638253);
+                return cur + 16;
+            }
+        }
+        prev = cur;
+        cur = load64(cur + 8);
+    }
+    return 0;
+}
+
+fun rt_alloc(n: Any) -> Any {
+    mut need: Any = n + 16;
+    let r: Any = need % 8;
+    if (r != 0) { need = need + (8 - r); }
+    mut p: Any = 0;
+    if (FREECOUNT != 0) { p = rt_fit(need); }
+    if (p != 0) { return p; }
+    if (HP + need > HEAPEND) {
+        rt_gc();
+        p = rt_fit(need);
+        if (p != 0) { return p; }
+        if (HP + need > HEAPEND) {
+            rt_write(addr("out of memory\n"), 14);
+            syscall(60, 70);
+        }
+    }
+    let H: Any = HP;
+    HP = HP + need;
+    store64(H, need);
+    store64(H + 8, 5124095576638253);
+    return H + 16;
+}
+
+fun rt_write(p: Any, n: Any) -> Any {
+    syscall(1, 1, p, n);
+    return 0;
+}
+
+fun rt_copy(d: Any, s: Any, n: Any) -> Any {
+    mut i: Any = 0;
+    // The full runtime runs on x86-64, where unaligned 64-bit copies are legal.
+    // The portable core retains its byte loop for RV64 alignment requirements.
+    while (i + 8 <= n) { store64(d + i, load64(s + i)); i += 8; }
+    while (i < n) {
+        store8(d + i, load8(s + i));
+        i = i + 1;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- strings
+
+fun rt_strnew(ln: Any) -> Any {
+    let p: Any = rt_alloc(ln + 9);
+    store64(p, ln);
+    store8(p + 8 + ln, 0);
+    return p + 1;
+}
+
+fun rt_from(srcp: Any, srcl: Any) -> Any {
+    let s: Any = rt_strnew(srcl);
+    rt_copy(s + 7, srcp, srcl);
+    return s;
+}
+
+fun rt_slen(v: Any) -> Any {
+    return load64(v - 1);
+}
+
+// Tagged pointer to the string's bytes.
+fun rt_addr(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) { return (v + 7) * 8; }
+    if (t == 6) { return (v - 6) * 8; }
+    return v;
+}
+
+// Fresh NUL-terminated copy, returned as a tagged address.
+fun rt_cstr(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) {
+        let ln: Any = rt_slen(v);
+        let p: Any = rt_alloc(ln + 1);
+        rt_copy(p, v + 7, ln);
+        store8(p + ln, 0);
+        return p * 8;
+    }
+    return v;
+}
+
+fun rt_concat(a: Any, b: Any) -> Any {
+    let la: Any = rt_slen(a);
+    let lb: Any = rt_slen(b);
+    let s: Any = rt_strnew(la + lb);
+    rt_copy(s + 7, a + 7, la);
+    rt_copy(s + 7 + la, b + 7, lb);
+    return s;
+}
+
+fun rt_str_eq(a: Any, b: Any) -> Any {
+    let la: Any = rt_slen(a);
+    let lb: Any = rt_slen(b);
+    if (la != lb) { return 0; }
+    mut i: Any = 0;
+    while (i < la) {
+        if (load8(a + 7 + i) != load8(b + 7 + i)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fun rt_str_lt(a: Any, b: Any) -> Any {
+    let la: Any = rt_slen(a);
+    let lb: Any = rt_slen(b);
+    mut n: Any = la;
+    if (lb < n) { n = lb; }
+    mut i: Any = 0;
+    while (i < n) {
+        let ca: Any = load8(a + 7 + i);
+        let cb: Any = load8(b + 7 + i);
+        if (ca < cb) { return 1; }
+        if (ca > cb) { return 0; }
+        i = i + 1;
+    }
+    if (la < lb) { return 1; }
+    return 0;
+}
+
+fun rt_str_cmp(a: Any, b: Any) -> Any {
+    if (rt_str_eq(a, b) == 1) { return 0; }
+    if (rt_str_lt(a, b) == 1) { return 0 - 8; }
+    return 8;
+}
+
+fun rt_raise(e: Any) -> Any {
+    ERRFLAG = 1;
+    ERRVAL = e;
+    __longjmp();
+    return 2;
+}
+
+// ---------------------------------------------------------------- numbers
+
+fun rt_putn(v: Any) -> Any {
+    let n: Any = v / 8;
+    let buf: Any = rt_alloc(32);
+    let tmp: Any = rt_alloc(32);
+    mut x: Any = n;
+    mut neg: Any = 0;
+    if (x < 0) { neg = 1; x = 0 - x; }
+    mut d: Any = 0;
+    if (x == 0) {
+        store8(tmp, 48);
+        d = 1;
+    }
+    while (x > 0) {
+        store8(tmp + d, (x % 10) + 48);
+        x = x / 10;
+        d = d + 1;
+    }
+    mut o: Any = 0;
+    if (neg == 1) { store8(buf, 45); o = 1; }
+    mut k: Any = 0;
+    while (k < d) {
+        store8(buf + o + k, load8(tmp + (d - 1 - k)));
+        k = k + 1;
+    }
+    rt_write(buf, o + d);
+    return 0;
+}
+
+fun rt_int_str(v: Any) -> Any {
+    let n: Any = v / 8;
+    let tmp: Any = rt_alloc(32);
+    mut x: Any = n;
+    mut neg: Any = 0;
+    if (x < 0) { neg = 1; x = 0 - x; }
+    mut d: Any = 0;
+    if (x == 0) {
+        store8(tmp, 48);
+        d = 1;
+    }
+    while (x > 0) {
+        store8(tmp + d, (x % 10) + 48);
+        x = x / 10;
+        d = d + 1;
+    }
+    mut ln: Any = d;
+    if (neg == 1) { ln = d + 1; }
+    let s: Any = rt_strnew(ln);
+    mut o: Any = 0;
+    if (neg == 1) { store8(s + 7, 45); o = 1; }
+    mut k: Any = 0;
+    while (k < d) {
+        store8(s + 7 + o + k, load8(tmp + (d - 1 - k)));
+        k = k + 1;
+    }
+    return s;
+}
+
+// Quoted form of a value, for nesting inside lists and maps.
+fun rt_repr_elem(v: Any, path: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) {
+        let n: Any = rt_slen(v);
+        let q: Any = rt_strnew(n + 2);
+        store8(q + 7, 34);
+        rt_copy(q + 8, v + 7, n);
+        store8(q + 8 + n, 34);
+        return q;
+    }
+    return rt_repr_value(v, path);
+}
+
+fun rt_repr_list(v: Any, path: Any) -> Any {
+    mut out: Any = rt_from(addr("["), 1);
+    let n: Any = rt_list_len(v);
+    mut i: Any = 0;
+    while (i < n) {
+        if (i > 0) { out = rt_concat(out, rt_from(addr(", "), 2)); }
+        out = rt_concat(out, rt_repr_elem(rt_list_get(v, i * 8), path));
+        i = i + 1;
+    }
+    return rt_concat(out, rt_from(addr("]"), 1));
+}
+
+fun rt_repr_map(v: Any, path: Any) -> Any {
+    let p: Any = v - 7;
+    let n: Any = load64(p);
+    let d: Any = load64(p + 16);
+    let idx: Any = rt_alloc(n * 8 + 8);
+    mut i: Any = 0;
+    while (i < n) {
+        store64(idx + i * 8, i * 16);
+        i = i + 1;
+    }
+    mut a: Any = 1;
+    while (a < n) {
+        let key: Any = load64(idx + a * 8);
+        mut j: Any = a;
+        while (j > 0) {
+            let pk: Any = load64(idx + (j - 1) * 8);
+            if (rt_lt(load64(d + key), load64(d + pk)) == 4) {
+                store64(idx + j * 8, pk);
+                j = j - 1;
+            } else {
+                break;
+            }
+        }
+        store64(idx + j * 8, key);
+        a = a + 1;
+    }
+    mut out: Any = rt_from(addr("{"), 1);
+    i = 0;
+    while (i < n) {
+        if (i > 0) { out = rt_concat(out, rt_from(addr(", "), 2)); }
+        let o: Any = load64(idx + i * 8);
+        out = rt_concat(out, rt_repr_elem(load64(d + o), path));
+        out = rt_concat(out, rt_from(addr(": "), 2));
+        out = rt_concat(out, rt_repr_elem(load64(d + o + 8), path));
+        i = i + 1;
+    }
+    return rt_concat(out, rt_from(addr("}"), 1));
+}
+
+fun rt_to_str(v: Any) -> Any { return rt_repr_value(v, 0); }
+
+// fun str(v) { return rt_to_str(v); }
+
+fun rt_repr_value(v: Any, path: Any) -> Any {
+    if (v % 8 == 5 or v % 8 == 7) {
+        mut parent: Any = path;
+        while (parent != 0) {
+            if (load64(parent) == v) { return rt_from(addr("<cycle>"), 7); }
+            parent = load64(parent + 8);
+        }
+        let link: Any = rt_alloc(16);
+        store64(link, v); store64(link + 8, path); path = link;
+    }
+    let t: Any = v % 8;
+    if (t == 7) {
+        if (rt_map_find(v, rt_from(addr("__err"), 5)) >= 0) {
+            return rt_map_get(v, rt_from(addr("message"), 7));
+        }
+    }
+    if (t == 1) { return v; }
+    if (t == 0) { return rt_int_str(v); }
+    if (t == 6) { return rt_fstr(v); }
+    if (t == 2) { return rt_from(addr("nil"), 3); }
+    if (t == 3) { return rt_from(addr("false"), 5); }
+    if (t == 4) { return rt_from(addr("true"), 4); }
+    if (t == 5) { return rt_repr_list(v, path); }
+    if (t == 7) { return rt_repr_map(v, path); }
+    return rt_from(addr("?"), 1);
+}
+
+// ---------------------------------------------------------------- lists
+
+fun rt_list_new(cap: Any) -> Any {
+    let p: Any = rt_alloc(24);
+    let d: Any = rt_alloc(cap * 8);
+    store64(p, 0);
+    store64(p + 8, cap);
+    store64(p + 16, d);
+    return p + 5;
+}
+
+fun rt_list_len(v: Any) -> Any {
+    return load64(v - 5);
+}
+
+fun rt_list_set(l: Any, i: Any, x: Any) -> Any {
+    let p: Any = l - 5;
+    let d: Any = load64(p + 16);
+    store64(d + i, x);
+    let idx: Any = i / 8;
+    if (idx + 1 > load64(p)) { store64(p, idx + 1); }
+    return x;
+}
+
+fun rt_list_get(l: Any, i: Any) -> Any {
+    let d: Any = load64(l - 5 + 16);
+    return load64(d + i);
+}
+
+fun rt_push(l: Any, x: Any) -> Any {
+    let p: Any = l - 5;
+    let len: Any = load64(p);
+    let cap: Any = load64(p + 8);
+    if (len >= cap) {
+        mut nc: Any = cap * 2;
+        if (nc < 4) { nc = 4; }
+        let nd: Any = rt_alloc(nc * 8);
+        rt_copy(nd, load64(p + 16), len * 8);
+        store64(p + 16, nd);
+        store64(p + 8, nc);
+    }
+    let d: Any = load64(p + 16);
+    store64(d + len * 8, x);
+    store64(p, len + 1);
+    return l;
+}
+
+fun utf8_seq(b: Any) -> Any {
+    if (b < 128) { return 1; }
+    if (b < 224) { return 2; }
+    if (b < 240) { return 3; }
+    return 4;
+}
+
+fun utf8_cplen(s: Any) -> Any {
+    let n: Any = rt_slen(s);
+    mut i: Any = 0;
+    mut c: Any = 0;
+    while (i < n) {
+        i = i + utf8_seq(load8(s + 7 + i));
+        c = c + 1;
+    }
+    return c;
+}
+
+fun utf8_off(s: Any, cp: Any) -> Any {
+    let n: Any = rt_slen(s);
+    mut i: Any = 0;
+    mut k: Any = 0;
+    while (i < n and k < cp) {
+        i = i + utf8_seq(load8(s + 7 + i));
+        k = k + 1;
+    }
+    return i;
+}
+
+fun utf8_decode(s: Any, off: Any) -> Any {
+    let b0: Any = load8(s + 7 + off);
+    if (b0 < 128) { return b0; }
+    if (b0 < 224) {
+        return (b0 - 192) * 64 + (load8(s + 8 + off) - 128);
+    }
+    if (b0 < 240) {
+        return (b0 - 224) * 4096 + (load8(s + 8 + off) - 128) * 64 + (load8(s + 9 + off) - 128);
+    }
+    return (b0 - 240) * 262144 + (load8(s + 8 + off) - 128) * 4096 + (load8(s + 9 + off) - 128) * 64 + (load8(s + 10 + off) - 128);
+}
+
+fun utf8_encode(c: Any) -> Any {
+    if (c < 128) {
+        let s: Any = rt_strnew(1);
+        store8(s + 7, c);
+        return s;
+    }
+    if (c < 2048) {
+        let s: Any = rt_strnew(2);
+        store8(s + 7, 192 + c / 64);
+        store8(s + 8, 128 + c % 64);
+        return s;
+    }
+    if (c < 65536) {
+        let s: Any = rt_strnew(3);
+        store8(s + 7, 224 + c / 4096);
+        store8(s + 8, 128 + (c / 64) % 64);
+        store8(s + 9, 128 + c % 64);
+        return s;
+    }
+    let s: Any = rt_strnew(4);
+    store8(s + 7, 240 + c / 262144);
+    store8(s + 8, 128 + (c / 4096) % 64);
+    store8(s + 9, 128 + (c / 64) % 64);
+    store8(s + 10, 128 + c % 64);
+    return s;
+}
+
+fun rt_index_get(a: Any, i: Any) -> Any {
+    let t: Any = a % 8;
+    if (t == 5) {
+        if (i < 0 or i >= rt_list_len(a) * 8) { return 2; }
+        return rt_list_get(a, i);
+    }
+    if (t == 7) { return rt_map_get(a, i); }
+    if (t == 1) {
+        let cp: Any = i / 8;
+        if (cp < 0 or cp >= utf8_cplen(a)) { return 2; }
+        return utf8_encode(utf8_decode(a, utf8_off(a, cp)));
+    }
+    return 2;
+}
+
+fun rt_index_set(a: Any, i: Any, x: Any) -> Any {
+    let t: Any = a % 8;
+    if (t == 5) { rt_list_set(a, i, x); }
+    if (t == 7) { rt_map_set(a, i, x); }
+    return x;
+}
+
+fun rt_print_list(v: Any) -> Any {
+    rt_write(addr("["), 1);
+    let n: Any = rt_list_len(v);
+    mut i: Any = 0;
+    while (i < n) {
+        if (i > 0) { rt_write(addr(", "), 2); }
+        rt_print_elem(rt_list_get(v, i * 8));
+        i = i + 1;
+    }
+    rt_write(addr("]"), 1);
+    return 0;
+}
+
+// ---------------------------------------------------------------- maps
+
+fun rt_map_new() -> Any {
+    // Keep insertion-ordered pairs at the original offsets. The optional
+    // string-key index accelerates records/symbol tables without changing
+    // equality for non-string keys or iteration order.
+    let p: Any = rt_alloc(40);
+    let d: Any = rt_alloc(8);
+    store64(p, 0);
+    store64(p + 8, 0);
+    store64(p + 16, d);
+    store64(p + 24, 0);
+    store64(p + 32, 0);
+    return p + 7;
+}
+
+fun rt_key_hash(k: Any) -> Any {
+    let n: Any = rt_slen(k);
+    mut h: Any = 5381;
+    mut i: Any = 0;
+    while (i < n) { h = (h * 131 + load8(k + 7 + i)) % 2147483647; i += 1; }
+    return h;
+}
+
+fun rt_map_index(m: Any, index: Any) -> Any {
+    let p: Any = m - 7;
+    let d: Any = load64(p + 16);
+    let k: Any = load64(d + index * 16);
+    if (k % 8 != 1) { return 0; }
+    let cap: Any = load64(p + 32);
+    let table: Any = load64(p + 24);
+    mut slot: Any = rt_key_hash(k) % cap;
+    while (load64(table + slot * 8) != 0) { slot = (slot + 1) % cap; }
+    store64(table + slot * 8, index + 1);
+    return 0;
+}
+
+fun rt_map_rehash(m: Any) -> Any {
+    let p: Any = m - 7;
+    let n: Any = load64(p);
+    mut cap: Any = 16;
+    while (cap < n * 2) { cap *= 2; }
+    let table: Any = rt_alloc(cap * 8);
+    mut i: Any = 0;
+    while (i < cap) { store64(table + i * 8, 0); i += 1; }
+    store64(p + 24, table); store64(p + 32, cap);
+    i = 0;
+    while (i < n) { rt_map_index(m, i); i += 1; }
+    return 0;
+}
+
+fun rt_map_find(m: Any, k: Any) -> Any {
+    if (m % 8 != 7) { return 0 - 1; }
+    let p: Any = m - 7;
+    let n: Any = load64(p);
+    let d: Any = load64(p + 16);
+    let cap: Any = load64(p + 32);
+    if (cap != 0 and k % 8 == 1) {
+        let table: Any = load64(p + 24);
+        mut slot: Any = rt_key_hash(k) % cap;
+        mut entry: Any = load64(table + slot * 8);
+        while (entry != 0) {
+            if (rt_eq(load64(d + (entry - 1) * 16), k) == 4) { return entry - 1; }
+            slot = (slot + 1) % cap;
+            entry = load64(table + slot * 8);
+        }
+        return 0 - 1;
+    }
+    mut i: Any = 0;
+    while (i < n) {
+        if (rt_eq(load64(d + i * 16), k) == 4) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fun rt_map_set(m: Any, k: Any, v: Any) -> Any {
+    if (m % 8 != 7) { return v; }
+    let p: Any = m - 7;
+    let idx: Any = rt_map_find(m, k);
+    if (idx >= 0) {
+        let d: Any = load64(p + 16);
+        store64(d + idx * 16 + 8, v);
+        return v;
+    }
+    let n: Any = load64(p);
+    let cap: Any = load64(p + 8);
+    if (n >= cap) {
+        mut nc: Any = cap * 2;
+        if (nc < 4) { nc = 4; }
+        let nd: Any = rt_alloc(nc * 16);
+        rt_copy(nd, load64(p + 16), n * 16);
+        store64(p + 16, nd);
+        store64(p + 8, nc);
+    }
+    let d: Any = load64(p + 16);
+    store64(d + n * 16, k);
+    store64(d + n * 16 + 8, v);
+    store64(p, n + 1);
+    let hashcap: Any = load64(p + 32);
+    if (n + 1 >= 8 and (hashcap == 0 or (n + 1) * 4 >= hashcap * 3)) { rt_map_rehash(m); }
+    else if (hashcap != 0) { rt_map_index(m, n); }
+    return v;
+}
+
+fun rt_map_get(m: Any, k: Any) -> Any {
+    let idx: Any = rt_map_find(m, k);
+    if (idx < 0) { return 2; }
+    let d: Any = load64(m - 7 + 16);
+    return load64(d + idx * 16 + 8);
+}
+
+fun rt_map_len(m: Any) -> Any {
+    return load64(m - 7);
+}
+
+fun rt_print_map(v: Any) -> Any {
+    rt_write(addr("{"), 1);
+    let p: Any = v - 7;
+    let n: Any = load64(p);
+    let d: Any = load64(p + 16);
+    let idx: Any = rt_alloc(n * 8 + 8);
+    mut i: Any = 0;
+    while (i < n) {
+        store64(idx + i * 8, i * 16);
+        i = i + 1;
+    }
+    mut a: Any = 1;
+    while (a < n) {
+        let key: Any = load64(idx + a * 8);
+        mut j: Any = a;
+        while (j > 0) {
+            let pk: Any = load64(idx + (j - 1) * 8);
+            if (rt_lt(load64(d + key), load64(d + pk)) == 4) {
+                store64(idx + j * 8, pk);
+                j = j - 1;
+            } else {
+                break;
+            }
+        }
+        store64(idx + j * 8, key);
+        a = a + 1;
+    }
+    i = 0;
+    while (i < n) {
+        if (i > 0) { rt_write(addr(", "), 2); }
+        let o: Any = load64(idx + i * 8);
+        rt_print_elem(load64(d + o));
+        rt_write(addr(": "), 2);
+        rt_print_elem(load64(d + o + 8));
+        i = i + 1;
+    }
+    rt_write(addr("}"), 1);
+    return 0;
+}
+
+// ---------------------------------------------------------------- floats
+
+fun rt_env_new(n: Any) -> Any {
+    return rt_alloc(n * 8);
+}
+
+fun rt_closure(code: Any, env: Any) -> Any {
+    let p: Any = rt_alloc(32);
+    store64(p + 24, 1296128323);
+    store64(p, code);
+    store64(p + 8, env);
+    store64(p + 16, 0);
+    return p;
+}
+
+// Closure with an explicit arity (word at +16), used to pad short argument
+// lists when a closure is applied with fewer arguments than it declares.
+fun rt_closure3(code: Any, env: Any, arity: Any) -> Any {
+    let p: Any = rt_alloc(32);
+    store64(p + 24, 1296128323);
+    store64(p, code);
+    store64(p + 8, env);
+    store64(p + 16, arity);
+    return p;
+}
+
+// Validate before reading the closure payload; ordinary integers are also tag 0.
+fun rt_require_callable(v: Any) -> Any {
+    if (v % 8 == 0 and rt_candidate(v) == v and v != 0) {
+        if (load64(v - 16) >= 48 and load64(v + 24) == 1296128323) { return v; }
+    }
+    return rt_failtype(rt_from(addr("value is not callable"), 21));
+}
+
+fun rt_box(bits: Any) -> Any {
+    let p: Any = rt_alloc(8);
+    store64(p, bits);
+    return p + 6;
+}
+
+// Generic mutable cell used to box captured locals (raw pointer to a value).
+fun rt_box_val(v: Any) -> Any {
+    let p: Any = rt_alloc(8);
+    store64(p, v);
+    return p;
+}
+
+fun power2(k: Any) -> Any {
+    mut r: Any = 1;
+    mut i: Any = 0;
+    while (i < k) {
+        r = r * 2;
+        i = i + 1;
+    }
+    return r;
+}
+
+// Positive integer -> IEEE754 double bit pattern, exponent shifted by `extra`.
+fun u64_to_bits(P: Any, extra: Any) -> Any {
+    if (P == 0) { return 0; }
+    mut h: Any = 0;
+    mut x: Any = P;
+    while (x > 1) {
+        x = x / 2;
+        h = h + 1;
+    }
+    mut mant: Any = 0;
+    if (h <= 52) { mant = (P - power2(h)) * power2(52 - h); }
+    else { mant = P / power2(h - 52) - power2(52); }
+    let ef: Any = 1023 + h + extra;
+    return ef * 4503599627370496 + mant;
+}
+
+fun rt_parse_float(p: Any, n: Any) -> Any {
+    mut i: Any = 0;
+    mut neg: Any = 0;
+    if (load8(p) == 45) {
+        neg = 1;
+        i = 1;
+    }
+    mut mant: Any = 0;
+    mut frac: Any = 0;
+    mut dot: Any = 0;
+    mut exp: Any = 0;
+    while (i < n) {
+        let c: Any = load8(p + i);
+        if (c == 46) {
+            dot = 1;
+            i = i + 1;
+            continue;
+        }
+        if (c == 101  or  c == 69) {
+            i = i + 1;
+            mut es: Any = 0;
+            if (i < n) {
+                if (load8(p + i) == 43) { i = i + 1; }
+                else if (load8(p + i) == 45) { es = 1; i = i + 1; }
+            }
+            mut ev: Any = 0;
+            while (i < n) {
+                let d: Any = load8(p + i) - 48;
+                if (d < 0) { break; }
+                if (d > 9) { break; }
+                ev = ev * 10 + d;
+                i = i + 1;
+            }
+            if (es == 1) { ev = 0 - ev; }
+            exp = exp + ev;
+            break;
+        }
+        let d: Any = c - 48;
+        if (d >= 0) {
+            if (d <= 9) {
+                mant = mant * 10 + d;
+                if (dot == 1) { frac = frac + 1; }
+            }
+        }
+        i = i + 1;
+    }
+    let e: Any = exp - frac;
+    mut bits: Any = 0;
+    if (e >= 0) {
+        mut ee: Any = e;
+        if (ee > 18) { ee = 18; }
+        mut P: Any = mant;
+        mut j: Any = 0;
+        while (j < ee) {
+            P = P * 10;
+            j = j + 1;
+        }
+        bits = u64_to_bits(P, 0);
+    } else {
+        let d: Any = 0 - e;
+        mut D: Any = 1;
+        mut j: Any = 0;
+        while (j < d) {
+            D = D * 10;
+            j = j + 1;
+        }
+        let qi: Any = mant / D;
+        mut R: Any = mant % D;
+        mut hb: Any = 0;
+        mut t2: Any = qi;
+        while (t2 > 1) {
+            t2 = t2 / 2;
+            hb = hb + 1;
+        }
+        mut t: Any = 62 - hb;
+        if (t < 0) { t = 0; }
+        if (t > 62) { t = 62; }
+        mut qf: Any = 0;
+        mut k: Any = 0;
+        while (k < t) {
+            R = R * 2;
+            if (R >= D) {
+                R = R - D;
+                qf = qf * 2 + 1;
+            } else {
+                qf = qf * 2;
+            }
+            k = k + 1;
+        }
+        let Q: Any = qi * power2(t) + qf;
+        bits = u64_to_bits(Q, 0 - t);
+    }
+    if (neg == 1) {
+        let lo: Any = bits % 4294967296;
+        let hi: Any = bits / 4294967296 + 2147483648;
+        let p2: Any = rt_alloc(8);
+        store32(p2, lo);
+        store32(p2 + 4, hi);
+        return p2 + 6;
+    }
+    return rt_box(bits);
+}
+
+// Floating-point literal parser.  Accumulates the decimal digits into a
+// double, then scales by a power of ten; this matches the native prelude's
+// `float` and stays correctly rounded for ordinary literals.
+fun rt_parse_float2(p: Any, n: Any) -> Any {
+    mut i: Any = 0;
+    mut neg: Any = 0;
+    if (load8(p) == 45) {
+        neg = 1;
+        i = 1;
+    }
+    let ten: Any = rt_box(u64_to_bits(10, 0));
+    let sign1: Any = rt_const_hi_lo(3220176896, 0);
+    mut val: Any = rt_box(u64_to_bits(0, 0));
+    mut fd: Any = 0;
+    mut seen: Any = 0;
+    mut dot: Any = 0;
+    mut exp: Any = 0;
+    while (i < n) {
+        let c: Any = load8(p + i);
+        if (c == 46) {
+            dot = 1;
+            i = i + 1;
+            continue;
+        }
+        if (c == 101  or  c == 69) {
+            i = i + 1;
+            mut es: Any = 0;
+            if (i < n) {
+                if (load8(p + i) == 43) { i = i + 1; }
+                else if (load8(p + i) == 45) { es = 1; i = i + 1; }
+            }
+            mut ev: Any = 0;
+            while (i < n) {
+                let dd: Any = load8(p + i) - 48;
+                if (dd < 0) { break; }
+                if (dd > 9) { break; }
+                ev = ev * 10 + dd;
+                i = i + 1;
+            }
+            if (es == 1) { ev = 0 - ev; }
+            exp = exp + ev;
+            break;
+        }
+        let d: Any = c - 48;
+        if (d >= 0) {
+            if (d <= 9) {
+                val = __fbin(0, __fbin(2, val, ten), rt_to_f(d * 8));
+                if (dot == 1) { fd = fd + 1; }
+                seen = 1;
+            }
+        }
+        i = i + 1;
+    }
+    let e: Any = exp - fd;
+    let one: Any = rt_box(u64_to_bits(1, 0));
+    if (e > 0) {
+        mut p: Any = one;
+        mut k: Any = 0;
+        while (k < e) { p = __fbin(2, p, ten); k = k + 1; }
+        val = __fbin(2, val, p);
+    } else if (e < 0) {
+        mut p: Any = one;
+        mut k: Any = 0;
+        let ne: Any = 0 - e;
+        while (k < ne) { p = __fbin(2, p, ten); k = k + 1; }
+        val = __fbin(3, val, p);
+    }
+    if (neg == 1) { val = __fbin(2, val, sign1); }
+    return val;
+}
+
+fun rt_to_f(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 6) { return v; }
+    if (t == 0) {
+        let n: Any = v / 8;
+        if (n < 0) {
+            return __fbin(2, rt_box(u64_to_bits(0 - n, 0)), rt_const_hi_lo(3220176896, 0));
+        }
+        return rt_box(u64_to_bits(n, 0));
+    }
+    return v;
+}
+
+fun rt_fstr(v: Any) -> Any {
+    let bits: Any = load64(v - 6);
+    let buf: Any = rt_alloc(64);
+    mut o: Any = 0;
+    if (__fsign(bits) == 1) {
+        store8(buf, 45);
+        o = 1;
+    }
+    let ip: Any = __ftrunc(bits);
+    mut x: Any = ip;
+    if (x < 0) { x = 0 - x; }
+    let tmp: Any = rt_alloc(32);
+    mut d: Any = 0;
+    if (x == 0) {
+        store8(tmp, 48);
+        d = 1;
+    }
+    while (x > 0) {
+        store8(tmp + d, (x % 10) + 48);
+        x = x / 10;
+        d = d + 1;
+    }
+    mut k: Any = d;
+    while (k > 0) {
+        store8(buf + o, load8(tmp + k - 1));
+        o = o + 1;
+        k = k - 1;
+    }
+    store8(buf + o, 46);
+    o = o + 1;
+    let fd7: Any = __ffrac(bits, 10000000);
+    let fd: Any = (fd7 + 5) / 10;
+    mut f: Any = fd;
+    if (f < 0) { f = 0 - f; }
+    let ft: Any = rt_alloc(16);
+    mut j: Any = 5;
+    while (j >= 0) {
+        store8(ft + j, (f % 10) + 48);
+        f = f / 10;
+        j = j - 1;
+    }
+    mut fl: Any = 6;
+    while (fl > 1) {
+        if (load8(ft + fl - 1) == 48) { fl = fl - 1; } else { break; }
+    }
+    k = 0;
+    while (k < fl) {
+        store8(buf + o, load8(ft + k));
+        o = o + 1;
+        k = k + 1;
+    }
+    let s: Any = rt_strnew(o);
+    rt_copy(s + 7, buf, o);
+    return s;
+}
+
+fun rt_print_float(v: Any) -> Any {
+    rt_print_str(rt_fstr(v));
+    return 0;
+}
+
+// ----------------------------------------------------- string & list lib
+
+fun rt_sub_eq(s: Any, off: Any, sep: Any) -> Any {
+    let m: Any = rt_slen(sep);
+    mut j: Any = 0;
+    while (j < m) {
+        if (load8(s + 7 + off + j) != load8(sep + 7 + j)) { return 0; }
+        j = j + 1;
+    }
+    return 1;
+}
+
+fun rt_substr(s: Any, a: Any, b: Any) -> Any {
+    let bo: Any = utf8_off(s, a);
+    let eo: Any = utf8_off(s, b);
+    mut ln: Any = eo - bo;
+    if (ln < 0) { ln = 0; }
+    let r: Any = rt_strnew(ln);
+    rt_copy(r + 7, s + 7 + bo, ln);
+    return r;
+}
+
+fun rt_char_at(s: Any, i: Any) -> Any {
+    return utf8_decode(s, utf8_off(s, i / 8)) * 8;
+}
+
+fun rt_char_from(c: Any) -> Any {
+    return utf8_encode(c / 8);
+}
+
+fun rt_lower(s: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let r: Any = rt_strnew(n);
+    mut i: Any = 0;
+    while (i < n) {
+        mut c: Any = load8(s + 7 + i);
+        if (c >= 65) {
+            if (c <= 90) { c = c + 32; }
+        }
+        store8(r + 7 + i, c);
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_upper(s: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let r: Any = rt_strnew(n);
+    mut i: Any = 0;
+    while (i < n) {
+        mut c: Any = load8(s + 7 + i);
+        if (c >= 97) {
+            if (c <= 122) { c = c - 32; }
+        }
+        store8(r + 7 + i, c);
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_trim(s: Any) -> Any {
+    let n: Any = rt_slen(s);
+    mut a: Any = 0;
+    mut b: Any = n;
+    while (a < b) {
+        let c: Any = load8(s + 7 + a);
+        if (c == 32  or  c == 9  or  c == 10  or  c == 13) { a = a + 1; } else { break; }
+    }
+    while (b > a) {
+        let c: Any = load8(s + 7 + b - 1);
+        if (c == 32  or  c == 9  or  c == 10  or  c == 13) { b = b - 1; } else { break; }
+    }
+    return rt_substr(s, a, b);
+}
+
+fun rt_split(s: Any, sep: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let m: Any = rt_slen(sep);
+    let l: Any = rt_list_new(4);
+    if (m == 0) {
+        rt_push(l, s);
+        return l;
+    }
+    mut start: Any = 0;
+    mut i: Any = 0;
+    while (i + m <= n) {
+        if (rt_sub_eq(s, i, sep) == 1) {
+            rt_push(l, rt_substr(s, start, i));
+            start = i + m;
+            i = start;
+        } else {
+            i = i + 1;
+        }
+    }
+    rt_push(l, rt_substr(s, start, n));
+    return l;
+}
+
+fun rt_repeat(s: Any, nv: Any) -> Any {
+    let k: Any = nv / 8;
+    let ln: Any = rt_slen(s);
+    let r: Any = rt_strnew(ln * k);
+    mut i: Any = 0;
+    while (i < k) {
+        rt_copy(r + 7 + i * ln, s + 7, ln);
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_join(l: Any, sep: Any) -> Any {
+    let n: Any = rt_list_len(l);
+    if (n == 0) { return rt_from(addr(""), 0); }
+    mut r: Any = rt_list_get(l, 0);
+    mut i: Any = 1;
+    while (i < n) {
+        r = rt_concat(rt_concat(r, sep), rt_list_get(l, i * 8));
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_contains(s: Any, sub: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let m: Any = rt_slen(sub);
+    if (m == 0) { return 4; }
+    mut i: Any = 0;
+    while (i + m <= n) {
+        if (rt_sub_eq(s, i, sub) == 1) { return 4; }
+        i = i + 1;
+    }
+    return 3;
+}
+
+fun rt_starts_with(s: Any, sub: Any) -> Any {
+    if (rt_slen(sub) > rt_slen(s)) { return 3; }
+    if (rt_sub_eq(s, 0, sub) == 1) { return 4; }
+    return 3;
+}
+
+fun rt_ends_with(s: Any, sub: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let m: Any = rt_slen(sub);
+    if (m > n) { return 3; }
+    if (rt_sub_eq(s, n - m, sub) == 1) { return 4; }
+    return 3;
+}
+
+fun rt_index_of(s: Any, sub: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let m: Any = rt_slen(sub);
+    mut i: Any = 0;
+    while (i + m <= n) {
+        if (rt_sub_eq(s, i, sub) == 1) { return i * 8; }
+        i = i + 1;
+    }
+    return 0 - 8;
+}
+
+fun rt_cmp(a: Any, b: Any) -> Any {
+    let ta: Any = a % 8;
+    let tb: Any = b % 8;
+    if (ta == 6  or  tb == 6) {
+        let af: Any = rt_to_f(a);
+        let bf: Any = rt_to_f(b);
+        if (__fcmp(0, af, bf) == 4) { return 0; }
+        if (__fcmp(2, af, bf) == 4) { return 0 - 8; }
+        return 8;
+    }
+    if (ta == 1) {
+        if (tb == 1) {
+            if (rt_str_eq(a, b) == 1) { return 0; }
+            if (rt_str_lt(a, b) == 1) { return 0 - 8; }
+            return 8;
+        }
+    }
+    if (a < b) { return 0 - 8; }
+    if (a > b) { return 8; }
+    return 0;
+}
+
+fun rt_min(a: Any, b: Any) -> Any {
+    if (rt_lt(a, b) == 4) { return a; }
+    return b;
+}
+
+fun rt_max(a: Any, b: Any) -> Any {
+    if (rt_gt(a, b) == 4) { return a; }
+    return b;
+}
+
+fun rt_abs(a: Any) -> Any {
+    if (a % 8 == 6) { return __fabs(a); }
+    if (a < 0) { return rt_neg(a); }
+    return a;
+}
+
+fun rt_neg(a: Any) -> Any {
+    if (a % 8 == 6) { return __fbin(2, a, rt_const_hi_lo(3220176896, 0)); }
+    return rt_sub(0, a);
+}
+
+fun rt_bool(v: Any) -> Any {
+    if (v == 2) { return 3; }
+    if (v == 3) { return 3; }
+    return 4;
+}
+
+fun rt_reverse(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) { return rt_revstr(v); }
+    let n: Any = rt_list_len(v);
+    let r: Any = rt_list_new(n);
+    mut i: Any = n;
+    while (i > 0) {
+        i = i - 1;
+        rt_push(r, rt_list_get(v, i * 8));
+    }
+    return r;
+}
+
+fun rt_to_map(l: Any) -> Any {
+    if (l % 8 == 7) { return l; }
+    let m: Any = rt_map_new();
+    let n: Any = rt_list_len(l);
+    mut i: Any = 0;
+    while (i < n) {
+        let pr: Any = rt_list_get(l, i * 8);
+        rt_map_set(m, rt_list_get(pr, 0), rt_list_get(pr, 8));
+        i = i + 1;
+    }
+    return m;
+}
+
+fun rt_keys(m: Any) -> Any {
+    let n: Any = rt_map_len(m);
+    let d: Any = load64(m - 7 + 16);
+    let l: Any = rt_list_new(n);
+    mut i: Any = 0;
+    while (i < n) {
+        rt_push(l, load64(d + i * 16));
+        i = i + 1;
+    }
+    return l;
+}
+
+fun rt_values(m: Any) -> Any {
+    let n: Any = rt_map_len(m);
+    let d: Any = load64(m - 7 + 16);
+    let l: Any = rt_list_new(n);
+    mut i: Any = 0;
+    while (i < n) {
+        rt_push(l, load64(d + i * 16 + 8));
+        i = i + 1;
+    }
+    return l;
+}
+
+fun rt_has(m: Any, k: Any) -> Any {
+    let t: Any = m % 8;
+    if (t == 7) {
+        if (rt_map_find(m, k) >= 0) { return 4; }
+        return 3;
+    }
+    if (t == 1) {
+        if (rt_slen(k) == 0) { return 4; }
+        let n: Any = rt_slen(m);
+        let q: Any = rt_slen(k);
+        mut i: Any = 0;
+        while (i + q <= n) {
+            if (rt_sub_eq(m, i, k) == 1) { return 4; }
+            i = i + 1;
+        }
+        return 3;
+    }
+    if (t == 5) {
+        let n: Any = rt_list_len(m);
+        mut i: Any = 0;
+        while (i < n) {
+            if (rt_eq(rt_list_get(m, i * 8), k) == 4) { return 4; }
+            i = i + 1;
+        }
+        return 3;
+    }
+    return 3;
+}
+
+fun rt_extend(dst: Any, src: Any) -> Any {
+    let n: Any = rt_list_len(src);
+    mut i: Any = 0;
+    while (i < n) {
+        rt_push(dst, rt_list_get(src, i * 8));
+        i = i + 1;
+    }
+    return dst;
+}
+
+fun rt_merge_into(dst: Any, src: Any) -> Any {
+    let n: Any = rt_map_len(src);
+    let d: Any = load64(src - 7 + 16);
+    mut i: Any = 0;
+    while (i < n) {
+        rt_map_set(dst, load64(d + i * 16), load64(d + i * 16 + 8));
+        i = i + 1;
+    }
+    return dst;
+}
+
+fun rt_pow(a: Any, b: Any) -> Any {
+    if (a % 8 == 0  and  b % 8 == 0) {
+        let base: Any = a / 8;
+        let e: Any = b / 8;
+        if (e >= 0) {
+            mut r: Any = 1;
+            mut i: Any = 0;
+            while (i < e) {
+                r = r * base;
+                i = i + 1;
+            }
+            return r * 8;
+        }
+    }
+    return __fpow2(rt_to_f(a), rt_to_f(b));
+}
+
+fun rt_pop(l: Any) -> Any {
+    let p: Any = l - 5;
+    let n: Any = load64(p);
+    if (n == 0) { return 2; }
+    let d: Any = load64(p + 16);
+    let x: Any = load64(d + (n - 1) * 8);
+    store64(p, n - 1);
+    return x;
+}
+
+fun rt_remove(m: Any, k: Any) -> Any {
+    let p: Any = m - 7;
+    let n: Any = load64(p);
+    let d: Any = load64(p + 16);
+    mut i: Any = 0;
+    mut w: Any = 0;
+    while (i < n) {
+        let kk: Any = load64(d + i * 16);
+        if (rt_eq(kk, k) != 4) {
+            store64(d + w * 16, kk);
+            store64(d + w * 16 + 8, load64(d + i * 16 + 8));
+            w = w + 1;
+        }
+        i = i + 1;
+    }
+    store64(p, w);
+    if (load64(p + 32) != 0) { rt_map_rehash(m); }
+    return m;
+}
+
+fun rt_merge(a: Any, b: Any) -> Any {
+    let r: Any = rt_map_new();
+    mut n: Any = rt_map_len(a);
+    mut d: Any = load64(a - 7 + 16);
+    mut i: Any = 0;
+    while (i < n) {
+        rt_map_set(r, load64(d + i * 16), load64(d + i * 16 + 8));
+        i = i + 1;
+    }
+    n = rt_map_len(b);
+    d = load64(b - 7 + 16);
+    i = 0;
+    while (i < n) {
+        rt_map_set(r, load64(d + i * 16), load64(d + i * 16 + 8));
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_slice(l: Any, av: Any, bv: Any) -> Any {
+    let n: Any = rt_list_len(l);
+    mut a: Any = av / 8;
+    mut b: Any = bv / 8;
+    if (a < 0) { a = 0; }
+    if (b > n) { b = n; }
+    let r: Any = rt_list_new(b - a);
+    mut i: Any = a;
+    while (i < b) {
+        rt_push(r, rt_list_get(l, i * 8));
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_unique(xs: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let r: Any = rt_list_new(n);
+    mut i: Any = 0;
+    while (i < n) {
+        let x: Any = rt_list_get(xs, i * 8);
+        if (rt_has(r, x) != 4) { rt_push(r, x); }
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_pad_left(s: Any, w: Any, ch: Any) -> Any {
+    let n: Any = w / 8;
+    mut out: Any = s;
+    while (rt_slen(out) < n) { out = rt_concat(ch, out); }
+    return out;
+}
+
+fun rt_pad_right(s: Any, w: Any, ch: Any) -> Any {
+    let n: Any = w / 8;
+    mut out: Any = s;
+    while (rt_slen(out) < n) { out = rt_concat(out, ch); }
+    return out;
+}
+
+fun rt_int(s: Any) -> Any {
+    let t: Any = s % 8;
+    if (t != 1) { return s; }
+    let n: Any = rt_slen(s);
+    mut i: Any = 0;
+    mut neg: Any = 0;
+    mut v: Any = 0;
+    if (n > 0) {
+        if (load8(s + 7) == 45) { neg = 1; i = 1; }
+    }
+    while (i < n) {
+        let c: Any = load8(s + 7 + i) - 48;
+        if (c < 0) { break; }
+        if (c > 9) { break; }
+        v = v * 10 + c;
+        i = i + 1;
+    }
+    if (neg == 1) { v = 0 - v; }
+    return v * 8;
+}
+
+fun rt_read_stdin() -> Any {
+    let b: Any = rt_alloc(1048576);
+    mut off: Any = 0;
+    mut r: Any = 1;
+    while (r > 0) {
+        r = syscall(0, 0, b + off, 1048576 - off);
+        if (r > 0) { off = off + r; }
+    }
+    return rt_from(b, off);
+}
+
+// ---------------------------------------------------------------- math/io
+
+fun rt_const_hi_lo(hi: Any, lo: Any) -> Any {
+    let p: Any = rt_alloc(8);
+    store32(p, lo);
+    store32(p + 4, hi);
+    return p + 6;
+}
+
+fun rt_pi() -> Any { return rt_const_hi_lo(1074340347, 1413754136); }
+fun rt_e() -> Any { return rt_const_hi_lo(1074118410, 2333366121); }
+
+fun rt_chars(s: Any) -> Any {
+    let n: Any = utf8_cplen(s);
+    let l: Any = rt_list_new(n);
+    mut i: Any = 0;
+    while (i < n) {
+        rt_push(l, rt_substr(s, i, i + 1));
+        i = i + 1;
+    }
+    return l;
+}
+
+fun rt_revstr(s: Any) -> Any {
+    let n: Any = utf8_cplen(s);
+    mut out: Any = rt_from(addr(""), 0);
+    mut i: Any = 0;
+    while (i < n) {
+        out = rt_concat(out, utf8_encode(utf8_decode(s, utf8_off(s, n - 1 - i))));
+        i = i + 1;
+    }
+    return out;
+}
+
+fun rt_sort(l: Any) -> Any {
+    let n: Any = rt_list_len(l);
+    let r: Any = rt_list_new(n);
+    mut i: Any = 0;
+    while (i < n) {
+        let x: Any = rt_list_get(l, i * 8);
+        let j: Any = rt_list_len(r);
+        rt_push(r, x);
+        mut k: Any = j;
+        while (k > 0) {
+            let a: Any = rt_list_get(r, (k - 1) * 8);
+            let b: Any = rt_list_get(r, k * 8);
+            if (rt_gt(a, b) == 4) {
+                rt_list_set(r, (k - 1) * 8, b);
+                rt_list_set(r, k * 8, a);
+                k = k - 1;
+            } else {
+                break;
+            }
+        }
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_env(name: Any) -> Any {
+    let b: Any = rt_alloc(1048576);
+    let fd: Any = syscall(2, addr("/proc/self/environ"), 0, 0);
+    if (fd < 0) { return 2; }
+    let n: Any = syscall(0, fd, b, 1048576);
+    syscall(3, fd);
+    let nl: Any = rt_slen(name);
+    mut i: Any = 0;
+    while (i < n) {
+        let start: Any = i;
+        while (i < n) {
+            if (load8(b + i) == 0) { break; }
+            i = i + 1;
+        }
+        // line [start, i)
+        if (i - start > nl) {
+            if (load8(b + start + nl) == 61) {
+                if (rt_sub_eq_at(b, start, name) == 1) {
+                    return rt_from(b + start + nl + 1, (i - start) - nl - 1);
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 2;
+}
+
+fun rt_sub_eq_at(b: Any, off: Any, name: Any) -> Any {
+    let nl: Any = rt_slen(name);
+    mut j: Any = 0;
+    while (j < nl) {
+        if (load8(b + off + j) != load8(name + 7 + j)) { return 0; }
+        j = j + 1;
+    }
+    return 1;
+}
+
+fun rt_file_exists(p: Any) -> Any {
+    let path: Any = rt_cstr(p) / 8;
+    let fd: Any = syscall(2, path, 0, 0);
+    if (fd < 0) { return 3; }
+    syscall(3, fd);
+    return 4;
+}
+
+fun rt_read_file(p: Any) -> Any {
+    let path: Any = rt_cstr(p) / 8;
+    let fd: Any = syscall(2, path, 0, 0);
+    if (fd < 0) { return rt_failstr(rt_from(addr("cannot read file"), 15)); }
+    let b: Any = rt_alloc(1048576);
+    mut off: Any = 0;
+    mut r: Any = 1;
+    while (r > 0) {
+        r = syscall(0, fd, b + off, 1048576 - off);
+        if (r > 0) { off = off + r; }
+    }
+    syscall(3, fd);
+    return rt_from(b, off);
+}
+
+fun rt_write_file(p: Any, data: Any) -> Any {
+    let path: Any = rt_cstr(p) / 8;
+    let fd: Any = syscall(2, path, 577, 420);
+    if (fd < 0) { return rt_failstr(rt_from(addr("cannot write file"), 17)); }
+    syscall(1, fd, data + 7, rt_slen(data));
+    syscall(3, fd);
+    return 2;
+}
+
+fun rt_clock() -> Any {
+    let ts: Any = rt_alloc(16);
+    syscall(228, 0, ts);
+    let sec: Any = load64(ts);
+    let nsec: Any = load64(ts + 8);
+    let frac: Any = __fbin(3, rt_to_f(nsec * 8), rt_to_f(1000000000 * 8));
+    return __fbin(0, rt_to_f(sec * 8), frac);
+}
+
+fun rt_time() -> Any {
+    let ts: Any = rt_alloc(16);
+    syscall(96, ts, 0);
+    let sec: Any = load64(ts);
+    let usec: Any = load64(ts + 8);
+    return (sec * 1000 + usec / 1000) * 8;
+}
+
+fun rt_sleep(ms: Any) -> Any {
+    let ts: Any = rt_alloc(16);
+    let m: Any = ms / 8;
+    store64(ts, m / 1000);
+    store64(ts + 8, (m % 1000) * 1000000);
+    syscall(35, ts, 0);
+    return 2;
+}
+
+fun rt_failio(s: Any) -> Any {
+    ERRFLAG = 1;
+    ERRVAL = rt_mkerr(addr("io"), 2, s);
+    __longjmp();
+    return 2;
+}
+
+fun rt_mkdir(p: Any) -> Any {
+    let path: Any = rt_cstr(p) / 8;
+    let r: Any = syscall(83, path, 493);
+    if (r < 0) { return rt_failio(rt_from(addr("cannot create directory"), 23)); }
+    return 2;
+}
+
+// Directory entries via getdents64 (Linux); empty list on failure.
+fun rt_read_dir(p: Any) -> Any {
+    let path: Any = rt_cstr(p) / 8;
+    let fd: Any = syscall(2, path, 0, 0);
+    let list: Any = rt_list_new(4);
+    if (fd < 0) { return list; }
+    let buf: Any = rt_alloc(32768);
+    mut n: Any = syscall(217, fd, buf, 32768);
+    while (n > 0) {
+        mut off: Any = 0;
+        while (off < n) {
+            let reclen: Any = load16(buf + off + 16);
+            let namep: Any = buf + off + 19;
+            mut l: Any = 0;
+            while (load8(namep + l) != 0) { l = l + 1; }
+            mut dot: Any = 0;
+            if (l == 1 and load8(namep) == 46) { dot = 1; }
+            if (l == 2 and load8(namep) == 46 and load8(namep + 1) == 46) { dot = 1; }
+            if (dot == 0) { rt_push(list, rt_from(namep, l)); }
+            off = off + reclen;
+        }
+        n = syscall(217, fd, buf, 32768);
+    }
+    syscall(3, fd);
+    return list;
+}
+
+fun rt_wait(pid: Any) -> Any {
+    let st: Any = rt_alloc(8);
+    mut result: Any = syscall(61, pid / 8, st, 0, 0);
+    while (result == 0 - 4) { result = syscall(61, pid / 8, st, 0, 0); }
+    if (result < 0) { return rt_failstr(rt_from(addr("cannot wait for process"), 23)); }
+    let status: Any = load32(st);
+    let signal: Any = status % 128;
+    if (signal != 0) { return (128 + signal) * 8; }
+    return ((status / 256) % 256) * 8;
+}
+
+// Run `cmd` under `/bin/sh -c`; returns the exit status.
+fun rt_system(cmd: Any) -> Any {
+    let sh: Any = rt_alloc(16);
+    store8(sh + 0, 47);
+    store8(sh + 1, 98);
+    store8(sh + 2, 105);
+    store8(sh + 3, 110);
+    store8(sh + 4, 47);
+    store8(sh + 5, 115);
+    store8(sh + 6, 104);
+    store8(sh + 7, 0);
+    let dashc: Any = rt_alloc(8);
+    store8(dashc + 0, 45);
+    store8(dashc + 1, 99);
+    store8(dashc + 2, 0);
+    let argv: Any = rt_alloc(32);
+    store64(argv + 0, sh);
+    store64(argv + 8, dashc);
+    store64(argv + 16, rt_cstr(cmd) / 8);
+    store64(argv + 24, 0);
+    let pid: Any = syscall(57);
+    if (pid == 0) {
+        syscall(59, sh, argv, 0);
+        syscall(60, 127);
+    }
+    let st: Any = rt_alloc(8);
+    syscall(61, pid, st, 0, 0);
+    let status: Any = load32(st);
+    return ((status / 256) % 256) * 8;
+}
+
+// Fork + execve a list of strings; returns the child pid.
+fun rt_exec(lst: Any) -> Any {
+    let n: Any = rt_list_len(lst);
+    let d: Any = load64(lst - 5 + 16);
+    let argv: Any = rt_alloc((n + 1) * 8);
+    mut i: Any = 0;
+    while (i < n) {
+        store64(argv + i * 8, rt_cstr(load64(d + i * 8)) / 8);
+        i = i + 1;
+    }
+    store64(argv + n * 8, 0);
+    let pid: Any = syscall(57);
+    if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
+    if (pid == 0) {
+        syscall(59, load64(argv), argv, 0);
+        syscall(60, 127);
+    }
+    return pid * 8;
+}
+
+// ---------------------------------------------------------------- json
+
+mut JS: Any = 0;
+mut JN: Any = 0;
+mut JI: Any = 0;
+
+fun json_ws() -> Any {
+    while (JI < JN) {
+        let c: Any = load8(JS + 7 + JI);
+        if (c == 32  or  c == 9  or  c == 10  or  c == 13) { JI = JI + 1; } else { break; }
+    }
+    return 0;
+}
+
+fun json_hexv(c: Any) -> Any {
+    if (c >= 48) { if (c <= 57) { return c - 48; } }
+    if (c >= 97) { if (c <= 102) { return c - 87; } }
+    if (c >= 65) { if (c <= 70) { return c - 55; } }
+    return 0;
+}
+
+fun json_str() -> Any {
+    JI = JI + 1;
+    let b: Any = rt_alloc(65536);
+    mut o: Any = 0;
+    while (JI < JN) {
+        let c: Any = load8(JS + 7 + JI);
+        if (c == 34) { JI = JI + 1; break; }
+        if (c == 92) {
+            JI = JI + 1;
+            let e: Any = load8(JS + 7 + JI);
+            mut v: Any = e;
+            if (e == 110) { v = 10; }
+            else if (e == 116) { v = 9; }
+            else if (e == 114) { v = 13; }
+            else if (e == 98) { v = 8; }
+            else if (e == 102) { v = 12; }
+            else if (e == 117) {
+                JI = JI + 1;
+                mut hv: Any = 0;
+                mut hk: Any = 0;
+                while (hk < 4) {
+                    hv = hv * 16 + json_hexv(load8(JS + 7 + JI));
+                    JI = JI + 1;
+                    hk = hk + 1;
+                }
+                store8(b + o, hv % 256);
+                o = o + 1;
+                continue;
+            }
+            store8(b + o, v);
+            o = o + 1;
+            JI = JI + 1;
+        } else {
+            store8(b + o, c);
+            o = o + 1;
+            JI = JI + 1;
+        }
+    }
+    return rt_from(b, o);
+}
+
+fun json_num() -> Any {
+    let start: Any = JI;
+    mut isf: Any = 0;
+    if (load8(JS + 7 + JI) == 45) { JI = JI + 1; }
+    while (JI < JN) {
+        let c: Any = load8(JS + 7 + JI);
+        if (c >= 48) { if (c <= 57) { JI = JI + 1; continue; } }
+        break;
+    }
+    if (JI < JN) {
+        if (load8(JS + 7 + JI) == 46) {
+            isf = 1;
+            JI = JI + 1;
+            while (JI < JN) {
+                let c: Any = load8(JS + 7 + JI);
+                if (c >= 48) { if (c <= 57) { JI = JI + 1; continue; } }
+                break;
+            }
+        }
+    }
+    if (JI < JN) {
+        let c: Any = load8(JS + 7 + JI);
+        if (c == 101  or  c == 69) {
+            isf = 1;
+            JI = JI + 1;
+            let sg: Any = load8(JS + 7 + JI);
+            if (sg == 43  or  sg == 45) { JI = JI + 1; }
+            while (JI < JN) {
+                let d: Any = load8(JS + 7 + JI);
+                if (d >= 48) { if (d <= 57) { JI = JI + 1; continue; } }
+                break;
+            }
+        }
+    }
+    let span: Any = JI - start;
+    if (isf == 1) { return rt_parse_float(JS + 7 + start, span); }
+    return rt_int(rt_from(JS + 7 + start, span));
+}
+
+fun json_val() -> Any {
+    json_ws();
+    if (JI >= JN) { return 2; }
+    let c: Any = load8(JS + 7 + JI);
+    if (c == 123) {
+        JI = JI + 1;
+        let m: Any = rt_map_new();
+        json_ws();
+        if (load8(JS + 7 + JI) == 125) { JI = JI + 1; return m; }
+        while (1) {
+            json_ws();
+            let k: Any = json_str();
+            json_ws();
+            if (load8(JS + 7 + JI) == 58) { JI = JI + 1; }
+            let v: Any = json_val();
+            rt_map_set(m, k, v);
+            json_ws();
+            let d: Any = load8(JS + 7 + JI);
+            if (d == 44) { JI = JI + 1; continue; }
+            if (d == 125) { JI = JI + 1; break; }
+            break;
+        }
+        return m;
+    }
+    if (c == 91) {
+        JI = JI + 1;
+        let l: Any = rt_list_new(4);
+        json_ws();
+        if (load8(JS + 7 + JI) == 93) { JI = JI + 1; return l; }
+        while (1) {
+            let v: Any = json_val();
+            rt_push(l, v);
+            json_ws();
+            let d: Any = load8(JS + 7 + JI);
+            if (d == 44) { JI = JI + 1; continue; }
+            if (d == 93) { JI = JI + 1; break; }
+            break;
+        }
+        return l;
+    }
+    if (c == 34) { return json_str(); }
+    if (c == 116) { JI = JI + 4; return 4; }
+    if (c == 102) { JI = JI + 5; return 3; }
+    if (c == 110) { JI = JI + 4; return 2; }
+    return json_num();
+}
+
+fun rt_json_parse(s: Any) -> Any {
+    JS = s;
+    JN = rt_slen(s);
+    JI = 0;
+    return json_val();
+}
+
+fun json_quote(s: Any) -> Any {
+    let n: Any = rt_slen(s);
+    mut out: Any = rt_from(addr("\""), 1);
+    mut i: Any = 0;
+    while (i < n) {
+        let c: Any = load8(s + 7 + i);
+        if (c == 34) { out = rt_concat(out, rt_from(addr("\\\""), 2)); }
+        else if (c == 92) { out = rt_concat(out, rt_from(addr("\\\\"), 2)); }
+        else if (c == 10) { out = rt_concat(out, rt_from(addr("\\n"), 2)); }
+        else { out = rt_concat(out, rt_from(s + 7 + i, 1)); }
+        i = i + 1;
+    }
+    return rt_concat(out, rt_from(addr("\""), 1));
+}
+
+fun json_build(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) { return json_quote(v); }
+    if (t == 0) { return rt_to_str(v); }
+    if (t == 6) { return rt_to_str(v); }
+    if (t == 4) { return rt_from(addr("true"), 4); }
+    if (t == 3) { return rt_from(addr("false"), 5); }
+    if (t == 2) { return rt_from(addr("null"), 4); }
+    if (t == 5) {
+        let n: Any = rt_list_len(v);
+        mut out: Any = rt_from(addr("["), 1);
+        mut i: Any = 0;
+        while (i < n) {
+            if (i > 0) { out = rt_concat(out, rt_from(addr(","), 1)); }
+            out = rt_concat(out, json_build(rt_list_get(v, i * 8)));
+            i = i + 1;
+        }
+        return rt_concat(out, rt_from(addr("]"), 1));
+    }
+    if (t == 7) {
+        let n: Any = rt_map_len(v);
+        let d: Any = load64(v - 7 + 16);
+        let idx: Any = rt_alloc(n * 8 + 8);
+        mut i: Any = 0;
+        while (i < n) {
+            store64(idx + i * 8, i * 16);
+            i = i + 1;
+        }
+        mut a: Any = 1;
+        while (a < n) {
+            let key: Any = load64(idx + a * 8);
+            mut j: Any = a;
+            while (j > 0) {
+                let pk: Any = load64(idx + (j - 1) * 8);
+                if (rt_lt(load64(d + key), load64(d + pk)) == 4) {
+                    store64(idx + j * 8, pk);
+                    j = j - 1;
+                } else {
+                    break;
+                }
+            }
+            store64(idx + j * 8, key);
+            a = a + 1;
+        }
+        mut out: Any = rt_from(addr("{"), 1);
+        i = 0;
+        while (i < n) {
+            if (i > 0) { out = rt_concat(out, rt_from(addr(","), 1)); }
+            let o: Any = load64(idx + i * 8);
+            out = rt_concat(out, json_quote(load64(d + o)));
+            out = rt_concat(out, rt_from(addr(":"), 1));
+            out = rt_concat(out, json_build(load64(d + o + 8)));
+            i = i + 1;
+        }
+        return rt_concat(out, rt_from(addr("}"), 1));
+    }
+    return rt_from(addr("null"), 4);
+}
+
+fun rt_json_stringify(v: Any) -> Any { return json_build(v); }
+
+fun rt_args() -> Any {
+    let b: Any = rt_alloc(1048576);
+    let fd: Any = syscall(2, addr("/proc/self/cmdline"), 0, 0);
+    if (fd < 0) { return rt_list_new(0); }
+    let n: Any = syscall(0, fd, b, 1048576);
+    syscall(3, fd);
+    let l: Any = rt_list_new(4);
+    mut i: Any = 0;
+    while (i < n) {
+        let s: Any = i;
+        while (i < n) {
+            if (load8(b + i) == 0) { break; }
+            i = i + 1;
+        }
+        if (i > s) { rt_push(l, rt_from(b + s, i - s)); }
+        i = i + 1;
+    }
+    return l;
+}
+
+fun rt_input(p: Any) -> Any {
+    if (p % 8 != 2) { rt_print_value(p); }
+    let b: Any = rt_alloc(65536);
+    mut o: Any = 0;
+    while (1) {
+        let c: Any = rt_alloc(1);
+        let r: Any = syscall(0, 0, c, 1);
+        if (r <= 0) {
+            if (o == 0) { return 2; }
+            break;
+        }
+        if (load8(c) == 10) { break; }
+        store8(b + o, load8(c));
+        o = o + 1;
+    }
+    return rt_from(b, o);
+}
+
+// ---------------------------------------------------------------- fibers
+
+mut FIB_TAB: Any = 0;
+mut FIB_N: Any = 0;
+mut FIB_CUR: Any = 0;
+mut FIB_SAVE0: Any = 0;
+
+fun rt_spawn(fn: Any) -> Any {
+    if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
+    if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
+    let rec: Any = rt_alloc(32);
+    store64(rec + 8, fn);
+    store64(rec + 16, 1);
+    let size: Any = 262144;
+    let base: Any = syscall(9, 0, size, 3, 34, 0 - 1, 0);
+    let top: Any = base + size;
+    store64(rec + 24, top);
+    let sp: Any = top - 56;
+    store64(sp + 0, 0);
+    store64(sp + 8, 0);
+    store64(sp + 16, 0);
+    store64(sp + 24, 0);
+    store64(sp + 32, 0);
+    store64(sp + 40, 0);
+    store64(sp + 48, __fiber_entry());
+    store64(rec, sp);
+    store64(FIB_TAB + FIB_N * 8, rec);
+    FIB_N = FIB_N + 1;
+    return rec;
+}
+
+fun rt_yield() -> Any {
+    if (FIB_CUR == 0) { return 0; }
+    CSTOP = load64(FIB_CUR + 24);
+    __fib_switch(FIB_CUR, FIB_SAVE0);
+    CSTOP = load64(FIB_CUR + 24);
+    return 0;
+}
+
+fun rt_run() -> Any {
+    if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
+    if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
+    mut again: Any = 1;
+    while (again == 1) {
+        again = 0;
+        mut i: Any = 0;
+        while (i < FIB_N) {
+            let rec: Any = load64(FIB_TAB + i * 8);
+            if (load64(rec + 16) == 1) {
+                again = 1;
+                FIB_CUR = rec;
+                CSTOP = load64(rec + 24);
+                __fib_switch(FIB_SAVE0, rec);
+                CSTOP = STACKTOP;
+                FIB_CUR = 0;
+            }
+            i = i + 1;
+        }
+    }
+    return 2;
+}
+
+fun rt_fiber_entry() -> Any {
+    let rec: Any = FIB_CUR;
+    CSTOP = load64(rec + 24);
+    let fn: Any = load64(rec + 8);
+    fn();
+    store64(rec + 16, 0);
+    __fib_switch(rec, FIB_SAVE0);
+    return 0;
+}
+
+// ------------------------------------------------------------ higher order
+
+fun rt_range(a: Any, b: Any, incl: Any) -> Any {
+    let s: Any = a / 8;
+    let e: Any = b / 8;
+    let l: Any = rt_list_new(4);
+    if (s <= e) {
+        mut i: Any = s;
+        while (i < e) { rt_push(l, i * 8); i = i + 1; }
+        if (incl == 4) { rt_push(l, e * 8); }
+    }
+    return l;
+}
+
+fun rt_sum(xs: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut s: Any = 0;
+    mut i: Any = 0;
+    while (i < n) {
+        s = s + load64(d + i * 8);
+        i = i + 1;
+    }
+    return s;
+}
+
+fun rt_mapf(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    let r: Any = rt_list_new(n);
+    mut i: Any = 0;
+    while (i < n) {
+        rt_push(r, f(load64(d + i * 8)));
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_filter(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    let r: Any = rt_list_new(n);
+    mut i: Any = 0;
+    while (i < n) {
+        let x: Any = load64(d + i * 8);
+        if (f(x) == 4) { rt_push(r, x); }
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_reduce(xs: Any, f: Any, init: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut acc: Any = init;
+    mut i: Any = 0;
+    while (i < n) {
+        acc = f(acc, load64(d + i * 8));
+        i = i + 1;
+    }
+    return acc;
+}
+
+fun rt_any(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut i: Any = 0;
+    while (i < n) {
+        if (f(load64(d + i * 8)) == 4) { return 4; }
+        i = i + 1;
+    }
+    return 3;
+}
+
+fun rt_all(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut i: Any = 0;
+    while (i < n) {
+        if (f(load64(d + i * 8)) != 4) { return 3; }
+        i = i + 1;
+    }
+    return 4;
+}
+
+fun rt_count(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut c: Any = 0;
+    mut i: Any = 0;
+    while (i < n) {
+        if (f(load64(d + i * 8)) == 4) { c = c + 1; }
+        i = i + 1;
+    }
+    return c * 8;
+}
+
+fun rt_each(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut i: Any = 0;
+    while (i < n) {
+        f(load64(d + i * 8));
+        i = i + 1;
+    }
+    return 2;
+}
+
+fun rt_times(n: Any, f: Any) -> Any {
+    let k: Any = n / 8;
+    mut i: Any = 0;
+    while (i < k) {
+        f(i * 8);
+        i = i + 1;
+    }
+    return 2;
+}
+
+// ---------------------------------------------------------------- dispatch
+
+fun rt_len(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) { return utf8_cplen(v) * 8; }
+    if (t == 5) { return load64(v - 5) * 8; }
+    if (t == 7) { return load64(v - 7) * 8; }
+    return 0;
+}
+
+fun rt_add(a: Any, b: Any) -> Any {
+    let ta: Any = a % 8;
+    let tb: Any = b % 8;
+    if (ta == 7) {
+        let m: Any = rt_map_get(a, rt_from(addr("+"), 1));
+        if (m != 2) { return m(a, b); }
+    }
+    if (ta == 1) {
+        if (tb == 1) { return rt_concat(a, b); }
+        return rt_concat(a, rt_to_str(b));
+    }
+    if (tb == 1) { return rt_concat(rt_to_str(a), b); }
+    if (ta == 5) {
+        if (tb == 5) {
+            let n: Any = rt_list_len(a);
+            let m: Any = rt_list_len(b);
+            let r: Any = rt_list_new(n + m);
+            mut i: Any = 0;
+            while (i < n) { rt_push(r, rt_list_get(a, i * 8)); i = i + 1; }
+            i = 0;
+            while (i < m) { rt_push(r, rt_list_get(b, i * 8)); i = i + 1; }
+            return r;
+        }
+    }
+    if (ta == 6) { return __fbin(0, a, rt_to_f(b)); }
+    if (tb == 6) { return __fbin(0, rt_to_f(a), b); }
+    if (ta == 0) {
+        if (tb == 0) {
+            let s: Any = a + b;
+            if (a >= 0  and  b >= 0  and  s < 0) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+            if (a < 0  and  b < 0  and  s >= 0) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+            return s;
+        }
+    }
+    return a;
+}
+
+fun rt_sub(a: Any, b: Any) -> Any {
+    let ta: Any = a % 8;
+    let tb: Any = b % 8;
+    if (ta == 7) {
+        let m: Any = rt_map_get(a, rt_from(addr("-"), 1));
+        if (m != 2) { return m(a, b); }
+    }
+    if (ta == 6) { return __fbin(1, a, rt_to_f(b)); }
+    if (tb == 6) { return __fbin(1, rt_to_f(a), b); }
+    if (ta == 0) {
+        if (tb == 0) {
+            let s: Any = a - b;
+            if (a >= 0  and  b < 0  and  s < 0) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+            if (a < 0  and  b >= 0  and  s >= 0) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+            return s;
+        }
+    }
+    return a;
+}
+
+fun rt_mul(a: Any, b: Any) -> Any {
+    let ta: Any = a % 8;
+    let tb: Any = b % 8;
+    if (ta == 7) {
+        let m: Any = rt_map_get(a, rt_from(addr("*"), 1));
+        if (m != 2) { return m(a, b); }
+    }
+    if (ta == 6) { return __fbin(2, a, rt_to_f(b)); }
+    if (tb == 6) { return __fbin(2, rt_to_f(a), b); }
+    if (ta == 0) {
+        if (tb == 0) {
+            if (a == 0  or  b == 0) { return 0; }
+            let s: Any = (a / 8) * b;
+            if (s / b != a / 8) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+            return s;
+        }
+    }
+    return a;
+}
+
+fun rt_div(a: Any, b: Any) -> Any {
+    let ta: Any = a % 8;
+    let tb: Any = b % 8;
+    if (ta == 7) {
+        let m: Any = rt_map_get(a, rt_from(addr("/"), 1));
+        if (m != 2) { return m(a, b); }
+    }
+    if (ta == 6  or  tb == 6) {
+        let bf: Any = rt_to_f(b);
+        if (__fcmp(0, bf, rt_box(0)) == 4) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
+        return __fbin(3, rt_to_f(a), bf);
+    }
+    if (ta == 0) {
+        if (tb == 0) {
+            if (b == 0) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
+            let q: Any = a / b;
+            let result: Any = q * 8;
+            if (result / 8 != q) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+            return result;
+        }
+    }
+    return rt_badop(addr("/"), 1, a, b);
+}
+
+fun rt_mod(a: Any, b: Any) -> Any {
+    let ta: Any = a % 8;
+    let tb: Any = b % 8;
+    if (ta == 0) {
+        if (tb == 0) {
+            if (b == 0) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
+            return a % b;
+        }
+    }
+    return rt_badop(addr("%"), 1, a, b);
+}
+
+fun rt_eq(a: Any, b: Any) -> Any {
+    let ta: Any = a % 8;
+    let tb: Any = b % 8;
+    if (ta != tb) { return 3; }
+    if (ta == 6) { return __fcmp(0, a, b); }
+    if (ta == 0) {
+        if (a == b) { return 4; }
+        return 3;
+    }
+    if (ta == 1) {
+        if (rt_str_eq(a, b) == 1) { return 4; }
+        return 3;
+    }
+    if (a == b) { return 4; }
+    return 3;
+}
+
+fun rt_ne(a: Any, b: Any) -> Any {
+    let ta: Any = a % 8;
+    let tb: Any = b % 8;
+    if (ta == 6  or  tb == 6) { return __fcmp(1, rt_to_f(a), rt_to_f(b)); }
+    if (rt_eq(a, b) == 4) { return 3; }
+    return 4;
+}
+
+fun rt_lt(a: Any, b: Any) -> Any {
+    let ta: Any = a % 8;
+    let tb: Any = b % 8;
+    if (ta == 6  or  tb == 6) { return __fcmp(2, rt_to_f(a), rt_to_f(b)); }
+    if (ta == 0) {
+        if (tb == 0) {
+            if (a < b) { return 4; }
+            return 3;
+        }
+    }
+    if (ta == 1) {
+        if (tb == 1) {
+            if (rt_str_lt(a, b) == 1) { return 4; }
+            return 3;
+        }
+    }
+    if (a < b) { return 4; }
+    return 3;
+}
+
+fun rt_le(a: Any, b: Any) -> Any {
+    if (rt_lt(a, b) == 4) { return 4; }
+    return rt_eq(a, b);
+}
+
+fun rt_gt(a: Any, b: Any) -> Any {
+    return rt_lt(b, a);
+}
+
+fun rt_ge(a: Any, b: Any) -> Any {
+    if (rt_gt(a, b) == 4) { return 4; }
+    return rt_eq(a, b);
+}
+
+fun rt_not(a: Any) -> Any {
+    let t: Any = a % 8;
+    if (t == 2) { return 4; }
+    if (t == 3) { return 4; }
+    return 3;
+}
+
+fun rt_chr(v: Any) -> Any {
+    let n: Any = v / 8;
+    let s: Any = rt_strnew(1);
+    store8(s + 7, n);
+    return s;
+}
+
+fun rt_ord(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) { return load8(v + 7) * 8; }
+    return 0;
+}
+
+// ---------------------------------------------------------------- printing
+
+fun rt_print_str(v: Any) -> Any {
+    rt_write(v + 7, rt_slen(v));
+    return 0;
+}
+
+fun rt_print_elem(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) {
+        rt_write(addr("\""), 1);
+        rt_print_str(v);
+        rt_write(addr("\""), 1);
+    } else {
+        rt_print_value(v);
+    }
+    return 0;
+}
+
+fun rt_print_value(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 7) {
+        if (rt_map_find(v, rt_from(addr("__err"), 5)) >= 0) {
+            rt_print_str(rt_map_get(v, rt_from(addr("message"), 7)));
+            return 0;
+        }
+    }
+    if (t == 0) { rt_putn(v); }
+    else if (t == 1) { rt_print_str(v); }
+    else if (t == 2) { rt_write(addr("nil"), 3); }
+    else if (t == 3) { rt_write(addr("false"), 5); }
+    else if (t == 4) { rt_write(addr("true"), 4); }
+    else if (t == 6) { rt_print_float(v); }
+    else if (t == 5) { rt_print_list(v); }
+    else if (t == 7) { rt_print_map(v); }
+    else { rt_write(addr("<value>"), 7); }
+    return 0;
+}
+
+fun rt_newline() -> Any {
+    rt_write(addr("\n"), 1);
+    return 0;
+}
+
+fun rt_space() -> Any {
+    rt_write(addr(" "), 1);
+    return 0;
+}
+
+// Scalar C-ABI conversion used only by declared extern wrappers.
+fun rt_ffi_arg(value: Any, kind: Any) -> Any {
+    let tag: Any = value % 8;
+    if (kind == 4 or kind == 5) {
+        if (tag != 0 and tag != 6) { return rt_failtype(rt_from(addr("extern expects Float"), 20)); }
+        return load64(rt_to_f(value) - 6);
+    }
+    if (kind == 7) {
+        if (tag != 1) { return rt_failtype(rt_from(addr("extern expects Str"), 18)); }
+        let size: Any = rt_slen(value);
+        mut i: Any = 0;
+        while (i < size) {
+            if (load8(value + 7 + i) == 0) { return rt_failtype(rt_from(addr("C string contains NUL"), 21)); }
+            i += 1;
+        }
+        return rt_cstr(value) / 8;
+    }
+    if (kind == 8) {
+        if (value == 3) { return 0; }
+        if (value == 4) { return 1; }
+        return rt_failtype(rt_from(addr("extern expects Bool"), 19));
+    }
+    if (kind == 6 and value == 2) { return 0; }
+    if (tag != 0) { return rt_failtype(rt_from(addr("extern expects Int or Ptr"), 25)); }
+    let number: Any = value / 8;
+    if ((kind == 1 or kind == 3 or kind == 6) and number < 0) { return rt_failarith(rt_from(addr("unsigned argument out of range"), 30)); }
+    if (kind == 2 and (number < (0 - 2147483648) or number > 2147483647)) { return rt_failarith(rt_from(addr("Int32 argument out of range"), 27)); }
+    if (kind == 3 and number > 4294967295) { return rt_failarith(rt_from(addr("UInt32 argument out of range"), 28)); }
+    return number;
+}
+
+fun rt_ffi_result(value: Any, kind: Any) -> Any {
+    if (kind == 9) { return 2; }
+    if (kind == 4 or kind == 5) { return rt_box(value); }
+    if (kind == 8) { if (value == 0) { return 3; } return 4; }
+    if (kind == 7) {
+        if (value == 0) { return 2; }
+        mut size: Any = 0;
+        while (load8(value + size) != 0) { size += 1; }
+        return rt_from(value, size);
+    }
+    if ((kind == 1 or kind == 3 or kind == 6) and value < 0) { return rt_failarith(rt_from(addr("C result exceeds Int range"), 26)); }
+    if (value > 1152921504606846975 or value < (0 - 1152921504606846975 - 1)) {
+        return rt_failarith(rt_from(addr("C result exceeds Int range"), 26));
+    }
+    return value * 8;
+}

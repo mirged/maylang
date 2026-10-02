@@ -1,0 +1,74 @@
+import "runner.may";
+import "model.may";
+import "environment.may";
+import "persistence.may";
+import "simulation.may";
+
+fun usage() -> Nil {
+    print("Artificial Ecosystem - genome-controlled evolution in Maylang");
+    print("ecosystem run [--generations 100000] [--seed 42] [--out PATH_PREFIX]");
+    print("ecosystem demo                  (1000 generations)");
+    print("ecosystem resume CHECKPOINT --generations TOTAL [--out PATH_PREFIX]");
+    print("Options: --population N --width N --ticks N --report N --checkpoint N");
+    print("         --mutation-rate FLOAT --mutation-step FLOAT");
+    return;
+}
+fun validate_config(config: Config) -> Nil {
+    if (config.generations < 1 or config.generations > 10000000) { fail("generations must be 1..10000000"); }
+    if (config.population < 2 or config.population > 2048) { fail("population must be 2..2048"); }
+    if (config.width < 3 or config.width > 128) { fail("width must be 3..128"); }
+    if (config.ticks < 1 or config.ticks > 1000) { fail("ticks must be 1..1000"); }
+    if (config.report_every < 1 or config.checkpoint_every < 1) { fail("report and checkpoint intervals must be positive"); }
+    if (config.mutation_rate < 0.0 or config.mutation_rate > 1.0 or config.mutation_step < 0.0 or config.mutation_step > 4.0) { fail("invalid mutation rate or step"); }
+    if (len(config.output) == 0) { fail("output prefix must not be empty"); }
+    return;
+}
+fun ecosystem_main(argv: List<Str>) -> Int {
+    if (len(argv) < 2 or argv[1] == "help" or argv[1] == "--help") { usage(); return 0; }
+    let command: Str = argv[1];
+    if (command != "run" and command != "demo" and command != "resume" and command != "_worker") { usage(); return 2; }
+    mut world: Any = nil;
+    mut config: Config = default_config();
+    mut index: Int = 2;
+    mut stop_at: Int = 0;
+    mut checkpoint: Str = "fresh";
+    if (command == "demo") { config.generations = 1000; config.report_every = 100; }
+    if (command == "resume") {
+        if (len(argv) < 3) { fail("resume requires a checkpoint path"); }
+        world = load_checkpoint(argv[2]); config = world.config; index = 3;
+    }
+    if (command == "resume") { checkpoint = argv[2]; }
+    if (command == "_worker") {
+        if (len(argv) < 3) { fail("worker requires fresh or checkpoint source"); }
+        checkpoint = argv[2]; index = 3;
+        if (checkpoint != "fresh") { world = load_checkpoint(checkpoint); config = world.config; }
+    }
+    while (index < len(argv)) {
+        if (index + 1 >= len(argv)) { fail("option requires a value: " + argv[index]); }
+        let option: Str = argv[index]; let value: Str = argv[index + 1];
+        if (option == "--generations") { config.generations = int(value); }
+        else if (option == "--out") { config.output = value; }
+        else if (option == "--report") { config.report_every = int(value); }
+        else if (option == "--checkpoint") { config.checkpoint_every = int(value); }
+        else if (option == "--stop-at" and command == "_worker") { stop_at = int(value); }
+        else if (command == "resume" or (command == "_worker" and checkpoint != "fresh")) { fail("resume only permits generations, out, report and checkpoint options"); }
+        else if (option == "--seed") { config.seed = int(value); }
+        else if (option == "--population") { config.population = int(value); }
+        else if (option == "--width") { config.width = int(value); }
+        else if (option == "--ticks") { config.ticks = int(value); }
+        else if (option == "--mutation-rate") { config.mutation_rate = float(value); }
+        else if (option == "--mutation-step") { config.mutation_step = float(value); }
+        else { fail("unknown option: " + option); }
+        index += 2;
+    }
+    validate_config(config);
+    let generation: Int = if (world == nil) { 0 } else { world.generation };
+    if (config.generations < generation) { fail("resume generation target precedes checkpoint"); }
+    if (command == "_worker") {
+        if (stop_at <= generation or stop_at > config.generations) { fail("invalid worker generation boundary"); }
+        if (world == nil) { world = new_world(config); }
+        simulate(world, stop_at);
+        return 0;
+    }
+    return run_workers(config, argv[0], checkpoint, generation);
+}

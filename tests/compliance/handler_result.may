@@ -1,0 +1,1 @@
+fun f() { may { let x = Err("bad")?; Ok(x) } otherwise { Err("wrong") } } print(f().error); print(may { fail("after") } otherwise { "caught" });

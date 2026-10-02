@@ -1,0 +1,114 @@
+import "model.may";
+
+fun add_weather(city: City) -> Int {
+    // Weather consumes the same draws regardless of the pump policy.
+    let phase: Int = city.tick % 48;
+    let storm: Bool = phase >= 12 and phase < 26;
+    let rain: Int = if (storm) { 1 + next_random(city, 3) } else { next_random(city, 2) };
+    for cell: Cell in city.cells { cell.water += rain; city.ledger.rain += rain; }
+    let river: Int = 30 + next_random(city, 13) + if (storm) { 36 } else { 0 };
+    city.cells[5].water += river;
+    city.ledger.river += river;
+    return rain;
+}
+
+fun exchange(city: City, delta: List<Int>, available: List<Int>, a: Int, b: Int) -> Nil {
+    let ca: Cell = city.cells[a]; let cb: Cell = city.cells[b];
+    let difference: Int = ca.elevation + ca.water - cb.elevation - cb.water;
+    let source: Int = if (difference > 0) { a } else { b };
+    let target: Int = if (difference > 0) { b } else { a };
+    let amount: Int = smaller(16, smaller(available[source], abs(difference) / 4));
+    available[source] -= amount;
+    delta[source] -= amount; delta[target] += amount;
+    return;
+}
+
+fun flow(city: City) -> Nil {
+    let delta: List<Int> = []; let available: List<Int> = [];
+    for cell: Cell in city.cells { push(delta, 0); push(available, cell.water); }
+    // Heads are read from one snapshot; incoming water cannot be spent twice.
+    // Alternate traversal to reduce persistent preference for one direction.
+    for n: Int in 0..96 {
+        let i: Int = if (city.tick % 2 == 0) { n } else { 95 - n };
+        if (i % 12 < 11) { exchange(city, delta, available, i, i + 1); }
+        if (i / 12 < 7) { exchange(city, delta, available, i, i + 12); }
+    }
+    for i: Int in 0..96 { city.cells[i].water += delta[i]; }
+    return;
+}
+
+fun coast(city: City) -> Nil {
+    let tide: Int = tide_at(city.tick);
+    for i: Int in [89, 90] {
+        let cell: Cell = city.cells[i];
+        if (cell.water > tide) {
+            let amount: Int = smaller(20, (cell.water - tide) / 2);
+            cell.water -= amount; city.ledger.drained += amount;
+        } else {
+            let amount: Int = smaller(12, (tide - cell.water) / 2);
+            cell.water += amount; city.ledger.sea += amount;
+        }
+    }
+    return;
+}
+
+fun pump(city: City, policy: Str, budget: Int) -> Nil {
+    if (policy == "none") { return; }
+    // Four stations draw from their cell and adjacent catchment. Each lifted
+    // unit costs one shared energy unit; all policies have the same budget.
+    let stations: List<Int> = [27, 32, 63, 68];
+    for unit: Int in 0..budget {
+        mut best: Int = -1; mut score: Int = -1;
+        for station: Int in stations {
+            for i: Int in [station, station - 1, station + 1, station - 12, station + 12] {
+                let cell: Cell = city.cells[i];
+                if (cell.water == 0) { continue; }
+                let priority: Int = if (policy == "homes") {
+                    cell.water + positive(cell.water - 8) * cell.people
+                } else { cell.water + if (cell.kind == "canal") { 35 } else { 0 } };
+                if (priority > score) { score = priority; best = i; }
+            }
+        }
+        if (best < 0) { break; }
+        city.cells[best].water -= 1; city.ledger.pumped += 1;
+    }
+    return;
+}
+
+fun infiltrate(city: City) -> Nil {
+    for cell: Cell in city.cells {
+        let rate: Int = if (cell.kind == "park") { 4 } else if (cell.kind == "homes") { 1 } else { 0 };
+        let amount: Int = smaller(rate, cell.water);
+        cell.water -= amount; city.ledger.soaked += amount;
+    }
+    return;
+}
+
+fun record_frame(city: City, rain: Int) -> Nil {
+    let water: List<Int> = [];
+    for cell: Cell in city.cells { push(water, cell.water); }
+    let exposed: Int = exposed_people(city);
+    if (exposed > city.ledger.peak) { city.ledger.peak = exposed; }
+    push(city.history, {"tick": city.tick, "rain": rain, "tide": tide_at(city.tick),
+        "water": water, "exposed": exposed, "damage": city.ledger.damage,
+        "stored": stored_water(city), "pumped": city.ledger.pumped, "balance": balance_error(city)});
+    return;
+}
+
+fun step(city: City, config: Config) -> Nil {
+    city.tick += 1;
+    let rain: Int = add_weather(city);
+    // Two bounded transport substeps allow canal water to propagate.
+    flow(city); flow(city); coast(city); pump(city, config.policy, config.budget); infiltrate(city);
+    for cell: Cell in city.cells { city.ledger.damage += positive(cell.water - 8) * cell.people; }
+    if (balance_error(city) != 0) { fail("water conservation failed"); }
+    record_frame(city, rain);
+    return;
+}
+
+fun simulate(config: Config) -> City {
+    let city: City = new_city(config.seed);
+    record_frame(city, 0);
+    for tick: Int in 0..config.steps { step(city, config); }
+    return city;
+}

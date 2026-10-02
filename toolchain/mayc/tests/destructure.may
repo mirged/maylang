@@ -1,0 +1,11 @@
+let __typed_binding_1: Any = [1, 2]; let a: Any = __typed_binding_1[0]; let b: Any = __typed_binding_1[1];
+print(a, b);
+let __typed_binding_2: Any = {"x": 10, "y": 20}; let x: Any = __typed_binding_2["x"]; let y: Any = __typed_binding_2["y"];
+print(x, y);
+let __typed_binding_3: Any = {"p": 3, "q": 4}; let px: Any = __typed_binding_3["p"]; let qy: Any = __typed_binding_3["q"];
+print(px, qy);
+let __typed_binding_4: Any = {"pos": [5, 6]}; let u: Any = __typed_binding_4["pos"][0]; let v: Any = __typed_binding_4["pos"][1];
+print(u, v);
+for __typed_item_1: Any in [["a", 1], ["b", 2]] { let k: Any = __typed_item_1[0]; let val: Any = __typed_item_1[1];  print(k, val); }
+let __typed_binding_5: Any = [[1,2],[3,4]]; let c1: Any = __typed_binding_5[0][0]; let c2: Any = __typed_binding_5[0][1]; let c3: Any = __typed_binding_5[1][0]; let c4: Any = __typed_binding_5[1][1];
+print(c1, c2, c3, c4);

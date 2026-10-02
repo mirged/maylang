@@ -1,0 +1,1 @@
+fun f(n,a,b) { if n == 0 { [a,b] } else { f(n-1,b,a) } } print(f(100001,1,2));

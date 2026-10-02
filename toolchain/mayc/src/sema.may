@@ -1,0 +1,541 @@
+import "state.may";
+import "ast.may";
+import "diagnostics.may";
+import "lexer.may";
+import "parser.may";
+import "modules.may";
+// sema.may — lexical binding, closure conversion and mutability validation.
+
+struct Symbol { name: Any, pointer: Any, length: Any, mutable: Any, owner: Any, category: Any, span: Any }
+struct Scope { symbols: Any, owner: Any }
+mut SEM_SCOPES: Any = [];
+mut SEM_FUNCTIONS: Any = {};
+mut SEM_STACK: Any = [];
+mut SEM_MAIN_BOXED: Any = [];
+mut SEM_SERIAL: Any = 0;
+mut SEM_LOOPS: Any = 0;
+mut SYMBOL_CACHE: Any = 0;
+mut SYMBOL_CAPACITY: Any = 0;
+mut SYMBOL_STRINGS: Any = [];
+
+fun symbol_cache_grow() -> Any {
+    let previous: Any = SYMBOL_CACHE;
+    let capacity: Any = SYMBOL_CAPACITY;
+    SYMBOL_CAPACITY = if (capacity == 0) { 65536 } else { capacity * 2 };
+    SYMBOL_CACHE = irt_alloc(SYMBOL_CAPACITY * 24);
+    for index: Any in 0..capacity {
+        let entry: Any = previous + index * 24;
+        if (load64(entry + 16) != 0) {
+            let pointer: Any = load64(entry); let length: Any = load64(entry + 8);
+            mut slot: Any = (pointer + length * 131) % SYMBOL_CAPACITY;
+            while (load64(SYMBOL_CACHE + slot * 24 + 16) != 0) { slot = (slot + 1) % SYMBOL_CAPACITY; }
+            let target: Any = SYMBOL_CACHE + slot * 24;
+            store64(target, pointer); store64(target + 8, length); store64(target + 16, load64(entry + 16));
+        }
+    }
+    return 0;
+}
+
+fun symbol_name(pointer: Any, length: Any) -> Any {
+    if (length == 0) { return ""; }
+    // Source-arena spans and the compiler's static literals remain valid for
+    // the unit. Heap strings can be modified or reclaimed; never cache them.
+    if (pointer >= 67108864 and (pointer < ARENA or pointer + length > ARENAP)) {
+        let fresh: Any = repeat("\0", length); let bytes: Any = addr(fresh);
+        for i: Any in 0..length { store8(bytes + i, load8(pointer + i)); }
+        return fresh;
+    }
+    if (SYMBOL_CAPACITY == 0 or len(SYMBOL_STRINGS) * 4 >= SYMBOL_CAPACITY * 3) { symbol_cache_grow(); }
+    mut slot: Any = (pointer + length * 131) % SYMBOL_CAPACITY;
+    mut entry: Any = SYMBOL_CACHE + slot * 24;
+    while (load64(entry + 16) != 0) {
+        if (load64(entry) == pointer and load64(entry + 8) == length) { return SYMBOL_STRINGS[load64(entry + 16) - 1]; }
+        slot = (slot + 1) % SYMBOL_CAPACITY; entry = SYMBOL_CACHE + slot * 24;
+    }
+    // Copy bytes into one fresh string instead of allocating each character
+    // and all progressively longer prefixes. Preserve UTF-8 source bytes.
+    let name: Any = repeat("\0", length);
+    let destination: Any = addr(name);
+    mut i: Any = 0;
+    while (i < length) { store8(destination + i, load8(pointer + i)); i = i + 1; }
+    push(SYMBOL_STRINGS, name);
+    store64(entry, pointer); store64(entry + 8, length); store64(entry + 16, len(SYMBOL_STRINGS));
+    return name;
+}
+
+fun sem_owner() -> Any { return SEM_STACK[len(SEM_STACK) - 1]; }
+fun sem_push() -> Any { push(SEM_SCOPES, Scope({}, sem_owner())); return 0; }
+fun sem_pop() -> Any { pop(SEM_SCOPES); return 0; }
+fun main_boxed() -> Any { return SEM_MAIN_BOXED; }
+
+fun sem_find(name: Any) -> Any {
+    mut i: Any = len(SEM_SCOPES) - 1;
+    while (i >= 0) {
+        let scope: Any = SEM_SCOPES[i];
+        if (has(scope.symbols, name)) { return scope.symbols[name]; }
+        i = i - 1;
+    }
+    return 0;
+}
+
+fun sem_declare(pointer: Any, length: Any, writable: Any, category: Any, span: Any, global: Any) -> Any {
+    let name: Any = symbol_name(pointer, length);
+    let module: Any = if (global == 1) { source_module(span) } else { "" };
+    let key: Any = if (module == "") { name } else { module + "::" + name };
+    mut owner: Any = sem_owner();
+    if (global == 1) { owner = 0; }
+    mut target: Any = SEM_SCOPES[len(SEM_SCOPES) - 1].symbols;
+    if (global == 1) { target = SEM_SCOPES[0].symbols; }
+    if (category == "parameter" and has(target, name)) { diagnostic(span, "duplicate parameter `${name}`"); }
+    // Runtime/intrinsic names keep their linkage; module globals are isolated.
+    if (owner != 0 or module != "") {
+        SEM_SERIAL = SEM_SERIAL + 1;
+        let internal: Any = if (module != "") { key } else { "${name}#${SEM_SERIAL}" };
+        length = len(internal);
+        pointer = irt_alloc(length + 1);
+        mut i: Any = 0;
+        while (i < length) { store8(pointer + i, load8(addr(internal) + i)); i = i + 1; }
+        store8(pointer + length, 0);
+    }
+    let symbol: Any = Symbol(name, pointer, length, writable, owner, category, span);
+    symbol.annotation = 0;
+    symbol.inferredType = "Any";
+    symbol.declaration = 0;
+    target[key] = symbol;
+    return symbol;
+}
+
+fun sem_capture(symbol: Any) -> Any {
+    if (symbol.owner == 0 or symbol.owner == sem_owner()) { return 0 - 1; }
+    mut found: Any = 0;
+    mut index: Any = 0 - 1;
+    for owner: Any in SEM_STACK {
+        if (owner == symbol.owner) {
+            found = 1;
+            if (owner == 1) { push(SEM_MAIN_BOXED, [symbol.pointer, symbol.length]); }
+            else { push(SEM_FUNCTIONS[owner].boxed, [symbol.pointer, symbol.length]); }
+        } else if (found == 1) {
+            let rec: Any = SEM_FUNCTIONS[owner];
+            let key: Any = symbol_name(symbol.pointer, symbol.length);
+            if (has(rec.captureIndex, key)) { index = rec.captureIndex[key]; }
+            else {
+                index = len(rec.caparr);
+                rec.captureIndex[key] = index;
+                push(rec.caparr, [symbol.pointer, symbol.length]);
+                rec.cc = len(rec.caparr);
+            }
+        }
+    }
+    return index;
+}
+
+fun sem_export(module: Any, name: Any, span: Any) -> Any {
+    if (has(MODULE_EXPLICIT, module) and not has(MODULE_PUBLIC, module + "::" + name)) {
+        diagnostic(span, "`${name}` is private in ${module}");
+    }
+    return SEM_SCOPES[0].symbols[module + "::" + name];
+}
+
+fun sem_resolve(pointer: Any, length: Any, span: Any) -> Any {
+    let name: Any = symbol_name(pointer, length);
+    mut index: Any = len(SEM_SCOPES) - 1;
+    while (index > 0) {
+        if (has(SEM_SCOPES[index].symbols, name)) { return SEM_SCOPES[index].symbols[name]; }
+        index -= 1;
+    }
+    let globals: Any = SEM_SCOPES[0].symbols;
+    // References already rewritten by the semantic pass retain their linkage.
+    let module: Any = source_module(span);
+    if (has(globals, module + "::" + name)) { return globals[module + "::" + name]; }
+    mut found: Any = 0;
+    if (has(MODULE_IMPORTS, module)) {
+        for imported: Any in MODULE_IMPORTS[module] {
+            let prefix: Any = imported.alias + "::";
+            if (imported.alias != "" and starts_with(name, prefix)) {
+                let member: Any = substring(name, len(prefix), len(name) - len(prefix));
+                if (has(globals, imported.path + "::" + member)) { return sem_export(imported.path, member, span); }
+                diagnostic(span, "unknown module member `${name}`");
+            }
+            mut selected: Any = len(imported.selected) == 0;
+            for item: Any in imported.selected { if (item == name) { selected = true; } }
+            if (imported.plain and selected) {
+                let key: Any = imported.path + "::" + name;
+                if (has(globals, key) and (not has(MODULE_EXPLICIT, imported.path) or has(MODULE_PUBLIC, key))) {
+                    let candidate: Any = globals[key];
+                    if (found != 0 and found != candidate) { diagnostic(span, "ambiguous imported name `${name}`; use an alias"); }
+                    found = candidate;
+                }
+            }
+        }
+    }
+    if (found != 0) { return found; }
+    if (has(globals, name)) { return globals[name]; }
+    diagnostic(span, "unknown name `${name}`");
+    return 0;
+}
+
+fun sem_pattern(pattern: Any, writable: Any, global: Any) -> Any {
+    mut entry: Any = pattern;
+    while (entry != 0) {
+        if (entry.name != 0) {
+            let symbol: Any = sem_declare(entry.name, entry.length, writable, "variable", entry.span, global);
+            entry.name = symbol.pointer;
+            entry.length = symbol.length;
+        }
+        if (entry.nested != 0) { sem_pattern(entry.nested, writable, global); }
+        entry = entry.next;
+    }
+    return 0;
+}
+
+fun sem_chain(head: Any) -> Any {
+    mut current: Any = head;
+    mut result: Any = 0;
+    mut last: Any = 0;
+    mut terminated: Any = 0;
+    while (current != 0) {
+        let following: Any = current.next;
+        let node: Any = sem_node(current);
+        node.next = 0;
+        if (terminated == 0) {
+            if (last == 0) { result = node; } else { last.next = node; }
+            last = node;
+            if (node.kind == S_RETURN or node.kind == S_BREAK or node.kind == S_CONT) { terminated = 1; }
+        }
+        current = following;
+    }
+    return result;
+}
+
+fun sem_function(rec: Any) -> Any {
+    if (rec.analyzed == 1) { return 0; }
+    rec.analyzed = 1;
+    let previousLoops: Any = SEM_LOOPS;
+    SEM_LOOPS = 0;
+    push(SEM_STACK, rec.lab);
+    sem_push();
+    mut i: Any = 0;
+    while (i < len(rec.parr)) {
+        let prm: Any = rec.parr[i];
+        let symbol: Any = sem_declare(prm.name, prm.length, true, "parameter", rec.body.span, 0);
+        symbol.annotation = prm.annotation;
+        symbol.inferredType = sem_annotation_name(prm.annotation);
+        prm.name = symbol.pointer; prm.length = symbol.length;
+        i = i + 1;
+    }
+    if (rec.foreign != true) {
+        rec.body = sem_node(rec.body);
+        sem_check_type(rec.returnType, rec.body);
+    }
+    sem_pop();
+    pop(SEM_STACK);
+    SEM_LOOPS = previousLoops;
+    return 0;
+}
+
+fun sem_node(node: Any) -> Any {
+    if (node == 0) { return 0; }
+    let kind: Any = node.kind;
+    if (kind == E_VAR) {
+        if (node.moduleObject != nil) {
+            let object: Any = node.moduleObject;
+            let alias: Any = symbol_name(object.name, object.length);
+            mut shadowed: Any = has(SEM_SCOPES[0].symbols, source_module(node.span) + "::" + alias);
+            mut scope: Any = len(SEM_SCOPES) - 1;
+            while (scope > 0) {
+                if (has(SEM_SCOPES[scope].symbols, alias)) { shadowed = true; }
+                scope -= 1;
+            }
+            if (shadowed) {
+                return sem_node(Member(E_GET, node.span, node.next, object, node.memberStart, node.memberLength));
+            }
+        }
+        let symbol: Any = sem_resolve(node.name, node.length, node.span);
+        node.inferredType = symbol.inferredType;
+        let index: Any = sem_capture(symbol);
+        if (index >= 0) { return CaptureRef(E_CAPVAR, node.span, node.next, index); }
+        node.name = symbol.pointer;
+        node.length = symbol.length;
+    } else if (kind == E_CALL) {
+        let symbol: Any = sem_resolve(node.name, node.length, node.span);
+        let index: Any = sem_capture(symbol);
+        node.args = sem_chain(node.args);
+        if (symbol.declaration != 0) {
+            let declaration: Any = symbol.declaration;
+            mut argument: Any = node.args;
+            mut i: Any = 0;
+            while (argument != 0 and i < len(declaration.parr)) {
+                sem_check_type(declaration.parr[i].annotation, argument);
+                argument = argument.next; i = i + 1;
+            }
+            if (declaration.foreign == true and (argument != 0 or i != len(declaration.parr))) {
+                diagnostic(node.span, "extern argument count mismatch");
+            }
+            node.inferredType = sem_annotation_name(declaration.returnType);
+        }
+        if (index >= 0) {
+            let callee: Any = CaptureRef(E_CAPVAR, node.span, 0, index);
+            return IndirectCall(E_ICALL, node.span, node.next, callee, node.args);
+        }
+        node.name = symbol.pointer;
+        node.length = symbol.length;
+    } else if (kind == S_LET) {
+        // Named nested functions are in scope in their own body.
+        if (node.initializer.kind == E_CLOSURE) {
+            let symbol: Any = sem_declare(node.name, node.length, node.mutable, "variable", node.span, node.global);
+            node.name = symbol.pointer; node.length = symbol.length;
+            node.initializer = sem_node(node.initializer);
+        } else {
+            node.initializer = sem_node(node.initializer);
+            mut annotation: Any = 0;
+            if (has(node, "annotation")) { annotation = node.annotation; }
+            sem_check_type(annotation, node.initializer);
+            if (node.global == 0) {
+                let symbol: Any = sem_declare(node.name, node.length, node.mutable, "variable", node.span, 0);
+                symbol.annotation = annotation;
+                symbol.inferredType = sem_type(node.initializer);
+                node.name = symbol.pointer; node.length = symbol.length;
+            } else {
+                let symbol: Any = sem_resolve(node.name, node.length, node.span);
+                symbol.annotation = annotation;
+                symbol.inferredType = sem_type(node.initializer);
+                node.name = symbol.pointer; node.length = symbol.length;
+            }
+        }
+    } else if (kind == S_ASSIGN) {
+        let symbol: Any = sem_resolve(node.name, node.length, node.span);
+        if (symbol.mutable == false) { diagnostic(node.span, "cannot assign to let `${symbol.name}`"); }
+        let index: Any = sem_capture(symbol);
+        node.value = sem_node(node.value);
+        sem_check_type(symbol.annotation, node.value);
+        if (index >= 0) { return CaptureAssign(S_CASSIGN, node.span, node.next, index, node.value); }
+        node.name = symbol.pointer; node.length = symbol.length;
+    } else if (kind == E_CLOSURE) {
+        let rec: Any = SEM_FUNCTIONS[node.label];
+        sem_function(rec);
+        mut captures: Any = 0;
+        mut i: Any = len(rec.caparr) - 1;
+        while (i >= 0) {
+            let cap: Any = rec.caparr[i];
+            captures = Capture(E_CAP, node.span, captures, cap[0], cap[1]);
+            i = i - 1;
+        }
+        node.captures = captures;
+    } else if (kind == S_BLOCK) {
+        sem_push();
+        node.statements = sem_chain(node.statements);
+        node.tail = sem_node(node.tail);
+        sem_pop();
+    } else if (kind == S_IF) {
+        node.condition = sem_node(node.condition);
+        sem_push(); node.thenBranch = sem_node(node.thenBranch); sem_pop();
+        sem_push(); node.elseBranch = sem_node(node.elseBranch); sem_pop();
+    } else if (kind == S_WHILE) {
+        node.condition = sem_node(node.condition);
+        SEM_LOOPS = SEM_LOOPS + 1;
+        sem_push(); node.body = sem_node(node.body); sem_pop();
+        SEM_LOOPS = SEM_LOOPS - 1;
+    } else if (kind == S_FOR or kind == E_COMP) {
+        node.iterable = sem_node(node.iterable);
+        sem_push();
+        let symbol: Any = sem_declare(node.name, node.length, true, "variable", node.span, 0);
+        node.name = symbol.pointer; node.length = symbol.length;
+        SEM_LOOPS = SEM_LOOPS + 1;
+        if (kind == S_FOR) { node.body = sem_node(node.body); }
+        else { node.condition = sem_node(node.condition); node.element = sem_node(node.element); }
+        SEM_LOOPS = SEM_LOOPS - 1;
+        sem_pop();
+    } else if (kind == S_BREAK or kind == S_CONT) {
+        if (SEM_LOOPS == 0) { diagnostic(node.span, "loop control outside a loop"); }
+    } else if (kind == E_BIN or kind == E_AND or kind == E_OR or kind == E_POW or kind == E_COALESCE) {
+        node.left = sem_node(node.left); node.right = sem_node(node.right);
+    } else if (kind == E_UN or kind == E_TRY or kind == E_SPREAD) {
+        node.operand = sem_node(node.operand);
+    } else if (kind == E_LIST) { node.items = sem_chain(node.items); }
+    else if (kind == E_MAP) { node.entries = sem_chain(node.entries); }
+    else if (kind == E_ENTRY) { node.key = sem_node(node.key); node.value = sem_node(node.value); }
+    else if (kind == E_INDEX or kind == S_SETIDX) {
+        node.object = sem_node(node.object); node.index = sem_node(node.index);
+        if (kind == S_SETIDX) { node.value = sem_node(node.value); }
+    } else if (kind == E_GET or kind == E_SAFEGET or kind == S_SETPROP) {
+        node.object = sem_node(node.object);
+        if (kind == S_SETPROP) { node.value = sem_node(node.value); }
+    } else if (kind == E_ICALL) {
+        node.callee = sem_node(node.callee); node.args = sem_chain(node.args);
+    } else if (kind == E_RANGE) { node.start = sem_node(node.start); node.end = sem_node(node.end); }
+    else if (kind == E_MAY) { node.body = sem_node(node.body); node.fallback = sem_node(node.fallback); }
+    else if (kind == S_RETURN) {
+        if (sem_owner() == 1) { diagnostic(node.span, "return outside a function"); }
+        node.value = sem_node(node.value);
+        if (sem_owner() != 1) { sem_check_type(SEM_FUNCTIONS[sem_owner()].returnType, node.value); }
+    }
+    else if (kind == S_EXPR) { node.expression = sem_node(node.expression); }
+    else if (kind == S_DESTRUCT) {
+        node.initializer = sem_node(node.initializer);
+        if (node.global == 0) { sem_pattern(node.pattern, node.mutable, 0); }
+    } else if (kind == E_MATCH) {
+        node.subject = sem_node(node.subject);
+        mut arm: Any = node.arms;
+        while (arm != 0) {
+            sem_push();
+            if (arm.patternKind == 2) {
+                let symbol: Any = sem_declare(arm.pattern, arm.length, false, "variable", arm.span, 0);
+                arm.pattern = symbol.pointer; arm.length = symbol.length;
+            } else if (arm.patternKind == 1) { arm.pattern = sem_node(arm.pattern); }
+            arm.guard = sem_node(arm.guard); arm.body = sem_node(arm.body);
+            sem_pop();
+            arm = arm.next;
+        }
+    }
+    node.inferredType = sem_type(node);
+    return sem_fold(node);
+}
+
+fun sem_annotation_name(annotation: Any) -> Any {
+    if (annotation == 0) { return "Any"; }
+    let name: Any = annotation.name;
+    if (name == "Int32" or name == "UInt32" or name == "UInt") { return "Int"; }
+    if (name == "Float32") { return "Float"; }
+    if (name == "Void") { return "Nil"; }
+    if (name == "Int" or name == "Float" or name == "Str" or name == "Bool" or name == "List" or name == "Map" or name == "Function" or name == "Nil") { return name; }
+    return "Any";
+}
+
+fun sem_type(node: Any) -> Any {
+    if (node == 0) { return "Nil"; }
+    if (has(node, "inferredType")) { return node.inferredType; }
+    let kind: Any = node.kind;
+    if (kind == E_INT) { return "Int"; }
+    if (kind == E_FLOAT) { return "Float"; }
+    if (kind == E_STR or kind == E_STRB) { return "Str"; }
+    if (kind == E_LIST or kind == E_COMP or kind == E_RANGE) { return "List"; }
+    if (kind == E_MAP) { return "Map"; }
+    if (kind == E_CLOSURE) { return "Function"; }
+    if (kind == S_RETURN) { return sem_type(node.value); }
+    if (kind == S_EXPR) { return sem_type(node.expression); }
+    if (kind == S_BLOCK) {
+        if (node.tail != 0) { return sem_type(node.tail); }
+        mut last: Any = node.statements;
+        if (last == 0) { return "Nil"; }
+        while (last.next != 0) { last = last.next; }
+        return sem_type(last);
+    }
+    if (kind == S_IF) {
+        let left: Any = sem_type(node.thenBranch); let right: Any = sem_type(node.elseBranch);
+        if (left == right) { return left; }
+    }
+    if (kind == E_UN) {
+        if (node.op == TK_NOT) { return "Bool"; }
+        return sem_type(node.operand);
+    }
+    if (kind == E_BIN) {
+        if (node.op >= TK_EQ and node.op <= TK_GE) { return "Bool"; }
+        let left: Any = sem_type(node.left); let right: Any = sem_type(node.right);
+        if (node.op == TK_PLUS and (left == "Str" or right == "Str")) { return "Str"; }
+        if (left == "Int" and right == "Int") { return "Int"; }
+        if ((left == "Int" or left == "Float") and (right == "Int" or right == "Float")) { return "Float"; }
+    }
+    return "Any";
+}
+
+fun sem_check_type(annotation: Any, node: Any) -> Any {
+    if (annotation == 0 or node == 0) { return 0; }
+    let expected: Any = sem_annotation_name(annotation);
+    let actual: Any = sem_type(node);
+    if (expected != "Any" and actual != "Any" and expected != actual) {
+        if (expected != "Float" or actual != "Int") { diagnostic(sem_type_span(node, expected), "expected ${expected}, found ${actual}"); }
+    }
+    if (expected == "List" and node.kind == E_LIST and len(annotation.arguments) == 1) {
+        mut item: Any = node.items;
+        while (item != 0) { if (item.kind != E_SPREAD) { sem_check_type(annotation.arguments[0], item); } item = item.next; }
+    }
+    if (expected == "Map" and node.kind == E_MAP and len(annotation.arguments) == 2) {
+        mut entry: Any = node.entries;
+        while (entry != 0) {
+            if (entry.key != 0) { sem_check_type(annotation.arguments[0], entry.key); sem_check_type(annotation.arguments[1], entry.value); }
+            entry = entry.next;
+        }
+    }
+    return 0;
+}
+
+fun sem_type_span(node: Any, expected: Any) -> Any {
+    if (node == 0) { return 0; }
+    if (node.kind == S_BLOCK) {
+        if (node.tail != 0) { return sem_type_span(node.tail, expected); }
+        mut statement: Any = node.statements;
+        mut last: Any = 0;
+        while (statement != 0) { last = statement; statement = statement.next; }
+        if (last != 0) { return sem_type_span(last, expected); }
+    }
+    if (node.kind == S_EXPR) { return sem_type_span(node.expression, expected); }
+    if (node.kind == S_RETURN) { return sem_type_span(node.value, expected); }
+    if (node.kind == S_IF) {
+        if (sem_type(node.thenBranch) != expected) { return sem_type_span(node.thenBranch, expected); }
+        return sem_type_span(node.elseBranch, expected);
+    }
+    return node.span;
+}
+
+// Fold only exactly representable integer arithmetic. In particular, leave
+// overflow, division, coercions and exceptions to the language runtime.
+fun sem_fold(node: Any) -> Any {
+    if (node.kind == E_BIN) {
+        if (node.left.kind == E_INT and node.right.kind == E_INT) {
+            let a: Any = node.left.value;
+            let b: Any = node.right.value;
+            if (a >= (0 - 1000000) and a <= 1000000 and b >= (0 - 1000000) and b <= 1000000) {
+                if (node.op == TK_PLUS) { return IntLit(E_INT, node.span, node.next, a + b); }
+                if (node.op == TK_MINUS) { return IntLit(E_INT, node.span, node.next, a - b); }
+                if (node.op == TK_STAR) { return IntLit(E_INT, node.span, node.next, a * b); }
+            }
+        }
+    }
+    return node;
+}
+
+fun sem_globals(body: Any) -> Any {
+    mut node: Any = body;
+    while (node != 0) {
+        if (node.kind == S_LET and node.global == 1) {
+            sem_declare(node.name, node.length, node.mutable, "variable", node.span, 1);
+        } else if (node.kind == S_DESTRUCT and node.global == 1) {
+            sem_pattern(node.pattern, node.mutable, 1);
+        }
+        node = node.next;
+    }
+    return 0;
+}
+
+fun sem_builtins() -> Any {
+    for name: Any in ["__host_alloc", "__host_write", "__host_exit"] { sem_declare(addr(name), len(name), 0, "builtin", 0, 1); }
+    let names: Any = ["__ccall6", "__longjmp", "__sp", "__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__fabs", "__fpow2", "__fiber_entry", "__fib_switch", "syscall", "addr", "cstr", "len", "ptr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "exit", "print", "fail", "str", "chr", "ord", "push", "map", "filter", "sum", "reduce", "any", "all", "count", "each", "times", "char_at", "char_from", "to_lower", "to_upper", "trim", "split", "repeat", "join", "contains", "starts_with", "ends_with", "index_of", "cmp", "min", "max", "abs", "to_map", "map_get", "map_set", "keys", "values", "has", "read_stdin", "pi", "e", "sqrt", "floor", "ceil", "round", "trunc", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "pow", "chars", "reverse", "sort", "env", "file_exists", "read_file", "write_file", "time", "clock", "sleep", "mkdir", "read_dir", "system", "exec", "wait", "pop", "remove", "merge", "slice", "unique", "pad_left", "pad_right", "int", "str_of", "int_to_str", "str_cmp", "value_eq", "map_keys", "map_values", "map_has", "to_float", "rt_raise", "json_parse", "json_stringify", "args", "input", "spawn", "yield", "run", "bool", "value_tag", "nil", "true", "false", "err"];
+    for name: Any in names { sem_declare(addr(name), len(name), false, "builtin", 0, 1); }
+    return 0;
+}
+
+fun sem_program() -> Any {
+    SEM_SCOPES = [];
+    SEM_STACK = [1];
+    SEM_FUNCTIONS = {};
+    SEM_MAIN_BOXED = [];
+    SEM_SERIAL = 0;
+    sem_push();
+    sem_builtins();
+    for rec: Any in FUNC_HEAD {
+        SEM_FUNCTIONS[rec.lab] = rec;
+        rec.captureIndex = {};
+        if (rec.nested == 0) {
+            let symbol: Any = sem_declare(rec.p, rec.l, false, "function", rec.moduleSpan, 1);
+            symbol.declaration = rec;
+            symbol.inferredType = "Function";
+            rec.p = symbol.pointer; rec.l = symbol.length;
+        }
+    }
+    sem_globals(RUNTIME_BODY);
+    sem_globals(MAINBODY);
+    RUNTIME_BODY = sem_chain(RUNTIME_BODY);
+    MAINBODY = sem_chain(MAINBODY);
+    for rec: Any in FUNC_HEAD { if (rec.nested == 0) { sem_function(rec); } }
+    return 0;
+}

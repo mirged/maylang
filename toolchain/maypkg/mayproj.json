@@ -1,0 +1,10 @@
+{
+  "name": "maypkg",
+  "version": "0.1.0",
+  "entry": "main.may",
+  "target": "host",
+  "description": "A build manager for Maylang projects",
+  "authors": ["Maylang Contributors"],
+  "dependencies": {},
+  "output": "build/maypkg"
+}

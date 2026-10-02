@@ -1,0 +1,195 @@
+import "src/text.may";
+import "src/protocol.may";
+import "src/index.may";
+import "src/diagnostics.may";
+import "src/features.may";
+import "src/scheduler.may";
+import "../mayc/src/state.may";
+
+mut LS_INITIALIZED: Any = false;
+mut LS_SHUTDOWN: Any = false;
+fun ls_cwd() -> Any {
+    let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let n: Any = syscall(79, p, 4096);
+    let cwd: Any = if (n > 0) { ls_text(p, n - 1) } else { "/" };
+    syscall(11, p, 4096); return cwd;
+}
+fun ls_find_stdlib(p: Any) -> Any {
+    let configured: Any = p.initializationOptions?.stdlibPath ?? env("MAYLANG_STDLIB");
+    if (configured != nil and configured != "") { return ls_normal(if (ls_starts(configured, "/")) { configured } else { ls_cwd() + "/" + configured }); }
+    let paths: Any = [ls_cwd() + "/stdlib"];
+    for root: Any in LS_ROOTS { push(paths, root + "/stdlib"); }
+    let buffer: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let n: Any = syscall(89, addr("/proc/self/exe"), buffer, 4096);
+    if (n > 0) { push(paths, ls_normal(ls_dir(ls_text(buffer, n)) + "/../../stdlib")); }
+    syscall(11, buffer, 4096);
+    for path: Any in paths { if (file_exists(path + "/native.may")) { return ls_normal(path); } }
+    return ls_normal(ls_cwd() + "/stdlib");
+}
+fun ls_initialize(p: Any) -> Any {
+    LS_ROOTS = [];
+    if (value_tag(p.workspaceFolders) == 5) {
+        for folder: Any in p.workspaceFolders { push(LS_ROOTS, ls_path(folder.uri)); }
+    } else if (p.rootUri != nil) { push(LS_ROOTS, ls_path(p.rootUri)); }
+    else if (p.rootPath != nil) { push(LS_ROOTS, ls_normal(p.rootPath)); }
+    if (len(LS_ROOTS) == 0) { LS_ROOTS = [ls_cwd()]; }
+    LS_STDLIB = ls_find_stdlib(p); LS_INITIALIZED = true;
+    STRICT_TYPES = p.initializationOptions?.strict ?? true;
+    if (value_tag(STRICT_TYPES) != 3 and value_tag(STRICT_TYPES) != 4) { fail("strict must be a boolean"); }
+    return {"serverInfo": {"name": "maylsp", "version": "0.1.0"}, "capabilities": {
+        "positionEncoding": "utf-16",
+        "textDocumentSync": {"openClose": true, "change": 2, "save": {"includeText": true}},
+        "hoverProvider": true,
+        "completionProvider": {"triggerCharacters": ["."], "resolveProvider": false},
+        "signatureHelpProvider": {"triggerCharacters": ["(", ","], "retriggerCharacters": [","]},
+        "definitionProvider": true, "declarationProvider": true,
+        "referencesProvider": true, "documentHighlightProvider": true,
+        "renameProvider": {"prepareProvider": true},
+        "documentSymbolProvider": true, "workspaceSymbolProvider": true,
+        "documentFormattingProvider": true,
+        "foldingRangeProvider": true, "selectionRangeProvider": true,
+        "documentLinkProvider": {"resolveProvider": false},
+        "callHierarchyProvider": true,
+        "diagnosticProvider": {"identifier": "maylsp", "interFileDependencies": true, "workspaceDiagnostics": false},
+        "inlayHintProvider": true,
+        "semanticTokensProvider": {"legend": {"tokenTypes": ["keyword", "string", "number", "comment", "function", "variable", "parameter", "type", "operator"], "tokenModifiers": ["declaration", "readonly"]}, "full": true, "range": true},
+        "codeActionProvider": {"codeActionKinds": ["source.organizeImports"]},
+        "workspace": {"workspaceFolders": {"supported": true, "changeNotifications": true}}
+    }};
+}
+fun ls_change(p: Any) -> Any {
+    let doc: Any = ls_doc_param(p); let version: Any = p.textDocument.version;
+    if (not doc.open or value_tag(version) != 0 or value_tag(p.contentChanges) != 5) { fail("invalid change notification"); }
+    if (doc.version != nil and version <= doc.version) { return nil; }
+    mut text: Any = doc.text;
+    for change: Any in p.contentChanges {
+        if (value_tag(change.text) != 1) { fail("change.text is required"); }
+        if (change.range == nil) { text = change.text; }
+        else {
+            let a: Any = ls_offset(text, change.range.start); let b: Any = ls_offset(text, change.range.end);
+            if (b < a) { fail("invalid change range"); }
+            text = ls_slice(text, 0, a) + change.text + ls_slice(text, b, ls_bytes(text));
+        }
+    }
+    ls_set_document(doc.uri, text, version); ls_recheck(); return nil;
+}
+fun ls_watch(p: Any) -> Any {
+    LS_INDEX_EPOCH += 1;
+    for change: Any in p.changes ?? [] {
+        let uri: Any = ls_uri(ls_path(change.uri));
+        if (has(LS_DOCS, uri) and LS_DOCS[uri].open) { continue; }
+        if (has(LS_DOCS, uri)) { LS_DOCS = remove(LS_DOCS, uri); }
+        if (change.type != 3) { may { ls_document(uri); }; }
+    }
+    LS_SCANNED = false; ls_recheck(); return nil;
+}
+fun ls_dispatch(method: Any, p: Any) -> Any {
+    if (method == "initialized" or method == "$/setTrace" or method == "$/cancelRequest" or method == "window/workDoneProgress/cancel") { return nil; }
+    if (method == "textDocument/didOpen") {
+        let t: Any = p.textDocument;
+        if (value_tag(t.text) != 1 or value_tag(t.version) != 0) { fail("invalid document"); }
+        ls_set_document(t.uri, t.text, t.version); ls_recheck(); return nil;
+    }
+    if (method == "textDocument/didChange") { return ls_change(p); }
+    if (method == "textDocument/didSave") {
+        let doc: Any = ls_doc_param(p);
+        if (value_tag(p.text) == 1) { ls_set_document(doc.uri, p.text, doc.version); }
+        ls_recheck(); return nil;
+    }
+    if (method == "textDocument/didClose") {
+        LS_INDEX_EPOCH += 1;
+        let doc: Any = ls_doc_param(p); LS_DOCS = remove(LS_DOCS, doc.uri);
+        ls_notify("textDocument/publishDiagnostics", {"uri": doc.uri, "diagnostics": []});
+        if (file_exists(doc.path)) { ls_document(doc.uri); }
+        ls_recheck(); return nil;
+    }
+    if (method == "workspace/didChangeWatchedFiles") { return ls_watch(p); }
+    if (method == "workspace/didChangeWorkspaceFolders") {
+        LS_INDEX_EPOCH += 1;
+        for folder: Any in p.event.removed ?? [] { let path: Any = ls_path(folder.uri); let roots: Any = []; for root: Any in LS_ROOTS { if (root != path) { push(roots, root); } } LS_ROOTS = roots; }
+        for folder: Any in p.event.added ?? [] { push(LS_ROOTS, ls_path(folder.uri)); }
+        let buffers: Any = {};
+        for uri: Any in keys(LS_DOCS) { if (LS_DOCS[uri].open) { buffers[uri] = LS_DOCS[uri]; } }
+        LS_DOCS = buffers; LS_SCANNED = false; ls_recheck(); return nil;
+    }
+    if (method == "workspace/didChangeConfiguration") {
+        let strict: Any = p.settings?.maylang?.strict;
+        if ((value_tag(strict) == 3 or value_tag(strict) == 4) and strict != STRICT_TYPES) { STRICT_TYPES = strict; LS_INDEX_EPOCH += 1; ls_recheck(); }
+        let configured: Any = p.settings?.maylang?.stdlibPath;
+        if (value_tag(configured) == 1) { LS_INDEX_EPOCH += 1; LS_STDLIB = ls_normal(if (ls_starts(configured, "/")) { configured } else { ls_cwd() + "/" + configured }); ls_recheck(); }
+        return nil;
+    }
+    if (method == "workspace/symbol") { return ls_workspace_symbols(p.query ?? ""); }
+    if (method == "callHierarchy/incomingCalls") { return ls_incoming_calls(p.item); }
+    if (method == "callHierarchy/outgoingCalls") { return ls_outgoing_calls(p.item); }
+    let doc: Any = ls_doc_param(p);
+    if (method == "textDocument/hover") { return ls_hover(doc, p); }
+    if (method == "textDocument/completion") { return ls_complete(doc, p); }
+    if (method == "textDocument/signatureHelp") { return ls_signature(doc, p); }
+    if (method == "textDocument/definition" or method == "textDocument/declaration") { let d: Any = ls_target(doc, p); return if (d == nil) { nil } else { ls_location(d) }; }
+    if (method == "textDocument/references") { let d: Any = ls_target(doc, p); return if (d == nil) { [] } else { ls_occurrences(d, p.context.includeDeclaration ?? false) }; }
+    if (method == "textDocument/documentHighlight") {
+        let d: Any = ls_target(doc, p); let out: Any = [];
+        if (d != nil) { for occurrence: Any in ls_document_occurrences(doc, d, true) { push(out, {"range": occurrence.range, "kind": 1}); } }
+        return out;
+    }
+    if (method == "textDocument/prepareRename") { return ls_prepare_rename(doc, p); }
+    if (method == "textDocument/rename") { return ls_rename(doc, p); }
+    if (method == "textDocument/documentSymbol") { return ls_symbols(doc); }
+    if (method == "textDocument/formatting") { return ls_format_edits(doc, p); }
+    if (method == "textDocument/foldingRange") { return ls_folding(doc); }
+    if (method == "textDocument/selectionRange") { return ls_selection(doc, p.positions); }
+    if (method == "textDocument/documentLink") { return ls_links(doc); }
+    if (method == "textDocument/inlayHint") { return ls_inlay(doc, p); }
+    if (method == "textDocument/semanticTokens/full") { return ls_semantic(doc, nil); }
+    if (method == "textDocument/semanticTokens/range") { return ls_semantic(doc, p.range); }
+    if (method == "textDocument/codeAction") { return ls_actions(doc, p); }
+    if (method == "textDocument/diagnostic") { return ls_pull_diagnostics(doc); }
+    if (method == "textDocument/prepareCallHierarchy") { let d: Any = ls_target(doc, p); return if (d != nil and d.kind == 12) { [ls_call_item(d)] } else { [] }; }
+    return nil;
+}
+let LS_METHODS: Any = ["initialized", "$/setTrace", "$/cancelRequest", "window/workDoneProgress/cancel", "textDocument/didOpen", "textDocument/didChange", "textDocument/didSave", "textDocument/didClose", "workspace/didChangeWatchedFiles", "workspace/didChangeWorkspaceFolders", "workspace/didChangeConfiguration", "workspace/symbol", "textDocument/hover", "textDocument/completion", "textDocument/signatureHelp", "textDocument/definition", "textDocument/declaration", "textDocument/references", "textDocument/documentHighlight", "textDocument/prepareRename", "textDocument/rename", "textDocument/documentSymbol", "textDocument/formatting", "textDocument/foldingRange", "textDocument/selectionRange", "textDocument/documentLink", "textDocument/inlayHint", "textDocument/semanticTokens/full", "textDocument/semanticTokens/range", "textDocument/codeAction", "textDocument/diagnostic", "textDocument/prepareCallHierarchy", "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls"];
+fun ls_message(message: Any) -> Any {
+    if (value_tag(message) != 7 or message.jsonrpc != "2.0" or value_tag(message.method) != 1) { ls_error(nil, -32600, "Invalid Request"); return nil; }
+    let request: Any = has(message, "id"); let id: Any = message.id; let method: Any = message.method;
+    if (request and value_tag(id) != 0 and value_tag(id) != 1 and id != nil) { ls_error(nil, -32600, "Invalid request ID"); return nil; }
+    if (method == "exit") { ls_worker_stop(); exit(if (LS_SHUTDOWN) { 0 } else { 1 }); }
+    if (method == "initialize") {
+        if (not request) { return nil; }
+        if (LS_INITIALIZED) { ls_error(id, -32600, "Already initialized"); return nil; }
+        may { ls_reply(id, ls_initialize(message.params ?? ({}))); } otherwise { ls_error(id, -32602, err.message); }
+        return nil;
+    }
+    if (not LS_INITIALIZED) { if (request) { ls_error(id, -32002, "Server not initialized"); } return nil; }
+    if (LS_SHUTDOWN) { if (request) { ls_error(id, -32600, "Server is shutting down"); } return nil; }
+    if (method == "shutdown") { if (request) { LS_SHUTDOWN = true; ls_scheduler_stop(); ls_reply(id, nil); } return nil; }
+    if (not has(LS_METHODS, method)) { if (request) { ls_error(id, -32601, "Method not found: " + method); } return nil; }
+    return may {
+        let params: Any = message.params ?? ({});
+        if (value_tag(params) != 7) { fail("params must be an object"); }
+        if (method == "$/cancelRequest") { ls_cancel_check(params.id); return nil; }
+        if (request and method == "textDocument/diagnostic") { ls_request_check(id, ls_doc_param(params)); return nil; }
+        let result: Any = ls_dispatch(method, params);
+        if (request) { ls_reply(id, result); }
+    } otherwise {
+        if (request) { ls_error(id, -32602, err.message); }
+        else { let warning: Any = "maylsp: " + method + ": " + err.message + "\n"; syscall(1, 2, addr(warning), ls_bytes(warning)); }
+    }
+    nil;
+}
+fun ls_main() -> Any {
+    while (true) {
+        ls_scheduler_tick();
+        let body: Any = ls_packet(); if (body == nil) { ls_worker_stop(); return nil; }
+        mut parsed: Any = false;
+        let message: Any = may { let value: Any = ls_parse_json(body); parsed = true; value } otherwise { ls_error(nil, -32700, "Parse error: " + err.message); nil };
+        if (parsed) { ls_message(message); }
+    }
+    return nil;
+}
+LS_IDLE_HOOK = ls_scheduler_tick; LS_RECHECK_HOOK = ls_schedule_checks;
+may { ls_main(); } otherwise {
+    ls_worker_stop();
+    let message: Any = "maylsp: transport error: " + err.message + "\n";
+    syscall(1, 2, addr(message), ls_bytes(message)); exit(1);
+}

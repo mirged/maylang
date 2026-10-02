@@ -1,0 +1,2 @@
+{ let hidden: Any = 1; }
+print(hidden);

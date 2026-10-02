@@ -1,0 +1,5 @@
+fun inc(x: Any) -> Any { return x + 1; }
+fun dbl(x: Any) -> Any { return x * 2; }
+print(5 |> inc |> dbl);
+print([1,2,3] |> map(|x: Any| -> Any { return x * 2; }) |> filter(|x: Any| -> Any { return x > 2; }) |> sum);
+print("a,b,c" |> split(",") |> len);

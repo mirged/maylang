@@ -1,0 +1,21 @@
+// Pipelines: `data |> f |> g` inserts data as the first argument.
+
+fun double(x: Any) -> Any { return x * 2; }
+fun is_even(x: Any) -> Any { return x % 2 == 0; }
+fun add(a: Any, b: Any) -> Any { return a + b; }
+
+let data: Any = 1..=10;
+
+let result: Any = data
+    |> filter(is_even)
+    |> map(double)
+    |> sum;
+
+print("sum of doubled evens 1..10 =", result); // 60
+
+// Pipe with extra arguments: `x |> add(y)` == `add(x, y)`.
+print("10 |> add(5) =", 10 |> add(5));
+
+// Lambdas work anywhere a function value is expected.
+let squares: Any = map(1..=5, fun(x: Any) -> Any { return x * x; });
+print("squares =", squares);

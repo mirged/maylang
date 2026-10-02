@@ -1,0 +1,74 @@
+// Smoke tests for the expanded utility library and tensor primitives.
+import "stats.may";
+import "random.may";
+import "csv.may";
+import "path.may";
+import "iter.may";
+import "validate.may";
+import "format.may";
+import "io.may";
+import "../stdlib/ml/tensor.may";
+import "../stdlib/ml/data.may";
+import "../stdlib/ml/classical.may";
+import "../stdlib/ml/loss.may";
+import "../stdlib/ml/nn.may";
+import "../stdlib/ml/optim.may";
+import "../stdlib/ml/model.may";
+
+if (abs(stats_mean([1.0, 2.0, 3.0, 4.0]) - 2.5) > 0.0001) { fail("stats mean"); }
+if (abs(stats_correlation([1.0, 2.0, 3.0], [2.0, 4.0, 6.0]) - 1.0) > 0.0001) { fail("stats correlation"); }
+let rng_a: Any = random_new(17); let rng_b: Any = random_new(17);
+if (random_next_int(rng_a) != random_next_int(rng_b)) { fail("seeded PRNG reproducibility"); }
+let rows: Any = [["name", "note"], ["May", "says, \"hello\""], ["Lang", "two\nlines"]];
+let parsed: Any = csv_parse(csv_stringify(rows));
+if (len(parsed) != 3 || parsed[1][1] != rows[1][1] || parsed[2][1] != rows[2][1]) { fail("CSV round-trip"); }
+let record: Any = csv_records(["name", "note"], [["May", "friendly"]])[0];
+if (record.name != "May" || record.note != "friendly") { fail("CSV records"); }
+let empty_field: Any = csv_parse(csv_stringify([[""]]));
+if (len(empty_field) != 1 || len(empty_field[0]) != 1 || empty_field[0][0] != "") { fail("CSV empty field"); }
+if (path_normalize("alpha/./beta/../gamma.may") != "alpha/gamma.may") { fail("path normalization"); }
+if (path_extension(".profile") != "" || path_dirname("/file") != "/") { fail("path edge cases"); }
+if (path_normalize("C:\\alpha\\..\\beta") != "C:/beta") { fail("drive path normalization"); }
+if (path_extension("archive.tar.gz") != "gz" || path_stem("archive.tar.gz") != "archive.tar") { fail("path extension/stem"); }
+if (path_relative("a/b", "a/c/file") != "../c/file") { fail("relative paths"); }
+if (abs(stats_quantile([1.0, 2.0, 3.0, 4.0], 0.25) - 1.75) > 0.0001) { fail("quantile interpolation"); }
+let product: Any = tensor_matmul(tensor_matrix([[1.0, 2.0], [3.0, 4.0]]), tensor_matrix([[2.0], [1.0]]));
+if (abs(product.data[0] - 4.0) > 0.0001 || abs(product.data[1] - 10.0) > 0.0001) { fail("tensor matrix multiplication"); }
+let matrix: Any = tensor_matrix([[1.0, 2.0], [3.0, 4.0]]);
+let broadcast: Any = tensor_add_broadcast(matrix, tensor_vector([10.0, 20.0]));
+if (abs(broadcast.data[0] - 11.0) > 0.0001 || abs(broadcast.data[3] - 24.0) > 0.0001) { fail("tensor broadcasting"); }
+let col_sums: Any = tensor_sum_axis(matrix, 0);
+if (abs(col_sums.data[0] - 4.0) > 0.0001 || abs(col_sums.data[1] - 6.0) > 0.0001) { fail("axis reduction"); }
+let probabilities_row: Any = tensor_softmax(tensor_vector([1.0, 2.0]));
+if (abs(probabilities_row.data[0] + probabilities_row.data[1] - 1.0) > 0.0001) { fail("stable softmax"); }
+let encoded: Any = ml_one_hot([2], 3);
+if (abs(encoded[0][0]) > 0.0001 || abs(encoded[0][1]) > 0.0001 || abs(encoded[0][2] - 1.0) > 0.0001) { fail("one hot encoding"); }
+if (sum_by([1, 2, 3], |x: Any| -> Any { return x * x; }) != 14) { fail("iter sum_by"); }
+if (!validate_email("pilot@maylang.dev") || validate_email("not-an-email") || validate_email("p@il@ot.dev")) { fail("email validation"); }
+if (!validate_int_string("-0") || validate_int_string("2.4")) { fail("integer validation"); }
+if (!validate_float_string("-2.5") || validate_float_string("nope")) { fail("float validation"); }
+let validation: Any = validate_all("", [{"check": |x: Any| -> Any { return validate_nonempty(x); }, "message": "required"}]);
+if (validation.ok || validation.errors[0] != "required") { fail("composable validation"); }
+if (format_duration(3661) != "01:01:01") { fail("duration formatting"); }
+if (format_table(["key"], [["val"]]) != "| key |\n|-----|\n| val |") { fail("table formatting"); }
+let lin: Any = ml_linear_fit([[1.0], [2.0], [3.0]], [3.0, 5.0, 7.0], 500, 0.1);
+if (abs(ml_linear_predict(lin, [[4.0]])[0] - 9.0) > 0.02) { fail("linear regression"); }
+if (ml_knn_predict([[0.0], [5.0]], ["near", "far"], [0.2], 1) != "near") { fail("kNN"); }
+let logistic: Any = ml_logistic_fit([[-2.0], [-1.0], [1.0], [2.0]], [0, 0, 1, 1], 150, 0.2);
+let probabilities: Any = ml_logistic_predict(logistic, [[-2.0], [2.0]]);
+if (probabilities[0] >= 0.5 || probabilities[1] <= 0.5) { fail("logistic regression"); }
+let clusters: Any = ml_kmeans([[0.0, 0.0], [0.0, 0.1], [10.0, 10.0], [10.0, 10.1]], 2, 10, random_new(8));
+if (clusters.inertia > 0.1) { fail("k-means clustering"); }
+let feature_stats: Any = ml_feature_stats([[1.0, 10.0], [3.0, 10.0]]);
+let normalized: Any = ml_standardize([[1.0, 10.0]], feature_stats);
+if (abs(normalized[0][0] + 1.0) > 0.0001 || abs(normalized[0][1]) > 0.0001) { fail("feature standardization"); }
+let batch_list: Any = ml_batches([[1], [2], [3]], [0, 1, 0], 2);
+if (len(batch_list) != 2 || len(batch_list[1].x) != 1) { fail("minibatch slicing"); }
+let split_data: Any = ml_train_test_split([[1], [2], [3], [4]], [0, 1, 0, 1], 0.25, random_new(9));
+if (len(split_data.x_test) != 1 || len(split_data.x_train) != 3) { fail("train/test split"); }
+let confusion: Any = ml_confusion_matrix([[0.1], [0.9]], [[0.0], [1.0]], 2);
+if (confusion[0][0] != 1 || confusion[1][1] != 1) { fail("confusion matrix"); }
+let tiny: Any = nn_model(); nn_add_dense(tiny, 1, 1, "linear", random_new(3));
+let one_step: Any = ml_train_batch(tiny, [[1.0]], [[2.0]], ml_sgd_momentum(0.01, 0.8), "mse");
+if (one_step <= 0) { fail("SGD with momentum"); }
+print("expanded stdlib checks passed");

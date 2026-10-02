@@ -1,0 +1,67 @@
+import "hardware.may";
+
+mut disk_sectors: Int = 0;
+
+// Primary IDE master, 28-bit LBA, one 512-byte sector per PIO command.
+fun disk_delay() -> Nil {
+    port_read(1014); port_read(1014); port_read(1014); port_read(1014);
+    return;
+}
+fun disk_wait(data: Int) -> Bool {
+    // -1 waits for an idle bus while allowing a prior command's error bit;
+    // issuing the next command clears it, so a failed write can be retried.
+    let started: Int = ticks();
+    while (ticks() - started < 200) {
+        let status: Int = port_read(503);
+        if (status == 0 or status == 255) { return 0 == 1; }
+        if (status / 128 % 2 == 0) {
+            if (data >= 0 and (status % 2 != 0 or status / 32 % 2 != 0)) { return 0 == 1; }
+            if (data <= 0 or status / 8 % 2 == 1) { return 1 == 1; }
+        }
+    }
+    return 0 == 1;
+}
+fun disk_init() -> Nil {
+    disk_sectors = 0;
+    port_write(1014, 2); // Polling only: mask ATA IRQs at the device.
+    port_write(502, 160); disk_delay();
+    port_write(498, 0); port_write(499, 0); port_write(500, 0); port_write(501, 0);
+    port_write(503, 236); disk_delay(); // IDENTIFY DEVICE
+    if (disk_wait(1) == (0 == 1)) { return; }
+    mut i: Int = 0;
+    while (i < 256) { store16(2179072 + i * 2, port_read16(496)); i += 1; }
+    if (load16(2179072 + 98) / 512 % 2 == 0) { return; }
+    disk_sectors = load32(2179072 + 120);
+    if (disk_sectors > 268435456) { disk_sectors = 268435456; }
+    return;
+}
+fun disk_select(sector: Int) -> Bool {
+    if (sector < 0 or sector >= disk_sectors) { return 0 == 1; }
+    port_write(502, 224 + sector / 16777216 % 16); disk_delay();
+    if (disk_wait(-1) == (0 == 1)) { return 0 == 1; }
+    port_write(498, 1); port_write(499, sector % 256);
+    port_write(500, sector / 256 % 256); port_write(501, sector / 65536 % 256);
+    return 1 == 1;
+}
+fun disk_read(sector: Int, buffer: Int) -> Bool {
+    if (disk_select(sector) == (0 == 1)) { return 0 == 1; }
+    port_write(503, 32); disk_delay();
+    if (disk_wait(1) == (0 == 1)) { return 0 == 1; }
+    mut i: Int = 0;
+    while (i < 256) { store16(buffer + i * 2, port_read16(496)); i += 1; }
+    disk_delay();
+    return disk_wait(0);
+}
+fun disk_write(sector: Int, buffer: Int) -> Bool {
+    if (disk_select(sector) == (0 == 1)) { return 0 == 1; }
+    port_write(503, 48); disk_delay();
+    if (disk_wait(1) == (0 == 1)) { return 0 == 1; }
+    mut i: Int = 0;
+    while (i < 256) { port_write16(496, load16(buffer + i * 2)); i += 1; }
+    disk_delay();
+    return disk_wait(0);
+}
+fun disk_flush() -> Bool {
+    port_write(503, 231); disk_delay();
+    return disk_wait(0);
+}

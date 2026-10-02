@@ -1,0 +1,1 @@
+fun wrong() -> Int { return "wrong"; }

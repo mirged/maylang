@@ -1,0 +1,76 @@
+{
+  "name": "maylang",
+  "displayName": "Maylang",
+  "description": "Maylang language support: syntax highlighting and the maylang-lsp language server.",
+  "version": "0.1.0",
+  "publisher": "maylang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://example.invalid/maylang"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "keywords": ["maylang", "lsp", "language-server"],
+  "activationEvents": ["onLanguage:maylang"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "maylang",
+        "aliases": ["Maylang", "maylang"],
+        "extensions": [".may"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "maylang",
+        "scopeName": "source.maylang",
+        "path": "./syntaxes/maylang.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "maylang",
+        "path": "./snippets/maylang.json"
+      }
+    ],
+    "configuration": {
+      "title": "Maylang",
+      "properties": {
+        "maylang.strict": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check inferred and declared types and require explicit return statements. Disable to check legacy dynamic code."
+        },
+        "maylang.serverPath": {
+          "type": "string",
+          "default": "maylang-lsp",
+          "description": "Path to the maylang-lsp executable (found on PATH by default)."
+        },
+        "maylang.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace the communication between VS Code and the Maylang language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.4.0"
+  }
+}

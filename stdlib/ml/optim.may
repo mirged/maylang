@@ -1,0 +1,75 @@
+// ml/optim.may — SGD with momentum and Adam for ml/nn.may dense layers.
+
+fun ml_sgd(learning_rate: Any) -> Any {
+    if (learning_rate <= 0) { fail("learning rate must be positive"); }
+    return {"kind": "sgd", "lr": learning_rate, "momentum": 0.0, "velocity_w": [], "velocity_b": []};
+}
+fun ml_sgd_momentum(learning_rate: Any, momentum: Any) -> Any {
+    if (learning_rate <= 0 || momentum < 0 || momentum >= 1) { fail("invalid SGD learning rate or momentum"); }
+    return {"kind": "sgd", "lr": learning_rate, "momentum": momentum, "velocity_w": [], "velocity_b": []};
+}
+fun ml_adam(learning_rate: Any, beta1: Any, beta2: Any, epsilon: Any) -> Any {
+    if (learning_rate <= 0 || beta1 < 0 || beta1 >= 1 || beta2 < 0 || beta2 >= 1 || epsilon <= 0) { fail("invalid Adam hyperparameters"); }
+    return {"kind": "adam", "lr": learning_rate, "beta1": beta1, "beta2": beta2, "epsilon": epsilon,
+     "step": 0, "beta1_power": 1.0, "beta2_power": 1.0, "mw": [], "vw": [], "mb": [], "vb": []};
+}
+fun ml_adam_default(learning_rate: Any) -> Any { return ml_adam(learning_rate, 0.9, 0.999, 0.00000001); }
+
+fun ml_zero_matrix_like(matrix: Any) -> Any { return [[0.0 for _: Any in row] for row: Any in matrix]; }
+fun ml_adam_matrix(param: Any, grad: Any, first: Any, second: Any, opt: Any) -> Any {
+    let b1: Any = opt.beta1; let b2: Any = opt.beta2;
+    mut p: Any = []; mut m: Any = []; mut v: Any = [];
+    for i: Any in 0..len(param) {
+        mut prow: Any = []; mut mrow: Any = []; mut vrow: Any = [];
+        for j: Any in 0..len(param[i]) {
+            let mi: Any = b1 * first[i][j] + (1 - b1) * grad[i][j];
+            let vi: Any = b2 * second[i][j] + (1 - b2) * grad[i][j] * grad[i][j];
+            let mh: Any = mi / (1 - opt.beta1_power); let vh: Any = vi / (1 - opt.beta2_power);
+            push(prow, param[i][j] - opt.lr * mh / (sqrt(vh) + opt.epsilon)); push(mrow, mi); push(vrow, vi);
+        }
+        push(p, prow); push(m, mrow); push(v, vrow);
+    }
+    return {"param": p, "first": m, "second": v};
+}
+fun ml_adam_vector(param: Any, grad: Any, first: Any, second: Any, opt: Any) -> Any {
+    mut p: Any = []; mut m: Any = []; mut v: Any = [];
+    for i: Any in 0..len(param) {
+        let mi: Any = opt.beta1 * first[i] + (1 - opt.beta1) * grad[i];
+        let vi: Any = opt.beta2 * second[i] + (1 - opt.beta2) * grad[i] * grad[i];
+        push(p, param[i] - opt.lr * (mi / (1 - opt.beta1_power)) / (sqrt(vi / (1 - opt.beta2_power)) + opt.epsilon));
+        push(m, mi); push(v, vi);
+    }
+    return {"param": p, "first": m, "second": v};
+}
+fun ml_optimizer_step(opt: Any, model: Any) -> Any {
+    if (opt.kind == "sgd") {
+        for i: Any in 0..len(model.layers) {
+            let layer: Any = model.layers[i];
+            if (i >= len(opt.velocity_w)) {
+                push(opt.velocity_w, ml_zero_matrix_like(layer.weights)); push(opt.velocity_b, [0.0 for _: Any in layer.bias]);
+            }
+            let vw: Any = [[opt.momentum * opt.velocity_w[i][r][c] + layer.grad_weights[r][c] for c: Any in 0..len(layer.weights[r])] for r: Any in 0..len(layer.weights)];
+            let vb: Any = [opt.momentum * opt.velocity_b[i][j] + layer.grad_bias[j] for j: Any in 0..len(layer.bias)];
+            layer.weights = [[layer.weights[r][c] - opt.lr * vw[r][c] for c: Any in 0..len(layer.weights[r])] for r: Any in 0..len(layer.weights)];
+            layer.bias = [layer.bias[j] - opt.lr * vb[j] for j: Any in 0..len(layer.bias)];
+            opt.velocity_w[i] = vw; opt.velocity_b[i] = vb; model.layers[i] = layer;
+        }
+        return model;
+    }
+    opt.step = opt.step + 1;
+    opt.beta1_power = opt.beta1_power * opt.beta1;
+    opt.beta2_power = opt.beta2_power * opt.beta2;
+    for i: Any in 0..len(model.layers) {
+        let layer: Any = model.layers[i];
+        if (i >= len(opt.mw)) {
+            push(opt.mw, ml_zero_matrix_like(layer.weights)); push(opt.vw, ml_zero_matrix_like(layer.weights));
+            push(opt.mb, [0.0 for _: Any in layer.bias]); push(opt.vb, [0.0 for _: Any in layer.bias]);
+        }
+        let w: Any = ml_adam_matrix(layer.weights, layer.grad_weights, opt.mw[i], opt.vw[i], opt);
+        let b: Any = ml_adam_vector(layer.bias, layer.grad_bias, opt.mb[i], opt.vb[i], opt);
+        layer.weights = w.param; layer.bias = b.param;
+        opt.mw[i] = w.first; opt.vw[i] = w.second; opt.mb[i] = b.first; opt.vb[i] = b.second;
+        model.layers[i] = layer;
+    }
+    return model;
+}

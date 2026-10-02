@@ -1,0 +1,1 @@
+let a=[10]; mut order=""; fun obj() { order+="o"; a } fun idx() { order+="i"; 0 } fun rhs() { order+="r"; a[0]=100; 5 } obj()[idx()]+=rhs(); print(a,order);

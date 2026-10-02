@@ -1,0 +1,198 @@
+// render.may — the software rasteriser.
+//
+// It composites antialiased glyph coverage from the support shim onto an
+// RGB framebuffer, then encodes the frame as PNG.
+
+import "support.may";
+import "dom.may";
+import "css.may";
+import "layout.may";
+
+mut FB: Ptr = ptr(0);
+mut FB_W: Int = 0;
+mut FB_H: Int = 0;
+
+fun fb_init(w: Int, h: Int, bg: Int) -> Nil {
+    FB = mb_alloc(w * h * 3);
+    FB_W = w;
+    FB_H = h;
+    fb_fill(bg);
+    return;
+}
+
+fun fb_release() -> Nil {
+    if (FB != 0) { mb_free(FB); }
+    FB = ptr(0);
+    return;
+}
+
+fun fb_fill(c: Int) -> Nil {
+    let r: Int = (c / 65536) % 256;
+    let g: Int = (c / 256) % 256;
+    let b: Int = c % 256;
+    mut i: Int = 0;
+    let n: Int = FB_W * FB_H;
+    while (i < n) {
+        let o: Int = i * 3;
+        store8(FB + o, r);
+        store8(FB + o + 1, g);
+        store8(FB + o + 2, b);
+        i += 1;
+    }
+    return;
+}
+
+fun fb_set(x: Int, y: Int, c: Int) -> Nil {
+    if (x < 0 or y < 0 or x >= FB_W or y >= FB_H) { return; }
+    let o: Int = (y * FB_W + x) * 3;
+    store8(FB + o, (c / 65536) % 256);
+    store8(FB + o + 1, (c / 256) % 256);
+    store8(FB + o + 2, c % 256);
+    return;
+}
+
+fun fb_get(x: Int, y: Int) -> Int {
+    if (x < 0 or y < 0 or x >= FB_W or y >= FB_H) { return 0; }
+    let o: Int = (y * FB_W + x) * 3;
+    return load8(FB + o) * 65536 + load8(FB + o + 1) * 256 + load8(FB + o + 2);
+}
+
+fun fb_blend(x: Int, y: Int, c: Int, a: Int) -> Nil {
+    if (a <= 0) { return; }
+    if (x < 0 or y < 0 or x >= FB_W or y >= FB_H) { return; }
+    if (a >= 250) { fb_set(x, y, c); return; }
+    let o: Int = (y * FB_W + x) * 3;
+    let dr: Int = load8(FB + o);
+    let dg: Int = load8(FB + o + 1);
+    let db: Int = load8(FB + o + 2);
+    let sr: Int = (c / 65536) % 256;
+    let sg: Int = (c / 256) % 256;
+    let sb: Int = c % 256;
+    store8(FB + o, dr + ((sr - dr) * a + 127) / 255);
+    store8(FB + o + 1, dg + ((sg - dg) * a + 127) / 255);
+    store8(FB + o + 2, db + ((sb - db) * a + 127) / 255);
+    return;
+}
+
+fun fb_rect(x: Int, y: Int, w: Int, h: Int, c: Int) -> Nil {
+    if (w <= 0 or h <= 0) { return; }
+    mut row: Int = 0;
+    while (row < h) {
+        mut col: Int = 0;
+        while (col < w) {
+            fb_set(x + col, y + row, c);
+            col += 1;
+        }
+        row += 1;
+    }
+    return;
+}
+
+fun paint_borders(b: Box) -> Nil {
+    let st: Style = b.style;
+    if (st.border_style == "none") { return; }
+    let c: Int = st.border_color;
+    if (st.border_top > 0) { fb_rect(b.x, b.y, b.w, st.border_top, c); }
+    if (st.border_bottom > 0) { fb_rect(b.x, b.y + b.h - st.border_bottom, b.w, st.border_bottom, c); }
+    if (st.border_left > 0) { fb_rect(b.x, b.y, st.border_left, b.h, c); }
+    if (st.border_right > 0) { fb_rect(b.x + b.w - st.border_right, b.y, st.border_right, b.h, c); }
+    return;
+}
+
+fun paint_text(x: Int, baseline: Int, s: Str, style: Style) -> Nil {
+    let font: Int = sup_font_id(style.font_family, style.font_weight);
+    let px: Float = float(style.font_size);
+    let color: Int = style.color;
+    mut pen: Int = x;
+    mut prev: Int = 0 - 1;
+    for ch: Str in s {
+        let cp: Int = char_at(ch, 0);
+        if (prev >= 0) { pen = pen + sup_kern(font, px, prev, cp); }
+        let g: Ptr = mb_glyph_bitmap(font, px, cp);
+        if (g != 0) {
+            let gw: Int = load32(g);
+            let gh: Int = load32(g + 4);
+            mut gx: Int = load32(g + 8);
+            mut gy: Int = load32(g + 12);
+            if (gx > 2147483647) { gx = gx - 4294967296; }
+            if (gy > 2147483647) { gy = gy - 4294967296; }
+            mut row: Int = 0;
+            while (row < gh) {
+                mut col: Int = 0;
+                while (col < gw) {
+                    let a: Int = load8(g + 16 + row * gw + col);
+                    if (a > 0) { fb_blend(pen + gx + col, baseline + gy + row, color, a); }
+                    col += 1;
+                }
+                row += 1;
+            }
+            mb_free(g);
+        }
+        pen = pen + int(sup_advance(font, px, cp) + 0.5);
+        prev = cp;
+    }
+    if (style.text_decoration == "underline") {
+        fb_rect(x, baseline + 2, pen - x, 1, color);
+    }
+    return;
+}
+
+fun paint_line_items(items: List<Any>, baseline: Int) -> Nil {
+    for it: Any in items {
+        if (it.kind == "text") {
+            paint_text(it.x, baseline, it.text, it.style);
+        } else if (it.kind == "box") {
+            paint_box(it.box);
+        }
+    }
+    return;
+}
+
+fun paint_box(bi: Int) -> Nil {
+    let b: Box = BOXES[bi];
+    if (b.style.background >= 0) {
+        fb_rect(b.x, b.y, b.w, b.h, b.style.background);
+    }
+    paint_borders(b);
+    if (b.kind == "image") { paint_image(b); }
+    for line: Any in b.lines {
+        paint_line_items(line.items, line.baseline);
+    }
+    if (b.kind == "list-item" and len(b.lines) > 0) {
+        let first: Any = b.lines[0];
+        paint_text(b.x - 18, first.baseline, "•", b.style);
+    }
+    for c: Int in b.children {
+        paint_box(c);
+    }
+    return;
+}
+
+fun paint_image(b: Box) -> Nil {
+    if (b.img == 0 or b.img_w <= 0 or b.img_h <= 0) { return; }
+    let px: Ptr = b.img;
+    mut dy: Int = 0;
+    while (dy < b.h) {
+        let sy: Int = dy * b.img_h / b.h;
+        mut dx: Int = 0;
+        while (dx < b.w) {
+            let sx: Int = dx * b.img_w / b.w;
+            let o: Int = 16 + (sy * b.img_w + sx) * 4;
+            let a: Int = load8(px + o + 3);
+            if (a > 0) {
+                let c: Int = load8(px + o) * 65536 + load8(px + o + 1) * 256 + load8(px + o + 2);
+                fb_blend(b.x + dx, b.y + dy, c, a);
+            }
+            dx += 1;
+        }
+        dy += 1;
+    }
+    return;
+}
+
+// Render the laid-out tree to a PNG file.
+fun render_tree(root_box: Int, viewport_w: Int, viewport_h: Int, out_path: Str) -> Nil {
+    paint_box(root_box);
+    mb_png_write(out_path, FB, FB_W, FB_H, 3);
+    return;
+}

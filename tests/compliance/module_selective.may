@@ -1,0 +1,2 @@
+from "module_select.may" import value;
+print(value);

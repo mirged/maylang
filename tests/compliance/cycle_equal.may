@@ -1,0 +1,1 @@
+let a=[]; push(a,a); let b=[]; push(b,b); print(a == b);

@@ -1,0 +1,105 @@
+import "hardware.may";
+
+mut cursor: Int = 0;
+mut shifted: Int = 0;
+mut left_shift: Int = 0;
+mut right_shift: Int = 0;
+mut extended: Int = 0;
+
+fun clear_screen() -> Nil {
+    mut i: Int = 0;
+    while (i < 2000) { store16(753664 + i * 2, 3872); i += 1; }
+    cursor = 0;
+    return;
+}
+fun scroll_screen() -> Nil {
+    if (cursor < 2000) { return; }
+    mut i: Int = 0;
+    while (i < 1920) { store16(753664 + i * 2, load16(753664 + (i + 80) * 2)); i += 1; }
+    while (i < 2000) { store16(753664 + i * 2, 3872); i += 1; }
+    cursor -= 80;
+    return;
+}
+fun serial_byte(byte: Int) -> Nil {
+    while (port_read(1021) / 32 % 2 == 0) { load8(2097152); }
+    port_write(1016, byte);
+    return;
+}
+fun put_char(byte: Int) -> Nil {
+    if (byte == 10) {
+        serial_byte(13); serial_byte(10); cursor = (cursor / 80 + 1) * 80;
+    } else if (byte == 8) {
+        if (cursor > 0) { cursor -= 1; store16(753664 + cursor * 2, 3872); }
+        serial_byte(8); serial_byte(32); serial_byte(8);
+    } else if (byte >= 32 and byte < 127) {
+        serial_byte(byte); store16(753664 + cursor * 2, 3840 + byte); cursor += 1;
+    }
+    scroll_screen();
+    // Move the hardware VGA cursor to match the software text position.
+    port_write(980, 15); port_write(981, cursor % 256);
+    port_write(980, 14); port_write(981, cursor / 256);
+    return;
+}
+fun text(pointer: Ptr) -> Nil {
+    mut i: Int = 0;
+    while (load8(pointer + i) != 0) { put_char(load8(pointer + i)); i += 1; }
+    return;
+}
+fun decimal(value: Int) -> Nil {
+    if (value < 0) { put_char(45); decimal(0 - value); return; }
+    if (value >= 10) { decimal(value / 10); }
+    put_char(48 + value % 10);
+    return;
+}
+fun hex_number(value: Int) -> Nil {
+    text(addr("0x"));
+    mut divisor: Int = 72057594037927936 * 16;
+    mut started: Int = 0;
+    while (divisor > 0) {
+        let digit: Int = value / divisor % 16;
+        if (digit != 0 or started == 1 or divisor == 1) {
+            put_char(load8(addr("0123456789abcdef") + digit)); started = 1;
+        }
+        divisor /= 16;
+    }
+    return;
+}
+fun keyboard_char() -> Int {
+    if (port_read(100) % 2 == 0) { return -1; }
+    let scan: Int = port_read(96);
+    if (scan == 224) { extended = 1; return -1; }
+    if (extended == 1) { extended = 0; return -1; }
+    if (scan == 42) { left_shift = 1; shifted = 1; return -1; }
+    if (scan == 54) { right_shift = 1; shifted = 1; return -1; }
+    if (scan == 170) { left_shift = 0; shifted = right_shift; return -1; }
+    if (scan == 182) { right_shift = 0; shifted = left_shift; return -1; }
+    if (scan >= 128) { return -1; }
+    if (scan == 28) { return 10; }
+    if (scan == 14) { return 8; }
+    if (scan == 57) { return 32; }
+    mut byte: Int = 0;
+    if (scan >= 2 and scan <= 13) { byte = load8(addr("1234567890-=") + scan - 2); }
+    else if (scan >= 16 and scan <= 27) { byte = load8(addr("qwertyuiop[]") + scan - 16); }
+    else if (scan >= 30 and scan <= 40) { byte = load8(addr("asdfghjkl;'") + scan - 30); }
+    else if (scan >= 44 and scan <= 53) { byte = load8(addr("zxcvbnm,./") + scan - 44); }
+    else if (scan == 43) { byte = 92; }
+    else if (scan == 41) { byte = 96; }
+    if (shifted == 1) {
+        if (byte >= 97 and byte <= 122) { byte -= 32; }
+        else if (scan >= 2 and scan <= 13) { byte = load8(addr("!@#$%^&*()_+") + scan - 2); }
+        else if (scan == 26) { byte = 123; }
+        else if (scan == 27) { byte = 125; }
+        else if (scan == 39) { byte = 58; }
+        else if (scan == 40) { byte = 34; }
+        else if (scan == 41) { byte = 126; }
+        else if (scan == 43) { byte = 124; }
+        else if (scan == 51) { byte = 60; }
+        else if (scan == 52) { byte = 62; }
+        else if (scan == 53) { byte = 63; }
+    }
+    return if (byte == 0) { -1 } else { byte };
+}
+fun read_char() -> Int {
+    if (port_read(1021) % 2 != 0) { return port_read(1016); }
+    return keyboard_char();
+}

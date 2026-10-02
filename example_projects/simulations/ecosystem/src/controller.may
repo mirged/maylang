@@ -1,0 +1,48 @@
+import "model.may";
+import "environment.may";
+import "../../../../stdlib/ml/fixed.may";
+import "../../../../stdlib/random.may";
+
+fun perceive(world: World, buckets: List<List<Int>>, index: Int) -> List<Int> {
+    let creature: Creature = world.creatures[index];
+    let width: Int = world.config.width;
+    let cell: Cell = world.cells[cell_index(creature.x, creature.y, width)];
+    let east: Float = world.cells[cell_index(creature.x + 1, creature.y, width)].plants;
+    let west: Float = world.cells[cell_index(creature.x - 1, creature.y, width)].plants;
+    let south: Float = world.cells[cell_index(creature.x, creature.y + 1, width)].plants;
+    let north: Float = world.cells[cell_index(creature.x, creature.y - 1, width)].plants;
+    let neighbor: Int = neighbor_index(world, buckets, index);
+    mut dx: Float = 0.0; mut dy: Float = 0.0; mut relative: Float = 0.0;
+    if (neighbor >= 0) {
+        let other: Creature = world.creatures[neighbor];
+        dx = float(displacement(creature.x, other.x, width));
+        dy = float(displacement(creature.y, other.y, width));
+        relative = bounded((mass(creature.genome) - mass(other.genome)) / 2.0 + 0.5, 0.0, 1.0);
+    }
+    return [int(cell.plants * 170.0), int(bounded(cell.carrion / 12.0, 0.0, 1.0) * 1024.0), int(creature.energy * 25.6),
+            int((east - west) * 170.0), int((south - north) * 170.0), int(dx * 1024.0), int(dy * 1024.0), int(relative * 1024.0)];
+}
+fun decide(world: World, buckets: List<List<Int>>) -> List<List<Int>> {
+    let actions: List<List<Int>> = [];
+    for index: Int in 0..len(world.creatures) {
+        let creature: Creature = world.creatures[index];
+        if (creature.health <= 0.0) { push(actions, [0, 0, 0, 0]); }
+        else { push(actions, nn_fixed_predict(creature.brain, perceive(world, buckets, index))); }
+    }
+    return actions;
+}
+fun move_creature(world: World, creature: Creature, action: List<Int>) -> Nil {
+    let mobility: Float = creature.genome.traits[2];
+    if (random_float(world.rng) < 0.2 + 0.8 * mobility) {
+        let dx: Int = if (action[0] > 300) { 1 } else if (action[0] < -300) { -1 } else { 0 };
+        let dy: Int = if (action[1] > 300) { 1 } else if (action[1] < -300) { -1 } else { 0 };
+        creature.x = wrap(creature.x + dx, world.config.width);
+        creature.y = wrap(creature.y + dy, world.config.width);
+        let steps: Int = int(abs(dx)) + int(abs(dy));
+        creature.moved += steps;
+        let cost: Float = smaller(creature.energy, float(steps) * mass(creature.genome) * (0.04 + mobility * 0.06));
+        creature.energy -= cost; world.totals.heat += cost;
+    }
+    creature.reproduction = float(action[3]) / 1024.0;
+    return;
+}

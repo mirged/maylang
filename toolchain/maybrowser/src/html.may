@@ -1,0 +1,333 @@
+import "support.may";
+import "dom.may";
+// html.may — a tolerant HTML tokenizer and tree builder.
+//
+// It understands the document skeleton (html/head/body), the raw-text
+// elements (script/style/title), void elements, attributes and the common
+// character entities.  Malformed markup is recovered rather than rejected.
+
+fun html_is_alpha(c: Int) -> Bool {
+    return (c >= 97 and c <= 122) or (c >= 65 and c <= 90);
+}
+
+fun html_is_name_char(c: Int) -> Bool {
+    return html_is_alpha(c) or (c >= 48 and c <= 57) or c == 45 or c == 58 or c == 95 or c == 46;
+}
+
+fun html_is_space(c: Int) -> Bool {
+    return c == 32 or c == 9 or c == 10 or c == 13 or c == 12;
+}
+
+mut HTML_VOID: Map<Str, Bool> = {
+    "area": true, "base": true, "br": true, "col": true, "embed": true,
+    "hr": true, "img": true, "input": true, "link": true, "meta": true,
+    "param": true, "source": true, "track": true, "wbr": true,
+};
+
+mut HTML_RAW: Map<Str, Bool> = {
+    "script": true, "style": true, "title": true, "textarea": true,
+};
+
+mut HTML_HEAD: Map<Str, Bool> = {
+    "base": true, "link": true, "meta": true, "title": true,
+    "style": true, "script": true, "noscript": true, "template": true,
+};
+
+mut HTML_ENT: Map<Str, Str> = {
+    "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'",
+    "nbsp": " ", "copy": "©", "reg": "®", "trade": "™", "hellip": "…",
+    "mdash": "—", "ndash": "–", "laquo": "«", "raquo": "»",
+    "ldquo": "“", "rdquo": "”", "lsquo": "‘", "rsquo": "’",
+    "times": "×", "divide": "÷", "bull": "•", "middot": "·",
+    "deg": "°", "plusmn": "±", "sup2": "²", "sup3": "³",
+    "frac12": "½", "frac14": "¼", "frac34": "¾", "euro": "€",
+    "pound": "£", "yen": "¥", "cent": "¢", "sect": "§",
+    "para": "¶", "dagger": "†", "permil": "‰", "prime": "′",
+    "minus": "−", "lowast": "∗", "radic": "√", "infin": "∞",
+    "le": "≤", "ge": "≥", "ne": "≠", "asymp": "≈",
+    "check": "✓", "star": "★", "hearts": "♥", "rarr": "→", "larr": "←",
+};
+
+fun html_entities(s: Str) -> Str {
+    if (not contains(s, "&")) { return s; }
+    let cs: List<Str> = chars(s);
+    let n: Int = len(cs);
+    mut out: List<Str> = [];
+    mut i: Int = 0;
+    while (i < n) {
+        if (cs[i] != "&") {
+            push(out, cs[i]);
+            i += 1;
+            continue;
+        }
+        mut semi: Int = 0 - 1;
+        mut j: Int = i + 1;
+        while (j < n and j < i + 12) {
+            if (cs[j] == ";") { semi = j; break; }
+            j += 1;
+        }
+        if (semi < 0) {
+            push(out, "&");
+            i += 1;
+            continue;
+        }
+        let body: Str = join(slice(cs, i + 1, semi), "");
+        if (len(body) > 1 and body[0] == "#") {
+            mut code: Int = 0;
+            if (body[1] == "x" or body[1] == "X") {
+                code = html_parse_hex(body, 2);
+            } else {
+                code = may { int(substring(body, 1, len(body) - 1)) } otherwise { 0 };
+            }
+            if (code > 0) {
+                if (code > 1114111 or (code >= 55296 and code <= 57343)) { code = 65533; }
+                push(out, char_from(code));
+                i = semi + 1;
+                continue;
+            }
+        }
+        if (has(HTML_ENT, body)) {
+            push(out, HTML_ENT[body] ?? "");
+            i = semi + 1;
+            continue;
+        }
+        push(out, "&");
+        i += 1;
+    }
+    return join(out, "");
+}
+
+fun html_parse_hex(body: Str, start: Int) -> Int {
+    mut code: Int = 0;
+    mut i: Int = start;
+    while (i < len(body)) {
+        let v: Int = sup_hexval(ord(body[i]));
+        if (v < 0) { break; }
+        code = code * 16 + v;
+        i += 1;
+    }
+    return code;
+}
+
+// Find the byte index just after "</tag" (case-insensitive), or -1.
+fun html_find_close(base: Ptr, from: Int, n: Int, tag: Str) -> Int {
+    let tl: Int = len(tag);
+    mut i: Int = from;
+    while (i + 1 + tl < n) {
+        if (load8(base + i) == 60 and load8(base + i + 1) == 47) {
+            mut k: Int = 0;
+            mut ok: Bool = true;
+            while (k < tl) {
+                mut c: Int = load8(base + i + 2 + k);
+                if (c >= 65 and c <= 90) { c = c + 32; }
+                if (c != ord(tag[k])) { ok = false; break; }
+                k += 1;
+            }
+            let end: Int = i + 2 + tl;
+            if (ok and (end == n or html_is_space(load8(base + end)) or load8(base + end) == 62 or load8(base + end) == 47)) { return end; }
+        }
+        i += 1;
+    }
+    return 0 - 1;
+}
+
+fun html_read_name(base: Ptr, i: Int, n: Int) -> Str {
+    let start: Int = i;
+    mut j: Int = i;
+    while (j < n and html_is_name_char(load8(base + j))) { j += 1; }
+    return to_lower(sup_ptr_str(base, start, j - start));
+}
+
+fun html_text_token(src: Str, start: Int, stop: Int) -> Str {
+    if (stop <= start) { return ""; }
+    return html_entities(sup_bytes(src, start, stop));
+}
+
+fun html_parse(src: Str) -> Int {
+    dom_reset();
+    let base: Ptr = addr(src);
+    let n: Int = load64(base - 8);
+
+    let html_i: Int = dom_new("html", "");
+    let head_i: Int = dom_new("head", "");
+    let body_i: Int = dom_new("body", "");
+    dom_append(html_i, head_i);
+    dom_append(html_i, body_i);
+    dom_set_root(html_i);
+
+    mut stack: List<Int> = [html_i];
+    mut body_started: Bool = false;
+
+    mut i: Int = 0;
+    while (i < n) {
+        let b: Int = load8(base + i);
+        if (b != 60) {
+            let start: Int = i;
+            while (i < n and load8(base + i) != 60) { i += 1; }
+            let text: Str = html_text_token(src, start, i);
+            if (body_started or len(trim(text)) > 0) {
+                if (not body_started) { stack = [html_i, body_i]; body_started = true; }
+                let t: Int = dom_new("#text", text);
+                dom_append(stack[len(stack) - 1], t);
+            }
+            continue;
+        }
+
+        // <!-- comment -->
+        if (i + 3 < n and load8(base + i + 1) == 33 and load8(base + i + 2) == 45 and load8(base + i + 3) == 45) {
+            i += 4;
+            while (i + 2 < n and not (load8(base + i) == 45 and load8(base + i + 1) == 45 and load8(base + i + 2) == 62)) { i += 1; }
+            i += 3;
+            continue;
+        }
+
+        // <!doctype ...> or <![CDATA[ ... ]]>
+        if (i + 1 < n and load8(base + i + 1) == 33) {
+            while (i < n and load8(base + i) != 62) { i += 1; }
+            i += 1;
+            continue;
+        }
+
+        // </close>
+        if (i + 1 < n and load8(base + i + 1) == 47) {
+            i += 2;
+            let tag: Str = html_read_name(base, i, n);
+            i += len(tag);
+            while (i < n and load8(base + i) != 62) { i += 1; }
+            i += 1;
+            if (tag == "html") { stack = [html_i]; continue; }
+            if (tag == "body") { stack = [html_i, body_i]; body_started = true; continue; }
+            if (tag == "head") { stack = [html_i, head_i]; continue; }
+            if (tag == "p" and len(stack) > 1) {
+                let top: Int = stack[len(stack) - 1];
+                if (dom_tag(top) == "p") { pop(stack); continue; }
+            }
+            mut idx: Int = len(stack) - 1;
+            mut found: Int = 0 - 1;
+            while (idx >= 1) {
+                if (dom_tag(stack[idx]) == tag) { found = idx; break; }
+                idx -= 1;
+            }
+            if (found >= 0) {
+                while (len(stack) - 1 >= found) { pop(stack); }
+            }
+            continue;
+        }
+
+        // <open ...>
+        if (i + 1 < n and html_is_alpha(load8(base + i + 1))) {
+            i += 1;
+            let tag: Str = html_read_name(base, i, n);
+            i += len(tag);
+            mut attrs: Map<Str, Str> = {};
+            mut self_close: Bool = false;
+
+            while (i < n) {
+                while (i < n and html_is_space(load8(base + i))) { i += 1; }
+                if (i >= n) { break; }
+                let c: Int = load8(base + i);
+                if (c == 62) { i += 1; break; }
+                if (c == 47) { self_close = true; i += 1; continue; }
+                let aname: Str = html_read_name(base, i, n);
+                if (len(aname) == 0) { i += 1; continue; }
+                i += len(aname);
+                while (i < n and html_is_space(load8(base + i))) { i += 1; }
+                mut aval: Str = "";
+                if (i < n and load8(base + i) == 61) {
+                    i += 1;
+                    while (i < n and html_is_space(load8(base + i))) { i += 1; }
+                    if (i < n and (load8(base + i) == 34 or load8(base + i) == 39)) {
+                        let q: Int = load8(base + i);
+                        i += 1;
+                        let vs: Int = i;
+                        while (i < n and load8(base + i) != q) { i += 1; }
+                        aval = html_entities(sup_bytes(src, vs, i));
+                        if (i < n) { i += 1; }
+                    } else {
+                        let vs: Int = i;
+                        while (i < n and not html_is_space(load8(base + i)) and load8(base + i) != 62) { i += 1; }
+                        aval = html_entities(sup_bytes(src, vs, i));
+                    }
+                }
+                if (len(aname) > 0) { attrs[aname] = aval; }
+            }
+
+            if (tag == "html" or tag == "head" or tag == "body") {
+                let target: Int = if (tag == "html") { html_i } else if (tag == "head") { head_i } else { body_i };
+                for k: Str in keys(attrs) { dom_set_attr(target, k, attrs[k] ?? ""); }
+            }
+            if (tag == "html") { stack = [html_i]; continue; }
+            if (tag == "head") { stack = [html_i, head_i]; continue; }
+            if (tag == "body") {
+                stack = [html_i, body_i];
+                body_started = true;
+                continue;
+            }
+
+            // Raw-text elements keep their body verbatim.
+            if (has(HTML_RAW, tag)) {
+                let close: Int = html_find_close(base, i, n, tag);
+                mut content: Str = if (close >= 0) { sup_bytes(src, i, close - 2 - len(tag)) } else { sup_bytes(src, i, n) };
+                if (tag == "title" or tag == "textarea") { content = html_entities(content); }
+                mut parent: Int = stack[len(stack) - 1];
+                if (not body_started) {
+                    if (has(HTML_HEAD, tag)) { parent = head_i; }
+                    else { parent = body_i; body_started = true; }
+                }
+                let node: Int = dom_new(tag, content);
+                for k: Str in keys(attrs) { dom_set_attr(node, k, attrs[k] ?? ""); }
+                dom_append(parent, node);
+                if (close < 0) { i = n; } else {
+                    i = close;
+                    while (i < n and load8(base + i) != 62) { i += 1; }
+                    i += 1;
+                }
+                continue;
+            }
+
+            if (not body_started and has(HTML_HEAD, tag)) {
+                // stays in head
+            } else if (not body_started) {
+                stack = [html_i, body_i];
+                body_started = true;
+            }
+
+            html_auto_close(stack, tag);
+
+            let node: Int = dom_new(tag, "");
+            for k: Str in keys(attrs) { dom_set_attr(node, k, attrs[k] ?? ""); }
+            dom_append(stack[len(stack) - 1], node);
+            if (not self_close and not has(HTML_VOID, tag)) { push(stack, node); }
+            continue;
+        }
+
+        // A stray '<' is text, rather than silently discarded markup.
+        if (not body_started) { stack = [html_i, body_i]; body_started = true; }
+        dom_append(stack[len(stack) - 1], dom_new("#text", "<"));
+        i += 1;
+    }
+
+    return html_i;
+}
+
+fun html_auto_close(stack: List<Int>, tag: Str) -> Nil {
+    if (tag == "p") {
+        let top: Int = stack[len(stack) - 1];
+        if (dom_tag(top) == "p") { pop(stack); }
+    } else if (tag == "li") {
+        let top: Int = stack[len(stack) - 1];
+        if (dom_tag(top) == "li") { pop(stack); }
+    } else if (tag == "option") {
+        let top: Int = stack[len(stack) - 1];
+        if (dom_tag(top) == "option") { pop(stack); }
+    } else if (tag == "td" or tag == "th") {
+        mut top: Int = stack[len(stack) - 1];
+        if (dom_tag(top) == "td" or dom_tag(top) == "th") { pop(stack); }
+    } else if (tag == "tr") {
+        mut top: Int = stack[len(stack) - 1];
+        if (dom_tag(top) == "td" or dom_tag(top) == "th") { pop(stack); }
+        top = stack[len(stack) - 1];
+        if (dom_tag(top) == "tr") { pop(stack); }
+    }
+    return;
+}

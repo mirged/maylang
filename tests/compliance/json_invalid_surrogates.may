@@ -1,0 +1,1 @@
+let q=chr(34); let b=chr(92); for s in ["uD800", "uDC00", "uD800"+b+"u0041", "uZZZZ", "u12"] { print(may { json_parse(q+b+s+q) } otherwise { err.kind }); }

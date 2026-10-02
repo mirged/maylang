@@ -1,0 +1,12 @@
+// test_native.may
+print("clock:", clock());
+
+let b: Any = [[" ", " "], [" ", " "]];
+b[0][0] = "X";
+print("2D index set:", b[0][0]);
+
+print("sin(pi/2):", sin(pi() / 2.0));
+
+let m: Any = {"tile": 1, "dist": 3.5};
+print("dot access m.tile:", m.tile);
+print("index access m[\"tile\"]:", m["tile"]);

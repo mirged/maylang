@@ -1,0 +1,230 @@
+// project.may — automatic project detection and incremental state.
+//
+// The point of this module is that you rarely need to write a manifest by
+// hand. maypkg locates the project root, figures out the entry module from
+// conventional names and the code itself, discovers every module through the
+// import graph, classifies local vs standard-library dependencies, and can
+// derive a `mayproj.json` from what it found. It also tracks which modules
+// changed since the last lock so development stays incremental.
+
+import "fs.may" as fs;
+import "checksum.may" as hash;
+import "manifest.may" as manifest;
+import "graph.may" as graph;
+import "scan.may" as scan;
+
+pub fun entry_candidates(name: Any) -> Any {
+    mut c: Any = ["main.may", "app.may", "src/main.may", "src/app.may"];
+    if (len(name) > 0) {
+        push(c, name + ".may");
+        push(c, "src/" + name + ".may");
+    }
+    return c;
+}
+
+fun defines_main(path: Any) -> Any {
+    return contains(fs.read_or(path, ""), "fun main");
+}
+
+/// Best guess at the entry module: a conventional name first, then any source
+/// that defines `main`, then `dir/main.may`.
+pub fun detect_entry(dir: Any, name: Any) -> Any {
+    for rel: Any in entry_candidates(name) {
+        let p: Any = fs.normpath(fs.join_path(dir, rel));
+        if (fs.exists(p)) { return p; }
+    }
+    for f: Any in scan.may_files(dir) {
+        if (defines_main(f)) { return f; }
+    }
+    return fs.normpath(fs.join_path(dir, "main.may"));
+}
+
+fun find_root_upward(name: Any) -> Any {
+    mut dir: Any = fs.cwd();
+    mut i: Any = 0;
+    while (i < 64) {
+        for rel: Any in entry_candidates(name) {
+            let p: Any = fs.normpath(fs.join_path(dir, rel));
+            if (fs.exists(p)) { return {"root": dir, "entry": p}; }
+        }
+        // Deep-scan only the starting directory; ancestors use conventions so
+        // we never walk an entire home directory.
+        if (i == 0) {
+            for f: Any in scan.may_files(dir) {
+                if (defines_main(f)) { return {"root": dir, "entry": f}; }
+            }
+        }
+        let up: Any = fs.dirname(dir);
+        if (up == dir || len(up) == 0) { return nil; }
+        dir = up;
+        i = i + 1;
+    }
+    return nil;
+}
+
+fun env_entry() -> Any {
+    let e: Any = env("MAYPKG_ENTRY");
+    if (type(e) == "Nil") { return ""; }
+    if (len(trim(e)) == 0) { return ""; }
+    return e;
+}
+
+/// Locate the project without requiring a manifest. Values:
+///   root, manifest (or nil), m (or nil), entry, has_entry, name, auto.
+pub fun locate() -> Any {
+    let override: Any = env_entry();
+    let mp: Any = manifest.find();
+    if (type(mp) != "Nil") {
+        let root: Any = manifest.root_of(mp);
+        let loaded: Any = may { manifest.load(mp) } otherwise { nil };
+        let name: Any = if (type(loaded) == "Map") { loaded.name } else { fs.basename(root) };
+        mut entry: Any = "";
+        if (len(override) > 0) {
+            entry = fs.normpath(override);
+        } else if (type(loaded) == "Map" && len(loaded.entry) > 0) {
+            entry = manifest.entry_path(loaded, root);
+        } else {
+            entry = detect_entry(root, name);
+        }
+        if (!fs.exists(entry)) {
+            let alt: Any = detect_entry(root, name);
+            if (fs.exists(alt)) { entry = alt; }
+        }
+        return {"root": root, "manifest": mp, "m": loaded, "entry": entry,
+                "has_entry": fs.exists(entry), "name": name};
+    }
+    let name: Any = fs.basename(fs.cwd());
+    let found: Any = find_root_upward(name);
+    if (type(found) != "Nil") {
+        return {"root": found.root, "manifest": nil, "m": nil, "entry": found.entry,
+                "has_entry": true, "name": fs.basename(found.root)};
+    }
+    let root: Any = fs.cwd();
+    let entry: Any = detect_entry(root, name);
+    return {"root": root, "manifest": nil, "m": nil, "entry": entry,
+     "has_entry": fs.exists(entry), "name": name};
+}
+
+fun strip_ext(m: Any) -> Any {
+    if (ends_with(m, ".may")) { return join(slice(m, 0, len(m) - 4), ""); }
+    return m;
+}
+
+fun rel_to(root: Any, path: Any) -> Any {
+    if (starts_with(path, root + "/")) {
+        return join(slice(path, len(root) + 1, len(path)), "");
+    }
+    return fs.basename(path);
+}
+
+/// Path relative to the project root when possible, else the basename.
+pub fun rel(root: Any, path: Any) -> Any { return rel_to(root, path); }
+
+/// All `.may` files under `root` (sorted).
+pub fun sources(root: Any) -> Any { return scan.may_files(root); }
+
+/// Scan the tree and cross-reference it with the import graph: the build
+/// closure plus any `.may` files that nothing imports (orphans).
+pub fun inventory(loc: Any) -> Any {
+    let st: Any = graph.build(loc.entry);
+    let files: Any = scan.may_files(loc.root);
+    mut orphans: Any = [];
+    for f: Any in files {
+        if (!has(st.nodes, f)) { push(orphans, f); }
+    }
+    return {"st": st, "files": files, "orphans": orphans};
+}
+
+/// Walk the import graph from `entry`, splitting local modules from stdlib.
+pub fun discover(entry: Any) -> Any {
+    let st: Any = graph.build(entry);
+    mut local: Any = [];
+    mut stdlib: Any = [];
+    for path: Any in st.order {
+        if (graph.is_stdlib(path)) { push(stdlib, path); } else { push(local, path); }
+    }
+    return {"st": st, "local": local, "stdlib": stdlib};
+}
+
+/// The standard-library modules this project reaches, keyed by import name.
+pub fun external_deps(st: Any) -> Any {
+    mut deps: Any = {};
+    for path: Any in st.order {
+        let node: Any = st.nodes[path];
+        for im: Any in node.imports {
+            if (graph.is_stdlib(im.path)) { deps[strip_ext(im.module)] = im.path; }
+        }
+    }
+    return deps;
+}
+
+/// Build a manifest from what was actually discovered, preserving any
+/// hand-written fields that already exist.
+pub fun synced(loc: Any, disc: Any) -> Any {
+    let existing: Any = loc.m;
+    let name: Any = if (type(existing) == "Map") { existing.name } else { loc.name };
+    let m: Any = manifest.default(name);
+    if (type(existing) == "Map") {
+        m.version = existing.version;
+        m.description = existing.description;
+        m.authors = existing.authors;
+        m.target = existing.target;
+        m.output = existing.output;
+    }
+    m.entry = rel_to(loc.root, loc.entry);
+    let deps: Any = external_deps(disc.st);
+    if (type(existing) == "Map") {
+        for key: Any in keys(existing.dependencies) {
+            if (!has(deps, key)) { deps[key] = existing.dependencies[key]; }
+        }
+    }
+    m.dependencies = deps;
+    mut modules: Any = [];
+    for p: Any in disc.local { push(modules, rel_to(loc.root, p)); }
+    m.modules = modules;
+    return m;
+}
+
+// ------------------------------------------------------------ incremental
+
+/// The module digests recorded by the last `maypkg lock`, or nil.
+pub fun lock_modules(root: Any) -> Any {
+    let path: Any = fs.join_path(root, manifest.lockfile());
+    if (!fs.exists(path)) { return nil; }
+    let doc: Any = may { json_parse(read_file(path)) } otherwise { nil };
+    if (type(doc) != "Map") { return nil; }
+    return doc.modules ?? {};
+}
+
+/// Modules whose content differs from the lockfile (or all, when unlocked).
+pub fun dirty(st: Any, recorded: Any) -> Any {
+    mut out: Any = [];
+    if (type(recorded) == "Nil") {
+        for path: Any in st.order { push(out, path); }
+        return out;
+    }
+    for path: Any in st.order {
+        let current: Any = hash.digest(fs.read_or(path, ""));
+        if (!has(recorded, path)) { push(out, path); }
+        else if (recorded[path] != current) { push(out, path); }
+    }
+    return out;
+}
+
+/// Everything that must be re-checked when `changed` modules change: the
+/// changed modules plus every module that (transitively) imports them.
+pub fun affected(st: Any, changed: Any) -> Any {
+    mut set: Any = {};
+    for path: Any in changed { set[path] = true; }
+    mut grew: Any = true;
+    while (grew) {
+        grew = false;
+        for path: Any in st.order {
+            if (has(set, path)) { continue; }
+            for im: Any in st.nodes[path].imports {
+                if (has(set, im.path)) { set[path] = true; grew = true; }
+            }
+        }
+    }
+    return sort(keys(set));
+}

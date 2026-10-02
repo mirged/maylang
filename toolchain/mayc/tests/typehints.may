@@ -1,0 +1,9 @@
+fun id<T>(x: T) -> T { return x; }
+fun apply<A, B>(f: (A) -> B, x: A) -> B { return f(x); }
+let n: Int = 5;
+let xs: List<Int> = [1, 2, 3];
+let m: Map<Str, Int> = {"a": 1};
+print(id(n), apply(|x: Any| -> Any { return x * 2; }, 21));
+print(xs, m);
+fun first<T>(items: List<T>) -> T { return items[0]; }
+print(first([10, 20, 30]));

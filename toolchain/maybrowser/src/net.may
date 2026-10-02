@@ -1,0 +1,107 @@
+// net.may — document base, resource resolution and network fetching.
+//
+// Local files, http(s) URLs and data: URLs are normalised to something the
+// support shim can read (a path, or a data: string for inline images).
+
+import "support.may";
+
+mut DOC_BASE: Str = "";
+mut DOC_URL: Str = "";
+mut NET_TMP: Int = 0;
+mut NET_ASSETS: Map<Str, Str> = {};
+
+fun net_is_url(s: Str) -> Bool {
+    return starts_with(s, "http://") or starts_with(s, "https://");
+}
+
+fun net_is_remote(s: Str) -> Bool {
+    return net_is_url(s) or starts_with(s, "data:");
+}
+
+fun net_set_document(path_or_url: Str) -> Nil {
+    DOC_URL = path_or_url;
+    if (net_is_url(path_or_url)) {
+        let last: Int = last_index(path_or_url, "/");
+        DOC_BASE = if (last >= 0) { substring(path_or_url, 0, last + 1) } else { path_or_url };
+    } else {
+        let clean: Str = if (starts_with(path_or_url, "file://")) { substring(path_or_url, 7, len(path_or_url) - 7) } else { path_or_url };
+        let last: Int = last_index(clean, "/");
+        DOC_BASE = if (last >= 0) { substring(clean, 0, last + 1) } else { "" };
+    }
+    return;
+}
+
+fun last_index(s: Str, needle: Str) -> Int {
+    let cs: List<Str> = chars(s);
+    mut i: Int = len(cs) - 1;
+    while (i >= 0) {
+        if (cs[i] == needle) { return i; }
+        i -= 1;
+    }
+    return 0 - 1;
+}
+
+fun net_join(base: Str, src: Str) -> Str {
+    if (starts_with(src, "/")) {
+        if (net_is_url(base)) {
+            let scheme: Int = index_of(base, "://");
+            if (scheme >= 0) {
+                let after: Str = substring(base, scheme + 3, len(base) - scheme - 3);
+                let slash: Int = index_of(after, "/");
+                let host: Str = if (slash >= 0) { substring(after, 0, slash) } else { after };
+                return substring(base, 0, scheme + 3) + host + src;
+            }
+        }
+        return src;
+    }
+    return base + src;
+}
+
+fun net_ext(src: Str) -> Str {
+    let last: Int = last_index(src, ".");
+    if (last < 0) { return ""; }
+    let e: Str = substring(src, last, len(src) - last);
+    if (len(e) > 6) { return ""; }
+    return e;
+}
+
+// Resolve a resource reference into what the shim can open.
+fun net_resolve_src(src: Str) -> Str {
+    if (len(src) == 0) { return ""; }
+    if (starts_with(src, "data:")) { return src; }
+    let url: Str = if (net_is_url(src)) { src } else { net_join(DOC_BASE, src) };
+    if (net_is_url(url)) {
+        if (has(NET_ASSETS, url)) { return NET_ASSETS[url] ?? ""; }
+        NET_TMP += 1;
+        let tmp: Str = "/tmp/maybrowser-asset-" + str(time()) + "-" + str(NET_TMP) + net_ext(url);
+        let rc: Int = mb_fetch_file(url, tmp);
+        if (rc != 0) { NET_ASSETS[url] = ""; return ""; }
+        NET_ASSETS[url] = tmp;
+        return tmp;
+    }
+    return url;
+}
+
+// Resolve and read a document (html/css/etc) as a string.
+fun net_read(src: Str) -> Str {
+    if (starts_with(src, "data:")) {
+        let comma: Int = index_of(src, ",");
+        if (comma < 0) { return ""; }
+        return sup_data_url_text(src, comma);
+    }
+    let path: Str = net_resolve_src(src);
+    if (len(path) == 0) { return ""; }
+    return may { read_file(path) } otherwise { "" };
+}
+
+// Read the top-level document exactly as named (no base-relative joining).
+fun net_load_document(src: Str) -> Str {
+    if (starts_with(src, "data:")) { return net_read(src); }
+    if (net_is_url(src)) {
+        let path: Str = net_resolve_src(src);
+        if (len(path) == 0) { return ""; }
+        return may { read_file(path) } otherwise { "" };
+    }
+    let clean: Str = if (starts_with(src, "file://")) { substring(src, 7, len(src) - 7) } else { src };
+    return may { read_file(clean) } otherwise { "" };
+}

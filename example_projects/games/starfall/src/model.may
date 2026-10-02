@@ -1,0 +1,27 @@
+// Persistent game state: one small JSON file per pilot.
+fun save_path() -> Any {
+    let home: Any = env("HOME");
+    if (home == nil || len(home) == 0) { return ".starfall.json"; }
+    return home + "/.starfall.json";
+}
+
+fun fresh_state() -> Any {
+    return {"day": 1, "sector": 1, "hull": 8, "fuel": 6, "credits": 14,
+     "cargo": 0, "scanned": false, "signal": -1, "rescued": false,
+     "log": ["Flight recorder online. The Starfall belt is quiet. For now."]};
+}
+
+fun load_state() -> Any {
+    let path: Any = save_path();
+    if (!file_exists(path)) { return fresh_state(); }
+    let raw: Any = may { read_file(path) } otherwise { return fresh_state(); };
+    return may { json_parse(raw) } otherwise { fresh_state() };
+}
+
+fun save_state(state: Any) -> Any { return write_file(save_path(), json_stringify(state)); }
+
+fun record(state: Any, message: Any) -> Any {
+    push(state.log, "Shift " + str(state.day) + ": " + message);
+    if (len(state.log) > 8) { state.log = slice(state.log, len(state.log) - 8, len(state.log)); }
+    return state;
+}

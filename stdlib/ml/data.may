@@ -1,0 +1,49 @@
+// ml/data.may — dataset splitting, batching, encoding and normalization.
+import "random.may";
+
+fun ml_one_hot(labels: Any, class_count: Any) -> Any {
+    if (class_count <= 0) { fail("class count must be positive"); }
+    for label: Any in labels { if (label < 0 || label >= class_count) { fail("class label out of range"); } }
+    return [[if (j == labels[i]) { 1.0 } else { 0.0 } for j: Any in 0..class_count] for i: Any in 0..len(labels)];
+}
+fun ml_train_test_split(xs: Any, ys: Any, test_fraction: Any, rng: Any) -> Any {
+    if (len(xs) != len(ys)) { fail("features and labels need equal row counts"); }
+    if (len(xs) < 2) { fail("train/test split needs at least two rows"); }
+    if (test_fraction <= 0 || test_fraction >= 1) { fail("test fraction must be between 0 and 1"); }
+    let order: Any = random_shuffle(rng, [i for i: Any in 0..len(xs)]);
+    let ntest: Any = max(1, min(len(xs) - 1, round(len(xs) * test_fraction)));
+    let test_i: Any = slice(order, 0, ntest); let train_i: Any = slice(order, ntest, len(order));
+    return {"x_train": [xs[i] for i: Any in train_i], "y_train": [ys[i] for i: Any in train_i],
+     "x_test": [xs[i] for i: Any in test_i], "y_test": [ys[i] for i: Any in test_i]};
+}
+fun ml_batches(xs: Any, ys: Any, batch_size: Any) -> Any {
+    if (batch_size <= 0) { fail("batch size must be positive"); }
+    if (len(xs) != len(ys)) { fail("features and labels need equal row counts"); }
+    mut out: Any = []; mut start: Any = 0;
+    while (start < len(xs)) {
+        let stop: Any = min(start + batch_size, len(xs));
+        push(out, {"x": slice(xs, start, stop), "y": slice(ys, start, stop)});
+        start = stop;
+    }
+    return out;
+}
+fun ml_feature_stats(rows: Any) -> Any {
+    if (len(rows) == 0) { fail("normalization needs at least one row"); }
+    let width: Any = len(rows[0]);
+    for row: Any in rows { if (len(row) != width) { fail("feature rows must have equal width"); } }
+    let means: Any = [sum([row[j] for row: Any in rows]) / (1.0 * len(rows)) for j: Any in 0..width];
+    let scales: Any = [sqrt(sum([(row[j] - means[j]) * (row[j] - means[j]) for row: Any in rows]) / (1.0 * len(rows))) for j: Any in 0..width];
+    return {"mean": means, "scale": [if (abs(s) < 0.000000000001) { 1.0 } else { s } for s: Any in scales]};
+}
+fun ml_standardize(rows: Any, stats: Any) -> Any {
+    return [[(row[j] - stats.mean[j]) / stats.scale[j] for j: Any in 0..len(row)] for row: Any in rows];
+}
+fun ml_minmax_fit(rows: Any) -> Any {
+    if (len(rows) == 0) { fail("minmax scaling needs at least one row"); }
+    let width: Any = len(rows[0]);
+    return {"min": [reduce([row[j] for row: Any in rows], |a: Any, b: Any| -> Any { return min(a, b); }, rows[0][j]) for j: Any in 0..width],
+     "max": [reduce([row[j] for row: Any in rows], |a: Any, b: Any| -> Any { return max(a, b); }, rows[0][j]) for j: Any in 0..width]};
+}
+fun ml_minmax_transform(rows: Any, stats: Any) -> Any {
+    return [[if (stats.max[j] == stats.min[j]) { 0.0 } else { (row[j] - stats.min[j]) / (stats.max[j] - stats.min[j]) } for j: Any in 0..len(row)] for row: Any in rows];
+}

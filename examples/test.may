@@ -1,0 +1,97 @@
+// -------------------------------------------------------------
+// Transaction Ledger & Risk Auditor
+// -------------------------------------------------------------
+
+// Formatter for dollar amounts
+fun format_money(cents: Any) -> Any {
+    return "$" + (cents / 100) + "." + (cents % 100);
+}
+
+// Calculates fee with a risk-adjusted multiplier.
+// FAULT HAZARD: Transactions with zero duration or corrupted
+// metrics will trigger runtime faults here.
+fun calc_risk_fee(tx: Any) -> Any {
+    // Risky calculation:
+    // If risk_factor is missing or 0, this divides by zero.
+    let base_fee: Any = tx.amount / 50;
+    let multiplier: Any = 100 / tx.risk_score;
+
+    return base_fee * multiplier;
+}
+
+// Speculatively process each transaction
+fun audit_transaction(tx: Any) -> Any {
+    return may {
+        let fee: Any = calc_risk_fee(tx);
+        let total: Any = tx.amount + fee;
+
+        ({
+            id: tx.id,
+            status: "CLEARED",
+            user: tx.user,
+            total: format_money(total),
+            fee: format_money(fee),
+            note: "OK"
+        })
+    } otherwise {
+        ({
+            id: tx.id,
+            status: "REJECTED",
+            user: tx.user,
+            total: "$0.00",
+            fee: "$0.00",
+            note: "Audit Fault: " + err
+        })
+    };
+}
+
+// Pipeline formatting stage
+fun format_record(record: Any, prefix: Any) -> Any {
+    return prefix + " [" + record.status + "] " + record.user +
+    " | Total: " + record.total +
+    " (Fee: " + record.fee + ")" +
+    " -> " + record.note;
+}
+
+// -------------------------------------------------------------
+// The Data Stream (Mix of valid and poisoned inputs)
+// -------------------------------------------------------------
+let batch: Any = [
+    { id: 101, user: "Alice",   amount: 5000, risk_score: 10 },
+    { id: 102, user: "Bob",     amount: 1250, risk_score: 25 },
+    { id: 103, user: "Charlie", amount: 9900, risk_score: 0  },  // Division by zero!
+    { id: 104, user: "Diana",   amount: 3200, risk_score: 50 },
+    { id: 105, user: "Eve",     amount: "corrupted", risk_score: 5 } // Type fault!
+];
+
+// -------------------------------------------------------------
+// Execution & Aggregation Pipeline
+// -------------------------------------------------------------
+mut processed: Any = 0;
+mut cleared: Any = 0;
+mut rejected: Any = 0;
+
+print("==================================================");
+print("        MAYLANG TRANSACTION AUDIT REPORT          ");
+print("==================================================");
+
+for tx: Any in batch {
+    processed = processed + 1;
+
+    let audit: Any = audit_transaction(tx);
+
+    if (audit.status == "CLEARED") {
+        cleared = cleared + 1;
+    } else {
+        rejected = rejected + 1;
+    }
+
+    let line: Any = audit
+        |> format_record("TX #" + tx.id);
+
+    print(line);
+}
+
+print("--------------------------------------------------");
+print("Summary: " + processed + " processed | " + cleared + " cleared | " + rejected + " rejected");
+print("==================================================");

@@ -1,0 +1,9 @@
+[package]
+name = "may_native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+may_ast.workspace = true
+may_parser.workspace = true

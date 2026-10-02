@@ -1,0 +1,3 @@
+print(len(args()) >= 1);
+print(type(env("PATH")) != "Nil");
+print(type(args()[0]));

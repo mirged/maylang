@@ -1,0 +1,70 @@
+// string.may — helpers built on the native string methods.
+
+/// Whether `s` has no characters.
+fun is_empty(s: Any) -> Any { return len(s) == 0; }
+
+/// `s` repeated `n` times.
+fun repeat(s: Any, n: Any) -> Any {
+    mut out: Any = "";
+    for _: Any in 1..=n { out = out + s; }
+    return out;
+}
+
+/// Uppercase the first character, leaving the rest unchanged.
+fun capitalize(s: Any) -> Any {
+    let cs: Any = chars(s);
+    if (len(cs) == 0) { return s; }
+    mut out: Any = cs[0].to_upper();
+    for i: Any in 1..len(cs) { out = out + cs[i]; }
+    return out;
+}
+
+/// Split on whitespace, dropping empty pieces.
+fun words(s: Any) -> Any {
+    return filter(s.trim().split(" "), |w: Any| -> Any { return len(w) > 0; });
+}
+
+/// The lines of `s`.
+fun lines(s: Any) -> Any { return s.split("\n"); }
+
+/// Split a comma-separated line, trimming each field.
+fun csv(s: Any) -> Any { return map(s.split(","), |part: Any| -> Any { return part.trim(); }); }
+
+/// The characters of `s` in reverse order.
+fun reverse_str(s: Any) -> Any { return reverse(s); }
+
+/// Left-pad `s` with `ch` until it is `width` characters wide.
+fun pad_left(s: Any, width: Any, ch: Any) -> Any {
+    mut out: Any = s;
+    while (len(out) < width) { out = ch + out; }
+    return out;
+}
+
+/// Right-pad `s` with `ch` until it is `width` characters wide.
+fun pad_right(s: Any, width: Any, ch: Any) -> Any {
+    mut out: Any = s;
+    while (len(out) < width) { out = out + ch; }
+    return out;
+}
+
+/// Whether `s` begins with any of `prefixes`.
+fun starts_with_any(s: Any, prefixes: Any) -> Any {
+    return any(prefixes, |p: Any| -> Any { return s.starts_with(p); });
+}
+
+/// Count non-overlapping occurrences of `needle` in `s`.
+fun count_occurrences(s: Any, needle: Any) -> Any {
+    if (len(needle) == 0) { return 0; }
+    let parts: Any = s.split(needle);
+    return len(parts) - 1;
+}
+
+/// Shorten `s` to `width` characters, appending `ellipsis` when truncated.
+fun truncate(s: Any, width: Any, ellipsis: Any) -> Any {
+    if (len(s) <= width) { return s; }
+    let keep: Any = max(0, width - len(ellipsis));
+    let cs: Any = chars(s);
+    mut out: Any = "";
+    for i: Any in 0..keep { out = out + cs[i]; }
+    return out + ellipsis;
+}

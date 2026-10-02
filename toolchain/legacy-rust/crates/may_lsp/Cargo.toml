@@ -1,0 +1,15 @@
+[package]
+name = "may_lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "maylang-lsp"
+path = "src/main.rs"
+
+[dependencies]
+may_ast.workspace = true
+may_lexer.workspace = true
+may_parser.workspace = true
+may_check.workspace = true

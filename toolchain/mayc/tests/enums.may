@@ -1,0 +1,15 @@
+enum Shape { Circle(r: Any), Rect(w: Any, h: Any), Empty }
+fun area(s: Any) -> Any {
+    return match (s.tag) {
+        "Circle" => 3.14159 * s.r * s.r,
+        "Rect" => s.w * s.h,
+        _ => 0.0,
+    };
+}
+let c: Any = Circle(2.0);
+let r: Any = Rect(3.0, 4.0);
+let e: Any = Empty;
+print(c.tag, c.r);
+print(r.tag, r.w, r.h);
+print(e.tag);
+print(area(c), area(r), area(e));

@@ -1,0 +1,12 @@
+{
+  "compliance": {
+    "passed": 69,
+    "failed": 0
+  },
+  "existing_regressions": {
+    "passed": 80,
+    "failed": 0
+  },
+  "compiler": "toolchain/mayc/mayc_v2_stage3",
+  "bootstrap_fixpoint": true
+}

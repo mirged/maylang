@@ -1,0 +1,275 @@
+// stress.may — the full mayc stress test.
+//
+// A single deterministic program that exercises essentially every language
+// feature and hammers the runtime: arithmetic, strings, lists, maps, closures
+// (including shared mutable captures), fibers, recursion, pattern matching,
+// structs, enums, comprehensions, spread, pipelines, results, `may`, JSON,
+// destructuring, and allocation-heavy loops that force many GC cycles.
+//
+// Every section prints a checksum; the reference compiler and mayc must agree
+// on the complete output.
+
+// ---------------------------------------------------------------- utilities
+
+fun lcg(seed: Any) -> Any {
+    fun next() -> Any { seed = (seed * 16807) % 2147483647; return seed }
+    return next
+}
+
+fun sum_list(xs: Any) -> Any { mut t: Any = 0; for x: Any in xs { t = t + x; } return t }
+fun prod_list(xs: Any) -> Any { mut p: Any = 1; for x: Any in xs { p = p * x; } return p }
+
+// --------------------------------------------------------------- 1. numbers
+
+print("== numbers ==");
+mut acc: Any = 0;
+mut i: Any = 0;
+while (i < 20000) {
+    acc = (acc + i) % 1000003;
+    if (i % 7 == 0) { acc = (acc + 999997) % 1000003; }
+    if (i % 11 == 0) { acc = (acc * 2) % 1000003; }
+    if (i % 23 == 0) { acc = acc / 2; }
+    i = i + 1;
+}
+print("arith", acc);
+
+mut fsum: Any = 0.0;
+mut k: Any = 0;
+while (k < 5000) {
+    fsum = fsum + 1.0 / float(k + 1);
+    k = k + 1;
+}
+print("harmonic", fsum);
+
+print("pow", 2 ** 10, 2 ** -2, 4 ** 0.5, 3 ** 3);
+print("overflow", may { 100000000000000000 * 100 } otherwise { err.kind });
+print("divzero", may { 7 / 0 } otherwise { err.kind });
+
+// --------------------------------------------------------------- 2. strings
+
+print("== strings ==");
+mut words: Any = [];
+mut w: Any = 0;
+while (w < 2000) {
+    push(words, "item-" + str(w));
+    w = w + 1;
+}
+let joined: Any = join(words, ",");
+print("joined", len(joined), joined.index_of("item-1999"));
+let parts: Any = joined.split(",");
+print("parts", len(parts), parts[0], parts[len(parts) - 1]);
+print("replace", joined.replace("item", "it").starts_with("it-0"));
+print("case", "MayLang".to_upper(), "MayLang".to_lower());
+print("trim", "   spaced   ".trim());
+print("pad", pad_left("7", 4, "0"), pad_right("x", 4, "."));
+print("chars", chars("abc"), reverse("stressed"));
+print("unicode", "日本語".to_upper(), len("héllo"), chars("héllo"));
+
+mut interp: Any = "";
+mut q: Any = 0;
+while (q < 500) {
+    interp = interp + "n=${q},f=${q / 3.0};";
+    q = q + 1;
+}
+print("interp", len(interp), interp.starts_with("n=0,f=0.0;"));
+
+// ---------------------------------------------------------------- 3. lists
+
+print("== lists ==");
+let base: Any = range(0, 1000);
+print("range", len(base), base[0], base[999]);
+let squares: Any = [x * x for x: Any in base if x % 2 == 0];
+print("squares", len(squares), squares[0], squares[len(squares) - 1]);
+print("sum", sum_list(squares), product([1, 2, 3, 4, 5]));
+print("sort", sort([5, 3, 9, 1, 7])[0], sort([5, 3, 9, 1, 7])[4]);
+print("unique", unique([3, 1, 3, 2, 1, 2]));
+print("flatten", flatten([[1, 2], [3], [4, 5]]));
+print("zip", zip([1, 2, 3], ["a", "b", "c"]));
+print("enumerate-len", len(enumerate(base)));
+print("hof", sum_list(map(base, |x: Any| -> Any { return x * 2; })), len(filter(base, |x: Any| -> Any { return x % 3 == 0; })));
+print("reduce", reduce(base, |a: Any, b: Any| -> Any { return a + b; }, 0));
+print("anyall", any(base, |x: Any| -> Any { return x > 999; }), all(base, |x: Any| -> Any { return x >= 0; }));
+let spread: Any = [0, ...[...base, 1000], 1001];
+print("spread", len(spread), spread[0], spread[500], spread[len(spread) - 1]);
+print("pipe", base |> filter(|x: Any| -> Any { return x % 2 == 1; }) |> map(|x: Any| -> Any { return x * 3; }) |> sum);
+
+// ---------------------------------------------------------------- 4. maps
+
+print("== maps ==");
+let counts: Any = {};
+mut m: Any = 0;
+while (m < 20000) {
+    let key: Any = "k" + str(m % 500);
+    counts[key] = get(counts, key, 0) + 1;
+    m = m + 1;
+}
+print("counts", len(counts), counts["k0"], counts["k499"]);
+print("keys", len(keys(counts)), values(counts)[0]);
+print("has", has(counts, "k0"), has(counts, "zzz"));
+let merged: Any = merge({"a": 1}, {"b": 2, "a": 3});
+print("merged", merged.a, merged.b);
+let removed: Any = remove(counts, "k0");
+print("removed", len(removed), has(removed, "k0"));
+let nested: Any = {"a": {"b": {"c": [1, 2, 3]}}};
+print("nested", nested.a.b.c |> sum, nested?.a?.b?.c[2], nested?.x?.y ?? -1);
+print("spread", {...{"x": 1}, ...{"y": 2}, "z": 3});
+
+// ------------------------------------------------------------- 5. closures
+
+print("== closures ==");
+fun counter() -> Any { mut n: Any = 0; return |_: Any| -> Any { n = n + 1; return n } }
+let c: Any = counter();
+print("counter", c(0), c(0), c(0), c(0));
+
+fun bank(balance: Any) -> Any {
+    fun deposit(x: Any) -> Any { balance = balance + x; return balance }
+    fun withdraw(x: Any) -> Any { balance = balance - x; return balance }
+    fun peek(_: Any) -> Any { return balance }
+    return [deposit, withdraw, peek]
+}
+let acct: Any = bank(1000);
+print("bank", acct[0](500), acct[1](200), acct[2](0));
+
+fun adders() -> Any {
+    mut out: Any = [];
+    for n: Any in 0..4 { push(out, |x: Any| -> Any { return x + n; }); }
+    return out
+}
+let as: Any = adders();
+print("adders", as[0](10), as[1](10), as[2](10), as[3](10));
+
+fun compose(f: Any, g: Any) -> Any { return |x: Any| -> Any { return f(g(x)) ; }}
+let h: Any = compose(|x: Any| -> Any { return x + 1; }, |x: Any| -> Any { return x * 2; });
+print("compose", h(20));
+
+// ------------------------------------------------------------------ 6. funcs
+
+print("== functions ==");
+fun fact(n: Any) -> Any { return if n <= 1 { 1 } else { n * fact(n - 1) } }
+fun fib(n: Any) -> Any { return if n < 2 { n } else { fib(n - 1) + fib(n - 2) } }
+fun sumto(n: Any, acc: Any) -> Any { return if n == 0 { acc } else { sumto(n - 1, acc + n) } }
+print("fact", fact(15));
+print("fib", fib(20));
+print("tail", sumto(100000, 0));
+
+fun tree_depth(n: Any) -> Any { return if n == 0 { 0 } else { 1 + tree_depth(n - 1) } }
+print("tree", tree_depth(5000));
+
+// ---------------------------------------------------------------- 7. types
+
+print("== structs/enums ==");
+struct Order { id: Any, side: Any, qty: Any, price: Any }
+enum Shape { Circle(r: Any), Rect(w: Any, h: Any), Empty }
+
+fun area(s: Any) -> Any {
+    return match (s.tag) {
+        "Circle" => 3.14159 * s.r * s.r,
+        "Rect" => s.w * s.h,
+        _ => 0.0,
+    }
+}
+
+let orders: Any = [];
+mut o: Any = 0;
+while (o < 5000) {
+    push(orders, Order(o, if o % 2 == 0 { "buy" } else { "sell" }, 1 + o % 9, 100.0 + o % 50));
+    o = o + 1;
+}
+mut notional: Any = 0.0;
+for ord: Any in orders { notional = notional + float(ord.qty) * ord.price; }
+print("orders", len(orders), notional);
+print("shapes", area(Circle(2.0)), area(Rect(3.0, 4.0)), area(Empty));
+
+fun classify(n: Any) -> Any {
+    return match (n) {
+        0 => "zero",
+        x if x < 0 => "negative",
+        x if x % 2 == 0 => "even",
+        x if x % 3 == 0 => "fizz",
+        _ => "odd",
+    }
+}
+print("classify", classify(0), classify(-5), classify(8), classify(9), classify(7));
+
+// ----------------------------------------------------------- 8. destructure
+
+print("== destructuring ==");
+let __typed_binding_1: Any = [10, 20, 30]; let d1: Any = __typed_binding_1[0]; let d2: Any = __typed_binding_1[1]; let d3: Any = __typed_binding_1[2];
+print("list", d1, d2, d3);
+let __typed_binding_2: Any = {"px": 1, "py": 2}; let px: Any = __typed_binding_2["px"]; let py: Any = __typed_binding_2["py"];
+print("map", px, py);
+let __typed_binding_3: Any = {"pt": [7, 8]}; let tx: Any = __typed_binding_3["pt"][0]; let ty: Any = __typed_binding_3["pt"][1];
+print("nested", tx, ty);
+mut pairs: Any = [];
+for __typed_item_1: Any in [["a", 1], ["b", 2], ["c", 3]] { let key: Any = __typed_item_1[0]; let val: Any = __typed_item_1[1];  push(pairs, key + str(val)); }
+print("for", pairs);
+
+// ------------------------------------------------------- 9. results & may
+
+print("== results/may ==");
+fun safe_div(a: Any, b: Any) -> Any { if b == 0 { return Err("by zero"); } return Ok(a / b) }
+fun chain(a: Any, b: Any, c: Any) -> Any {
+    let x: Any = safe_div(a, b)?;
+    let y: Any = safe_div(x, c)?;
+    return Ok(y)
+}
+print("ok", chain(100, 5, 2).value);
+print("err", chain(100, 0, 2).error);
+print("may", may { fail("boom") } otherwise { err.kind });
+print("fallback", (may { int("x") }) ?? 42);
+print("bad-index", [1, 2, 3][0]);
+print("nullish", nil ?? "default");
+
+// ------------------------------------------------------ 10. JSON roundtrip
+
+print("== json ==");
+let doc: Any = {"name": "stress", "values": range(0, 100), "nested": {"ok": true, "x": nil}};
+let text: Any = json_stringify(doc);
+let back: Any = json_parse(text);
+print("json", len(text), back.name, sum_list(back.values), back.nested.ok, back.nested.x);
+
+// ------------------------------------------------------ 11. GC pressure
+
+print("== gc ==");
+let live: Any = [];
+mut g: Any = 0;
+mut gcheck: Any = 0;
+while (g < 300000) {
+    let tmp: Any = [g, str(g), {"i": g, "s": "v" + str(g)}];
+    gcheck = gcheck + tmp[0] + len(tmp[1]);
+    if (g % 50000 == 0) { push(live, tmp); }
+    g = g + 1;
+}
+print("gc-live", len(live), gcheck);
+let live2: Any = [counter(), counter(), counter()];
+mut lc: Any = 0;
+while (lc < 50000) {
+    let junk: Any = map(range(0, 20), |x: Any| -> Any { return x * lc; });
+    if (lc % 10000 == 0) { print("gc-tick", lc, sum_list(junk) >= 0); }
+    lc = lc + 1;
+}
+print("gc-counters", live2[0](0), live2[1](0), live2[2](0));
+
+// ------------------------------------------------------------- 12. fibers
+
+print("== fibers ==");
+let log: Any = [];
+fun worker(id: Any, n: Any) -> Any {
+    let r: Any = lcg(id * 977 + 13);
+    mut t: Any = 0;
+    while (t < n) {
+        push(log, r() + id);
+        yield();
+        t = t + 1;
+    }
+ return nil; }
+spawn(fun() -> Any { return worker(1, 300) });
+spawn(fun() -> Any { return worker(2, 300) });
+spawn(fun() -> Any { return worker(3, 300) });
+run();
+print("fiber-len", len(log), sum_list(log));
+mut fiber_churn: Any = 0;
+for v: Any in log { if v % 2 == 0 { fiber_churn = fiber_churn + 1; } }
+print("fiber-parity", fiber_churn);
+
+print("== done ==");

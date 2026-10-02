@@ -1,0 +1,52 @@
+// A tour of the Maylang standard library (stdlib/*.may + Rust built-ins).
+import "math.may";
+import "string.may";
+import "algo.may";
+import "functional.may";
+import "collections.may";
+import "result.may";
+
+// --- math ---------------------------------------------------------------
+print("gcd(48, 36) =", gcd(48, 36));
+print("is_prime(97) =", is_prime(97));
+print("factorial(6) =", factorial(6));
+print("fibonacci(10) =", fibonacci(10));
+print("clamp(15, 0, 10) =", clamp(15, 0, 10));
+print("sin(pi/2) =", sin(pi() / 2.0));
+
+// --- string -------------------------------------------------------------
+print("capitalize:", capitalize("maylang"));
+print("words:", words("  the  quick brown fox "));
+print("repeat:", repeat("ab", 3));
+
+// --- algo ---------------------------------------------------------------
+let xs: Any = [5, 3, 9, 1, 3, 7];
+print("quick_sort:", quick_sort(xs));
+print("merge_sort:", merge_sort(xs));
+print("dedupe:", dedupe(xs));
+print("binary_search(9):", binary_search(quick_sort(xs), 9));
+print("chunk:", chunk(xs, 2));
+print("zip:", zip([1, 2, 3], ["a", "b"]));
+
+// --- collections --------------------------------------------------------
+let st: Any = stack();
+stack_push(st, 1);
+stack_push(st, 2);
+print("stack pop:", stack_pop(st), "| size:", stack_size(st));
+
+let s: Any = set_new();
+set_add(s, "a");
+set_add(s, "b");
+set_add(s, "a");
+print("set:", set_values(s), "| size:", set_size(s));
+
+// --- functional ---------------------------------------------------------
+let plus2: Any = compose(inc, inc);
+print("compose(inc, inc)(5):", plus2(5));
+print("pipeline:", pipeline(3, [inc, inc, |x: Any| -> Any { return x * 10; }]));
+print("memoize:", memoize(|n: Any| -> Any { return n * n; })(9));
+
+// --- result -------------------------------------------------------------
+let r: Any = ok(42);
+print("unwrap:", unwrap(r), "| map:", map_result(r, inc).value);
+print("attempt:", attempt(fun() -> Any { return 1 / 0; }).error);

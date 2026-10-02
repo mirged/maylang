@@ -1,0 +1,1 @@
+let x=int("-1152921504606846976"); print(may { x / -1 } otherwise { err.kind });

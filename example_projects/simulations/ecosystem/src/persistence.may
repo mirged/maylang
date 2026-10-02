@@ -1,0 +1,73 @@
+import "checkpoint_codec.may";
+import "model.may";
+import "genome.may";
+import "environment.may";
+import "metrics.may";
+import "../../../../stdlib/ml/fixed.may";
+
+let CHECKPOINT_VERSION: Int = 2;
+let CSV_HEADER: Str = "generation,population_adults,population_next,grazers,hunters,scavengers,mixed,inactive,mean_mass,mean_metabolic_pace,mean_mobility,mean_diet,mean_armor,genetic_variance,plant_intake,scavenged_intake,hunted_intake,kills_cohort,kills_total,energy_error";
+fun save_checkpoint(world: World) -> Nil {
+    // Controllers are derived data, omitted to keep checkpoint size bounded.
+    let creatures: List<Any> = [];
+    for creature: Creature in world.creatures {
+        push(creatures, {"id": creature.id, "parent": creature.parent, "lineage": creature.lineage,
+            "traits": creature.genome.traits, "weights": creature.genome.weights,
+            "x": creature.x, "y": creature.y, "energy": creature.energy, "body": creature.body});
+    }
+    let saved: Any = {"version": CHECKPOINT_VERSION, "config": world.config, "generation": world.generation,
+        "rng_state": world.rng.state, "next_id": world.next_id, "cells": world.cells,
+        "creatures": creatures, "totals": world.totals, "history": world.history, "csv": world.csv, "elapsed": world.elapsed};
+    write_file(world.config.output + ".checkpoint.json", json_stringify({"codec": "ieee754-words-v1", "payload": checkpoint_pack(saved)}));
+    return;
+}
+fun config_from_json(saved: Any) -> Config {
+    return Config(int(saved.generations), int(saved.seed), int(saved.population), int(saved.width), int(saved.ticks),
+        int(saved.report_every), int(saved.checkpoint_every), float(saved.mutation_rate), float(saved.mutation_step), str(saved.output));
+}
+fun load_checkpoint(path: Str) -> World {
+    let envelope: Any = json_parse(read_file(path));
+    if (envelope.codec != "ieee754-words-v1") { fail("unsupported checkpoint codec"); }
+    let saved: Any = checkpoint_unpack(envelope.payload);
+    if (saved.version != CHECKPOINT_VERSION) { fail("unsupported ecosystem checkpoint version"); }
+    let config: Config = config_from_json(saved.config);
+    let cells: List<Cell> = [];
+    for cell: Any in saved.cells { push(cells, Cell(float(cell.plants), float(cell.carrion), float(cell.nutrients), float(cell.fertility))); }
+    let creatures: List<Creature> = [];
+    for item: Any in saved.creatures {
+        let traits: List<Float> = []; let weights: List<Int> = [];
+        for value: Any in item.traits { push(traits, float(value)); }
+        for value: Any in item.weights { push(weights, int(value)); }
+        if (len(traits) != 6 or len(weights) != WEIGHT_COUNT) { fail("invalid checkpoint genome dimensions"); }
+        let genome: Genome = Genome(traits, weights);
+        push(creatures, hatch(Egg(int(item.id), int(item.parent), int(item.lineage), genome,
+            int(item.x), int(item.y), float(item.energy), float(item.body))));
+    }
+    let t: Any = saved.totals;
+    let totals: Totals = Totals(int(t.births), int(t.eggs), int(t.nursery_deaths), int(t.kills), int(t.attacks),
+        int(t.first_hunt), int(t.starved), int(t.natural_deaths), float(t.plant_energy), float(t.scavenged_energy),
+        float(t.hunted_energy), float(t.heat), float(t.sunlight), float(t.initial_energy));
+    let world: World = World(config, {"state": int(saved.rng_state)}, int(saved.generation), int(saved.next_id),
+                            cells, creatures, totals, saved.history, saved.csv, float(saved.elapsed));
+    if (len(cells) != config.width * config.width or len(creatures) > config.population) { fail("invalid checkpoint world dimensions"); }
+    return world;
+}
+fun save_results(world: World, elapsed: Float) -> Nil {
+    world.elapsed += elapsed;
+    write_file(world.config.output + ".csv", CSV_HEADER + "\n" + join(world.csv, "\n") + "\n");
+    let networks: List<Any> = [];
+    for creature: Creature in world.creatures {
+        push(networks, {"id": creature.id, "parent": creature.parent, "lineage": creature.lineage,
+            "traits": creature.genome.traits, "weights": creature.genome.weights, "network": {"dimensions": [SENSOR_COUNT, HIDDEN_COUNT, ACTION_COUNT], "scale": 1024, "activation": "softsign"}});
+    }
+    let summary: Any = {"version": CHECKPOINT_VERSION, "config": world.config, "generations_completed": world.generation,
+        "status": if (len(world.creatures) == 0) { "extinct" } else if (world.generation < world.config.generations) { "paused" } else { "completed" },
+        "population": len(world.creatures), "elapsed_seconds": world.elapsed, "totals": world.totals,
+        "energy_error": energy_error(world), "last_cohort": if (len(world.history) > 0) { world.history[len(world.history) - 1] } else { nil },
+        "history": world.history};
+    write_file(world.config.output + ".summary.json", json_stringify(summary));
+    write_file(world.config.output + ".genomes.json", json_stringify(networks));
+    save_checkpoint(world);
+    write_file(world.config.output + ".progress", str(world.generation) + " " + str(len(world.creatures)));
+    return;
+}

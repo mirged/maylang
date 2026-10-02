@@ -1,0 +1,1 @@
+print(may { json_parse("{\"a\":1} garbage") } otherwise { "caught" });

@@ -1,0 +1,351 @@
+import "state.may";
+import "ast.may";
+import "diagnostics.may";
+import "sema.may";
+// lexer.may — token stream with byte offsets and source coordinates.
+
+
+let TK_EOF: Any = 0;
+let TK_INT: Any = 1;
+let TK_STR: Any = 2;
+let TK_IDENT: Any = 3;
+let TK_FUN: Any = 4;
+let TK_LET: Any = 5;
+let TK_MUT: Any = 6;
+let TK_IF: Any = 7;
+let TK_ELSE: Any = 8;
+let TK_WHILE: Any = 9;
+let TK_RETURN: Any = 10;
+let TK_BREAK: Any = 11;
+let TK_CONTINUE: Any = 12;
+let TK_AND: Any = 13;
+let TK_OR: Any = 14;
+let TK_NOT: Any = 15;
+let TK_FOR: Any = 16;
+let TK_IN: Any = 17;
+let TK_LBR: Any = 18;
+let TK_RBR: Any = 19;
+let TK_DOT: Any = 40;
+let TK_DOTDOT: Any = 41;
+let TK_DOTDOTEQ: Any = 42;
+let TK_COLON: Any = 43;
+let TK_QUEST: Any = 44;
+let TK_PIPE: Any = 45;
+let TK_ARROW: Any = 46;
+let TK_PIPEOP: Any = 47;
+let TK_UNLESS: Any = 48;
+let TK_MATCH: Any = 49;
+let TK_FLOAT: Any = 50;
+let TK_MAY: Any = 51;
+let TK_OTHERWISE: Any = 52;
+let TK_STRUCT: Any = 53;
+let TK_ENUM: Any = 54;
+let TK_SPREAD: Any = 55;
+let TK_PLUSEQ: Any = 56;
+let TK_MINUSEQ: Any = 57;
+let TK_STAREQ: Any = 58;
+let TK_SLASHEQ: Any = 59;
+let TK_POW: Any = 60;
+let TK_PUB: Any = 61;
+let TK_EXTERN: Any = 62;
+let TK_PLUS: Any = 20;
+let TK_MINUS: Any = 21;
+let TK_STAR: Any = 22;
+let TK_SLASH: Any = 23;
+let TK_PCT: Any = 24;
+let TK_EQ: Any = 25;
+let TK_NE: Any = 26;
+let TK_LT: Any = 27;
+let TK_LE: Any = 28;
+let TK_GT: Any = 29;
+let TK_GE: Any = 30;
+let TK_ASSIGN: Any = 31;
+let TK_LP: Any = 32;
+let TK_RP: Any = 33;
+let TK_LB: Any = 34;
+let TK_RB: Any = 35;
+let TK_COMMA: Any = 36;
+let TK_SEMI: Any = 37;
+
+fun is_digit(b: Any) -> Any {
+    if (b >= 48) {
+        if (b <= 57) { return 1; }
+    }
+    return 0;
+}
+
+fun is_alpha(b: Any) -> Any {
+    if (b >= 97) {
+        if (b <= 122) { return 1; }
+    }
+    if (b >= 65) {
+        if (b <= 90) { return 1; }
+    }
+    if (b == 95) { return 1; }
+    return 0;
+}
+
+fun is_alnum(b: Any) -> Any {
+    if (is_digit(b) == 1) { return 1; }
+    return is_alpha(b);
+}
+
+// Build a Maylang string from `n` bytes of the source buffer.
+fun slice_src(s: Any, n: Any) -> Any {
+    mut out: Any = "";
+    mut i: Any = 0;
+    while (i < n) {
+        out = out + chr(load8(SRC + s + i));
+        i = i + 1;
+    }
+    return out;
+}
+
+struct Token { kind: Any, start: Any, len: Any, val: Any, line: Any, col: Any }
+mut LEX_OFFSET: Any = 0;
+mut LEX_LINE: Any = 1;
+mut LEX_COL: Any = 1;
+
+fun tok(k: Any, s: Any, n: Any, v: Any) -> Any {
+    if (s < LEX_OFFSET) { LEX_OFFSET = 0; LEX_LINE = 1; LEX_COL = 1; }
+    while (LEX_OFFSET < s) {
+        if (load8(SRC + LEX_OFFSET) == 10) {
+            LEX_LINE = LEX_LINE + 1;
+            LEX_COL = 1;
+        } else { LEX_COL = LEX_COL + 1; }
+        LEX_OFFSET = LEX_OFFSET + 1;
+    }
+    push(TOKS, Token(k, s, n, v, LEX_LINE, LEX_COL));
+    NTOKS = NTOKS + 1;
+    return 0;
+}
+
+fun lex_error(offset: Any, width: Any, message: Any) -> Any {
+    tok(TK_EOF, offset, width, 0);
+    let tokenSpan: Any = TOKS[len(TOKS) - 1];
+    diagnostic(SourceSpan(SRC, offset, width, tokenSpan.line, tokenSpan.col), message);
+    return 0;
+}
+
+let KEYWORDS: Any = {
+    "fun": TK_FUN, "let": TK_LET, "mut": TK_MUT, "if": TK_IF, "else": TK_ELSE,
+    "while": TK_WHILE, "return": TK_RETURN, "break": TK_BREAK,
+    "continue": TK_CONTINUE, "and": TK_AND, "or": TK_OR, "not": TK_NOT,
+    "for": TK_FOR, "in": TK_IN, "unless": TK_UNLESS, "match": TK_MATCH,
+    "may": TK_MAY, "otherwise": TK_OTHERWISE, "struct": TK_STRUCT,
+    "enum": TK_ENUM, "pub": TK_PUB, "extern": TK_EXTERN,
+};
+
+fun kw(s: Any, n: Any) -> Any {
+    let k: Any = KEYWORDS[slice_src(s, n)];
+    if (k == nil) { tok(TK_IDENT, s, n, 0); } else { tok(k, s, n, 0); }
+    return 0;
+}
+
+fun punct(b: Any, i: Any) -> Any {
+    if (b == 40) { tok(TK_LP, i, 1, 0); }
+    else if (b == 41) { tok(TK_RP, i, 1, 0); }
+    else if (b == 123) { tok(TK_LB, i, 1, 0); }
+    else if (b == 125) { tok(TK_RB, i, 1, 0); }
+    else if (b == 44) { tok(TK_COMMA, i, 1, 0); }
+    else if (b == 59) { tok(TK_SEMI, i, 1, 0); }
+    else if (b == 91) { tok(TK_LBR, i, 1, 0); }
+    else if (b == 93) { tok(TK_RBR, i, 1, 0); }
+    else if (b == 43) {
+        if (load8(SRC + i + 1) == 61) { tok(TK_PLUSEQ, i, 2, 0); return i + 2; }
+        tok(TK_PLUS, i, 1, 0);
+    }
+    else if (b == 45) {
+        if (load8(SRC + i + 1) == 61) { tok(TK_MINUSEQ, i, 2, 0); return i + 2; }
+        if (load8(SRC + i + 1) == 62) { tok(TK_ARROW, i, 2, 0); return i + 2; }
+        tok(TK_MINUS, i, 1, 0);
+    }
+    else if (b == 42) {
+        if (load8(SRC + i + 1) == 42) { tok(TK_POW, i, 2, 0); return i + 2; }
+        if (load8(SRC + i + 1) == 61) { tok(TK_STAREQ, i, 2, 0); return i + 2; }
+        tok(TK_STAR, i, 1, 0);
+    }
+    else if (b == 47) {
+        if (load8(SRC + i + 1) == 61) { tok(TK_SLASHEQ, i, 2, 0); return i + 2; }
+        tok(TK_SLASH, i, 1, 0);
+    }
+    else if (b == 37) { tok(TK_PCT, i, 1, 0); }
+    else if (b == 38) {
+        if (load8(SRC + i + 1) == 38) { tok(TK_AND, i, 2, 0); return i + 2; }
+        lex_error(i, 1, "expected &&");
+    }
+    else if (b == 124) {
+        if (load8(SRC + i + 1) == 124) { tok(TK_OR, i, 2, 0); return i + 2; }
+        if (load8(SRC + i + 1) == 62) { tok(TK_PIPEOP, i, 2, 0); return i + 2; }
+        tok(TK_PIPE, i, 1, 0);
+    }
+    else if (b == 61) {
+        if (load8(SRC + i + 1) == 61) { tok(TK_EQ, i, 2, 0); return i + 2; }
+        if (load8(SRC + i + 1) == 62) { tok(TK_ARROW, i, 2, 0); return i + 2; }
+        tok(TK_ASSIGN, i, 1, 0);
+    }
+    else if (b == 46) {
+        if (load8(SRC + i + 1) == 46) {
+            if (load8(SRC + i + 2) == 46) { tok(TK_SPREAD, i, 3, 0); return i + 3; }
+            if (load8(SRC + i + 2) == 61) { tok(TK_DOTDOTEQ, i, 3, 0); return i + 3; }
+            tok(TK_DOTDOT, i, 2, 0);
+            return i + 2;
+        }
+        tok(TK_DOT, i, 1, 0);
+    }
+    else if (b == 58) { tok(TK_COLON, i, 1, 0); }
+    else if (b == 63) { tok(TK_QUEST, i, 1, 0); }
+    else if (b == 33) {
+        if (load8(SRC + i + 1) == 61) { tok(TK_NE, i, 2, 0); return i + 2; }
+        tok(TK_NOT, i, 1, 0);
+    }
+    else if (b == 60) {
+        if (load8(SRC + i + 1) == 61) { tok(TK_LE, i, 2, 0); return i + 2; }
+        tok(TK_LT, i, 1, 0);
+    }
+    else if (b == 62) {
+        if (load8(SRC + i + 1) == 61) { tok(TK_GE, i, 2, 0); return i + 2; }
+        tok(TK_GT, i, 1, 0);
+    }
+    else {
+        lex_error(i, 1, "unexpected character `${chr(b)}`");
+    }
+    return i + 1;
+}
+
+fun lex_run(a: Any, e: Any) -> Any {
+    mut i: Any = a;
+    while (i < e) {
+        let b: Any = load8(SRC + i);
+        if (b == 32) { i = i + 1; }
+        else if (b == 9) { i = i + 1; }
+        else if (b == 10) { i = i + 1; }
+        else if (b == 13) { i = i + 1; }
+        else if (b == 47) {
+            if (load8(SRC + i + 1) == 47) {
+                while (i < e) {
+                    if (load8(SRC + i) == 10) { break; }
+                    i = i + 1;
+                }
+            } else {
+                i = punct(b, i);
+            }
+        }
+        else if (is_digit(b) == 1) {
+            let s: Any = i;
+            mut v: Any = 0;
+            while (i < e) {
+                let c: Any = load8(SRC + i);
+                if (is_digit(c) == 0) { break; }
+                i = i + 1;
+            }
+            mut isf: Any = 0;
+            if (load8(SRC + i) == 46) {
+                if (is_digit(load8(SRC + i + 1)) == 1) {
+                    isf = 1;
+                    i = i + 1;
+                    while (i < e) {
+                        if (is_digit(load8(SRC + i)) == 0) { break; }
+                        i = i + 1;
+                    }
+                }
+            }
+            if (load8(SRC + i) == 101  or  load8(SRC + i) == 69) {
+                isf = 1;
+                i = i + 1;
+                if (load8(SRC + i) == 43  or  load8(SRC + i) == 45) { i = i + 1; }
+                if (is_digit(load8(SRC + i)) == 0) { lex_error(s, i - s, "expected exponent digits"); }
+                while (i < e) {
+                    if (is_digit(load8(SRC + i)) == 0) { break; }
+                    i = i + 1;
+                }
+            }
+            if (isf == 1) { tok(TK_FLOAT, s, i - s, 0); }
+            else {
+                // Parse negatively so the minimum signed Int has a representation.
+                // A negative token value is reserved for its positive magnitude;
+                // only unary minus may consume that boundary token.
+                v = may { int("-" + symbol_name(SRC + s, i - s)) } otherwise {
+                    lex_error(s, i - s, "integer literal out of range"); 0
+                };
+                let minimum: Any = 0 - int("1152921504606846975") - 1;
+                if (v != minimum) { v = 0 - v; }
+                tok(TK_INT, s, i - s, v);
+            }
+        }
+        else if (is_alpha(b) == 1) {
+            let s: Any = i;
+            while (i < e) {
+                if (is_alnum(load8(SRC + i)) == 0) { break; }
+                i = i + 1;
+            }
+            kw(s, i - s);
+        }
+        else if (b == 34) {
+            let s: Any = i + 1;
+            mut j: Any = i + 1;
+            while (j < e) {
+                let c: Any = load8(SRC + j);
+                if (c == 92) {
+                    j = j + 2;
+                } else if (c == 36) {
+                    if (load8(SRC + j + 1) == 123) {
+                        j = j + 2;
+                        mut depth: Any = 1;
+                        while (j < e  and  depth > 0) {
+                            let d: Any = load8(SRC + j);
+                            if (d == 123) { depth = depth + 1; j = j + 1; }
+                            else if (d == 125) { depth = depth - 1; j = j + 1; }
+                            else if (d == 34) {
+                                j = j + 1;
+                                while (j < e) {
+                                    let e2: Any = load8(SRC + j);
+                                    if (e2 == 92) { j = j + 2; }
+                                    else if (e2 == 34) { j = j + 1; break; }
+                                    else { j = j + 1; }
+                                }
+                            }
+                            else { j = j + 1; }
+                        }
+                    } else {
+                        j = j + 1;
+                    }
+                } else if (c == 34) {
+                    break;
+                } else {
+                    j = j + 1;
+                }
+            }
+            if (j >= e) { lex_error(s - 1, 1, "unterminated string"); }
+            tok(TK_STR, s, j - s, 0);
+            i = j + 1;
+        }
+        else {
+            i = punct(b, i);
+        }
+    }
+    tok(TK_EOF, i, 0, 0);
+    return 0;
+}
+
+fun lex_all() -> Any {
+    LEX_OFFSET = 0;
+    LEX_LINE = 1;
+    LEX_COL = 1;
+    TOKS = [];
+    NTOKS = 0;
+    lex_run(0, SRCLEN);
+    return 0;
+}
+
+fun lex_span(start: Any, end: Any) -> Any {
+    let st: Any = TOKS;
+    let sn: Any = NTOKS;
+    TOKS = [];
+    NTOKS = 0;
+    lex_run(start, end);
+    let r: Any = TOKS;
+    TOKS = st;
+    NTOKS = sn;
+    return r;
+}

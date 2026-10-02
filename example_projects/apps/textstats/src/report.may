@@ -1,0 +1,33 @@
+// report.may — terminal formatting.
+
+fun pad_right(s: Any, width: Any) -> Any {
+    mut out: Any = s;
+    while (len(out) < width) { out = out + " "; }
+    return out;
+}
+
+fun bar(count: Any) -> Any { return repeat("#", count); }
+
+fun rule(width: Any) -> Any { return repeat("-", width); }
+
+/// Render the ranked report. `entries` is a list of [word, count] pairs.
+fun render(title: Any, summary: Any, entries: Any, limit: Any) -> Any {
+    let width: Any = 46;
+    print(rule(width));
+    print("  " + title);
+    print(rule(width));
+    print("words", summary.total, " unique", summary.unique, " avg", summary.avg);
+    print("longest", summary.longest);
+    print(rule(width));
+
+    let n: Any = len(entries);
+    let shown: Any = min(n, limit);
+    for i: Any in 0..shown {
+        let entry: Any = entries[i];
+        print(pad_right(entry[0], 18), pad_right(str(entry[1]), 5), bar(entry[1]));
+    }
+    if (n > shown) {
+        print("... and", n - shown, "more");
+    }
+    return print(rule(width));
+}

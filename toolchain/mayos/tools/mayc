@@ -1,0 +1,5 @@
+#!/bin/sh
+# Project-local compiler adapter: maypkg's ordinary build invokes raw mode.
+set -eu
+mayos_tool_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "${MAYOS_COMPILER:-$mayos_tool_dir/../../mayc/mayc_new}" --raw "$@"

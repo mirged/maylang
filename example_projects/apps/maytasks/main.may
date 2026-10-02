@@ -1,0 +1,160 @@
+// main.may — a small, everyday task manager for the terminal.
+//
+//   maylang build -o maytasks example_projects/apps/maytasks/main.may
+//   ./maytasks                 # interactive shell
+//   ./maytasks add "buy milk"  # one-shot commands
+//   ./maytasks list
+//   ./maytasks done 2
+//
+// Tasks persist in $HOME/.maytasks.json.
+
+import "src/tasks.may";
+
+mut tasks: Any = load_tasks();
+
+fun help() -> Any {
+    print("maytasks — a tiny todo list that remembers");
+    print("");
+    print("  add <text>     add a task");
+    print("  list, ls       show open and completed tasks");
+    print("  done <id>      mark a task complete");
+    print("  undone <id>    mark a task incomplete");
+    print("  edit <id> <t>  replace a task's text");
+    print("  rm <id>        delete a task");
+    print("  clear          delete completed tasks");
+    print("  find <text>    search task text");
+    print("  stats          show counts");
+    print("  help           show this help");
+    print("  quit, q        leave the shell");
+    return nil;
+}
+
+fun fmt_task(t: Any) -> Any {
+    let mark: Any = if (t.done) { "x" } else { " " };
+    return "  ${t.id}. [${mark}] ${t.text}";
+}
+
+fun show(ts: Any) -> Any {
+    if (len(ts) == 0) {
+        print("  (no tasks yet — add one with `add <text>`)");
+        return nil;
+    }
+    let open: Any = open_tasks(ts);
+    let done: Any = done_tasks(ts);
+    if (len(open) > 0) {
+        print("Open (${len(open)}):");
+        for t: Any in open { print(fmt_task(t)); }
+    }
+    if (len(done) > 0) {
+        print("Completed (${len(done)}):");
+        for t: Any in done { print(fmt_task(t)); }
+    }
+    return nil;
+}
+
+fun parse_id(s: Any) -> Any {
+    return may { int(s) } otherwise { -1 };
+}
+
+fun run_stats(ts: Any) -> Any {
+    let total: Any = len(ts);
+    let done: Any = len(done_tasks(ts));
+    let pct: Any = if (total == 0) { 0 } else { (done * 100) / total };
+    print("  total ${total} | open ${total - done} | done ${done} (${pct}%)");
+    return nil;
+}
+
+/// Execute one command line. Returns true when the shell should exit.
+fun run_command(line: Any) -> Any {
+    let parts: Any = split(line, " ");
+    mut cmd: Any = parts[0];
+    let rest: Any = trim(join(slice(parts, 1, len(parts)), " "));
+
+    if (cmd == "q" || cmd == "exit") { cmd = "quit"; }
+    if (cmd == "ls") { cmd = "list"; }
+    if (cmd == "del") { cmd = "rm"; }
+
+    return match (cmd) {
+        "add" => {
+            if (len(rest) == 0) { print("  usage: add <text>"); return false; }
+            tasks = add_task(tasks, rest);
+            save_tasks(tasks);
+            print("  added #${next_id(tasks) - 1}: ${rest}");
+            false
+        },
+        "list" => { show(tasks); false },
+        "done" => {
+            let t: Any = find_task(tasks, parse_id(rest));
+            if (t == nil) { print("  no task with that id"); return false; }
+            t.done = true;
+            save_tasks(tasks);
+            print("  completed: ${t.text}");
+            false
+        },
+        "undone" => {
+            let t: Any = find_task(tasks, parse_id(rest));
+            if (t == nil) { print("  no task with that id"); return false; }
+            t.done = false;
+            save_tasks(tasks);
+            print("  reopened: ${t.text}");
+            false
+        },
+        "edit" => {
+            let sp: Any = split(rest, " ");
+            let t: Any = find_task(tasks, parse_id(sp[0]));
+            if (t == nil) { print("  no task with that id"); return false; }
+            let text: Any = trim(join(slice(sp, 1, len(sp)), " "));
+            if (len(text) == 0) { print("  usage: edit <id> <text>"); return false; }
+            t.text = text;
+            save_tasks(tasks);
+            print("  updated #${t.id}");
+            false
+        },
+        "rm" => {
+            let id: Any = parse_id(rest);
+            if (find_task(tasks, id) == nil) { print("  no task with that id"); return false; }
+            tasks = remove_task(tasks, id);
+            save_tasks(tasks);
+            print("  removed #${id}");
+            false
+        },
+        "clear" => {
+            let removed: Any = len(tasks) - len(clear_completed(tasks));
+            tasks = clear_completed(tasks);
+            save_tasks(tasks);
+            print("  cleared ${removed} completed task(s)");
+            false
+        },
+        "find" => {
+            if (len(rest) == 0) { print("  usage: find <text>"); return false; }
+            let hits: Any = search_tasks(tasks, rest);
+            print("  ${len(hits)} match(es):");
+            for t: Any in hits { print(fmt_task(t)); }
+            false
+        },
+        "stats" => { run_stats(tasks); false },
+        "help" => { help(); false },
+        "quit" => true,
+        _ => { print("  unknown command `${cmd}` — try `help`"); false },
+    };
+}
+
+fun interactive() -> Any {
+    print("maytasks — your list is saved to ${tasks_path()}");
+    print("Type `help` for commands.");
+    while (true) {
+        let line: Any = input("tasks> ");
+        if (line == nil) { print(""); break; }
+        if (trim(line) == "") { continue; }
+        if (run_command(line)) { break; }
+    }
+    return print("by the way, you have ${len(open_tasks(tasks))} open task(s).");
+}
+
+// Run one-shot commands when given arguments, otherwise start the shell.
+let argv: Any = args();
+if (len(argv) > 1) {
+    run_command(join(slice(argv, 1, len(argv)), " "));
+} else {
+    interactive();
+}

@@ -1,0 +1,65 @@
+// browser.may — the document pipeline: parse, style, run scripts, layout, paint.
+
+import "support.may";
+import "dom.may";
+import "html.may";
+import "css.may";
+import "layout.may";
+import "render.may";
+import "net.may";
+import "js.may";
+
+fun browser_collect_styles(root: Int) -> Nil {
+    for n: Int in dom_descendants(root) {
+        let tag: Str = dom_tag(n);
+        if (tag == "style") {
+            css_parse(dom_text(n));
+        } else if (tag == "link") {
+            let rel: Str = to_lower(dom_attr(n, "rel"));
+            if (contains(rel, "stylesheet")) {
+                let href: Str = dom_attr(n, "href");
+                if (len(href) > 0) {
+                    let css: Str = net_read(href);
+                    if (len(css) > 0) { css_parse(css); }
+                }
+            }
+        }
+    }
+    return;
+}
+
+fun browser_background(root: Int) -> Int {
+    let base: Style = style_new();
+    let html_style: Style = css_style(root, base);
+    if (html_style.background >= 0) { return html_style.background; }
+    for n: Int in dom_children(root) {
+        if (dom_tag(n) == "body") {
+            let bs: Style = css_style(n, html_style);
+            if (bs.background >= 0) { return bs.background; }
+        }
+    }
+    return sup_rgb(255, 255, 255);
+}
+
+// Render `src` (already fetched) to `out_path`.  Returns 0 on success.
+fun browser_render(src: Str, out_path: Str, width: Int, height: Int, run_js: Bool) -> Int {
+    mut root: Int = html_parse(src);
+    CSS_RULES = [];
+    browser_collect_styles(root);
+
+    if (run_js) {
+        let mutated: Str = js_run_page(root);
+        if (len(mutated) > 0) {
+            root = html_parse(mutated);
+            CSS_RULES = [];
+            browser_collect_styles(root);
+        }
+    }
+
+    let bg: Int = browser_background(root);
+    fb_init(width, height, bg);
+    let root_box: Int = lay_layout_document(root, width, height);
+    render_tree(root_box, width, height, out_path);
+    fb_release();
+    return 0;
+}

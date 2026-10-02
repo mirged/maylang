@@ -1,0 +1,149 @@
+import "../lexer.may";
+import "../state.may";
+import "../ast.may";
+import "../diagnostics.may";
+import "../emitter.may";
+import "../backend.may";
+// RV64IM, no compressed instructions. ABI: a0-a7, a0 result, 16-byte SP.
+fun riscv_register(register: Any) -> Any {
+    if (register == -1) { return 2; }
+    if (register >= 20) { return 18 + register - 20; } // s2-s5, callee-saved
+    if (register >= 10) { return register; }
+    if (register == 2) { return 5; }
+    if (register == 3) { return 17; }
+    return 10 + register;
+}
+
+fun riscv_i(ctx: Any, opcode: Any, rd: Any, rs: Any, immediate: Any) -> Any {
+    let bits: Any = (immediate % 4096 + 4096) % 4096;
+    e32(ctx, opcode + rd * 128 + rs * 32768 + bits * 1048576);
+    return 0;
+}
+
+fun riscv_r(ctx: Any, opcode: Any, rd: Any, left: Any, right: Any) -> Any {
+    e32(ctx, opcode + rd * 128 + left * 32768 + right * 1048576);
+    return 0;
+}
+
+// A fixed 44-byte radix-2048 sequence represents all signed 64-bit constants.
+// Fixed width lets address fixups overwrite the same space after layout.
+fun riscv_immediate(ctx: Any, value: Any, register: Any) -> Any {
+    let rd: Any = riscv_register(register);
+    let parts: Any = [];
+    mut remaining: Any = value;
+    for i: Any in 0..5 {
+        mut part: Any = remaining % 2048;
+        if (part < 0) { part += 2048; }
+        push(parts, part); remaining = (remaining - part) / 2048;
+    }
+    riscv_i(ctx, 19, rd, 0, remaining);
+    mut index: Any = 4;
+    while (index >= 0) {
+        riscv_i(ctx, 4115, rd, rd, 11); // slli
+        riscv_i(ctx, 19, rd, rd, parts[index]);
+        index -= 1;
+    }
+    return 0;
+}
+
+fun riscv_move(ctx: Any, destination: Any, source: Any) -> Any {
+    riscv_i(ctx, 19, riscv_register(destination), riscv_register(source), 0);
+    return 0;
+}
+
+fun riscv_load(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> Any {
+    let opcodes: Any = {1: 16387, 2: 20483, 4: 24579, 8: 12291};
+    if (offset < -2048 or offset > 2047) { die_str("mayc: RISC-V load offset out of range\n"); }
+    riscv_i(ctx, opcodes[width], riscv_register(register), riscv_register(base), offset);
+    return 0;
+}
+
+fun riscv_store(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> Any {
+    let opcodes: Any = {1: 35, 2: 4131, 4: 8227, 8: 12323};
+    if (offset < -2048 or offset > 2047) { die_str("mayc: RISC-V store offset out of range\n"); }
+    let bits: Any = (offset + 4096) % 4096;
+    e32(ctx, opcodes[width] + (bits % 32) * 128 + riscv_register(base) * 32768 + riscv_register(register) * 1048576 + (bits / 32) * 33554432);
+    return 0;
+}
+
+fun riscv_binary(ctx: Any, op: Any) -> Any {
+    let arithmetic: Any = {20: 51, 21: 1073741875, 22: 33554483, 23: 33570867, 24: 33579059};
+    if (has(arithmetic, op)) { riscv_r(ctx, arithmetic[op], 10, 10, 11); return 0; }
+    if (op == TK_EQ or op == TK_NE) {
+        riscv_r(ctx, 16435, 10, 10, 11); // xor
+        if (op == TK_EQ) { riscv_i(ctx, 12307, 10, 10, 1); }
+        else { riscv_r(ctx, 12339, 10, 0, 10); }
+    } else {
+        if (op == TK_LT or op == TK_GE) { riscv_r(ctx, 8243, 10, 10, 11); }
+        else { riscv_r(ctx, 8243, 10, 11, 10); }
+        if (op == TK_GE or op == TK_LE) { riscv_i(ctx, 16403, 10, 10, 1); }
+    }
+    return 0;
+}
+
+fun riscv_unary(ctx: Any, op: Any) -> Any {
+    if (op == TK_MINUS) { riscv_r(ctx, 1073741875, 10, 0, 10); }
+    else { riscv_i(ctx, 12307, 10, 10, 1); }
+    return 0;
+}
+
+fun riscv_jump(ctx: Any, label: Any, link: Any) -> Any {
+    fx(ctx, if (link) { 104 } else { 100 }, ctx.code.length, label);
+    e32(ctx, 663); // auipc t0,0
+    riscv_i(ctx, 103, if (link) { 1 } else { 0 }, 5, 0);
+    return 0;
+}
+
+fun riscv_branch(ctx: Any, label: Any, zero: Any) -> Any {
+    // Invert the condition and skip a long jump. No 4 KiB branch limitation.
+    e32(ctx, if (zero) { 333411 } else { 329315 });
+    riscv_jump(ctx, label, false);
+    return 0;
+}
+
+fun riscv_prologue(ctx: Any, frame: Any) -> Any {
+    riscv_i(ctx, 19, 2, 2, 0 - frame - 16);
+    mut bits: Any = frame;
+    e32(ctx, 12323 + (bits % 32) * 128 + 2 * 32768 + 1 * 1048576 + (bits / 32) * 33554432);
+    bits = frame + 8;
+    e32(ctx, 12323 + (bits % 32) * 128 + 2 * 32768 + 8 * 1048576 + (bits / 32) * 33554432);
+    riscv_i(ctx, 19, 8, 2, frame + 16);
+    return 0;
+}
+
+fun riscv_epilogue(ctx: Any, frame: Any) -> Any {
+    riscv_i(ctx, 12291, 1, 2, frame);
+    riscv_i(ctx, 12291, 8, 2, frame + 8);
+    riscv_i(ctx, 19, 2, 2, frame + 16);
+    riscv_i(ctx, 103, 0, 1, 0);
+    return 0;
+}
+
+fun riscv_trap(ctx: Any) -> Any { e32(ctx, 115); return 0; }
+
+fun riscv_patch(ctx: Any) -> Any {
+    // Patch using a private sink view; the original append cursor is untouched.
+    for fixup: Any in ctx.fixups {
+        let pointer: Any = ctx.code.data + fixup.off;
+        if (fixup.kind == 101) {
+            let saved: Any = ctx.code.length;
+            ctx.code.length = fixup.off;
+            riscv_immediate(ctx, ctx.layout.dataAddress + fixup.tgt, 2);
+            ctx.code.length = saved;
+        } else {
+            let delta: Any = lab_off(ctx, fixup.tgt) - fixup.off;
+            if (delta < -2147483648 or delta > 2147481599 or delta % 4 != 0) { die_str("mayc: RISC-V jump out of range\n"); }
+            let upper: Any = (delta + 2048 - ((delta + 2048) % 4096 + 4096) % 4096) / 4096;
+            let lower: Any = delta - upper * 4096;
+            let bits: Any = (upper + 1048576) % 1048576;
+            store32(pointer, 663 + bits * 4096);
+            let link: Any = if (fixup.kind == 104) { 1 } else { 0 };
+            store32(pointer + 4, 103 + link * 128 + 5 * 32768 + ((lower + 4096) % 4096) * 1048576);
+        }
+    }
+    return 0;
+}
+
+fun riscv_emitter() -> Any {
+    return CodeEmitter(riscv_immediate, riscv_move, riscv_load, riscv_store, riscv_binary, riscv_unary, riscv_jump, riscv_branch, riscv_prologue, riscv_epilogue, riscv_trap);
+}

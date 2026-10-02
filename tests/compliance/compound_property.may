@@ -1,0 +1,1 @@
+let m={x:10}; mut n=0; fun getm() { n+=1; m } getm().x+=5; print(m.x,n);

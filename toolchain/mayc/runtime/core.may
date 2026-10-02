@@ -1,0 +1,636 @@
+// Portable core runtime: the same tagged Int/Bool/Nil/Str/List ABI on all targets.
+// Heap chunks live until process exit. This small runtime intentionally has no
+// collector, closures, floats, maps, exceptions, or operating-system libraries.
+mut CORE_HP: Any = 0;
+mut CORE_END: Any = 0;
+mut STACKTOP: Any = 0;
+fun rt_init() -> Any { return 0; }
+fun rt_gc_root(address: Any) -> Any { return 0; }
+fun rt_exit(status: Any) -> Any { __host_exit(status / 8); return 2; }
+fun __core_alloc(bytes: Any) -> Any { return rt_alloc(bytes / 8) * 8; }
+fun __core_copy(destination: Any, source: Any, bytes: Any) -> Any { rt_copy(destination / 8, source / 8, bytes / 8); return 2; }
+fun rt_alloc(n: Any) -> Any {
+    if (n < 0 or n > 268435456) { __host_exit(70); }
+    let need: Any = (n + 7) / 8 * 8 + 8;
+    if (CORE_HP + need > CORE_END) {
+        mut size: Any = 1048576;
+        if (need > size) { size = (need + 4095) / 4096 * 4096; }
+        CORE_HP = __host_alloc(size);
+        if (CORE_HP <= 0) { __host_exit(70); }
+        CORE_END = CORE_HP + size;
+    }
+    let pointer: Any = CORE_HP;
+    CORE_HP += need;
+    return pointer;
+}
+fun rt_write(pointer: Any, count: Any) -> Any {
+    mut offset: Any = 0;
+    while (offset < count) {
+        let written: Any = __host_write(pointer + offset, count - offset);
+        if (written <= 0) { __host_exit(70); }
+        offset += written;
+    }
+    return 0;
+}
+fun rt_fail(s: Any) -> Any { rt_write(s + 7, rt_slen(s)); rt_write(addr("\n"), 1); __host_exit(70); return 2; }
+fun rt_failtype(s: Any) -> Any { return rt_fail(s); }
+fun rt_failarith(s: Any) -> Any { return rt_fail(s); }
+fun rt_die_uncaught() -> Any { __host_exit(70); return 2; }
+fun rt_copy(d: Any, s: Any, n: Any) -> Any {
+    mut i: Any = 0;
+    while (i < n) {
+        store8(d + i, load8(s + i));
+        i = i + 1;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- strings
+
+fun rt_strnew(ln: Any) -> Any {
+    let p: Any = rt_alloc(ln + 9);
+    store64(p, ln);
+    store8(p + 8 + ln, 0);
+    return p + 1;
+}
+
+fun rt_from(srcp: Any, srcl: Any) -> Any {
+    let s: Any = rt_strnew(srcl);
+    rt_copy(s + 7, srcp, srcl);
+    return s;
+}
+
+fun rt_slen(v: Any) -> Any {
+    return load64(v - 1);
+}
+
+// Tagged pointer to the string's bytes.
+
+fun rt_addr(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) { return (v + 7) * 8; }
+    if (t == 6) { return (v - 6) * 8; }
+    return v;
+}
+
+// Fresh NUL-terminated copy, returned as a tagged address.
+
+fun rt_cstr(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) {
+        let ln: Any = rt_slen(v);
+        let p: Any = rt_alloc(ln + 1);
+        rt_copy(p, v + 7, ln);
+        store8(p + ln, 0);
+        return p * 8;
+    }
+    return v;
+}
+
+fun rt_concat(a: Any, b: Any) -> Any {
+    let la: Any = rt_slen(a);
+    let lb: Any = rt_slen(b);
+    let s: Any = rt_strnew(la + lb);
+    rt_copy(s + 7, a + 7, la);
+    rt_copy(s + 7 + la, b + 7, lb);
+    return s;
+}
+
+fun rt_str_eq(a: Any, b: Any) -> Any {
+    let la: Any = rt_slen(a);
+    let lb: Any = rt_slen(b);
+    if (la != lb) { return 0; }
+    mut i: Any = 0;
+    while (i < la) {
+        if (load8(a + 7 + i) != load8(b + 7 + i)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fun rt_str_lt(a: Any, b: Any) -> Any {
+    let la: Any = rt_slen(a);
+    let lb: Any = rt_slen(b);
+    mut n: Any = la;
+    if (lb < n) { n = lb; }
+    mut i: Any = 0;
+    while (i < n) {
+        let ca: Any = load8(a + 7 + i);
+        let cb: Any = load8(b + 7 + i);
+        if (ca < cb) { return 1; }
+        if (ca > cb) { return 0; }
+        i = i + 1;
+    }
+    if (la < lb) { return 1; }
+    return 0;
+}
+
+fun rt_str_cmp(a: Any, b: Any) -> Any {
+    if (rt_str_eq(a, b) == 1) { return 0; }
+    if (rt_str_lt(a, b) == 1) { return 0 - 8; }
+    return 8;
+}
+
+fun rt_int_str(v: Any) -> Any {
+    let n: Any = v / 8;
+    let tmp: Any = rt_alloc(32);
+    mut x: Any = n;
+    mut neg: Any = 0;
+    if (x < 0) { neg = 1; x = 0 - x; }
+    mut d: Any = 0;
+    if (x == 0) {
+        store8(tmp, 48);
+        d = 1;
+    }
+    while (x > 0) {
+        store8(tmp + d, (x % 10) + 48);
+        x = x / 10;
+        d = d + 1;
+    }
+    mut ln: Any = d;
+    if (neg == 1) { ln = d + 1; }
+    let s: Any = rt_strnew(ln);
+    mut o: Any = 0;
+    if (neg == 1) { store8(s + 7, 45); o = 1; }
+    mut k: Any = 0;
+    while (k < d) {
+        store8(s + 7 + o + k, load8(tmp + (d - 1 - k)));
+        k = k + 1;
+    }
+    return s;
+}
+
+// Quoted form of a value, for nesting inside lists and maps.
+
+fun rt_list_new(cap: Any) -> Any {
+    let p: Any = rt_alloc(24);
+    let d: Any = rt_alloc(cap * 8);
+    store64(p, 0);
+    store64(p + 8, cap);
+    store64(p + 16, d);
+    return p + 5;
+}
+
+fun rt_list_len(v: Any) -> Any {
+    return load64(v - 5);
+}
+
+fun rt_list_set(l: Any, i: Any, x: Any) -> Any {
+    let p: Any = l - 5;
+    let d: Any = load64(p + 16);
+    store64(d + i, x);
+    let idx: Any = i / 8;
+    if (idx + 1 > load64(p)) { store64(p, idx + 1); }
+    return x;
+}
+
+fun rt_list_get(l: Any, i: Any) -> Any {
+    let d: Any = load64(l - 5 + 16);
+    return load64(d + i);
+}
+
+fun rt_push(l: Any, x: Any) -> Any {
+    let p: Any = l - 5;
+    let len: Any = load64(p);
+    let cap: Any = load64(p + 8);
+    if (len >= cap) {
+        mut nc: Any = cap * 2;
+        if (nc < 4) { nc = 4; }
+        let nd: Any = rt_alloc(nc * 8);
+        rt_copy(nd, load64(p + 16), len * 8);
+        store64(p + 16, nd);
+        store64(p + 8, nc);
+    }
+    let d: Any = load64(p + 16);
+    store64(d + len * 8, x);
+    store64(p, len + 1);
+    return l;
+}
+
+fun utf8_seq(b: Any) -> Any {
+    if (b < 128) { return 1; }
+    if (b < 224) { return 2; }
+    if (b < 240) { return 3; }
+    return 4;
+}
+
+fun utf8_cplen(s: Any) -> Any {
+    let n: Any = rt_slen(s);
+    mut i: Any = 0;
+    mut c: Any = 0;
+    while (i < n) {
+        i = i + utf8_seq(load8(s + 7 + i));
+        c = c + 1;
+    }
+    return c;
+}
+
+fun utf8_off(s: Any, cp: Any) -> Any {
+    let n: Any = rt_slen(s);
+    mut i: Any = 0;
+    mut k: Any = 0;
+    while (i < n and k < cp) {
+        i = i + utf8_seq(load8(s + 7 + i));
+        k = k + 1;
+    }
+    return i;
+}
+
+fun utf8_decode(s: Any, off: Any) -> Any {
+    let b0: Any = load8(s + 7 + off);
+    if (b0 < 128) { return b0; }
+    if (b0 < 224) {
+        return (b0 - 192) * 64 + (load8(s + 8 + off) - 128);
+    }
+    if (b0 < 240) {
+        return (b0 - 224) * 4096 + (load8(s + 8 + off) - 128) * 64 + (load8(s + 9 + off) - 128);
+    }
+    return (b0 - 240) * 262144 + (load8(s + 8 + off) - 128) * 4096 + (load8(s + 9 + off) - 128) * 64 + (load8(s + 10 + off) - 128);
+}
+
+fun utf8_encode(c: Any) -> Any {
+    if (c < 128) {
+        let s: Any = rt_strnew(1);
+        store8(s + 7, c);
+        return s;
+    }
+    if (c < 2048) {
+        let s: Any = rt_strnew(2);
+        store8(s + 7, 192 + c / 64);
+        store8(s + 8, 128 + c % 64);
+        return s;
+    }
+    if (c < 65536) {
+        let s: Any = rt_strnew(3);
+        store8(s + 7, 224 + c / 4096);
+        store8(s + 8, 128 + (c / 64) % 64);
+        store8(s + 9, 128 + c % 64);
+        return s;
+    }
+    let s: Any = rt_strnew(4);
+    store8(s + 7, 240 + c / 262144);
+    store8(s + 8, 128 + (c / 4096) % 64);
+    store8(s + 9, 128 + (c / 64) % 64);
+    store8(s + 10, 128 + c % 64);
+    return s;
+}
+
+fun rt_char_at(s: Any, i: Any) -> Any {
+    return utf8_decode(s, utf8_off(s, i / 8)) * 8;
+}
+
+fun rt_char_from(c: Any) -> Any {
+    return utf8_encode(c / 8);
+}
+
+fun rt_substr(s: Any, a: Any, b: Any) -> Any {
+    let bo: Any = utf8_off(s, a);
+    let eo: Any = utf8_off(s, b);
+    mut ln: Any = eo - bo;
+    if (ln < 0) { ln = 0; }
+    let r: Any = rt_strnew(ln);
+    rt_copy(r + 7, s + 7 + bo, ln);
+    return r;
+}
+
+fun rt_sub_eq(s: Any, off: Any, sep: Any) -> Any {
+    let m: Any = rt_slen(sep);
+    mut j: Any = 0;
+    while (j < m) {
+        if (load8(s + 7 + off + j) != load8(sep + 7 + j)) { return 0; }
+        j = j + 1;
+    }
+    return 1;
+}
+
+fun rt_contains(s: Any, sub: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let m: Any = rt_slen(sub);
+    if (m == 0) { return 4; }
+    mut i: Any = 0;
+    while (i + m <= n) {
+        if (rt_sub_eq(s, i, sub) == 1) { return 4; }
+        i = i + 1;
+    }
+    return 3;
+}
+
+fun rt_starts_with(s: Any, sub: Any) -> Any {
+    if (rt_slen(sub) > rt_slen(s)) { return 3; }
+    if (rt_sub_eq(s, 0, sub) == 1) { return 4; }
+    return 3;
+}
+
+fun rt_ends_with(s: Any, sub: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let m: Any = rt_slen(sub);
+    if (m > n) { return 3; }
+    if (rt_sub_eq(s, n - m, sub) == 1) { return 4; }
+    return 3;
+}
+
+fun rt_index_of(s: Any, sub: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let m: Any = rt_slen(sub);
+    mut i: Any = 0;
+    while (i + m <= n) {
+        if (rt_sub_eq(s, i, sub) == 1) { return i * 8; }
+        i = i + 1;
+    }
+    return 0 - 8;
+}
+
+fun rt_split(s: Any, sep: Any) -> Any {
+    let n: Any = rt_slen(s);
+    let m: Any = rt_slen(sep);
+    let l: Any = rt_list_new(4);
+    if (m == 0) {
+        rt_push(l, s);
+        return l;
+    }
+    mut start: Any = 0;
+    mut i: Any = 0;
+    while (i + m <= n) {
+        if (rt_sub_eq(s, i, sep) == 1) {
+            rt_push(l, rt_from(s + 7 + start, i - start));
+            start = i + m;
+            i = start;
+        } else {
+            i = i + 1;
+        }
+    }
+    rt_push(l, rt_from(s + 7 + start, n - start));
+    return l;
+}
+
+fun rt_repeat(s: Any, nv: Any) -> Any {
+    let k: Any = nv / 8;
+    let ln: Any = rt_slen(s);
+    let r: Any = rt_strnew(ln * k);
+    mut i: Any = 0;
+    while (i < k) {
+        rt_copy(r + 7 + i * ln, s + 7, ln);
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_join(l: Any, sep: Any) -> Any {
+    let n: Any = rt_list_len(l);
+    if (n == 0) { return rt_from(addr(""), 0); }
+    mut r: Any = rt_list_get(l, 0);
+    mut i: Any = 1;
+    while (i < n) {
+        r = rt_concat(rt_concat(r, sep), rt_list_get(l, i * 8));
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_pop(l: Any) -> Any {
+    let p: Any = l - 5;
+    let n: Any = load64(p);
+    if (n == 0) { return 2; }
+    let d: Any = load64(p + 16);
+    let x: Any = load64(d + (n - 1) * 8);
+    store64(p, n - 1);
+    return x;
+}
+
+fun rt_range(a: Any, b: Any, incl: Any) -> Any {
+    let s: Any = a / 8;
+    let e: Any = b / 8;
+    let l: Any = rt_list_new(4);
+    if (s <= e) {
+        mut i: Any = s;
+        while (i < e) { rt_push(l, i * 8); i = i + 1; }
+        if (incl == 4) { rt_push(l, e * 8); }
+    }
+    return l;
+}
+
+fun rt_newline() -> Any {
+    rt_write(addr("\n"), 1);
+    return 0;
+}
+
+fun rt_space() -> Any {
+    rt_write(addr(" "), 1);
+    return 0;
+}
+
+// Scalar C-ABI conversion used only by declared extern wrappers.
+
+fun rt_print_str(v: Any) -> Any {
+    rt_write(v + 7, rt_slen(v));
+    return 0;
+}
+
+fun rt_not(a: Any) -> Any {
+    let t: Any = a % 8;
+    if (t == 2) { return 4; }
+    if (t == 3) { return 4; }
+    return 3;
+}
+
+fun rt_chr(v: Any) -> Any {
+    return utf8_encode(v / 8);
+}
+
+fun rt_ord(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 1) { return load8(v + 7) * 8; }
+    return 0;
+}
+
+fun rt_len(v: Any) -> Any {
+    if (v % 8 == 1) { return utf8_cplen(v) * 8; }
+    if (v % 8 == 5) { return rt_list_len(v) * 8; }
+    return rt_failtype(rt_from(addr("len requires a string or list"), 29));
+}
+
+fun rt_index_get(v: Any, index: Any) -> Any {
+    if (index % 8 != 0) { return rt_failtype(rt_from(addr("index requires an integer"), 25)); }
+    if (v % 8 == 5) {
+        if (index < 0 or index / 8 >= rt_list_len(v)) { return 2; }
+        return rt_list_get(v, index);
+    }
+    if (v % 8 == 1) {
+        if (index < 0 or index / 8 >= utf8_cplen(v)) { return 2; }
+        return utf8_encode(utf8_decode(v, utf8_off(v, index / 8)));
+    }
+    return rt_failtype(rt_from(addr("index requires a string or list"), 31));
+}
+
+fun rt_index_set(v: Any, index: Any, item: Any) -> Any {
+    if (v % 8 != 5 or index % 8 != 0 or index < 0 or index / 8 >= rt_list_len(v)) {
+        return rt_failtype(rt_from(addr("invalid list assignment"), 23));
+    }
+    return rt_list_set(v, index, item);
+}
+
+fun rt_extend(target: Any, source: Any) -> Any {
+    mut index: Any = 0; let count: Any = rt_list_len(source);
+    while (index < count) { rt_push(target, rt_list_get(source, index * 8)); index += 1; }
+    return target;
+}
+
+fun rt_slice(v: Any, begin: Any, end: Any) -> Any {
+    let n: Any = rt_list_len(v);
+    mut a: Any = begin / 8; mut b: Any = end / 8;
+    if (a < 0) { a = 0; } if (b > n) { b = n; } if (b < a) { b = a; }
+    let out: Any = rt_list_new(0);
+    while (a < b) { rt_push(out, rt_list_get(v, a * 8)); a += 1; }
+    return out;
+}
+
+fun __core_substring(s: Any, begin: Any, count: Any) -> Any {
+    mut a: Any = begin / 8; mut n: Any = count / 8;
+    if (a < 0) { a = 0; } if (n < 0) { n = 0; }
+    return rt_substr(s, a, a + n);
+}
+
+fun rt_eq(a: Any, b: Any) -> Any {
+    if (a == b) { return 4; }
+    if (a % 8 == 1 and b % 8 == 1 and rt_str_eq(a, b) == 1) { return 4; }
+    if (a % 8 == 5 and b % 8 == 5) { return __core_equal(a, b, rt_list_new(0)); }
+    return 3;
+}
+fun __core_equal(a: Any, b: Any, path: Any) -> Any {
+    if (a == b) { return 4; }
+    if (a % 8 != 5 or b % 8 != 5) { return rt_eq(a, b); }
+    let count: Any = rt_list_len(a);
+    if (count != rt_list_len(b)) { return 3; }
+    mut i: Any = 0;
+    while (i < rt_list_len(path)) {
+        if (rt_list_get(path, i * 8) == a and rt_list_get(path, (i + 1) * 8) == b) { return 4; }
+        i += 2;
+    }
+    rt_push(path, a); rt_push(path, b); i = 0;
+    while (i < count) {
+        if (__core_equal(rt_list_get(a, i * 8), rt_list_get(b, i * 8), path) != 4) { rt_pop(path); rt_pop(path); return 3; }
+        i += 1;
+    }
+    rt_pop(path); rt_pop(path); return 4;
+}
+fun rt_ne(a: Any, b: Any) -> Any { return rt_not(rt_eq(a, b)); }
+fun rt_lt(a: Any, b: Any) -> Any {
+    if (a % 8 == 1 and b % 8 == 1) { if (rt_str_lt(a, b) == 1) { return 4; } return 3; }
+    if (a < b) { return 4; } return 3;
+}
+fun rt_le(a: Any, b: Any) -> Any { if (rt_lt(a, b) == 4) { return 4; } return rt_eq(a, b); }
+fun rt_gt(a: Any, b: Any) -> Any { return rt_lt(b, a); }
+fun rt_ge(a: Any, b: Any) -> Any { return rt_le(b, a); }
+fun rt_bool(v: Any) -> Any { if (v == 2 or v == 3) { return 3; } return 4; }
+fun rt_min(a: Any, b: Any) -> Any { if (rt_lt(a, b) == 4) { return a; } return b; }
+fun rt_max(a: Any, b: Any) -> Any { if (rt_lt(a, b) == 4) { return b; } return a; }
+
+fun rt_add(a: Any, b: Any) -> Any {
+    if (a % 8 == 1 and b % 8 == 1) { return rt_concat(a, b); }
+    if (a % 8 == 5 and b % 8 == 5) { let result: Any = rt_list_new(0); rt_extend(result, a); rt_extend(result, b); return result; }
+    if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers or strings"), 28)); }
+    let sum: Any = a + b;
+    if ((a >= 0 and b >= 0 and sum < 0) or (a < 0 and b < 0 and sum >= 0)) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+    return sum;
+}
+fun rt_sub(a: Any, b: Any) -> Any {
+    if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
+    let difference: Any = a - b;
+    if ((a >= 0 and b < 0 and difference < 0) or (a < 0 and b >= 0 and difference >= 0)) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+    return difference;
+}
+fun rt_mul(a: Any, b: Any) -> Any {
+    if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
+    if (a == 0 or b == 0) { return 0; }
+    let product: Any = (a / 8) * b;
+    if (product / b != a / 8) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+    return product;
+}
+fun rt_div(a: Any, b: Any) -> Any {
+    if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
+    if (b == 0) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
+    if (a / 8 == -1152921504606846976 and b == -8) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+    return (a / b) * 8;
+}
+fun rt_mod(a: Any, b: Any) -> Any {
+    if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
+    if (b == 0) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
+    return ((a / 8) % (b / 8)) * 8;
+}
+fun rt_neg(a: Any) -> Any { return rt_sub(0, a); }
+fun rt_abs(a: Any) -> Any { if (a < 0) { return rt_neg(a); } return a; }
+fun rt_pow(a: Any, b: Any) -> Any {
+    if (b < 0) { return rt_failarith(rt_from(addr("negative integer exponent"), 25)); }
+    mut out: Any = 8; mut base: Any = a; mut exponent: Any = b / 8;
+    while (exponent > 0) {
+        if (exponent % 2 == 1) { out = rt_mul(out, base); }
+        exponent /= 2; if (exponent > 0) { base = rt_mul(base, base); }
+    }
+    return out;
+}
+fun rt_int(s: Any) -> Any {
+    if (s % 8 == 0) { return s; }
+    if (s % 8 != 1) { return rt_failtype(rt_from(addr("int requires a string"), 21)); }
+    let n: Any = rt_slen(s); mut i: Any = 0; mut negative: Any = 0; mut value: Any = 0;
+    if (n > 0 and load8(s + 7) == 45) { negative = 1; i = 1; }
+    let limit: Any = if (negative == 1) { -1152921504606846976 } else { -1152921504606846975 };
+    while (i < n) {
+        let digit: Any = load8(s + 7 + i) - 48;
+        if (digit < 0 or digit > 9) { break; }
+        if (value < (limit + digit) / 10) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
+        value = value * 10 - digit; i += 1;
+    }
+    if (negative == 0) { value = 0 - value; }
+    return value * 8;
+}
+
+fun __core_repr(v: Any, path: Any) -> Any {
+    let tag: Any = v % 8;
+    if (tag == 0) { return rt_int_str(v); }
+    if (tag == 1) { return v; }
+    if (v == 2) { return rt_from(addr("nil"), 3); }
+    if (v == 3) { return rt_from(addr("false"), 5); }
+    if (v == 4) { return rt_from(addr("true"), 4); }
+    if (tag == 5) {
+        mut i: Any = 0;
+        while (i < rt_list_len(path)) {
+            if (rt_list_get(path, i * 8) == v) { return rt_from(addr("<cycle>"), 7); } i += 1;
+        }
+        rt_push(path, v); i = 0;
+        mut out: Any = rt_from(addr("["), 1);
+        while (i < rt_list_len(v)) {
+            if (i > 0) { out = rt_concat(out, rt_from(addr(", "), 2)); }
+            let value: Any = rt_list_get(v, i * 8);
+            let item: Any = __core_repr(value, path);
+            if (value % 8 == 1) { out = rt_concat(out, rt_from(addr("\""), 1)); }
+            out = rt_concat(out, item);
+            if (value % 8 == 1) { out = rt_concat(out, rt_from(addr("\""), 1)); }
+            i += 1;
+        }
+        rt_pop(path); return rt_concat(out, rt_from(addr("]"), 1));
+    }
+    return rt_from(addr("<unsupported>"), 13);
+}
+fun rt_to_str(v: Any) -> Any { return __core_repr(v, rt_list_new(0)); }
+
+fun rt_lower(s: Any) -> Any {
+    let n: Any = rt_slen(s); let result: Any = rt_strnew(n); mut i: Any = 0;
+    while (i < n) {
+        mut c: Any = load8(s + 7 + i); if (c >= 65 and c <= 90) { c += 32; }
+        store8(result + 7 + i, c); i += 1;
+    }
+    return result;
+}
+fun rt_upper(s: Any) -> Any {
+    let n: Any = rt_slen(s); let result: Any = rt_strnew(n); mut i: Any = 0;
+    while (i < n) {
+        mut c: Any = load8(s + 7 + i); if (c >= 97 and c <= 122) { c -= 32; }
+        store8(result + 7 + i, c); i += 1;
+    }
+    return result;
+}
+fun rt_cmp(a: Any, b: Any) -> Any {
+    if (rt_eq(a, b) == 4) { return 0; } if (rt_lt(a, b) == 4) { return -8; } return 8;
+}
+
+// ---------------------------------------------------------------- printing

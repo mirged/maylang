@@ -1,0 +1,118 @@
+// ml/nn.may — dense feed-forward networks and explicit reverse-mode gradients.
+import "../random.may";
+import "tensor.may";
+
+fun nn_model() -> Any { return {"layers": [], "input_dim": 0, "output_dim": 0}; }
+fun nn_add_dense(model: Any, input_dim: Any, output_dim: Any, activation: Any, rng: Any) -> Any {
+    if (input_dim <= 0 || output_dim <= 0) { fail("dense dimensions must be positive"); }
+    if (activation != "linear" && activation != "relu" && activation != "sigmoid" && activation != "tanh" && activation != "softmax") { fail("unsupported dense activation: " + activation); }
+    if (len(model.layers) > 0 && model.output_dim != input_dim) { fail("dense layer input does not match previous output"); }
+    let scale: Any = sqrt(2.0 / input_dim);
+    let weights: Any = [[random_normal(rng, 0.0, scale) for _: Any in 0..output_dim] for _: Any in 0..input_dim];
+    let layer: Any = {"input_dim": input_dim, "output_dim": output_dim, "activation": activation,
+        "weights": weights, "bias": [0.0 for _: Any in 0..output_dim],
+        "grad_weights": [[0.0 for _: Any in 0..output_dim] for _: Any in 0..input_dim],
+        "grad_bias": [0.0 for _: Any in 0..output_dim], "cache_input": [], "cache_z": [], "cache_output": []};
+    push(model.layers, layer); model.input_dim = input_dim; model.output_dim = output_dim; return model;
+}
+fun nn_sigmoid(x: Any) -> Any { return 1.0 / (1.0 + exp(-max(-60.0, min(60.0, x)))); }
+fun nn_activate_scalar(x: Any, name: Any) -> Any {
+    if (name == "linear") { return x; }
+    if (name == "relu") { return max(0.0, x); }
+    if (name == "sigmoid") { return nn_sigmoid(x); }
+    if (name == "tanh") { let e: Any = exp(max(-60.0, min(60.0, 2.0 * x))); return (e - 1.0) / (e + 1.0); }
+    return fail("unsupported activation: " + name);
+}
+fun nn_activate_row(row: Any, name: Any) -> Any {
+    if (name == "softmax") {
+        let m: Any = reduce(row, |a: Any, b: Any| -> Any { return max(a, b); }, row[0]);
+        let exps: Any = [exp(x - m) for x: Any in row]; let total: Any = sum(exps);
+        return [x / total for x: Any in exps];
+    }
+    return [nn_activate_scalar(x, name) for x: Any in row];
+}
+fun nn_forward(model: Any, batch: Any) -> Any {
+    if (len(model.layers) == 0) { fail("network needs at least one dense layer"); }
+    if (len(batch) == 0) { return []; }
+    mut current: Any = batch;
+    for i: Any in 0..len(model.layers) {
+        let layer: Any = model.layers[i];
+        for row: Any in current { if (len(row) != layer.input_dim) { fail("network input width does not match first layer"); } }
+        let input_cache: Any = current;
+        let z: Any = [[sum([input_cache[b][j] * layer.weights[j][k] for j: Any in 0..layer.input_dim]) + layer.bias[k] for k: Any in 0..layer.output_dim] for b: Any in 0..len(input_cache)];
+        current = [nn_activate_row(row, layer.activation) for row: Any in z];
+        layer.cache_input = input_cache; layer.cache_z = z; layer.cache_output = current;
+        model.layers[i] = layer;
+    }
+    return current;
+}
+fun nn_activation_delta(layer: Any, grad: Any, batch_index: Any, output_index: Any) -> Any {
+    let y: Any = layer.cache_output[batch_index][output_index];
+    if (layer.activation == "linear") { return grad[batch_index][output_index]; }
+    if (layer.activation == "relu") { return if (layer.cache_z[batch_index][output_index] > 0) { grad[batch_index][output_index] } else { 0.0 }; }
+    if (layer.activation == "sigmoid") { return grad[batch_index][output_index] * y * (1 - y); }
+    if (layer.activation == "tanh") { return grad[batch_index][output_index] * (1 - y * y); }
+    if (layer.activation == "softmax") {
+        return y * (grad[batch_index][output_index] - sum([layer.cache_output[batch_index][j] * grad[batch_index][j] for j: Any in 0..layer.output_dim]));
+    }
+    return fail("unsupported activation derivative: " + layer.activation);
+}
+fun nn_backward(model: Any, output_gradient: Any) -> Any {
+    mut grad: Any = output_gradient;
+    mut i: Any = len(model.layers) - 1;
+    while (i >= 0) {
+        let layer: Any = model.layers[i]; let batch: Any = len(layer.cache_input);
+        let delta: Any = [[nn_activation_delta(layer, grad, b, k) for k: Any in 0..layer.output_dim] for b: Any in 0..batch];
+        layer.grad_weights = [[sum([layer.cache_input[b][j] * delta[b][k] for b: Any in 0..batch]) for k: Any in 0..layer.output_dim] for j: Any in 0..layer.input_dim];
+        layer.grad_bias = [sum([delta[b][k] for b: Any in 0..batch]) for k: Any in 0..layer.output_dim];
+        model.layers[i] = layer;
+        if (i > 0) {
+            grad = [[sum([delta[b][k] * layer.weights[j][k] for k: Any in 0..layer.output_dim]) for j: Any in 0..layer.input_dim] for b: Any in 0..batch];
+        }
+        i = i - 1;
+    }
+    return model;
+}
+fun nn_predict(model: Any, rows: Any) -> Any { return nn_forward(model, rows); }
+/// Predict one row without training caches or intermediate product lists.
+/// Useful for repeatedly evaluating small controllers in simulations.
+fun nn_predict_one(model: Any, row: Any) -> Any {
+    if (len(model.layers) == 0) { fail("network needs at least one dense layer"); }
+    mut current: Any = row;
+    for layer: Any in model.layers {
+        if (len(current) != layer.input_dim) { fail("network input width does not match layer"); }
+        let weights: Any = layer.weights;
+        let bias: Any = layer.bias;
+        let output: Any = [];
+        for k: Any in 0..layer.output_dim {
+            mut value: Any = bias[k];
+            for j: Any in 0..layer.input_dim { value += current[j] * weights[j][k]; }
+            push(output, value);
+        }
+        current = nn_activate_row(output, layer.activation);
+    }
+    return current;
+}
+fun nn_tensor_rows(t: Any) -> Any {
+    if (tensor_rank(t) != 2) { fail("neural network tensor input must be rank 2"); }
+    return [slice(t.data, i * t.shape[1], (i + 1) * t.shape[1]) for i: Any in 0..t.shape[0]];
+}
+fun nn_predict_tensor(model: Any, t: Any) -> Any { return tensor_matrix(nn_predict(model, nn_tensor_rows(t))); }
+fun nn_forward_tensor(model: Any, t: Any) -> Any { return tensor_matrix(nn_forward(model, nn_tensor_rows(t))); }
+fun nn_backward_tensor(model: Any, gradient: Any) -> Any { nn_backward(model, nn_tensor_rows(gradient)); return model; }
+fun nn_parameter_count(model: Any) -> Any {
+    return sum([layer.input_dim * layer.output_dim + layer.output_dim for layer: Any in model.layers]);
+}
+fun nn_state_dict(model: Any) -> Any {
+    return [ {"input_dim": layer.input_dim, "output_dim": layer.output_dim, "activation": layer.activation,
+        "weights": layer.weights, "bias": layer.bias} for layer: Any in model.layers ];
+}
+fun nn_load_state(model: Any, states: Any) -> Any {
+    if (len(model.layers) != len(states)) { fail("model state layer count mismatch"); }
+    for i: Any in 0..len(states) {
+        let layer: Any = model.layers[i]; let saved: Any = states[i];
+        if (layer.input_dim != saved.input_dim || layer.output_dim != saved.output_dim || layer.activation != saved.activation) { fail("model state layer configuration mismatch"); }
+        layer.weights = saved.weights; layer.bias = saved.bias; model.layers[i] = layer;
+    }
+    return model;
+}

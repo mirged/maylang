@@ -1,0 +1,47 @@
+import "../emitter.may";
+import "bytes.may";
+// Freestanding ARM64 Mach-O. LC_UNIXTHREAD supplies the initial PC.
+// The output must be ad-hoc signed on macOS before executing on Apple Silicon.
+let MACH_HEADER_SIZE: Any = 32;
+let MACH_SEGMENT_SIZE: Any = 72;
+let MACH_THREAD_SIZE: Any = 288;
+
+fun macho_layout(ctx: Any) -> Any {
+    let base: Any = 4194304;
+    let offset: Any = ctx.target.alignment;
+    return ImageLayout(base, offset, base + offset, offset + ctx.code.length, base + offset + ctx.code.length, ctx.target.alignment);
+}
+
+fun macho_segment(header: Any, name: Any, address: Any, memory: Any, offset: Any, size: Any, protection: Any) -> Any {
+    store32(header, 25); store32(header + 4, MACH_SEGMENT_SIZE); // LC_SEGMENT_64
+    image_copy(header + 8, addr(name), len(name));
+    store64(header + 24, address); store64(header + 32, memory);
+    store64(header + 40, offset); store64(header + 48, size);
+    store32(header + 56, protection); store32(header + 60, protection);
+    return 0;
+}
+
+fun build_macho(ctx: Any) -> Any {
+    let layout: Any = ctx.layout;
+    let roOffset: Any = layout.dataOffset + ctx.rodataOffset;
+    let roSize: Any = ctx.data.length - ctx.rodataOffset;
+    ctx.image.length = roOffset + roSize;
+    sink_require(ctx.image, ctx.image.length);
+    let image: Any = ctx.image.data;
+    store32(image, 4277009103); // MH_MAGIC_64
+    store32(image + 4, ctx.target.machine); store32(image + 8, 0);
+    store32(image + 12, 2); // MH_EXECUTE
+    store32(image + 16, 5); store32(image + 20, MACH_SEGMENT_SIZE * 4 + MACH_THREAD_SIZE);
+    let commands: Any = image + MACH_HEADER_SIZE;
+    macho_segment(commands, "__PAGEZERO", 0, layout.base, 0, 0, 0);
+    macho_segment(commands + MACH_SEGMENT_SIZE, "__TEXT", layout.base, layout.dataOffset, 0, layout.dataOffset, 5);
+    macho_segment(commands + MACH_SEGMENT_SIZE * 2, "__DATA", layout.dataAddress, ctx.rodataOffset, layout.dataOffset, ctx.rodataOffset, 3);
+    macho_segment(commands + MACH_SEGMENT_SIZE * 3, "__CONST", layout.base + roOffset, image_align(roSize, layout.alignment), roOffset, roSize, 1);
+    let thread: Any = commands + MACH_SEGMENT_SIZE * 4;
+    store32(thread, 5); store32(thread + 4, MACH_THREAD_SIZE); // LC_UNIXTHREAD
+    store32(thread + 8, 6); store32(thread + 12, 68); // ARM_THREAD_STATE64
+    store64(thread + 16 + 256, layout.codeAddress);
+    image_copy(image + layout.codeOffset, ctx.code.data, ctx.code.length);
+    image_copy(image + layout.dataOffset, ctx.data.data, ctx.data.length);
+    return 0;
+}

@@ -1,0 +1,732 @@
+// commands.may — the maypkg subcommands.
+//
+// Every command auto-detects the project: no manifest is required. maypkg
+// locates the root, guesses the entry from conventional file names and the
+// code itself, discovers the modules through the import graph, and can write
+// a `mayproj.json` derived from what it found. Build/dev are incremental:
+// they compare sources against the lockfile and report exactly what is stale.
+
+import "fs.may" as fs;
+import "checksum.may" as hash;
+import "manifest.may" as manifest;
+import "graph.may" as graph;
+import "render.may" as render;
+import "project.may" as project;
+
+let VERSION: Any = "0.2.0";
+
+fun has_manifest(loc: Any) -> Any { return type(loc.m) == "Map"; }
+
+fun name_of(loc: Any) -> Any {
+    if (has_manifest(loc)) { return loc.m.name; }
+    return loc.name;
+}
+
+fun target_of(loc: Any) -> Any {
+    if (has_manifest(loc) && len(loc.m.target) > 0) { return loc.m.target; }
+    return "host";
+}
+
+fun output_of(loc: Any) -> Any {
+    if (has_manifest(loc) && len(loc.m.output) > 0) { return loc.m.output; }
+    return loc.name;
+}
+
+fun require_project() -> Any {
+    let loc: Any = project.locate();
+    if (!loc.has_entry) {
+        print("maypkg: no entry module here (looked for main.may, app.may, src/main.may)");
+        print("        create one, run `maypkg init [name]`, or set MAYPKG_ENTRY");
+        exit(1);
+    }
+    return loc;
+}
+
+fun ensure_manifest(loc: Any, disc: Any) -> Any {
+    let path: Any = fs.join_path(loc.root, manifest.filename());
+    if (has_manifest(loc)) { return path; }
+    manifest.save(path, project.synced(loc, disc));
+    print("maypkg: wrote ${path} (auto-detected)");
+    return path;
+}
+
+fun manifest_path(loc: Any) -> Any { return fs.join_path(loc.root, manifest.filename()); }
+
+fun has_flag(opts: Any, flag: Any) -> Any {
+    for o: Any in opts { if (o == flag) { return true; } }
+    return false;
+}
+
+// ------------------------------------------------------------------ init
+
+fun template(name: Any) -> Any {
+    return "// " + name + " - created by maypkg.\n\n" +
+    "fun main() {\n" +
+    "    print(\"hello from " + name + "\");\n" +
+    "}\n\n" +
+    "main();\n";
+}
+
+pub fun cmd_init(opts: Any) -> Any {
+    let loc: Any = project.locate();
+    if (has_manifest(loc)) {
+        print("maypkg: already a project (${loc.manifest})");
+        exit(1);
+    }
+    let name: Any = if (len(opts) > 0) { opts[0] } else { loc.name };
+    let entry: Any = if (len(opts) > 1) { opts[1] } else { project.rel(loc.root, loc.entry) };
+    let m: Any = manifest.default(name);
+    m.entry = entry;
+    m.output = name;
+    manifest.save(manifest.filename(), m);
+    print("created ${manifest.filename()}");
+
+    if (loc.has_entry) {
+        print("using existing entry ${loc.entry}");
+    } else {
+        let entry_path: Any = fs.normpath(entry);
+        fs.mkdirs(fs.dirname(entry_path));
+        fs.write(entry_path, template(name));
+        print("created ${entry}");
+    }
+    print("next: maypkg dev   (watch, rerun on every save)");
+    return nil;
+}
+
+/// `maypkg new <dir> [name]` — create a project in a new directory.
+pub fun cmd_new(opts: Any) -> Any {
+    if (len(opts) < 1) {
+        print("usage: maypkg new <dir> [name]");
+        exit(2);
+    }
+    let dir: Any = opts[0];
+    let name: Any = if (len(opts) > 1) { opts[1] } else { fs.basename(dir) };
+    fs.mkdirs(dir);
+    let m: Any = manifest.default(name);
+    m.entry = "main.may";
+    m.output = name;
+    manifest.save(fs.join_path(dir, manifest.filename()), m);
+    fs.write(fs.join_path(dir, "main.may"), template(name));
+    print("created ${dir}/");
+    print("  ${manifest.filename()}");
+    print("  main.may");
+    print("next: cd ${dir} && maypkg dev");
+    return nil;
+}
+
+// ------------------------------------------------------------ info/status
+
+pub fun cmd_info(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let disc: Any = project.discover(loc.entry);
+    render.banner("maypkg - " + name_of(loc));
+    if (has_manifest(loc)) { render.field("manifest", loc.manifest); }
+    else { render.field("manifest", "(none - auto-detected)"); }
+    render.field("root", loc.root);
+    render.field("entry", project.rel(loc.root, loc.entry));
+    render.field("target", target_of(loc));
+    render.field("output", output_of(loc));
+    render.field("modules", "${len(disc.local)} local, ${len(disc.stdlib)} stdlib");
+    let ext: Any = sort(keys(project.external_deps(disc.st)));
+    render.field("imports", if (len(ext) == 0) { "-" } else { join(ext, ", ") });
+    if (has_manifest(loc)) {
+        let deps: Any = sort(keys(loc.m.dependencies));
+        render.field("declared", if (len(deps) == 0) { "-" } else { join(deps, ", ") });
+    }
+    let sp: Any = fs.stdlib_path();
+    render.field("stdlib", if (len(sp) == 0) { "(compiler default)" } else { sp });
+    return nil;
+}
+
+pub fun report_orphans(loc: Any, inv: Any) -> Any {
+    if (len(inv.orphans) == 0) { return nil; }
+    print("  ${len(inv.orphans)} orphan module(s) (not imported by the entry):");
+    for f: Any in inv.orphans { print("    ${project.rel(loc.root, f)}"); }
+    return nil;
+}
+
+pub fun cmd_status(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let inv: Any = project.inventory(loc);
+    let st: Any = inv.st;
+    render.banner("status - " + name_of(loc));
+    render.field("entry", project.rel(loc.root, loc.entry));
+    render.field("sources", "${len(inv.files)} on disk, ${len(st.order)} in the build");
+    report_orphans(loc, inv);
+    let recorded: Any = project.lock_modules(loc.root);
+    if (type(recorded) == "Nil") {
+        render.field("lockfile", "(none)");
+        print("  no lockfile yet - run `maypkg lock` (or `maypkg build`)");
+        return nil;
+    }
+    let dirty: Any = project.dirty(st, recorded);
+    if (len(dirty) == 0) {
+        print("  up to date: all ${len(st.order)} modules match ${manifest.lockfile()}");
+        return nil;
+    }
+    print("  ${len(dirty)} module(s) changed since the lock:");
+    for path: Any in dirty { print("    ${project.rel(loc.root, path)}"); }
+    let stale: Any = project.affected(st, dirty);
+    print("  affected (to re-check): ${len(stale)} module(s)");
+    return nil;
+}
+
+pub fun cmd_sync(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let disc: Any = project.discover(loc.entry);
+    let path: Any = manifest_path(loc);
+    let m: Any = project.synced(loc, disc);
+    manifest.save(path, m);
+    render.banner("sync - " + m.name);
+    print("  wrote ${path}");
+    print("  entry        ${m.entry}");
+    print("  modules      ${len(m.modules)}");
+    let deps: Any = sort(keys(m.dependencies));
+    print("  dependencies " + (if (len(deps) == 0) { "-" } else { join(deps, ", ") }));
+    return nil;
+}
+
+// ------------------------------------------------------------ dependencies
+
+pub fun cmd_add(opts: Any) -> Any {
+    if (len(opts) < 2) {
+        print("usage: maypkg add <name> <path>");
+        exit(2);
+    }
+    let loc: Any = require_project();
+    let disc: Any = project.discover(loc.entry);
+    ensure_manifest(loc, disc);
+    let path: Any = manifest_path(loc);
+    let m: Any = manifest.load(path);
+    let name: Any = opts[0];
+    let rel: Any = opts[1];
+    if (has(m.dependencies, name)) { print("maypkg: replacing `${name}`"); }
+    m.dependencies[name] = rel;
+    manifest.save(path, m);
+    print("added ${name} -> ${rel}");
+    let abs: Any = manifest.resolve(loc.root, rel);
+    if (!fs.exists(abs)) { print("maypkg: warning: ${abs} does not exist yet"); }
+    return nil;
+}
+
+pub fun cmd_rm(opts: Any) -> Any {
+    if (len(opts) < 1) {
+        print("usage: maypkg rm <name>");
+        exit(2);
+    }
+    let loc: Any = require_project();
+    let disc: Any = project.discover(loc.entry);
+    ensure_manifest(loc, disc);
+    let path: Any = manifest_path(loc);
+    let m: Any = manifest.load(path);
+    let name: Any = opts[0];
+    if (!has(m.dependencies, name)) {
+        print("maypkg: no dependency `${name}`");
+        exit(1);
+    }
+    m.dependencies = remove(m.dependencies, name);
+    manifest.save(path, m);
+    print("removed ${name}");
+    return nil;
+}
+
+pub fun cmd_deps(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let disc: Any = project.discover(loc.entry);
+    render.banner("dependencies - " + name_of(loc));
+
+    let declared: Any = if (has_manifest(loc)) { loc.m.dependencies } else { ({}) };
+    let names: Any = sort(keys(declared));
+    if (len(names) > 0) {
+        print("  declared:");
+        for name: Any in names {
+            let rel: Any = declared[name];
+            let abs: Any = manifest.resolve(loc.root, rel);
+            let status: Any = if (fs.exists(abs)) { "ok" } else { "MISSING" };
+            let label: Any = pad_right(name, 18, " ");
+            let where: Any = pad_right(rel, 30, " ");
+            print("    ${label} ${where} ${status}");
+        }
+    }
+
+    let ext: Any = project.external_deps(disc.st);
+    let ext_names: Any = sort(keys(ext));
+    if (len(ext_names) > 0) {
+        print("  imported from the stdlib:");
+        for name: Any in ext_names {
+            print("    ${name}");
+        }
+    }
+
+    print("  local modules (${len(disc.local)}):");
+    for path: Any in disc.local {
+        print("    ${project.rel(loc.root, path)}");
+    }
+    return nil;
+}
+
+// ------------------------------------------------------------------ graph
+
+pub fun cmd_tree(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let st: Any = graph.build(loc.entry);
+    render.banner("import tree - " + name_of(loc));
+    render.tree(st, loc.entry);
+    if (len(st.missing) > 0) {
+        print("");
+        print("  ${len(st.missing)} unresolved import(s):");
+        for miss: Any in st.missing {
+            print("    ${miss.module}  (from ${project.rel(loc.root, miss.source)})");
+        }
+    }
+    return nil;
+}
+
+pub fun cmd_dot(opts: Any) -> Any {
+    let loc: Any = require_project();
+    render.dot(graph.build(loc.entry));
+    return nil;
+}
+
+pub fun cmd_check(opts: Any) -> Any {
+    let loc: Any = require_project();
+    render.banner("check - " + name_of(loc));
+    let inv: Any = project.inventory(loc);
+    let st: Any = inv.st;
+    mut problems: Any = 0;
+    for path: Any in st.order {
+        if (graph.is_stdlib(path)) { continue; }
+        for err: Any in graph.balance_errors(fs.read_or(path, "")) {
+            print("  [brace] ${project.rel(loc.root, path)}: ${err}");
+            problems = problems + 1;
+        }
+    }
+    for miss: Any in st.missing {
+        print("  [import] ${miss.module} not found (from ${project.rel(loc.root, miss.source)})");
+        problems = problems + 1;
+    }
+    for cyc: Any in st.cycles {
+        let text: Any = join(cyc, " -> ");
+        print("  [cycle] ${text}");
+        problems = problems + 1;
+    }
+    for f: Any in inv.orphans {
+        print("  [orphan] ${project.rel(loc.root, f)} is not reachable from the entry");
+    }
+    if (problems == 0) {
+        print("  ok: ${len(st.order)} modules in the build, ${len(inv.files)} on disk");
+    } else {
+        print("  ${problems} problem(s)");
+        exit(1);
+    }
+    return nil;
+}
+
+// -------------------------------------------------------------- lock/verify
+
+pub fun cmd_lock(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let disc: Any = project.discover(loc.entry);
+    ensure_manifest(loc, disc);
+    if (len(disc.st.missing) > 0) {
+        print("maypkg: cannot lock with unresolved imports");
+        exit(1);
+    }
+    write_lock(loc, disc.st);
+    let out: Any = fs.join_path(loc.root, manifest.lockfile());
+    print("wrote ${out} (${len(disc.st.order)} modules)");
+    return nil;
+}
+
+pub fun cmd_verify(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let recorded: Any = project.lock_modules(loc.root);
+    if (type(recorded) == "Nil") {
+        print("maypkg: no lockfile; run `maypkg lock` first");
+        exit(1);
+    }
+    let disc: Any = project.discover(loc.entry);
+    let st: Any = disc.st;
+    let dirty: Any = project.dirty(st, recorded);
+    mut removed: Any = [];
+    for path: Any in sort(keys(recorded)) {
+        if (!has(st.nodes, path)) { push(removed, path); }
+    }
+    if (len(dirty) == 0 && len(removed) == 0) {
+        print("lockfile up to date (${len(st.order)} modules)");
+        return nil;
+    }
+    for path: Any in dirty {
+        if (has(recorded, path)) { print("  [changed] ${project.rel(loc.root, path)}"); }
+        else { print("  [new]     ${project.rel(loc.root, path)}"); }
+    }
+    for path: Any in removed { print("  [removed] ${project.rel(loc.root, path)}"); }
+    print("  run `maypkg lock` to update");
+    return exit(1);
+}
+
+// ---------------------------------------------------------------- scripts
+
+fun stdlib_export() -> Any {
+    let sp: Any = fs.stdlib_path();
+    if (len(sp) == 0) { return ""; }
+    return "MAYLANG_STDLIB=\"" + sp + "\"\nexport MAYLANG_STDLIB\n";
+}
+
+/// Shell-quote a single argument.
+fun q(s: Any) -> Any { return "\"" + s + "\""; }
+
+fun stdlib_prefix() -> Any {
+    let sp: Any = fs.stdlib_path();
+    if (len(sp) == 0) { return ""; }
+    return "MAYLANG_STDLIB=" + q(sp) + " ";
+}
+
+/// A shell command that runs `cmd` from the project root, with stdlib set.
+fun in_root(loc: Any, cmd: Any) -> Any { return "cd " + q(loc.root) + " && " + stdlib_prefix() + cmd; }
+
+fun write_lock(loc: Any, st: Any) -> Any {
+    mut modules: Any = {};
+    for path: Any in st.order { modules[path] = hash.digest(fs.read_or(path, "")); }
+    let doc: Any = {"name": name_of(loc), "version": "0.1.0", "modules": modules};
+    fs.write(fs.join_path(loc.root, manifest.lockfile()), json_stringify(doc) + "\n");
+    return nil;
+}
+
+fun build_cmd(loc: Any, out_name: Any) -> Any {
+    return "mayc " + q(loc.entry) + " -o " + q(out_name);
+}
+
+fun build_script(loc: Any, out_name: Any) -> Any {
+    let cmd: Any = "mayc \"" + loc.entry + "\" -o \"" + out_name + "\"";
+    return "#!/bin/sh\n" +
+    "# generated by maypkg - do not edit\n" +
+    "set -e\n" +
+    "cd \"" + loc.root + "\"\n" +
+    stdlib_export() +
+    "echo \"[maypkg] " + cmd + "\"\n" +
+    cmd + "\n" +
+    "echo \"[maypkg] wrote " + out_name + "\"\n";
+}
+
+fun run_script(loc: Any) -> Any {
+    let out: Any = output_of(loc);
+    return "#!/bin/sh\n" +
+    "# generated by maypkg - do not edit\n" +
+    "set -e\n" +
+    "cd \"" + loc.root + "\"\n" +
+    stdlib_export() +
+    "mayc \"" + loc.entry + "\" -o \"" + out + "\"\n" +
+    "exec ./" + out + " \"$@\"\n";
+}
+
+/// A tiny polling watcher: on every save of any `*.may` it re-compiles and re-runs the entry natively.
+fun dev_script(loc: Any) -> Any {
+    let out: Any = output_of(loc);
+    return "#!/bin/sh\n" +
+    "# generated by maypkg dev - reruns on every save; Ctrl-C to stop\n" +
+    "set -e\n" +
+    "cd \"" + loc.root + "\"\n" +
+    stdlib_export() +
+    "STAMP=\".maypkg.dev.stamp\"\n" +
+    "ENTRY=\"" + loc.entry + "\"\n" +
+    "BIN=\"" + out + "\"\n" +
+    "if [ ! -f \"$STAMP\" ]; then\n" +
+    "  : > \"$STAMP\"\n" +
+    "  echo \"[maypkg] first run\"\n" +
+    "  mayc \"$ENTRY\" -o \"$BIN\" && ./\$BIN \"$@\" || true\n" +
+    "fi\n" +
+    "echo \"[maypkg] watching for changes; Ctrl-C to stop\"\n" +
+    "while : ; do\n" +
+    "  if [ -n \"$(find . -name '*.may' -newer \"$STAMP\" 2>/dev/null)\" ]; then\n" +
+    "    echo \"[maypkg] change detected - recompiling\"\n" +
+    "    touch \"$STAMP\"\n" +
+    "    mayc \"$ENTRY\" -o \"$BIN\" && ./\$BIN \"$@\" || true\n" +
+    "  fi\n" +
+    "  sleep 0.5\n" +
+    "done\n";
+}
+
+fun plan_text(loc: Any, st: Any) -> Any {
+    mut s: Any = "# maypkg build plan\n";
+    s = s + "# name:    " + name_of(loc) + "\n";
+    s = s + "# entry:   " + loc.entry + "\n";
+    s = s + "# target:  " + target_of(loc) + "\n\n";
+    mut i: Any = 1;
+    for path: Any in st.order {
+        s = s + pad_left(str(i), 3, " ") + ". " + path + "  " + hash.digest(fs.read_or(path, "")) + "\n";
+        i = i + 1;
+    }
+    return s;
+}
+
+// ---------------------------------------------------------------- build/run
+
+pub fun cmd_build(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let disc: Any = project.discover(loc.entry);
+    ensure_manifest(loc, disc);
+    let st: Any = disc.st;
+    if (len(st.missing) > 0) {
+        for miss: Any in st.missing {
+            print("maypkg: cannot resolve `${miss.module}` (from ${project.rel(loc.root, miss.source)})");
+        }
+        exit(1);
+    }
+    for cyc: Any in st.cycles {
+        let text: Any = join(cyc, " -> ");
+        print("maypkg: import cycle ${text}");
+        exit(1);
+    }
+
+    let out_name: Any = output_of(loc);
+    let out: Any = fs.join_path(loc.root, out_name);
+    let recorded: Any = project.lock_modules(loc.root);
+    let dirty: Any = project.dirty(st, recorded);
+
+    if (!has_flag(opts, "--force") && type(recorded) != "Nil" && len(dirty) == 0 && fs.exists(out)) {
+        print("up to date - ${out_name} is current (${len(st.order)} modules)");
+        print("        force with `maypkg build --force`");
+        return nil;
+    }
+
+    render.banner("build - " + name_of(loc));
+    if (type(recorded) == "Nil") {
+        print("  first build (no lockfile)");
+    } else if (len(dirty) == 0) {
+        print("  forced rebuild");
+    } else {
+        print("  changed since last lock:");
+        for path: Any in dirty { print("    ${project.rel(loc.root, path)}"); }
+        let stale: Any = project.affected(st, dirty);
+        print("  affected: ${len(stale)} module(s)");
+    }
+    print("  modules (topological order):");
+    render.plan(st);
+
+    // Keep generated build artifacts together and out of the project root.
+    let generated: Any = fs.join_path(loc.root, "build");
+    fs.mkdirs(generated);
+    fs.write(fs.join_path(generated, "maypkg.build.sh"), build_script(loc, out_name));
+    fs.write(fs.join_path(generated, "maypkg.plan.txt"), plan_text(loc, st));
+
+    if (has_flag(opts, "--script")) {
+        print("");
+        print("  wrote ${fs.join_path(generated, "maypkg.build.sh")}");
+        return nil;
+    }
+
+    let cmd: Any = build_cmd(loc, out_name);
+    print("");
+    print("  $ ${cmd}");
+    let rc: Any = system(in_root(loc, cmd));
+    if (rc != 0) {
+        print("  build failed (exit ${rc})");
+        exit(rc);
+    }
+    write_lock(loc, st);
+    print("  built ${out_name} (${len(st.order)} modules) - lock updated");
+    return nil;
+}
+
+pub fun cmd_run(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let out_name: Any = output_of(loc);
+    let out_bin: Any = fs.join_path(loc.root, out_name);
+
+    if (has_flag(opts, "--script")) {
+        let path: Any = fs.join_path(fs.join_path(loc.root, "build"), "maypkg.run.sh");
+        fs.mkdirs(fs.dirname(path));
+        fs.write(path, run_script(loc));
+        print("wrote ${path}");
+        return nil;
+    }
+
+    // 1. Compile natively with mayc
+    let compile_cmd: Any = "mayc " + q(loc.entry) + " -o " + q(out_bin);
+    let compile_rc: Any = system(in_root(loc, compile_cmd));
+    if (compile_rc != 0) {
+        print("maypkg: compilation failed");
+        exit(compile_rc);
+    }
+
+    // 2. Gather user CLI arguments
+    mut extra: Any = "";
+    for o: Any in opts {
+        if (!starts_with(o, "--")) { extra = extra + " " + q(o); }
+    }
+
+    // 3. Execute the native binary!
+    let run_cmd: Any = q(out_bin) + extra;
+    let rc: Any = system(in_root(loc, run_cmd));
+    return exit(rc);
+}
+
+fun run_entry(loc: Any) -> Any {
+    let out_name: Any = output_of(loc);
+    let out_bin: Any = fs.join_path(loc.root, out_name);
+
+    // Compile AND run natively (stops if compile fails)
+    let cmd: Any = "mayc " + q(loc.entry) + " -o " + q(out_bin) + " && " + q(out_bin);
+    let rc: Any = system(in_root(loc, cmd));
+    if (rc != 0) { print("  [exit ${rc}]"); }
+    return nil;
+}
+
+fun fingerprint(files: Any) -> Any {
+    mut acc: Any = "";
+    for f: Any in files { acc = acc + f + ":" + hash.digest(fs.read_or(f, "")) + "\n"; }
+    return hash.digest(acc);
+}
+
+/// `maypkg dev` — run the entry, then re-compile and re-run whenever any `.may` changes.
+pub fun cmd_dev(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let disc: Any = project.discover(loc.entry);
+    ensure_manifest(loc, disc);
+    if (len(disc.st.missing) > 0) {
+        for miss: Any in disc.st.missing {
+            print("maypkg: warning: cannot resolve `${miss.module}` (from ${project.rel(loc.root, miss.source)})");
+        }
+    }
+
+    if (has_flag(opts, "--script")) {
+        let path: Any = fs.join_path(fs.join_path(loc.root, "build"), "maypkg.dev.sh");
+        fs.mkdirs(fs.dirname(path));
+        fs.write(path, dev_script(loc));
+        print("wrote ${path}");
+        print("start it with:  sh ${path}");
+        return nil;
+    }
+
+    render.banner("dev - " + name_of(loc));
+    print("  entry    ${project.rel(loc.root, loc.entry)}");
+    print("  sources  ${len(disc.local)} local, ${len(disc.stdlib)} stdlib");
+    print("  watching for changes; Ctrl-C to stop");
+    print("");
+    run_entry(loc);
+    mut last: Any = fingerprint(project.sources(loc.root));
+    while (true) {
+        sleep(400);
+        let now: Any = fingerprint(project.sources(loc.root));
+        if (now != last) {
+            last = now;
+            print("");
+            print("  change detected - recompiling & running");
+            run_entry(loc);
+        }
+    }
+    return nil;
+}
+
+// ------------------------------------------------------------------- tidy
+
+fun trim_right(s: Any) -> Any {
+    mut n: Any = len(s);
+    while (n > 0) {
+        let c: Any = s[n - 1];
+        if (c == " " || c == "\t" || c == "\r") { n = n - 1; } else { break; }
+    }
+    return join(slice(s, 0, n), "");
+}
+
+fun tidy(text: Any) -> Any {
+    mut lines: Any = split_lines(text);
+    if (len(lines) > 0 && lines[len(lines) - 1] == "") {
+        lines = slice(lines, 0, len(lines) - 1);
+    }
+    mut out: Any = "";
+    for line: Any in lines { out = out + trim_right(line) + "\n"; }
+    return out;
+}
+
+pub fun cmd_fmt(opts: Any) -> Any {
+    let loc: Any = require_project();
+    let disc: Any = project.discover(loc.entry);
+    mut changed: Any = 0;
+    for path: Any in disc.local {
+        let src: Any = fs.read_or(path, "");
+        let clean: Any = tidy(src);
+        if (clean != src) {
+            fs.write(path, clean);
+            print("  formatted ${project.rel(loc.root, path)}");
+            changed = changed + 1;
+        }
+    }
+    if (changed == 0) { print("  all clean (${len(disc.local)} local modules)"); }
+    else { print("  ${changed} file(s) formatted"); }
+    return nil;
+}
+
+pub fun cmd_clean(opts: Any) -> Any {
+    let loc: Any = project.locate();
+    let root: Any = loc.root;
+    let artifacts: Any = ["build/maypkg.build.sh", "build/maypkg.run.sh", "build/maypkg.dev.sh",
+                     "build/maypkg.plan.txt", ".maypkg.dev.stamp", manifest.lockfile()];
+    push(artifacts, output_of(loc));
+    mut present: Any = [];
+    mut quoted: Any = [];
+    for name: Any in artifacts {
+        let full: Any = fs.join_path(root, name);
+        if (fs.exists(full)) {
+            push(present, full);
+            push(quoted, q(full));
+        }
+    }
+    render.banner("clean");
+    if (len(present) == 0) {
+        print("  nothing to clean");
+        return nil;
+    }
+    if (has_flag(opts, "--dry-run")) {
+        print("  would remove:");
+        for p: Any in present { print("    ${p}"); }
+        return nil;
+    }
+    system("rm -f " + join(quoted, " "));
+    print("  removed ${len(present)} generated file(s)");
+    return nil;
+}
+
+// ------------------------------------------------------------------- meta
+
+pub fun cmd_help(opts: Any) -> Any {
+    print("maypkg " + VERSION + " - a build manager for Maylang projects");
+    print("");
+    print("usage: maypkg <command> [args]");
+    print("");
+    print("  init [name] [entry]   write mayproj.json and a starter module");
+    print("  new <dir> [name]      create a project in a new directory");
+    print("  sync                  regenerate mayproj.json from the code");
+    print("  info                  show the detected project");
+    print("  status                sources on disk, orphans, changes since the lock");
+    print("  deps                  declared, imported and local modules");
+    print("  tree                  resolve and print the import tree");
+    print("  check                 resolve imports, scan disk, check balance");
+    print("  dot                   print the import graph as Graphviz DOT");
+    print("  lock                  write mayproj.lock with content digests");
+    print("  verify                check sources against the lockfile");
+    print("  build [--force|--script]");
+    print("                        incremental native build (runs mayc)");
+    print("  dev [--script]        compile and run, then recompile on every save");
+    print("  run [--script] [args] compile and run the native binary");
+    print("  add <name> <path>     record a dependency");
+    print("  rm <name>             drop a dependency");
+    print("  fmt                   tidy local modules");
+    print("  clean [--dry-run]     remove generated files");
+    print("  version               print the version");
+    print("");
+    print("no manifest needed: maypkg finds main.may / app.may automatically.");
+    return nil;
+}
+
+pub fun cmd_version(opts: Any) -> Any {
+    print("maypkg " + VERSION);
+    return nil;
+}
+
+pub fun cmd_unknown(name: Any) -> Any {
+    print("maypkg: unknown command `${name}`");
+    print("try `maypkg help`");
+    return exit(2);
+}

@@ -1,0 +1,40 @@
+// test.may — a minimal assertion / test harness.
+
+mut __passed: Any = 0;
+mut __failed: Any = 0;
+
+fun check(condition: Any, label: Any) -> Any {
+    return if (condition) {
+        __passed = __passed + 1;
+    } else {
+        __failed = __failed + 1;
+        print("FAIL:", label);
+    };
+}
+
+fun assert_true(condition: Any, label: Any) -> Any { return check(condition, label); }
+
+fun assert_equal(actual: Any, expected: Any, label: Any) -> Any {
+    return check(
+        actual == expected,
+        label + " (got " + str(actual) + ", want " + str(expected) + ")"
+    );
+}
+
+fun assert_not_equal(actual: Any, unexpected: Any, label: Any) -> Any {
+    return check(actual != unexpected, label);
+}
+
+fun assert_contains(haystack: Any, needle: Any, label: Any) -> Any {
+    return check(has(haystack, needle), label);
+}
+
+fun assert_near(actual: Any, expected: Any, tolerance: Any, label: Any) -> Any {
+    let delta: Any = abs(actual - expected);
+    return check(delta <= tolerance, label + " (delta " + str(delta) + ")");
+}
+
+fun test_summary() -> Any {
+    print("tests:", __passed, "passed,", __failed, "failed");
+    return if (__failed > 0) { fail("test suite failed"); };
+}

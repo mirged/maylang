@@ -1,0 +1,25 @@
+fun bank(balance: Any) -> Any {
+    fun deposit(n: Any) -> Any { balance = balance + n; return balance; }
+    fun withdraw(n: Any) -> Any { balance = balance - n; return balance; }
+    return [deposit, withdraw];
+}
+let b: Any = bank(100);
+print(b[0](50), b[1](30));
+
+let fs: Any = [];
+mut captured: Any = 0;
+push(fs, |_: Any| -> Any { captured = captured + 1; return captured; });
+push(fs, |_: Any| -> Any { captured = captured + 10; return captured; });
+print(fs[0](0), fs[1](0), captured);
+
+fun make_adders() -> Any {
+    mut out: Any = [];
+    for i: Any in 0..3 { push(out, |x: Any| -> Any { return x + i; }); }
+    return out;
+}
+let adds: Any = make_adders();
+print(adds[0](10), adds[1](10), adds[2](10));
+
+fun cell() -> Any { mut v: Any = 0; return [|x: Any| -> Any { v = v + x; return v; }, |_: Any| -> Any { return v; }]; }
+let c: Any = cell();
+print(c[0](5), c[0](3), c[1](0));

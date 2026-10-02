@@ -1,0 +1,97 @@
+import "console.may";
+import "hardware.may";
+
+mut heap_next: Int = 8388608;
+mut allocations: Int = 0;
+
+fun memory_tag() -> Int {
+    let info: Int = load64(2097168);
+    let end: Int = info + load32(info);
+    mut tag: Int = info + 8;
+    while (tag + 8 <= end) {
+        let size: Int = load32(tag + 4);
+        if (load32(tag) == 6) { return tag; }
+        if (load32(tag) == 0 or size < 8) { return 0; }
+        tag += (size + 7) / 8 * 8;
+    }
+    return 0;
+}
+fun arena_available() -> Bool {
+    let tag: Int = memory_tag();
+    if (tag == 0) { return 0 == 1; }
+    let stride: Int = load32(tag + 8);
+    if (stride < 24) { return 0 == 1; }
+    mut entry: Int = tag + 16;
+    while (entry + stride <= tag + load32(tag + 4)) {
+        let base: Int = load64(entry); let size: Int = load64(entry + 8);
+        if (load32(entry + 16) == 1 and base <= 8388608 and base + size >= 16777216) { return 1 == 1; }
+        entry += stride;
+    }
+    return 0 == 1;
+}
+fun show_memory_map() -> Nil {
+    let tag: Int = memory_tag();
+    if (tag == 0) { text(addr("No Multiboot memory map.\n")); return; }
+    let stride: Int = load32(tag + 8);
+    if (stride < 24) { text(addr("Invalid memory map stride.\n")); return; }
+    text(addr("BASE                 LENGTH               TYPE\n"));
+    mut entry: Int = tag + 16;
+    while (entry + stride <= tag + load32(tag + 4)) {
+        hex_number(load64(entry)); text(addr("  "));
+        hex_number(load64(entry + 8)); text(addr("  "));
+        decimal(load32(entry + 16)); text(addr("\n")); entry += stride;
+    }
+    text(addr("Type 1 = usable RAM; all other types are reserved.\n"));
+    return;
+}
+fun allocate(size: Int) -> Int {
+    if (size < 1 or size > 8388608) { return 0; }
+    let aligned: Int = (size + 15) / 16 * 16;
+    if (heap_next + aligned > 16777216) { return 0; }
+    let address: Int = heap_next;
+    heap_next += aligned; allocations += 1;
+    mut i: Int = 0;
+    while (i < aligned) { store8(address + i, 0); i += 1; }
+    return address;
+}
+fun accessible(address: Int, size: Int) -> Bool {
+    return address >= 8388608 and size >= 1 and size <= 4096 and address <= heap_next and size <= heap_next - address;
+}
+fun show_heap() -> Nil {
+    text(addr("arena: ")); hex_number(8388608); text(addr("..")); hex_number(16777216);
+    text(addr("\nused: ")); decimal(heap_next - 8388608);
+    text(addr(" bytes / free: ")); decimal(16777216 - heap_next);
+    text(addr(" bytes / allocations: ")); decimal(allocations); text(addr("\n"));
+    return;
+}
+fun checksum(address: Int, size: Int) -> Int {
+    mut a: Int = 1; mut b: Int = 0; mut i: Int = 0;
+    while (i < size) {
+        a = (a + load8(address + i)) % 65521; b = (b + a) % 65521; i += 1;
+    }
+    return b * 65536 + a;
+}
+fun dump_memory(address: Int, size: Int) -> Nil {
+    mut i: Int = 0;
+    while (i < size) {
+        if (i % 16 == 0) { hex_number(address + i); text(addr(": ")); }
+        let byte: Int = load8(address + i);
+        put_char(load8(addr("0123456789abcdef") + byte / 16));
+        put_char(load8(addr("0123456789abcdef") + byte % 16)); put_char(32);
+        i += 1;
+        if (i % 16 == 0 or i == size) { text(addr("\n")); }
+    }
+    return;
+}
+fun memory_selftest() -> Bool {
+    let saved: Int = heap_next; let saved_count: Int = allocations;
+    let address: Int = allocate(257);
+    if (address == 0 or address % 16 != 0 or heap_next - saved != 272) { return 0 == 1; }
+    mut i: Int = 0;
+    while (i < 256) { store8(address + i, i); i += 1; }
+    let valid: Bool = checksum(address, 256) == 2918612865 and load8(address + 256) == 0 and
+        allocate(0) == 0 and allocate(8388609) == 0 and accessible(address, 256) and
+        accessible(8388607, 1) == (0 == 1);
+    heap_next = saved; allocations = saved_count;
+    return valid;
+}

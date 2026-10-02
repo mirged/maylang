@@ -1,0 +1,41 @@
+// my_app.may — The Victory Lap
+
+struct Warrior { name: Any, hp: Any, attack: Any }
+
+fun battle(w: Warrior, damage: Int) -> Any {
+    w.hp = w.hp - damage;
+    return print("${w.name} took ${damage} dmg! Remaining HP: ${w.hp}");
+}
+
+// 1. Structs and Functions
+let hero: Any = Warrior("Mirged", 100, 25);
+battle(hero, 15);
+
+// 2. High-Order Lists and Closures
+let numbers: Any = [1, 2, 3, 4, 5];
+let doubled: Any = [n * 2 for n: Any in numbers];
+print("Doubled:", doubled);
+
+// 3. May/Otherwise Defensive Flow
+let safe_division: Any = fun(a: Any, b: Any) -> Any {
+    return may {
+        if (b == 0) { fail("ZeroDivisionError"); }
+        a / b
+    } otherwise {
+        print("Caught error: ${err.message}");
+        0
+    };
+};
+
+print("10 / 2 =", safe_division(10, 2));
+print("10 / 0 =", safe_division(10, 0));
+
+// 4. Fast Fibonacci recursion
+fun fib(n: Any) -> Any {
+    return if (n <= 1) { n } else { fib(n - 1) + fib(n - 2) };
+}
+print("Fib(10) =", fib(10));
+print("✨ MAYLANG SOVEREIGNTY ACHIEVED ✨");
+
+// Pass a String into an Int parameter (battle expects damage: Int)
+battle(hero, "fifteen damage");

@@ -1,0 +1,214 @@
+import "disk.may";
+import "memory.may";
+import "console.may";
+
+// Two snapshots: header + 16 records, sectors 1..17 and 18..34.
+// Each record is name[24], length:u32, Adler32:u32, payload[480].
+let FS_WORK: Int = 2187264; // 0x216000; reserved by boot.ld
+mut fs_ready: Int = 0;
+mut fs_bank: Int = -1;
+mut fs_generation: Int = 0;
+
+fun bytes_zero(buffer: Int, count: Int) -> Nil {
+    mut i: Int = 0;
+    while (i < count) { store8(buffer + i, 0); i += 1; }
+    return;
+}
+fun bytes_copy(target: Int, source: Int, count: Int) -> Nil {
+    mut i: Int = 0;
+    while (i < count) { store8(target + i, load8(source + i)); i += 1; }
+    return;
+}
+fun name_length(name: Int) -> Int {
+    mut length: Int = 0;
+    while (length < 24 and load8(name + length) != 0) {
+        let byte: Int = load8(name + length);
+        if ((byte >= 97 and byte <= 122) or (byte >= 65 and byte <= 90) or
+            (byte >= 48 and byte <= 57) or byte == 45 or byte == 46 or byte == 95) {
+            length += 1;
+        } else { return -1; }
+    }
+    if (length == 0 or length == 24) { return -1; }
+    return length;
+}
+fun names_equal(first: Int, second: Int) -> Bool {
+    mut i: Int = 0;
+    while (i < 24) {
+        if (load8(first + i) != load8(second + i)) { return 0 == 1; }
+        if (load8(first + i) == 0) { return 1 == 1; }
+        i += 1;
+    }
+    return 0 == 1;
+}
+fun file_name_output(name: Int) -> Nil {
+    mut i: Int = 0;
+    while (i < 23 and load8(name + i) != 0) { put_char(load8(name + i)); i += 1; }
+    return;
+}
+fun snapshot_read(bank: Int) -> Int {
+    let header: Int = 2179072 + bank * 512;
+    let buffer: Int = 2162688 + bank * 8192;
+    let first: Int = 1 + bank * 17;
+    if (disk_read(first, header) == (0 == 1)) { return 0; }
+    if (load32(header) != 1397119309 or load32(header + 4) != 1 or
+        load32(header + 8) < 1 or load32(header + 8) > 2147483646 or
+        checksum(header, 16) != load32(header + 16)) { return 0; }
+    mut i: Int = 0;
+    while (i < 16) {
+        if (disk_read(first + 1 + i, buffer + i * 512) == (0 == 1)) { return 0; }
+        i += 1;
+    }
+    if (checksum(buffer, 8192) != load32(header + 12)) { return 0; }
+    i = 0;
+    while (i < 16) {
+        let record: Int = buffer + i * 512;
+        if (load8(record) != 0) {
+            let length: Int = load32(record + 24);
+            if (name_length(record) < 0 or length > 480 or
+                checksum(record + 32, length) != load32(record + 28)) { return 0; }
+            mut j: Int = 0;
+            while (j < i) {
+                if (names_equal(record, buffer + j * 512)) { return 0; }
+                j += 1;
+            }
+        }
+        i += 1;
+    }
+    return load32(header + 8);
+}
+fun fs_mount() -> Nil {
+    fs_ready = 0; fs_bank = -1; fs_generation = 0;
+    if (disk_sectors < 35) { return; }
+    let first: Int = snapshot_read(0); let second: Int = snapshot_read(1);
+    if (first == 0 and second == 0) { return; }
+    if (first >= second) { fs_bank = 0; fs_generation = first; }
+    else { fs_bank = 1; fs_generation = second; }
+    bytes_copy(FS_WORK, 2162688 + fs_bank * 8192, 8192);
+    fs_ready = 1;
+    return;
+}
+fun fs_commit() -> Bool {
+    if (disk_sectors < 35 or fs_generation >= 2147483646) { fs_mount(); return 0 == 1; }
+    let target: Int = if (fs_bank == 0) { 1 } else { 0 };
+    let first: Int = 1 + target * 17;
+    mut i: Int = 0;
+    // Publish a new header only after all data reaches the disk.
+    while (i < 16) {
+        if (disk_write(first + 1 + i, FS_WORK + i * 512) == (0 == 1)) { fs_mount(); return 0 == 1; }
+        i += 1;
+    }
+    if (disk_flush() == (0 == 1)) { fs_mount(); return 0 == 1; }
+    let header: Int = 2179072;
+    bytes_zero(header, 512);
+    store32(header, 1397119309); store32(header + 4, 1);
+    store32(header + 8, fs_generation + 1); store32(header + 12, checksum(FS_WORK, 8192));
+    store32(header + 16, checksum(header, 16));
+    if (disk_write(first, header) == (0 == 1)) { fs_mount(); return 0 == 1; }
+    if (disk_flush() == (0 == 1)) { fs_mount(); return 0 == 1; }
+    fs_bank = target; fs_generation += 1; fs_ready = 1;
+    return 1 == 1;
+}
+fun fs_require() -> Bool {
+    if (fs_ready == 1) { return 1 == 1; }
+    text(addr("ERR filesystem unavailable: no valid snapshot; use disk.\n"));
+    return 0 == 1;
+}
+fun fs_find(name: Int) -> Int {
+    mut i: Int = 0;
+    while (i < 16) {
+        if (names_equal(name, FS_WORK + i * 512)) { return FS_WORK + i * 512; }
+        i += 1;
+    }
+    return 0;
+}
+fun fs_info() -> Nil {
+    if (disk_sectors == 0) { text(addr("No supported primary IDE master disk.\n")); return; }
+    text(addr("ATA PIO / 512-byte sectors: ")); decimal(disk_sectors); text(addr("\n"));
+    if (disk_sectors < 35) { text(addr("Disk too small: need at least 35 sectors.\n")); }
+    else if (fs_ready == 0) { text(addr("MayFS: no valid snapshot (blank or damaged). Initialise with format yes.\n")); }
+    else {
+        text(addr("MayFS v1 / 16 files / 480 bytes per file / generation "));
+        decimal(fs_generation); text(addr(" / bank ")); decimal(fs_bank); text(addr("\n"));
+    }
+    return;
+}
+fun fs_format() -> Nil {
+    if (disk_sectors < 35) { text(addr("ERR no disk or disk too small.\n")); return; }
+    // Explicit destructive operation: invalidate both previous snapshots first.
+    bytes_zero(2179072, 512);
+    if (disk_write(1, 2179072) == (0 == 1) or disk_write(18, 2179072) == (0 == 1) or
+        disk_flush() == (0 == 1)) { fs_mount(); text(addr("ERR format I/O failure.\n")); return; }
+    fs_ready = 0; fs_bank = -1; fs_generation = 0; bytes_zero(FS_WORK, 8192);
+    if (fs_commit()) { text(addr("FORMATTED MayFS.\n")); }
+    else { text(addr("ERR format I/O failure.\n")); }
+    return;
+}
+fun fs_list() -> Nil {
+    if (fs_require() == (0 == 1)) { return; }
+    mut count: Int = 0; mut i: Int = 0;
+    while (i < 16) {
+        let record: Int = FS_WORK + i * 512;
+        if (load8(record) != 0) {
+            file_name_output(record); text(addr("  ")); decimal(load32(record + 24)); text(addr(" bytes\n")); count += 1;
+        }
+        i += 1;
+    }
+    decimal(count); text(addr(" / 16 files\n"));
+    return;
+}
+fun fs_put(name: Int, source: Int, length: Int) -> Nil {
+    if (fs_require() == (0 == 1)) { return; }
+    let name_size: Int = name_length(name);
+    if (name_size < 0 or length < 0 or length > 480) { text(addr("ERR name must be 1..23 letters/digits/._-; file limit 480 bytes.\n")); return; }
+    mut record: Int = fs_find(name);
+    if (record == 0) {
+        mut i: Int = 0;
+        while (i < 16 and record == 0) {
+            if (load8(FS_WORK + i * 512) == 0) { record = FS_WORK + i * 512; }
+            i += 1;
+        }
+    }
+    if (record == 0) { text(addr("ERR directory full (16 files).\n")); return; }
+    bytes_zero(record, 512); bytes_copy(record, name, name_size);
+    store32(record + 24, length); bytes_copy(record + 32, source, length);
+    store32(record + 28, checksum(record + 32, length));
+    if (fs_commit()) { text(addr("SAVED ")); file_name_output(name); text(addr(" / ")); decimal(length); text(addr(" bytes\n")); }
+    else { text(addr("ERR disk commit failed; remounted last valid snapshot.\n")); }
+    return;
+}
+fun fs_cat(name: Int) -> Nil {
+    if (fs_require() == (0 == 1)) { return; }
+    let record: Int = fs_find(name);
+    if (record == 0) { text(addr("ERR file not found.\n")); return; }
+    let length: Int = load32(record + 24);
+    mut i: Int = 0;
+    while (i < length) {
+        let byte: Int = load8(record + 32 + i);
+        if (byte == 10 or (byte >= 32 and byte < 127)) { put_char(byte); }
+        else { put_char(46); }
+        i += 1;
+    }
+    put_char(10);
+    return;
+}
+fun fs_remove(name: Int) -> Nil {
+    if (fs_require() == (0 == 1)) { return; }
+    let record: Int = fs_find(name);
+    if (record == 0) { text(addr("ERR file not found.\n")); return; }
+    bytes_zero(record, 512);
+    if (fs_commit()) { text(addr("REMOVED ")); file_name_output(name); put_char(10); }
+    else { text(addr("ERR disk commit failed; remounted last valid snapshot.\n")); }
+    return;
+}
+fun fs_load(name: Int) -> Nil {
+    if (fs_require() == (0 == 1)) { return; }
+    let record: Int = fs_find(name);
+    if (record == 0) { text(addr("ERR file not found.\n")); return; }
+    let length: Int = load32(record + 24);
+    if (length == 0) { text(addr("LOADED empty file / 0 bytes (no allocation).\n")); return; }
+    let target: Int = allocate(length);
+    if (target == 0) { text(addr("ERR allocation refused.\n")); return; }
+    bytes_copy(target, record + 32, length);
+    text(addr("LOADED ")); hex_number(target); text(addr(" / ")); decimal(length); text(addr(" bytes\n"));
+    return;
+}

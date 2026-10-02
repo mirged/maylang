@@ -1,0 +1,44 @@
+import "../../src/regalloc.may";
+import "../../src/ir.may";
+import "../../src/ast.may";
+
+fun value(slot: Any) -> Any { return IRValue(IR_TEMP, slot, 0, 0, 0, 0, 0); }
+fun define(slot: Any) -> Any { return Quad(E_INT, value(slot), 0, 0, {"value": slot}, 0); }
+fun use(slot: Any) -> Any { return Quad(S_ASSIGN, 0, value(slot), 0, {"value": value(slot)}, 0); }
+fun require(ok: Bool) -> Nil { if not ok { fail("register allocation invariant failed"); } return; }
+
+// Expiration reuses both the register and stack home.
+let reuse: Any = lsra_allocate(IRBlock([define(0), use(0), define(1), use(1)], 2), [12]);
+require(reuse.locations[0].register == 12 and reuse.locations[1].register == 12);
+require(reuse.locations[0].home == reuse.locations[1].home and reuse.stackSlots == 1);
+
+// A shorter incoming interval evicts the interval ending farthest away.
+let pressure: Any = lsra_allocate(IRBlock([define(0), define(1), use(1), use(0)], 2), [12]);
+require(pressure.locations[0].register == -1 and pressure.locations[1].register == 12);
+require(pressure.locations[0].home != pressure.locations[1].home);
+// A longer incoming interval is itself spilled.
+let incoming: Any = lsra_allocate(IRBlock([define(0), define(1), use(0), use(1)], 2), [12]);
+require(incoming.locations[0].register == 12 and incoming.locations[1].register == -1);
+
+// Call operands and surviving values get root homes; call results do not
+// enter the root list until after their first definition has executed.
+let call: Any = Quad(IR_RUNTIME, value(1), value(0), 0, "rt_len", 0);
+let roots: Any = lsra_allocate(IRBlock([define(0), call, use(0), use(1)], 2), [12, 13]);
+require(roots.locations[0].register >= 0 and roots.locations[1].register >= 0);
+require(len(roots.roots[1]) == 1 and roots.roots[1][0].slot == 0);
+require(len(roots.roots[2]) == 2);
+
+// A loop-carried, multiply-defined value needs a private home even when its
+// last lexical use precedes a later temporary and the back-edge jump.
+let loop: Any = IRBlock([define(0), Quad(IR_LABEL, 0, 0, 0, 50, 0), use(0),
+    define(1), Quad(IR_COPY, value(0), value(1), 0, 0, 0),
+    define(2), use(2), Quad(IR_JUMP, 0, 0, 0, 50, 0)], 3);
+let pinned: Any = lsra_allocate(loop, [12]);
+require(pinned.locations[0].pinned and pinned.locations[0].register == -1);
+require(pinned.locations[0].home != pinned.locations[2].home);
+
+let noRegisters: Any = lsra_allocate(IRBlock([define(0), use(0), define(1), use(1)], 2), []);
+require(len(noRegisters.used) == 0 and noRegisters.stackSlots == 1);
+let empty: Any = lsra_allocate(IRBlock([], 0), [12]);
+require(len(empty.used) == 0 and empty.stackSlots == 0 and len(empty.roots) == 0);
+print("allocator-ok");

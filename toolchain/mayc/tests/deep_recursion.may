@@ -1,0 +1,4 @@
+fun sum(n: Any, acc: Any) -> Any { return if n == 0 { acc } else { sum(n - 1, acc + n) }; }
+print(sum(10000, 0));
+fun count(n: Any) -> Any { return if n == 0 { 0 } else { 1 + count(n - 1) }; }
+print(count(1000));

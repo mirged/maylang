@@ -1,0 +1,10 @@
+let x: Any = 5;
+print(if x > 3 { "big" } else { "small" });
+print(if (x > 3) { "big" } else { "small" });
+let y: Any = if x > 3 { "big" } else { "small" };
+print(y);
+print(unless (x > 10) { "ok" } else { "nope" });
+mut i: Any = 0;
+unless (i > 5) { i = 10; }
+print(i);
+print(if x % 2 == 0 { "even" } else if x % 3 == 0 { "div3" } else { "other" });

@@ -1,0 +1,419 @@
+import "text.may";
+import "index.may";
+import "protocol.may";
+import "docs.may";
+mut LS_WORKSPACE_SYMBOL_EPOCH: Any = -1;
+mut LS_WORKSPACE_SYMBOL_INDEX: Any = [];
+mut LS_WORKSPACE_SYMBOL_DOC_COUNT: Any = -1;
+fun ls_doc_param(p: Any) -> Any {
+    if (value_tag(p) != 7 or value_tag(p.textDocument) != 7 or value_tag(p.textDocument.uri) != 1) { fail("textDocument.uri is required"); }
+    let doc: Any = ls_document(p.textDocument.uri);
+    if (doc == nil) { fail("document not found"); } return doc;
+}
+fun ls_target(doc: Any, p: Any) -> Any { return ls_resolve(doc, ls_token_index(doc, p.position)); }
+fun ls_definition_docs(d: Any) -> Any {
+    if (d.docs != nil and d.docs != "") { return d.docs; }
+    if (has(ls_builtin_uris(), d.uri) and LS_REFERENCE[d.name] != nil) { return LS_REFERENCE[d.name].docs; }
+    return "";
+}
+fun ls_parameter_docs(d: Any, entry: Any, parameter: Any, index: Any) -> Any {
+    if (d != nil and d.docs != nil and d.docs != "") {
+        let prefix: Any = "@param " + parameter;
+        for line: Any in ls_split(d.docs, "\n") {
+            let text: Any = ls_trim(line);
+            if (ls_starts(text, prefix)) {
+                mut at: Any = ls_bytes(prefix);
+                if (ls_byte(text, at) == 58) { at += 1; }
+                if (has([32, 9], ls_byte(text, at))) { return ls_trim(ls_slice(text, at, ls_bytes(text))); }
+            }
+        }
+    }
+    if (entry != nil and index < len(entry.params) and has(entry.parameterDocs, entry.params[index])) { return entry.parameterDocs[entry.params[index]]; }
+    return "";
+}
+fun ls_reference_for(doc: Any, i: Any, d: Any) -> Any {
+    if (i < 0) { return nil; }
+    let t: Any = doc.tokens[i]; let entry: Any = LS_REFERENCE[t.name];
+    if (entry == nil) { return nil; }
+    if (d != nil) { return if (has(ls_builtin_uris(), d.uri)) { entry } else { nil }; }
+    if (t.kind == "identifier") {
+        if (i > 0 and has([".", "?."], doc.tokens[i - 1].name)) { return nil; }
+        if (ls_at(doc.tokens, i + 1) == ":" and has(["{", ","], ls_at(doc.tokens, i - 1))) { return nil; }
+        // An ambiguous imported name is not a reference to a runtime builtin.
+        for imp: Any in doc.imports {
+            if (imp.plain and (len(imp.selected) == 0 or has(imp.selected, t.name))) {
+                let module: Any = ls_import_doc(doc, imp);
+                if (module != nil and ls_export(module, t.name) != nil) { return nil; }
+            }
+        }
+    }
+    return entry;
+}
+fun ls_hover(doc: Any, p: Any) -> Any {
+    let i: Any = ls_token_index(doc, p.position); if (i < 0) { return nil; }
+    let t: Any = doc.tokens[i]; let d: Any = ls_resolve(doc, i); let entry: Any = ls_reference_for(doc, i, d);
+    if (d == nil and entry == nil) { return nil; }
+    let signature: Any = if (d != nil) { d.signature } else { entry.signature };
+    let prose: Any = if (d != nil) { ls_definition_docs(d) } else { entry.docs };
+    let origin: Any = if (d != nil) { "\n\n[Go to definition](" + d.uri + ")" } else { "" };
+    return {"contents": {"kind": "markdown", "value": "```may\n" + signature + "\n```\n\n" + prose + origin}, "range": ls_range(doc.text, t.a, t.b)};
+}
+fun ls_completion_item(d: Any) -> Any {
+    return {"label": d.name, "kind": if (d.kind == 12) { 3 } else if (d.kind == 23) { 22 } else if (d.kind == 14) { 21 } else { 6 }, "detail": d.signature, "documentation": {"kind": "markdown", "value": ls_definition_docs(d)}, "data": d.id};
+}
+fun ls_reference_item(name: Any, kind: Any) -> Any {
+    let entry: Any = LS_REFERENCE[name];
+    return {"label": name, "kind": kind, "detail": entry?.signature ?? name, "documentation": {"kind": "markdown", "value": entry?.docs ?? ""}};
+}
+fun ls_complete(doc: Any, p: Any) -> Any {
+    let offset: Any = ls_offset(doc.text, p.position); let items: Any = []; let seen: Any = {}; mut scope: Any = 0;
+    for i: Any in 0..len(doc.scopes) { if (doc.scopes[i].a <= offset and offset < doc.scopes[i].b) { scope = i; } }
+    mut prefixStart: Any = offset;
+    while (prefixStart > 0 and ls_ident(ls_byte(doc.text, prefixStart - 1))) { prefixStart -= 1; }
+    let prefix: Any = ls_slice(doc.text, prefixStart, offset);
+    mut qualified: Any = "";
+    if (prefixStart > 0 and ls_byte(doc.text, prefixStart - 1) == 46) {
+        mut start: Any = prefixStart - 1;
+        while (start > 0 and ls_ident(ls_byte(doc.text, start - 1))) { start -= 1; }
+        qualified = ls_slice(doc.text, start, prefixStart - 1);
+    }
+    let candidates: Any = [];
+    if (qualified == "") {
+        // Inner scopes win when names shadow one another.
+        mut current: Any = scope;
+        while (current >= 0) {
+            for d: Any in reverse(doc.defs) { if (d.scope == current and (d.a <= offset or d.kind == 12 or d.scope == 0 or ls_starts(d.signature, "parameter "))) { push(candidates, d); } }
+            current = doc.scopes[current].parent;
+        }
+    } else {
+        let token: Any = {"scope": scope, "a": offset};
+        for member: Any in ls_members(doc, qualified, token) { push(candidates, member); }
+    }
+    for imp: Any in doc.imports {
+        if ((qualified == "" and (imp.plain or len(imp.selected) > 0)) or (imp.alias == qualified and ls_local(doc, qualified, {"scope": scope, "a": offset}) == nil)) {
+            let imported: Any = ls_import_doc(doc, imp);
+            if (imported != nil) {
+                for d: Any in imported.defs {
+                    if (d.scope == 0 and (not imported.explicit or d.public) and (qualified != "" or (imp.plain and (len(imp.selected) == 0 or has(imp.selected, d.name))))) { push(candidates, d); }
+                }
+            }
+        }
+    }
+    if (qualified == "") {
+        for name: Any in ["native.may", "prelude.may"] {
+            let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
+            if (builtin != nil) { for d: Any in builtin.defs { if (d.scope == 0 and not ls_starts(d.name, "__")) { push(candidates, d); } } }
+        }
+    }
+    for d: Any in candidates {
+        if (ls_starts(d.name, prefix) and not has(seen, d.name)) { push(items, ls_completion_item(d)); seen[d.name] = true; }
+    }
+    if (qualified == "") {
+        for name: Any in LS_KEYWORDS {
+            if (ls_starts(name, prefix) and not has(seen, name)) { push(items, ls_reference_item(name, 14)); seen[name] = true; }
+        }
+        for name: Any in LS_BUILTINS {
+            if (ls_starts(name, prefix) and not has(seen, name)) { push(items, ls_reference_item(name, 3)); seen[name] = true; }
+        }
+        for name: Any in LS_TYPES {
+            if (ls_starts(name, prefix) and not has(seen, name)) { push(items, ls_reference_item(name, 22)); seen[name] = true; }
+        }
+    }
+    for item: Any in items { item.textEdit = {"range": ls_range(doc.text, prefixStart, offset), "newText": item.label}; }
+    return {"isIncomplete": false, "items": items};
+}
+fun ls_signature(doc: Any, p: Any) -> Any {
+    let offset: Any = ls_offset(doc.text, p.position); let ts: Any = doc.tokens; let stack: Any = [];
+    for i: Any in 0..len(ts) {
+        if (ts[i].a >= offset) { break; }
+        if (ts[i].name == "(") { push(stack, i); }
+        else if (ts[i].name == ")" and len(stack) > 0) { pop(stack); }
+    }
+    if (len(stack) == 0) { return nil; }
+    let open: Any = stack[len(stack) - 1];
+    if (open == 0) { return nil; }
+    mut d: Any = ls_resolve(doc, open - 1); let entry: Any = ls_reference_for(doc, open - 1, d);
+    if (d == nil and entry != nil and ls_contains(entry.signature, "(")) {
+        d = {"kind": 12, "signature": entry.signature, "docs": entry.docs, "params": entry.params, "name": ts[open - 1].name, "uri": ""};
+    }
+    if (d == nil or d.kind != 12) { return nil; }
+    mut active: Any = 0; mut i: Any = open + 1;
+    while (i < len(ts) and ts[i].a < offset) {
+        if (ts[i].pair > i and ts[ts[i].pair].a < offset) { i = ts[i].pair; }
+        else if (ts[i].name == ",") { active += 1; }
+        i += 1;
+    }
+    let params: Any = [];
+    for index: Any in 0..len(d.params) {
+        let param: Any = d.params[index]; let item: Any = {"label": param};
+        let parameterDocs: Any = ls_parameter_docs(d, entry, param, index);
+        if (parameterDocs != "") { item.documentation = {"kind": "markdown", "value": parameterDocs}; }
+        push(params, item);
+    }
+    return {"signatures": [{"label": d.signature, "documentation": {"kind": "markdown", "value": ls_definition_docs(d)}, "parameters": params}], "activeSignature": 0, "activeParameter": min(active, max(0, len(params) - 1))};
+}
+fun ls_symbols(doc: Any) -> Any {
+    let out: Any = []; let parents: Any = [];
+    for d: Any in doc.defs {
+        if (ls_starts(d.signature, "parameter ") or ls_starts(d.signature, "loop variable ")) { continue; }
+        let sym: Any = {"name": d.name, "kind": d.kind, "detail": d.signature, "range": ls_range(doc.text, d.start, d.end), "selectionRange": ls_range(doc.text, d.a, d.b), "children": []};
+        while (len(parents) > 0 and parents[len(parents) - 1].end <= d.start) { pop(parents); }
+        if (len(parents) > 0 and d.end <= parents[len(parents) - 1].end) { push(parents[len(parents) - 1].symbol.children, sym); }
+        else { push(out, sym); }
+        if (d.kind == 12 or d.kind == 23 or d.kind == 10) { push(parents, {"end": d.end, "symbol": sym}); }
+    }
+    return out;
+}
+fun ls_workspace_symbols(query: Any) -> Any {
+    ls_workspace(); let out: Any = []; let lowered: Any = ls_lower(query); let queryLength: Any = ls_bytes(query);
+    let documentCount: Any = len(keys(LS_DOCS));
+    if (LS_WORKSPACE_SYMBOL_EPOCH != LS_INDEX_EPOCH or LS_WORKSPACE_SYMBOL_DOC_COUNT != documentCount) {
+        LS_WORKSPACE_SYMBOL_INDEX = [];
+        for uri: Any in keys(LS_DOCS) {
+            for d: Any in LS_DOCS[uri].defs {
+                if (d.scope == 0) { push(LS_WORKSPACE_SYMBOL_INDEX, {"name": d.name, "lower": ls_lower(d.name), "kind": d.kind, "definition": d}); }
+            }
+        }
+        LS_WORKSPACE_SYMBOL_EPOCH = LS_INDEX_EPOCH;
+        LS_WORKSPACE_SYMBOL_DOC_COUNT = documentCount;
+    }
+    for item: Any in LS_WORKSPACE_SYMBOL_INDEX {
+        if (ls_bytes(item.name) >= queryLength and ls_contains(item.lower, lowered)) { push(out, {"name": item.name, "kind": item.kind, "location": ls_location(item.definition)}); }
+    }
+    return out;
+}
+fun ls_prepare_rename(doc: Any, p: Any) -> Any {
+    let i: Any = ls_token_index(doc, p.position); let d: Any = ls_resolve(doc, i);
+    if (d == nil or ls_starts(d.uri, ls_uri(LS_STDLIB) + "/")) { return nil; }
+    return {"range": ls_range(doc.text, doc.tokens[i].a, doc.tokens[i].b), "placeholder": d.name};
+}
+fun ls_rename(doc: Any, p: Any) -> Any {
+    if (value_tag(p.newName) != 1 or not ls_valid_name(p.newName)) { fail("newName must be a non-reserved Maylang identifier"); }
+    let target: Any = ls_target(doc, p);
+    if (target == nil or ls_prepare_rename(doc, p) == nil) { fail("symbol cannot be renamed"); }
+    let declaring: Any = ls_document(target.uri);
+    for d: Any in declaring.defs { if (d.scope == target.scope and d.name == p.newName and d.id != target.id) { fail("name already declared in this scope"); } }
+    let changes: Any = {};
+    for occurrence: Any in ls_occurrences(target, true) {
+        let using: Any = ls_document(occurrence.uri); let at: Any = ls_token_index(using, occurrence.range.start);
+        if (at >= 0 and (at == 0 or not has([".", "?."], ls_at(using.tokens, at - 1)))) {
+            let collision: Any = ls_local(using, p.newName, using.tokens[at]);
+            if (collision != nil and collision.id != target.id) { fail("rename would capture an existing binding"); }
+        }
+        if (not has(changes, occurrence.uri)) { changes[occurrence.uri] = []; }
+        push(changes[occurrence.uri], {"range": occurrence.range, "newText": p.newName});
+    }
+    return {"changes": changes};
+}
+fun ls_folding(doc: Any) -> Any {
+    let out: Any = [];
+    for t: Any in doc.tokens {
+        if (has(["{", "[", "("], t.name) and t.pair >= 0) {
+            let a: Any = ls_position(doc.text, t.a); let b: Any = ls_position(doc.text, doc.tokens[t.pair].a);
+            if (b.line > a.line) { push(out, {"startLine": a.line, "startCharacter": a.character, "endLine": b.line, "endCharacter": b.character, "kind": "region"}); }
+        }
+    }
+    mut start: Any = -1; mut last: Any = -1;
+    for t: Any in doc.comments {
+        let line: Any = ls_position(doc.text, t.a).line;
+        if (line != last + 1) { if (last > start and start >= 0) { push(out, {"startLine": start, "endLine": last, "kind": "comment"}); } start = line; }
+        last = line;
+    }
+    if (last > start and start >= 0) { push(out, {"startLine": start, "endLine": last, "kind": "comment"}); }
+    return out;
+}
+fun ls_selection(doc: Any, positions: Any) -> Any {
+    let out: Any = [];
+    for p: Any in positions {
+        let offset: Any = ls_offset(doc.text, p); let i: Any = ls_token_index(doc, p);
+        mut parent: Any = {"range": ls_range(doc.text, 0, ls_bytes(doc.text))};
+        let widths: Any = []; let scopes: Any = {};
+        for index: Any in 1..len(doc.scopes) {
+            let scope: Any = doc.scopes[index];
+            if (scope.a <= offset and offset <= scope.b) {
+                let width: Any = scope.b - scope.a;
+                if (not has(scopes, str(width))) { push(widths, width); scopes[str(width)] = scope; }
+            }
+        }
+        for width: Any in reverse(sort(widths)) { let scope: Any = scopes[str(width)]; parent = {"range": ls_range(doc.text, scope.a, scope.b), "parent": parent}; }
+        if (i >= 0) { parent = {"range": ls_range(doc.text, doc.tokens[i].a, doc.tokens[i].b), "parent": parent}; }
+        else { parent = {"range": {"start": p, "end": p}, "parent": parent}; }
+        push(out, parent);
+    }
+    return out;
+}
+fun ls_links(doc: Any) -> Any {
+    let out: Any = [];
+    for imp: Any in doc.imports { let target: Any = ls_import_doc(doc, imp); if (target != nil) { push(out, {"range": ls_range(doc.text, imp.a + 1, imp.b - 1), "target": target.uri}); } }
+    return out;
+}
+fun ls_inlay(doc: Any, p: Any) -> Any {
+    let out: Any = []; let a: Any = ls_offset(doc.text, p.range.start); let b: Any = ls_offset(doc.text, p.range.end);
+    for d: Any in doc.defs {
+        if (not (d.hasAnnotation ?? true) and (ls_starts(d.signature, "let ") or ls_starts(d.signature, "mut ")) and d.b >= a and d.b <= b) {
+            let type: Any = ls_binding_type(doc, d, 0);
+            if (type != "Any") { push(out, {"position": ls_position(doc.text, d.b), "label": ": " + type, "kind": 1, "paddingLeft": false}); }
+        }
+    }
+    return out;
+}
+fun ls_semantic(doc: Any, requested: Any) -> Any {
+    if (requested == nil and doc.semanticEpoch == LS_INDEX_EPOCH and doc.semanticCache != nil) { return doc.semanticCache; }
+    let tokens: Any = [];
+    mut comment: Any = 0;
+    for i: Any in 0..len(doc.tokens) {
+        let t: Any = doc.tokens[i]; mut type: Any = -1; mut modifiers: Any = 0;
+        while (comment < len(doc.comments) and doc.comments[comment].a < t.a) {
+            let c: Any = doc.comments[comment]; push(tokens, {"a": c.a, "b": c.b, "type": 3, "modifiers": 0}); comment += 1;
+        }
+        if (t.kind == "keyword") { type = 0; }
+        else if (t.kind == "string") { type = 1; }
+        else if (t.kind == "number") { type = 2; }
+        else if (t.kind == "identifier") {
+            let d: Any = ls_resolve(doc, i); type = 5;
+            if (d != nil) {
+                if (d.kind == 12) { type = 4; }
+                else if (d.kind == 23 or d.kind == 10) { type = 7; }
+                else if (ls_starts(d.signature, "parameter ")) { type = 6; }
+                if (has(doc.declared, str(t.a))) { modifiers = 1; }
+                if (d.kind == 14) { modifiers += 2; }
+            } else if (has(LS_BUILTINS, t.name) and ls_at(doc.tokens, i + 1) == "(") { type = 4; }
+            let firstByte: Any = ls_byte(t.name, 0);
+            if (has(LS_TYPES, t.name) or (firstByte >= 65 and firstByte <= 90)) { type = 7; }
+        } else if (has(["+", "-", "*", "/", "%", "=", "<", ">", "!", "?", "|", "&", "||", "&&", "|>", "=>", "->", "??", "?.", "..", "..=", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "**"], t.name)) { type = 8; }
+        if (type >= 0) { push(tokens, {"a": t.a, "b": t.b, "type": type, "modifiers": modifiers}); }
+    }
+    while (comment < len(doc.comments)) {
+        let c: Any = doc.comments[comment]; push(tokens, {"a": c.a, "b": c.b, "type": 3, "modifiers": 0}); comment += 1;
+    }
+    let data: Any = []; mut previousLine: Any = 0; mut previousChar: Any = 0;
+    let a: Any = if (requested == nil) { 0 } else { ls_offset(doc.text, requested.start) };
+    let b: Any = if (requested == nil) { ls_bytes(doc.text) } else { ls_offset(doc.text, requested.end) };
+    for t: Any in tokens {
+        mut start: Any = max(a, t.a); let end: Any = min(b, t.b);
+        while (start < end) {
+            mut stop: Any = start;
+            while (stop < end and ls_byte(doc.text, stop) != 10 and ls_byte(doc.text, stop) != 13) { stop += ls_width(ls_byte(doc.text, stop)); }
+            if (stop > start) {
+                let p: Any = ls_position(doc.text, start); let q: Any = ls_position(doc.text, stop);
+                push(data, p.line - previousLine); push(data, if (p.line == previousLine) { p.character - previousChar } else { p.character });
+                push(data, q.character - p.character); push(data, t.type); push(data, t.modifiers);
+                previousLine = p.line; previousChar = p.character;
+            }
+            start = stop + 1;
+        }
+    }
+    let result: Any = {"data": data};
+    if (requested == nil) { doc.semanticCache = result; doc.semanticEpoch = LS_INDEX_EPOCH; }
+    return result;
+}
+fun ls_format(doc: Any, options: Any) -> Any {
+    let size: Any = options.tabSize ?? 4; let spaces: Any = options.insertSpaces ?? true;
+    if (value_tag(size) != 0 or size < 1 or size > 16) { fail("tabSize must be between 1 and 16"); }
+    mut unit: Any = if (spaces) { "" } else { "\t" };
+    if (spaces) { for i: Any in 0..size { unit = unit + " "; } }
+    let lines: Any = ls_split(doc.text, "\n"); let out: Any = []; mut depth: Any = 0; mut offset: Any = 0; mut blank: Any = false; mut cursor: Any = 0;
+    for line: Any in lines {
+        let end: Any = offset + ls_bytes(line); mut trimmed: Any = ls_trim(line); mut leading: Any = 0; mut delta: Any = 0;
+        mut atStart: Any = true; mut literalTail: Any = false;
+        while (cursor < len(doc.tokens) and doc.tokens[cursor].b <= offset) { cursor += 1; }
+        mut scan: Any = cursor; mut inString: Any = false;
+        while (scan < len(doc.tokens) and doc.tokens[scan].a <= end) {
+            let t: Any = doc.tokens[scan];
+            if (t.a >= offset and t.a < end) {
+                if (t.name == "{") { delta += 1; }
+                if (t.name == "}") { delta -= 1; }
+                if (atStart and t.name == "}") { leading += 1; } else { atStart = false; }
+            }
+            if (t.kind == "string" and t.a <= end and t.b > end) { literalTail = true; }
+            if (t.kind == "string" and t.a < offset and t.b > offset) { inString = true; }
+            scan += 1;
+        }
+        if (literalTail) {
+            mut begin: Any = 0; while (begin < ls_bytes(line) and has([32, 9], ls_byte(line, begin))) { begin += 1; }
+            trimmed = ls_slice(line, begin, ls_bytes(line));
+        }
+        // Multiline string contents must remain byte-for-byte unchanged.
+        if (inString) { push(out, line); blank = false; }
+        else if (trimmed == "") { if (not blank and len(out) > 0) { push(out, ""); } blank = true; }
+        else {
+            mut indent: Any = "";
+            for i: Any in 0..max(0, depth - leading) { indent = indent + unit; }
+            push(out, indent + trimmed); blank = false;
+        }
+        depth = max(0, depth + delta); offset = end + 1;
+    }
+    while (len(out) > 0 and out[len(out) - 1] == "") { pop(out); }
+    return ls_join(out, "\n") + "\n";
+}
+fun ls_format_edits(doc: Any, p: Any) -> Any {
+    let formatted: Any = ls_format(doc, p.options ?? ({}));
+    if (formatted == doc.text) { return []; }
+    return [{"range": ls_range(doc.text, 0, ls_bytes(doc.text)), "newText": formatted}];
+}
+fun ls_actions(doc: Any, p: Any) -> Any {
+    if (p.context.only != nil and not has(p.context.only, "source.organizeImports") and not has(p.context.only, "source")) { return []; }
+    let edits: Any = []; let lines: Any = ls_split(doc.text, "\n"); push(lines, ""); mut offset: Any = 0; let block: Any = []; mut start: Any = 0;
+    for line: Any in lines {
+        let trimmed: Any = ls_trim(line);
+        let isImport: Any = (ls_starts(trimmed, "import \"") or ls_starts(trimmed, "from \"")) and ls_ends(trimmed, ";");
+        if (isImport) { if (len(block) == 0) { start = offset; } push(block, line); }
+        else if (len(block) > 0) {
+            let replacement: Any = join(sort(block), "\n") + "\n";
+            if (replacement != ls_slice(doc.text, start, offset)) { push(edits, {"range": ls_range(doc.text, start, offset), "newText": replacement}); }
+            while (len(block) > 0) { pop(block); }
+        }
+        offset += ls_bytes(line) + 1;
+    }
+    if (len(edits) == 0) { return []; }
+    let changes: Any = {}; changes[doc.uri] = edits;
+    return [{"title": "Organize imports", "kind": "source.organizeImports", "edit": {"changes": changes}}];
+}
+fun ls_call_item(d: Any) -> Any {
+    let doc: Any = ls_document(d.uri);
+    return {"name": d.name, "kind": 12, "uri": d.uri, "detail": d.signature, "range": ls_range(doc.text, d.start, d.end), "selectionRange": ls_range(doc.text, d.a, d.b), "data": {"uri": d.uri, "offset": d.a}};
+}
+fun ls_call_target(item: Any) -> Any {
+    let doc: Any = ls_document(item.uri); if (doc == nil) { return nil; }
+    let offset: Any = ls_offset(doc.text, item.selectionRange.start);
+    for d: Any in doc.defs { if (d.kind == 12 and d.a == offset) { return d; } }
+    return nil;
+}
+fun ls_caller(doc: Any, offset: Any) -> Any {
+    mut best: Any = nil;
+    for d: Any in doc.defs { if (d.kind == 12 and d.b < offset and offset < d.end and (best == nil or d.start > best.start)) { best = d; } }
+    return best;
+}
+fun ls_incoming_calls(item: Any) -> Any {
+    let target: Any = ls_call_target(item); if (target == nil) { return []; }
+    ls_workspace(); let groups: Any = {}; let out: Any = [];
+    for uri: Any in keys(LS_DOCS) {
+        let doc: Any = LS_DOCS[uri];
+        for i: Any in 0..len(doc.tokens) {
+            let t: Any = doc.tokens[i];
+            if (t.name != target.name or ls_at(doc.tokens, i + 1) != "(" or has(doc.declared, str(t.a))) { continue; }
+            let resolved: Any = ls_resolve(doc, i); let caller: Any = ls_caller(doc, t.a);
+            if (resolved != nil and resolved.id == target.id and caller != nil) {
+                if (not has(groups, caller.id)) { let group: Any = {"from": ls_call_item(caller), "fromRanges": []}; groups[caller.id] = group; push(out, group); }
+                push(groups[caller.id].fromRanges, ls_range(doc.text, t.a, t.b));
+            }
+        }
+    }
+    return out;
+}
+fun ls_outgoing_calls(item: Any) -> Any {
+    let caller: Any = ls_call_target(item); if (caller == nil) { return []; }
+    let doc: Any = ls_document(caller.uri); let groups: Any = {}; let out: Any = [];
+    for i: Any in 0..len(doc.tokens) {
+        let t: Any = doc.tokens[i];
+        if (t.a <= caller.b or t.a >= caller.end or ls_at(doc.tokens, i + 1) != "(" or has(doc.declared, str(t.a))) { continue; }
+        let parent: Any = ls_caller(doc, t.a);
+        if (parent == nil or parent.id != caller.id) { continue; }
+        let target: Any = ls_resolve(doc, i);
+        if (target != nil and target.kind == 12) {
+            if (not has(groups, target.id)) { let group: Any = {"to": ls_call_item(target), "fromRanges": []}; groups[target.id] = group; push(out, group); }
+            push(groups[target.id].fromRanges, ls_range(doc.text, t.a, t.b));
+        }
+    }
+    return out;
+}

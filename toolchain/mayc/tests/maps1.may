@@ -1,0 +1,13 @@
+let m: Any = {"a": 1, "b": 2};
+print(m, len(m), m["a"], m["z"]);
+m["c"] = 3;
+print(m.c, has(m, "c"), has(m, "z"));
+print(sort(keys(m)), sort(values(m)));
+print(merge({"a":1}, {"b":2, "a":3}));
+print(remove({"a":1,"b":2}, "a"));
+let d: Any = {...{"a":1}, "b":2};
+print(d);
+let e: Any = get({"a":1}, "a", 9);
+print(e, get({"a":1}, "b", 9));
+let nested: Any = {"a": {"b": {"c": 42}}};
+print(nested.a.b.c, nested?.a?.b?.c, nested?.x?.y?.z);

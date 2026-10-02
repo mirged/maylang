@@ -1,0 +1,1 @@
+mut n=0; fun hit() { n+=1; 0 } let x=nil; print(x?.a, n); print(true or hit(), false and hit(), n);

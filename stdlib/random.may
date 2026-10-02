@@ -1,0 +1,42 @@
+// random.may — explicit, reproducible Park–Miller pseudo-random generator.
+// Pass the same seed to random_new for repeatable simulations and tests.
+
+let RANDOM_MODULUS: Any = 2147483647;
+
+fun random_new(seed: Any) -> Any {
+    let s: Any = abs(int(seed)) % (RANDOM_MODULUS - 1) + 1;
+    return {"state": s};
+}
+fun random_next_int(rng: Any) -> Any {
+    rng.state = (rng.state * 48271) % RANDOM_MODULUS;
+    return rng.state;
+}
+fun random_float(rng: Any) -> Any { return random_next_int(rng) / (1.0 * RANDOM_MODULUS); }
+fun random_int(rng: Any, lo: Any, hi: Any) -> Any {
+    if (hi < lo) { fail("random_int upper bound is below lower bound"); }
+    return lo + floor(random_float(rng) * (hi - lo + 1));
+}
+fun random_choice(rng: Any, xs: Any) -> Any {
+    if (len(xs) == 0) { return nil; }
+    return xs[random_int(rng, 0, len(xs) - 1)];
+}
+fun random_shuffle(rng: Any, xs: Any) -> Any {
+    mut out: Any = slice(xs, 0, len(xs));
+    mut i: Any = len(out) - 1;
+    while (i > 0) {
+        let j: Any = random_int(rng, 0, i);
+        let t: Any = out[i]; out[i] = out[j]; out[j] = t;
+        i = i - 1;
+    }
+    return out;
+}
+fun random_sample(rng: Any, xs: Any, count: Any) -> Any {
+    if (count < 0 || count > len(xs)) { fail("sample count must be between 0 and list length"); }
+    return slice(random_shuffle(rng, xs), 0, count);
+}
+fun random_normal(rng: Any, mean: Any, stddev: Any) -> Any {
+    // Box–Muller transform; clamp away from log(0).
+    let u1: Any = max(0.000000001, random_float(rng));
+    let u2: Any = random_float(rng);
+    return mean + stddev * sqrt(-2.0 * ln(u1)) * cos(2.0 * pi() * u2);
+}

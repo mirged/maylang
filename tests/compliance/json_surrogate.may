@@ -1,0 +1,1 @@
+let s=chr(34)+chr(92)+"uD83D"+chr(92)+"uDE42"+chr(34); print(json_parse(s));

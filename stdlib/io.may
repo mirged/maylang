@@ -1,0 +1,26 @@
+// io.may — safe text/JSON helpers over Maylang's small native I/O surface.
+import "csv.may";
+
+fun io_read_text(path: Any) -> Any { return read_file(path); }
+fun io_read_or(path: Any, fallback: Any) -> Any { return may { read_file(path) } otherwise { fallback }; }
+fun io_write_text(path: Any, text: Any) -> Any { write_file(path, str(text)); return path; }
+fun io_read_lines(path: Any) -> Any { return split(read_file(path), "\n"); }
+fun io_write_lines(path: Any, lines: Any) -> Any { write_file(path, join(lines, "\n")); return path; }
+fun io_read_json(path: Any) -> Any { return json_parse(read_file(path)); }
+fun io_read_json_or(path: Any, fallback: Any) -> Any { return may { json_parse(read_file(path)) } otherwise { fallback }; }
+fun io_write_json(path: Any, value: Any) -> Any { write_file(path, json_stringify(value)); return path; }
+fun io_read_csv(path: Any) -> Any { return csv_parse(read_file(path)); }
+fun io_write_csv(path: Any, rows: Any) -> Any { write_file(path, csv_stringify(rows)); return path; }
+fun io_read_config(path: Any) -> Any {
+    mut config: Any = {};
+    for line: Any in split(read_file(path), "\n") {
+        let s: Any = trim(line);
+        if (len(s) == 0 || starts_with(s, "#")) { continue; }
+        let i: Any = index_of(s, "=");
+        if (i <= 0) { continue; }
+        let key: Any = trim(join(slice(chars(s), 0, i), ""));
+        let value: Any = trim(join(slice(chars(s), i + 1, len(s)), ""));
+        config[key] = value;
+    }
+    return config;
+}

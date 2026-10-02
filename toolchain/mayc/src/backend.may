@@ -1,0 +1,81 @@
+import "state.may";
+import "emitter.may";
+import "ast.may";
+import "ir.may";
+import "diagnostics.may";
+import "sema.may";
+import "symbols.may";
+import "backend/x86_64.may";
+import "backend/arm64.may";
+import "backend/riscv.may";
+import "backend/raw.may";
+
+// Target selection is independent of the host running mayc.
+struct Target { name: Any, arch: Any, os: Any, format: Any, machine: Any, alignment: Any, runtime: Any }
+struct TargetBackend { emit: Any, patch: Any }
+struct CodeEmitter { immediate: Any, move: Any, load: Any, store: Any, binary: Any, unary: Any, jump: Any, branch: Any, prologue: Any, epilogue: Any, trap: Any }
+
+fun target_select(name: Any) -> Any {
+    if (name == "x86_64-linux") { return Target(name, "x86_64", "linux", "elf", 62, 4096, true); }
+    if (name == "arm64-linux") { return Target(name, "arm64", "linux", "elf", 183, 4096, false); }
+    if (name == "riscv64-linux") { return Target(name, "riscv64", "linux", "elf", 243, 4096, false); }
+    if (name == "arm64-macos") { return Target(name, "arm64", "macos", "macho", 16777228, 16384, false); }
+    if (name == "x86_64-windows") { return Target(name, "x86_64", "windows", "pe", 34404, 4096, false); }
+    die_str("mayc: unknown target `${name}`\n");
+    return 0;
+}
+
+fun backend_validate(ctx: Any, raw: Any) -> Any {
+    if (raw == 0 and ctx.runtime == "full" and not ctx.target.runtime) {
+        die_str("mayc: `${ctx.target.name}` supports the core runtime; --runtime full requires x86_64-linux\n");
+    }
+    return 0;
+}
+
+// Each backend implements the same IR-to-code and relocation entry points.
+fun backend_for(ctx: Any) -> Any {
+    if (ctx.target.arch == "x86_64") { return TargetBackend(x86_emit, patch_all); }
+    if (ctx.target.arch == "arm64") { return TargetBackend(arm64_emit, arm64_patch); }
+    return TargetBackend(riscv_emit, riscv_patch);
+}
+
+fun arm64_emit(ctx: Any) -> Any { return raw_program(ctx, arm64_emitter()); }
+fun riscv_emit(ctx: Any) -> Any { return raw_program(ctx, riscv_emitter()); }
+
+fun backend_emit(ctx: Any) -> Any {
+    if (ctx.runtime == "core") { core_validate(ctx); }
+    let selected: Any = backend_for(ctx);
+    let emit: Any = selected.emit;
+    return emit(ctx);
+}
+
+fun core_validate(ctx: Any) -> Any {
+    if (len(ctx.foreign) > 0) { die_str("mayc: FFI requires the full runtime\n"); }
+    let blocks: Any = [ctx.mainIR];
+    for rec: Any in ctx.functions { if (rec.mode != 1) { push(blocks, rec.ir); } }
+    for block: Any in blocks {
+        for instruction: Any in block.code {
+            let op: Any = instruction.op;
+            if (op == E_FLOAT or op == E_CLOSURE or op == E_ICALL or op == E_GET or op == S_SETPROP or op == IR_TRY_BEGIN or op == S_CASSIGN or op == E_CAPVAR) {
+                diagnostic(instruction.span, "the core runtime supports integers, strings, lists and direct calls; this operation requires the full runtime");
+            }
+            if (op == IR_RUNTIME and (instruction.extra == "rt_map_new" or instruction.extra == "rt_map_set" or instruction.extra == "rt_merge_into")) {
+                diagnostic(instruction.span, "maps and records require the full runtime");
+            }
+            if (op == E_CALL) {
+                let name: Any = symbol_name(instruction.extra.name, instruction.extra.length);
+                let intrinsics: Any = ["print", "len", "str", "str_of", "int_to_str", "int", "bool", "push", "pop", "slice", "char_at", "char_from", "chr", "ord", "contains", "starts_with", "ends_with", "split", "join", "index_of", "min", "max", "abs", "pow", "exit", "fail", "addr", "cstr", "ptr", "value_eq", "str_cmp", "cmp", "to_lower", "to_upper", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64"];
+                if (backend_find_func(ctx, instruction.extra.name, instruction.extra.length) == 0 and not has(intrinsics, name)) {
+                    diagnostic(instruction.span, "`${name}` requires the full runtime");
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+fun backend_patch(ctx: Any) -> Any {
+    let selected: Any = backend_for(ctx);
+    let patch: Any = selected.patch;
+    return patch(ctx);
+}

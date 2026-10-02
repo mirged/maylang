@@ -1,0 +1,5 @@
+import "../../../stdlib/algo.may";
+print(zip([1,2,3], ["a","b","c"]));
+print(chunk([1,2,3,4,5], 2));
+print(partition([1,2,3,4,5], |x: Any| -> Any { return x % 2 == 0; }));
+print(group_by([1,2,3,4,5,6], |x: Any| -> Any { return x % 3; }));

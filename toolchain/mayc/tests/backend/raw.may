@@ -1,0 +1,20 @@
+fun total(n: Any, acc: Any) -> Any { return if n == 0 { acc } else { total(n - 1, acc + n) } }
+fun eight(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any, g: Any, h: Any) -> Any { return a + b + c + d + e + f + g + h; }
+mut n: Any = 0;
+mut checksum: Any = 0;
+while n < 10 {
+    checksum = checksum + n * 3;
+    n = n + 1;
+}
+if total(10, 0) != 55 { exit(11); }
+if eight(1, 2, 3, 4, 5, 6, 7, 8) != 36 { exit(12); }
+if checksum != 135 { exit(13); }
+if -17 / 8 != -2 or -17 % 8 != -1 { exit(14); }
+let memory: Any = syscall(222, 0, 4096, 3, 34, -1, 0);
+store8(memory, 123);
+store16(memory + 2, 4567);
+store32(memory + 4, 123456789);
+store64(memory + 8, 1234567890);
+if load8(memory) != 123 or load16(memory + 2) != 4567 or load32(memory + 4) != 123456789 or load64(memory + 8) != 1234567890 { exit(15); }
+syscall(64, 1, addr("target-ok\n"), 10);
+exit(42);

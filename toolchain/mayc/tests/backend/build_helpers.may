@@ -1,0 +1,22 @@
+import "../../src/formats/bytes.may";
+import "../../src/sema.may";
+import "../../src/state.may";
+irt_init();
+let source: Any = irt_alloc(64);
+let target: Any = irt_alloc(64);
+for i: Any in 0..64 { store8(source + i, (i * 137 + 223) % 256); store8(target + i, 0); }
+for count: Any in 0..32 {
+    image_copy(target + 1, source + 3, count);
+    for i: Any in 0..count { if (load8(target + 1 + i) != load8(source + 3 + i)) { fail("word copy corrupted bytes"); } }
+}
+// Heap strings are mutable and their addresses can be reused by the collector.
+let text: Any = repeat("a", 4);
+let pointer: Any = addr(text);
+let first: Any = symbol_name(pointer, 4);
+store8(pointer, 122);
+let second: Any = symbol_name(pointer, 4);
+if (first != "aaaa" or second != "zaaa") { fail("cached a mutable heap span"); }
+let unicode: Any = "héλ";
+let bytes: Any = load64(addr(unicode) - 8);
+if (symbol_name(addr(unicode), bytes) != unicode) { fail("symbol copy damaged UTF-8"); }
+print("helpers-ok");

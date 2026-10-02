@@ -1,0 +1,498 @@
+// ============================================================================
+// Transaction Processing Pipeline
+// ============================================================================
+//
+// Tests:
+//   - structs and generated constructors
+//   - strict typing
+//   - lists
+//   - ranges
+//   - lambdas
+//   - higher-order functions
+//   - pipelines
+//   - filter / map / sum / len
+//   - nested pipelines
+//   - numeric conversion
+// ============================================================================
+
+
+// ---------------------------------------------------------------------------
+// Data model
+// ---------------------------------------------------------------------------
+
+struct Transaction {
+    id: Int,
+    customer: Str,
+    amount: Float,
+    category: Str,
+    refunded: Bool,
+}
+
+
+// ---------------------------------------------------------------------------
+// Dataset
+//
+// Struct declarations automatically provide a constructor:
+//
+//     Transaction(Int, Str, Float, Str, Bool) -> Transaction
+// ---------------------------------------------------------------------------
+
+let transactions: List<Transaction> = [
+    Transaction(1,  "Alice",   120.50, "hardware", false),
+    Transaction(2,  "Bob",      35.00, "software", false),
+    Transaction(3,  "Alice",   240.00, "hardware", false),
+    Transaction(4,  "Charlie",  19.99, "software", true),
+    Transaction(5,  "Diana",    89.50, "books",    false),
+    Transaction(6,  "Bob",     410.00, "hardware", false),
+    Transaction(7,  "Eve",      12.00, "books",    false),
+    Transaction(8,  "Charlie",  75.00, "software", false),
+    Transaction(9,  "Alice",    44.50, "books",    false),
+    Transaction(10, "Diana",   180.00, "hardware", false),
+];
+
+
+// ============================================================================
+// Transaction predicates
+// ============================================================================
+
+fun valid(t: Transaction) -> Bool {
+    return !t.refunded;
+}
+
+fun expensive(t: Transaction) -> Bool {
+    return t.amount >= 100.0;
+}
+
+fun hardware(t: Transaction) -> Bool {
+    return t.category == "hardware";
+}
+
+fun software(t: Transaction) -> Bool {
+    return t.category == "software";
+}
+
+fun books(t: Transaction) -> Bool {
+    return t.category == "books";
+}
+
+
+// ============================================================================
+// Transaction transformations
+// ============================================================================
+
+fun amount(t: Transaction) -> Float {
+    return t.amount;
+}
+
+fun customer(t: Transaction) -> Str {
+    return t.customer;
+}
+
+
+// ============================================================================
+// Integer transformations
+// ============================================================================
+
+fun double(x: Int) -> Int {
+    return x * 2;
+}
+
+fun triple(x: Int) -> Int {
+    return x * 3;
+}
+
+fun square(x: Int) -> Int {
+    return x * x;
+}
+
+fun is_even(x: Int) -> Bool {
+    return x % 2 == 0;
+}
+
+
+// ============================================================================
+// Numeric utilities
+// ============================================================================
+
+fun percentage(value: Float, percent: Float) -> Float {
+    return value * (percent / 100.0);
+}
+
+fun apply_tax(value: Float, rate: Float) -> Float {
+    return value + percentage(value, rate);
+}
+
+fun apply_discount(value: Float, rate: Float) -> Float {
+    return value - percentage(value, rate);
+}
+
+fun clamp(value: Float, low: Float, high: Float) -> Float {
+    if value < low {
+        return low;
+    }
+
+    if value > high {
+        return high;
+    }
+
+    return value;
+}
+
+
+// ============================================================================
+// Pipeline #1
+//
+// Valid expensive transactions:
+//
+// transactions
+//     -> remove refunds
+//     -> keep >= 100
+//     -> extract amounts
+//     -> apply VAT
+//     -> sum
+// ============================================================================
+
+let taxable_revenue: Float = transactions
+    |> filter(valid)
+    |> filter(expensive)
+    |> map(amount)
+    |> map(fun(x: Float) -> Float {
+        return apply_tax(x, 21.0);
+    })
+    |> sum;
+
+print("taxable revenue =", taxable_revenue);
+
+
+// ============================================================================
+// Pipeline #2
+//
+// Hardware revenue after:
+//   - removing refunds
+//   - 10% discount
+//   - 21% tax
+// ============================================================================
+
+let hardware_revenue: Float = transactions
+    |> filter(valid)
+    |> filter(hardware)
+    |> map(amount)
+    |> map(fun(x: Float) -> Float {
+        return x
+            |> apply_discount(10.0)
+            |> apply_tax(21.0);
+    })
+    |> sum;
+
+print("hardware revenue =", hardware_revenue);
+
+
+// ============================================================================
+// Pipeline #3
+//
+// Find customers responsible for large purchases.
+// ============================================================================
+
+let big_customers: List<Str> = transactions
+    |> filter(valid)
+    |> filter(fun(t: Transaction) -> Bool {
+        return t.amount >= 150.0;
+    })
+    |> map(customer);
+
+print("big customers =", big_customers);
+
+
+// ============================================================================
+// Pipeline #4
+//
+// Basic statistics.
+// ============================================================================
+
+let valid_transactions: List<Transaction> = transactions
+    |> filter(valid);
+
+let amounts: List<Float> = valid_transactions
+    |> map(amount);
+
+let total: Float = amounts
+    |> sum;
+
+let count: Int = amounts
+    |> len;
+
+let average: Float = total / float(count);
+
+print("transaction count =", count);
+print("total revenue =", total);
+print("average transaction =", average);
+
+
+// ============================================================================
+// Pipeline #5
+//
+// Category-specific totals.
+// ============================================================================
+
+let hardware_total: Float = transactions
+    |> filter(valid)
+    |> filter(hardware)
+    |> map(amount)
+    |> sum;
+
+let software_total: Float = transactions
+    |> filter(valid)
+    |> filter(software)
+    |> map(amount)
+    |> sum;
+
+let books_total: Float = transactions
+    |> filter(valid)
+    |> filter(books)
+    |> map(amount)
+    |> sum;
+
+print("hardware total =", hardware_total);
+print("software total =", software_total);
+print("books total =", books_total);
+
+
+// ============================================================================
+// Pipeline #6
+//
+// Synthetic orders generated from a range.
+//
+// 1..=100
+//     -> generate fake order values
+//     -> discard small orders
+//     -> convert Int -> Float
+//     -> discount
+//     -> tax
+//     -> clamp
+// ============================================================================
+
+let simulated_orders: List<Float> = 1..=100
+    |> map(fun(id: Int) -> Int {
+        return id * 7 + (id % 9) * 3;
+    })
+    |> filter(fun(value: Int) -> Bool {
+        return value >= 100;
+    })
+    |> map(fun(value: Int) -> Float {
+        let price: Float = float(value);
+
+        return price
+            |> apply_discount(5.0)
+            |> apply_tax(21.0)
+            |> clamp(0.0, 1000.0);
+    });
+
+print("simulated orders =", simulated_orders);
+
+
+// ============================================================================
+// Pipeline #7
+//
+// Chained named functions.
+// ============================================================================
+
+let transformed: List<Int> = 1..=10
+    |> map(double)
+    |> map(triple)
+    |> filter(fun(x: Int) -> Bool {
+        return x % 4 == 0;
+    });
+
+print("transformed =", transformed);
+
+
+// ============================================================================
+// Pipeline #8
+//
+// More complex integer processing.
+//
+// Start with 1..=50.
+// Keep evens.
+// Square them.
+// Remove small squares.
+// Transform again.
+// ============================================================================
+
+let processed_numbers: List<Int> = 1..=50
+    |> filter(is_even)
+    |> map(square)
+    |> filter(fun(x: Int) -> Bool {
+        return x > 100;
+    })
+    |> map(fun(x: Int) -> Int {
+        return x / 2;
+    })
+    |> filter(fun(x: Int) -> Bool {
+        return x % 3 == 0;
+    });
+
+print("processed numbers =", processed_numbers);
+
+
+// ============================================================================
+// Pipeline #9
+//
+// Nested Float pipeline.
+// ============================================================================
+
+let final_score: Float = 1..=50
+    |> filter(fun(x: Int) -> Bool {
+        return x % 2 == 0;
+    })
+    |> map(fun(x: Int) -> Int {
+        return x * x;
+    })
+    |> filter(fun(x: Int) -> Bool {
+        return x > 100;
+    })
+    |> map(fun(x: Int) -> Float {
+        let value: Float = float(x);
+
+        return value
+            |> apply_discount(15.0)
+            |> apply_tax(21.0);
+    })
+    |> sum;
+
+print("final score =", final_score);
+
+
+// ============================================================================
+// Pipeline #10
+//
+// Pipeline argument insertion.
+//
+//     x |> apply_discount(20.0)
+//
+// means:
+//
+//     apply_discount(x, 20.0)
+// ============================================================================
+
+let original_price: Float = 250.0;
+
+let final_price: Float = original_price
+    |> apply_discount(20.0)
+    |> apply_tax(21.0)
+    |> clamp(0.0, 1000.0);
+
+print("original price =", original_price);
+print("final price =", final_price);
+
+
+// ============================================================================
+// Pipeline #11
+//
+// Heavy lambda chain.
+// ============================================================================
+
+let weird_numbers: List<Int> = 1..=100
+    |> filter(fun(x: Int) -> Bool {
+        return x % 2 != 0;
+    })
+    |> map(fun(x: Int) -> Int {
+        return x * 3 + 1;
+    })
+    |> filter(fun(x: Int) -> Bool {
+        return x % 5 != 0;
+    })
+    |> map(fun(x: Int) -> Int {
+        return x * x;
+    })
+    |> filter(fun(x: Int) -> Bool {
+        return x < 10000;
+    });
+
+print("weird numbers =", weird_numbers);
+
+
+// ============================================================================
+// Pipeline #12
+//
+// Revenue from transactions belonging to Alice.
+// ============================================================================
+
+let alice_revenue: Float = transactions
+    |> filter(valid)
+    |> filter(fun(t: Transaction) -> Bool {
+        return t.customer == "Alice";
+    })
+    |> map(amount)
+    |> sum;
+
+print("Alice revenue =", alice_revenue);
+
+
+// ============================================================================
+// Pipeline #13
+//
+// Count large valid transactions.
+// ============================================================================
+
+let large_transaction_count: Int = transactions
+    |> filter(valid)
+    |> filter(fun(t: Transaction) -> Bool {
+        return t.amount >= 100.0;
+    })
+    |> len;
+
+print("large transaction count =", large_transaction_count);
+
+
+// ============================================================================
+// Pipeline #14
+//
+// Extract transaction IDs matching multiple conditions.
+// ============================================================================
+
+let interesting_ids: List<Int> = transactions
+    |> filter(valid)
+    |> filter(fun(t: Transaction) -> Bool {
+        return t.amount >= 75.0;
+    })
+    |> filter(fun(t: Transaction) -> Bool {
+        return t.category != "books";
+    })
+    |> map(fun(t: Transaction) -> Int {
+        return t.id;
+    });
+
+print("interesting transaction ids =", interesting_ids);
+
+
+// ============================================================================
+// Pipeline #15
+//
+// Final combined calculation.
+//
+// Take all valid transactions,
+// apply category-dependent adjustments,
+// then calculate total adjusted revenue.
+// ============================================================================
+
+let adjusted_revenue: Float = transactions
+    |> filter(valid)
+    |> map(fun(t: Transaction) -> Float {
+        if t.category == "hardware" {
+            return t.amount
+                |> apply_discount(10.0)
+                |> apply_tax(21.0);
+        }
+
+        if t.category == "software" {
+            return t.amount
+                |> apply_discount(5.0)
+                |> apply_tax(21.0);
+        }
+
+        return t.amount
+            |> apply_tax(21.0);
+    })
+    |> sum;
+
+print("adjusted revenue =", adjusted_revenue);

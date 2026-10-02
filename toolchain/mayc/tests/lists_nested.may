@@ -1,0 +1,11 @@
+let grid: Any = [[1,2,3],[4,5,6],[7,8,9]];
+print(grid);
+print(grid[1][2]);
+print([row[0] for row: Any in grid]);
+print(flatten(grid));
+print(len(grid), len(grid[0]));
+grid[0][0] = 99;
+print(grid);
+let m: Any = [[0 for _: Any in 0..3] for _: Any in 0..2];
+m[1][2] = 7;
+print(m);

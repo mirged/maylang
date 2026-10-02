@@ -1,0 +1,30 @@
+// scan.may — recursive discovery of `.may` sources on disk.
+//
+// Now that the runtime exposes `read_dir`, maypkg no longer has to infer the
+// whole project from the import graph: it can walk the tree, find every source
+// file (for orphan detection and entry guessing) and report what it sees.
+
+import "fs.may" as fs;
+
+let MAX_DEPTH: Any = 16;
+
+fun walk(dir: Any, depth: Any, out: Any) -> Any {
+    if (depth > MAX_DEPTH) { return nil; }
+    for name: Any in fs.list(dir) {
+        if (starts_with(name, ".")) { continue; }
+        let full: Any = fs.normpath(fs.join_path(dir, name));
+        if (ends_with(name, ".may")) {
+            push(out, full);
+        } else {
+            walk(full, depth + 1, out);
+        }
+    }
+    return nil;
+}
+
+/// Every `.may` file under `root`, recursively (hidden entries skipped).
+pub fun may_files(root: Any) -> Any {
+    let out: Any = [];
+    walk(fs.normpath(root), 0, out);
+    return sort(out);
+}

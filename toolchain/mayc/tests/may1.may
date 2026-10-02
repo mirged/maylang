@@ -1,0 +1,18 @@
+print(may { 1 / 0 });
+print(may { int("nope") });
+print(may { fail("boom") });
+print((may { int("x") }) ?? 7);
+print(may { 10 / 2 });
+let r: Any = may { fail("bad") } otherwise { "caught: ${err.kind}" };
+print(r);
+let r2: Any = may { fail("bad") } otherwise { err.message };
+print(r2);
+fun risky() -> Any { return fail("inner"); }
+print(may { risky() } otherwise { err.kind });
+mut side: Any = 0;
+let r3: Any = may { side = 1; fail("x"); side = 2 } otherwise { side };
+print(r3, side);
+print((nil) ?? "fallback", (5) ?? 99);
+print(nil?.a?.b ?? "none");
+let cfg: Any = {"a": {"b": 1}};
+print(cfg?.a?.b, cfg?.a?.c, cfg?.x?.y);

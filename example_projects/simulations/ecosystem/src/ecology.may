@@ -1,0 +1,83 @@
+import "../../../../stdlib/random.may";
+import "model.may";
+import "environment.may";
+import "controller.may";
+
+fun assimilate(world: World, creature: Creature, food: Float, efficiency: Float) -> Float {
+    let gained: Float = food * efficiency;
+    creature.energy += gained;
+    creature.health = smaller(full_health(creature.genome), creature.health + gained * 0.08);
+    world.totals.heat += food - gained;
+    return gained;
+}
+fun graze(world: World, creature: Creature, mouth: Float) -> Nil {
+    let cell: Cell = world.cells[cell_index(creature.x, creature.y, world.config.width)];
+    let diet: Float = creature.genome.traits[3];
+    let intake: Float = 1.5 + 2.0 * creature.genome.traits[1];
+    if (mouth < -0.15) {
+        let efficiency: Float = 0.95 - 0.65 * diet;
+        let food: Float = smaller(cell.plants, smaller(-mouth * intake, (40.0 - creature.energy) / efficiency));
+        cell.plants -= food;
+        let gained: Float = assimilate(world, creature, food, efficiency);
+        creature.plants += gained; world.totals.plant_energy += gained;
+    } else if (mouth > 0.15) {
+        let efficiency: Float = 0.45 + 0.5 * diet;
+        let food: Float = smaller(cell.carrion, smaller(mouth * intake, (40.0 - creature.energy) / efficiency));
+        cell.carrion -= food;
+        let gained: Float = assimilate(world, creature, food, efficiency);
+        creature.scavenged += gained; world.totals.scavenged_energy += gained;
+    }
+    return;
+}
+fun bite(world: World, attacker: Creature, victim: Creature) -> Nil {
+    if (attacker.health <= 0.0 or victim.health <= 0.0) { return; }
+    let cost: Float = smaller(attacker.energy, 0.12 + 0.1 * mass(attacker.genome));
+    attacker.energy -= cost; world.totals.heat += cost;
+    attacker.attacks += 1; world.totals.attacks += 1;
+    let damage: Float = 1.8 * mass(attacker.genome) * (1.0 - 0.6 * victim.genome.traits[4]);
+    victim.health -= damage;
+    if (victim.health <= 0.0) {
+        let available: Float = victim.body + victim.energy;
+        let efficiency: Float = 0.45 + 0.5 * attacker.genome.traits[3];
+        let food: Float = smaller(available, (40.0 - attacker.energy) / efficiency);
+        let gained: Float = assimilate(world, attacker, food, efficiency);
+        attacker.hunted += gained; world.totals.hunted_energy += gained;
+        world.cells[cell_index(victim.x, victim.y, world.config.width)].carrion += available - food;
+        victim.energy = 0.0; victim.body = 0.0; victim.health = 0.0;
+        attacker.kills += 1; world.totals.kills += 1;
+        if (world.totals.first_hunt < 0) { world.totals.first_hunt = world.generation + 1; }
+    }
+    return;
+}
+fun metabolize(world: World, creature: Creature) -> Nil {
+    let cost: Float = smaller(creature.energy, mass(creature.genome) * (0.10 + 0.16 * creature.genome.traits[1] + 0.12 * creature.genome.traits[4]));
+    creature.energy -= cost; world.totals.heat += cost;
+    if (creature.energy <= 0.000001) {
+        world.totals.starved += 1;
+        deposit_corpse(world, creature);
+    }
+    return;
+}
+fun ecology_step(world: World) -> Nil {
+    grow_environment(world);
+    let actions: List<List<Int>> = decide(world, occupancy(world));
+    let order: List<Int> = random_shuffle(world.rng, 0..len(world.creatures));
+    for index: Int in order {
+        let creature: Creature = world.creatures[index];
+        if (creature.health > 0.0) { move_creature(world, creature, actions[index]); }
+    }
+    let buckets: List<List<Int>> = occupancy(world);
+    for index: Int in order {
+        let creature: Creature = world.creatures[index];
+        if (creature.health > 0.0) {
+            let mouth: Float = float(actions[index][2]) / 1024.0;
+            graze(world, creature, mouth);
+            if (mouth > 0.35) {
+                let target: Int = neighbor_index(world, buckets, index);
+                if (target >= 0) { bite(world, creature, world.creatures[target]); }
+            }
+            metabolize(world, creature);
+        }
+    }
+    return;
+}

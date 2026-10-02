@@ -1,0 +1,3 @@
+print(may { 1 / 0 } otherwise { err.kind });
+print(may { 5 % 0 } otherwise { err.kind });
+print(may { 1.0 / 0.0 } otherwise { err.kind });

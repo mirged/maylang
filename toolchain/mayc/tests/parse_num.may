@@ -1,0 +1,8 @@
+print(int("42"), int("-7"), int("+3"), int(3.9), int(5));
+print(float("3.5"), float("-2.25"), float(2), float("1e3"), float("1.5e-2"));
+print(parse_int("123"), parse_float("4.5"));
+print(may { int("bad") } otherwise { err.kind });
+print(may { float("bad") } otherwise { err.kind });
+print(may { parse_int("x") } otherwise { err.kind });
+print(int("  10  "));
+print(str(123), str(4.5), str([1,2]), str({"a":1}));

@@ -1,0 +1,61 @@
+import "model.may";
+import "environment.may";
+
+// Strategy labels are measurements of consumed energy, never creature types.
+fun strategy(creature: Creature) -> Str {
+    let intake: Float = creature.plants + creature.scavenged + creature.hunted;
+    if (intake <= 0.000001) { return "inactive"; }
+    if (creature.hunted > intake * 0.5) { return "hunter"; }
+    if (creature.scavenged > intake * 0.5) { return "scavenger"; }
+    if (creature.plants > intake * 0.5) { return "grazer"; }
+    return "mixed";
+}
+fun cohort_metrics(world: World) -> Any {
+    let counts: Any = {"grazer": 0, "hunter": 0, "scavenger": 0, "mixed": 0, "inactive": 0};
+    let means: List<Float> = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    mut plants: Float = 0.0; mut scavenged: Float = 0.0; mut hunted: Float = 0.0;
+    mut moved: Int = 0; mut kills: Int = 0; mut alive: Int = 0;
+    for creature: Creature in world.creatures {
+        let label: Str = strategy(creature); counts[label] += 1;
+        for i: Int in 0..6 { means[i] += creature.genome.traits[i]; }
+        plants += creature.plants; scavenged += creature.scavenged; hunted += creature.hunted;
+        moved += creature.moved; kills += creature.kills;
+        if (creature.health > 0.0) { alive += 1; }
+    }
+    let count: Int = len(world.creatures);
+    let divisor: Float = float(if (count == 0) { 1 } else { count });
+    for i: Int in 0..6 { means[i] /= divisor; }
+    mut variance: Float = 0.0;
+    for creature: Creature in world.creatures {
+        for i: Int in 0..6 {
+            let difference: Float = creature.genome.traits[i] - means[i];
+            variance += difference * difference;
+        }
+    }
+    return {"generation": world.generation + 1, "population_adults": count, "survivors": alive,
+        "strategies": counts, "mean_mass": 0.65 + 1.35 * means[0], "mean_metabolic_pace": means[1],
+        "mean_mobility": means[2], "mean_diet": means[3], "mean_armor": means[4],
+        "mean_reproduction_reserve": means[5], "genetic_variance": variance / (divisor * 6.0),
+        "plant_intake": plants, "scavenged_intake": scavenged, "hunted_intake": hunted,
+        "kills_cohort": kills, "mean_distance": float(moved) / divisor, "sunlight": season(world.generation)};
+}
+fun energy_error(world: World) -> Float {
+    return world.totals.initial_energy + world.totals.sunlight - world.totals.heat - stored_energy(world);
+}
+fun record_metrics(world: World, sample: Any) -> Nil {
+    sample.population_next = len(world.creatures);
+    sample.kills_total = world.totals.kills;
+    sample.births_total = world.totals.births;
+    sample.energy_error = energy_error(world);
+    push(world.history, sample);
+    push(world.csv, join([str(sample.generation), str(sample.population_adults), str(sample.population_next),
+        str(sample.strategies.grazer), str(sample.strategies.hunter), str(sample.strategies.scavenger),
+        str(sample.strategies.mixed), str(sample.strategies.inactive), str(sample.mean_mass),
+        str(sample.mean_metabolic_pace), str(sample.mean_mobility), str(sample.mean_diet), str(sample.mean_armor),
+        str(sample.genetic_variance), str(sample.plant_intake), str(sample.scavenged_intake),
+        str(sample.hunted_intake), str(sample.kills_cohort), str(sample.kills_total), str(sample.energy_error)], ","));
+    print("generation", world.generation, "population", len(world.creatures),
+          "grazers", sample.strategies.grazer, "hunters", sample.strategies.hunter,
+          "scavengers", sample.strategies.scavenger, "kills", world.totals.kills);
+    return;
+}

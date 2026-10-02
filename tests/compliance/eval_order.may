@@ -1,0 +1,1 @@
+mut n=0; fun next() { n+=1; n } fun f(a,b,c,d,e,f,g,h) { [a,b,c,d,e,f,g,h] } print(f(next(),next(),next(),next(),next(),next(),next(),next()));

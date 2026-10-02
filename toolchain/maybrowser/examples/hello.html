@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>MayBrowser</title>
+<style>
+  html { background: #f4f6fb; }
+  body { margin: 32px; font-family: "DejaVu Sans", sans-serif; color: #1f2430; }
+  .card {
+    background: #ffffff;
+    border: 1px solid #d7dce8;
+    padding: 24px 28px;
+    margin: 0 0 20px 0;
+    width: 560px;
+  }
+  h1 { color: #2b3a67; font-size: 34px; margin: 0 0 10px 0; }
+  h2 { color: #2b3a67; font-size: 20px; margin: 0 0 8px 0; }
+  p  { font-size: 16px; line-height: 1.5; margin: 0 0 12px 0; }
+  .muted { color: #6b7280; font-size: 14px; }
+  .accent { color: #b23a48; font-weight: bold; }
+  ul { margin: 8px 0 12px 0; padding-left: 28px; }
+  li { margin: 0 0 4px 0; }
+  .btn {
+    display: inline-block;
+    background: #2b3a67;
+    color: #ffffff;
+    border: 1px solid #1d2949;
+    padding: 8px 18px;
+    margin-right: 10px;
+    font-weight: bold;
+  }
+  a { color: #2b6cb0; }
+  .banner {
+    background: #2b3a67;
+    color: #ffffff;
+    padding: 16px 24px;
+    font-size: 22px;
+    width: 560px;
+  }
+</style>
+</head>
+<body>
+  <div class="banner">MayBrowser — a native HTML/CSS engine in Maylang</div>
+  <div class="card">
+    <h1>Hello, world.</h1>
+    <p>This page is parsed, cascaded and laid out by a browser engine written
+       entirely in Maylang, then rasterised with antialiased text. The
+       <span class="accent">CSS cascade</span> supports selectors, classes,
+       ids and the box model.</p>
+    <h2>Features</h2>
+    <ul>
+      <li>Custom HTML tree builder</li>
+      <li>Selector matching and specificity</li>
+      <li>Block and inline layout with wrapping</li>
+      <li>Duktape JavaScript through FFI</li>
+    </ul>
+    <p class="muted">Fonts are rasterised by a tiny native shim; everything else is Maylang.</p>
+    <span class="btn">Get started</span><span class="btn">Read the docs</span>
+  </div>
+  <div class="card">
+    <h2>Text wrapping</h2>
+    <p>The inline formatting code measures every word with real font metrics and
+       wraps at the content edge, aligning baselines across mixed font sizes.
+       This paragraph is deliberately long so that it wraps across several lines
+       inside the card while the margins and padding keep the measure readable.</p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,33 @@
+// Closures capture variables by reference.
+fun make_counter(start: Any) -> Any {
+    mut n: Any = start;
+    fun next() -> Any {
+        n = n + 1;
+        return n;
+    }
+    return next;
+}
+
+let a: Any = make_counter(0);
+let b: Any = make_counter(100);
+
+print(a()); // 1
+print(a()); // 2
+print(b()); // 101
+print(a()); // 3
+
+// Guard clauses with `unless` (single-statement form).
+fun safe_head(xs: Any) -> Any {
+    unless (len(xs) > 0) return nil;
+    return xs[0];
+}
+
+print(safe_head([10, 20, 30])); // 10
+print(safe_head([]));           // nil
+
+// Recursion and expression-oriented `if`.
+fun fact(n: Any) -> Any {
+    return if (n <= 1) { 1 } else { n * fact(n - 1) };
+}
+
+print("5! =", fact(5));

@@ -1,0 +1,1 @@
+let values: List<Int> = [1, "wrong"];

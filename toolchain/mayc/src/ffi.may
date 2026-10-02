@@ -1,0 +1,84 @@
+import "emitter.may";
+import "state.may";
+import "ast.may";
+import "lexer.may";
+import "parser.may";
+import "diagnostics.may";
+import "sema.may";
+import "symbols.may";
+// Typed C bindings. The OS loader relocates a writable slot for each symbol.
+
+fun ffi_kind(annotation: Any, result: Any, span: Any) -> Any {
+    if (annotation == 0 or len(annotation.arguments) != 0) { diagnostic(span, "extern declarations require scalar C types"); }
+    let name: Any = annotation.name;
+    let names: Any = ["Int", "UInt", "Int32", "UInt32", "Float", "Float32", "Ptr", "Str", "Bool", "Void"];
+    for i: Any in 0..len(names) {
+        if (name == names[i]) {
+            if (i == 9 and not result) { diagnostic(span, "Void is only valid as an extern return type"); }
+            return i;
+        }
+    }
+    diagnostic(span, "unsupported extern type `${name}`");
+    return 0;
+}
+
+fun ffi_string() -> Any {
+    let span: Any = parser_span();
+    if (ptok() != TK_STR) { diagnostic(span, "expected a library or symbol string"); }
+    let size: Any = declen(SRC, pstart(), plen());
+    let buffer: Any = irt_alloc(size + 1);
+    decopy(buffer, SRC, pstart(), plen());
+    mut text: Any = "";
+    for i: Any in 0..size {
+        let byte: Any = load8(buffer + i);
+        if (byte == 0) { diagnostic(span, "extern names cannot contain NUL"); }
+        text = text + chr(byte);
+    }
+    if (size == 0) { diagnostic(span, "extern names cannot be empty"); }
+    adv();
+    return text;
+}
+
+fun parse_extern(ctx: Any) -> Any {
+    let blockSpan: Any = parser_span();
+    if (PARSE_RAW == 1) { diagnostic(blockSpan, "extern bindings require the dynamic Maylang runtime"); }
+    expect(TK_EXTERN);
+    let library: Any = ffi_string();
+    expect(TK_LB);
+    while (ptok() != TK_RB) {
+        let public: Any = ptok() == TK_PUB;
+        if (public) { adv(); }
+        let span: Any = parser_span();
+        expect(TK_FUN);
+        let pointer: Any = SRC + pstart(); let length: Any = plen();
+        expect(TK_IDENT); expect(TK_LP);
+        let parameters: Any = parse_params();
+        expect(TK_RP); expect(TK_ARROW);
+        let result: Any = parse_type();
+        mut symbol: Any = symbol_name(pointer, length);
+        if (ptok() == TK_ASSIGN) { adv(); symbol = ffi_string(); }
+        expect(TK_SEMI);
+        let body: Any = Block(S_BLOCK, span, 0, 0, 0);
+        make_func(ctx, pointer, length, parameters, len(parameters), body, 0, [], []);
+        let rec: Any = FUNC_HEAD[len(FUNC_HEAD) - 1];
+        rec.foreign = true; rec.library = library; rec.symbol = symbol;
+        rec.returnType = result; rec.ffiResult = ffi_kind(result, true, span);
+        rec.ffiArgs = [];
+        for parameter: Any in parameters { push(rec.ffiArgs, ffi_kind(parameter.annotation, false, parameter.span)); }
+        push(FOREIGN_DECLS, rec);
+        if (public) {
+            let module: Any = source_module(span);
+            MODULE_EXPLICIT[module] = true;
+            MODULE_PUBLIC[module + "::" + symbol_name(pointer, length)] = true;
+        }
+    }
+    expect(TK_RB);
+    return 0;
+}
+
+fun ffi_prepare(ctx: Any) -> Any {
+    if (len(FOREIGN_DECLS) == 0) { return 0; }
+    ctx.ffiStartSlot = dalloc(ctx, 8);
+    for rec: Any in FOREIGN_DECLS { rec.ffiSlot = dalloc(ctx, 8); }
+    return 0;
+}

@@ -1,0 +1,2 @@
+import "mod_a.may";
+print(square(6), TAU);

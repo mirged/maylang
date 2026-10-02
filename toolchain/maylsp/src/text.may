@@ -1,0 +1,159 @@
+// Byte offsets internally; UTF-16 code units at the protocol boundary.
+let LS_KEYWORDS: Any = ["fun", "let", "mut", "if", "else", "while", "for", "in", "return", "break", "continue", "unless", "match", "may", "otherwise", "struct", "enum", "pub", "extern", "import", "from", "as", "and", "or", "not", "true", "false", "nil"];
+fun ls_bytes(s: Any) -> Any { return load64(addr(s) - 8); }
+fun ls_byte(s: Any, i: Any) -> Any { if (i < 0 or i >= ls_bytes(s)) { return 0; } return load8(addr(s) + i); }
+fun ls_width(c: Any) -> Any {
+    if (c < 128) { return 1; }
+    if (c < 224) { return 2; }
+    if (c < 240) { return 3; }
+    return 4;
+}
+fun ls_blank(n: Any) -> Any {
+    // Doubling avoids the prelude's repeated one-character concatenation.
+    mut out: Any = ""; mut block: Any = " "; mut left: Any = n;
+    while (left > 0) {
+        if (left % 2 == 1) { out = out + block; }
+        left = left / 2;
+        if (left > 0) { block = block + block; }
+    }
+    return out;
+}
+fun ls_text(p: Any, n: Any) -> Any {
+    let out: Any = ls_blank(n); mut i: Any = 0;
+    // 32-bit chunks fit safely in Maylang's tagged integer representation.
+    while (i + 4 <= n) { store32(addr(out) + i, load32(p + i)); i += 4; }
+    while (i < n) { store8(addr(out) + i, load8(p + i)); i += 1; }
+    return out;
+}
+fun ls_slice(s: Any, a: Any, b: Any) -> Any { return ls_text(addr(s) + a, max(0, b - a)); }
+fun ls_trim(s: Any) -> Any {
+    mut a: Any = 0; mut b: Any = ls_bytes(s);
+    while (a < b and has([32, 9, 10, 13], ls_byte(s, a))) { a += 1; }
+    while (b > a and has([32, 9, 10, 13], ls_byte(s, b - 1))) { b -= 1; }
+    if (a == 0 and b == ls_bytes(s)) { return s; }
+    return ls_slice(s, a, b);
+}
+fun ls_matches(s: Any, at: Any, part: Any) -> Any {
+    let n: Any = ls_bytes(part);
+    if (at < 0 or at + n > ls_bytes(s)) { return false; }
+    for i: Any in 0..n { if (load8(addr(s) + at + i) != load8(addr(part) + i)) { return false; } }
+    return true;
+}
+fun ls_starts(s: Any, prefix: Any) -> Any { return ls_matches(s, 0, prefix); }
+fun ls_ends(s: Any, suffix: Any) -> Any { return ls_matches(s, ls_bytes(s) - ls_bytes(suffix), suffix); }
+fun ls_find(s: Any, part: Any) -> Any {
+    let stop: Any = ls_bytes(s) - ls_bytes(part); mut i: Any = 0;
+    while (i <= stop) { if (ls_matches(s, i, part)) { return i; } i += 1; }
+    return -1;
+}
+fun ls_contains(s: Any, part: Any) -> Any { return ls_find(s, part) >= 0; }
+fun ls_split(s: Any, separator: Any) -> Any {
+    let parts: Any = []; let width: Any = ls_bytes(separator); mut start: Any = 0; mut i: Any = 0;
+    if (width == 0) { return [s]; }
+    while (i + width <= ls_bytes(s)) {
+        if (ls_matches(s, i, separator)) { push(parts, ls_slice(s, start, i)); i += width; start = i; }
+        else { i += 1; }
+    }
+    push(parts, ls_slice(s, start, ls_bytes(s))); return parts;
+}
+fun ls_lower(s: Any) -> Any {
+    let out: Any = ls_slice(s, 0, ls_bytes(s));
+    for i: Any in 0..ls_bytes(out) { let c: Any = ls_byte(out, i); if (c >= 65 and c <= 90) { store8(addr(out) + i, c + 32); } }
+    return out;
+}
+fun ls_validate_utf8(s: Any) -> Any {
+    mut i: Any = 0;
+    while (i < ls_bytes(s)) {
+        let c: Any = ls_byte(s, i); let w: Any = ls_width(c);
+        if (c < 128) { i += 1; continue; }
+        if (c < 194 or c > 244 or i + w > ls_bytes(s)) { fail("invalid UTF-8"); }
+        for j: Any in 1..w { let b: Any = ls_byte(s, i + j); if (b < 128 or b > 191) { fail("invalid UTF-8"); } }
+        let second: Any = ls_byte(s, i + 1);
+        if ((c == 224 and second < 160) or (c == 237 and second >= 160) or (c == 240 and second < 144) or (c == 244 and second >= 144)) { fail("invalid UTF-8"); }
+        i += w;
+    }
+    return nil;
+}
+mut LS_POSITION_TEXT: Any = "";
+mut LS_LINE_STARTS: Any = [0];
+fun ls_lines(s: Any) -> Any {
+    if (addr(s) != addr(LS_POSITION_TEXT)) {
+        LS_POSITION_TEXT = s; LS_LINE_STARTS = [0];
+        for i: Any in 0..ls_bytes(s) { if (ls_byte(s, i) == 10) { push(LS_LINE_STARTS, i + 1); } }
+    }
+    return nil;
+}
+fun ls_position(s: Any, offset: Any) -> Any {
+    ls_lines(s); let limit: Any = min(max(0, offset), ls_bytes(s));
+    mut lo: Any = 0; mut hi: Any = len(LS_LINE_STARTS);
+    while (lo + 1 < hi) { let mid: Any = (lo + hi) / 2; if (LS_LINE_STARTS[mid] <= limit) { lo = mid; } else { hi = mid; } }
+    mut i: Any = LS_LINE_STARTS[lo]; mut col: Any = 0;
+    while (i < limit) { let c: Any = ls_byte(s, i); col += if (c >= 240) { 2 } else { 1 }; i += ls_width(c); }
+    return {"line": lo, "character": col};
+}
+fun ls_offset(s: Any, p: Any) -> Any {
+    if (value_tag(p) != 7 or value_tag(p.line) != 0 or value_tag(p.character) != 0 or p.line < 0 or p.character < 0) { fail("invalid position"); }
+    ls_lines(s);
+    if (p.line >= len(LS_LINE_STARTS)) { return ls_bytes(s); }
+    mut i: Any = LS_LINE_STARTS[p.line]; mut col: Any = 0;
+    while (i < ls_bytes(s) and col < p.character and ls_byte(s, i) != 10 and ls_byte(s, i) != 13) {
+        let c: Any = ls_byte(s, i); col += if (c >= 240) { 2 } else { 1 }; i += ls_width(c);
+    }
+    return i;
+}
+fun ls_range(s: Any, a: Any, b: Any) -> Any { return {"start": ls_position(s, a), "end": ls_position(s, b)}; }
+fun ls_ident_start(c: Any) -> Any { return (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95; }
+fun ls_ident(c: Any) -> Any { return ls_ident_start(c) or (c >= 48 and c <= 57); }
+fun ls_valid_name(s: Any) -> Any {
+    if (ls_bytes(s) == 0 or not ls_ident_start(ls_byte(s, 0)) or has(LS_KEYWORDS, s)) { return false; }
+    for i: Any in 1..ls_bytes(s) { if (not ls_ident(ls_byte(s, i))) { return false; } }
+    return true;
+}
+fun ls_dir(path: Any) -> Any {
+    let parts: Any = ls_split(path, "/"); pop(parts); return join(parts, "/");
+}
+fun ls_normal(path: Any) -> Any {
+    let parts: Any = [];
+    for part: Any in ls_split(path, "/") {
+        if (part == "..") { if (len(parts) > 0) { pop(parts); } }
+        else if (part != "" and part != ".") { push(parts, part); }
+    }
+    return "/" + join(parts, "/");
+}
+fun ls_hex(c: Any) -> Any {
+    if (c >= 48 and c <= 57) { return c - 48; }
+    if (c >= 65 and c <= 70) { return c - 55; }
+    if (c >= 97 and c <= 102) { return c - 87; }
+    return fail("invalid URI escape");
+}
+fun ls_path(uri: Any) -> Any {
+    if (not ls_starts(uri, "file://")) { fail("only file URIs are supported"); }
+    let raw: Any = ls_slice(uri, 7, ls_bytes(uri));
+    if (ls_starts(raw, "localhost/")) { return ls_path("file:///" + ls_slice(raw, 10, ls_bytes(raw))); }
+    if (not ls_starts(raw, "/")) { fail("remote file URIs are unsupported"); }
+    mut encoded: Any = "";
+    mut i: Any = 0;
+    // Decode percent bytes via a temporary byte buffer, preserving UTF-8.
+    let p: Any = syscall(9, 0, ls_bytes(raw) + 1, 3, 34, -1, 0);
+    mut n: Any = 0;
+    while (i < ls_bytes(raw)) {
+        mut c: Any = ls_byte(raw, i);
+        if (c == 37) {
+            if (i + 2 >= ls_bytes(raw)) { syscall(11, p, ls_bytes(raw) + 1); fail("invalid URI"); }
+            c = ls_hex(ls_byte(raw, i + 1)) * 16 + ls_hex(ls_byte(raw, i + 2)); i += 2;
+        }
+        store8(p + n, c); n += 1; i += 1;
+    }
+    encoded = ls_text(p, n); syscall(11, p, ls_bytes(raw) + 1);
+    return ls_normal(encoded);
+}
+fun ls_uri(path: Any) -> Any {
+    let hex: Any = "0123456789ABCDEF";
+    mut out: Any = "file://";
+    for i: Any in 0..ls_bytes(path) {
+        let c: Any = ls_byte(path, i);
+        if (ls_ident(c) or c == 47 or c == 45 or c == 46 or c == 126 or c == 58) { out = out + chr(c); }
+        else { out = out + "%" + chr(ls_byte(hex, c / 16)) + chr(ls_byte(hex, c % 16)); }
+    }
+    return out;
+}

@@ -1,0 +1,430 @@
+import "support.may";
+import "dom.may";
+import "css.may";
+import "net.may";
+// layout.may — a block/inline layout engine for the CSS box model.
+//
+// Block boxes stack vertically; inline content is flattened into line boxes
+// with word wrapping and baseline alignment.  Inline-block and replaced boxes
+// are laid out atomically and participate in the inline flow.
+
+struct Box {
+    node: Int,
+    parent: Int,
+    kind: Str,            // block, inline-block, image, list-item
+    style: Style,
+    x: Int,
+    y: Int,
+    w: Int,
+    h: Int,
+    cx: Int,
+    cy: Int,
+    cw: Int,
+    ch: Int,
+    children: List<Int>,
+    lines: List<Any>,
+    img: Ptr,
+    img_w: Int,
+    img_h: Int,
+    text: Str,
+}
+
+mut BOXES: List<Box> = [];
+
+fun lay_new(node: Int, style: Style, kind: Str) -> Int {
+    let b: Box = Box(node, 0 - 1, kind, style, 0, 0, 0, 0, 0, 0, 0, 0, [], [], ptr(0), 0, 0, "");
+    push(BOXES, b);
+    return len(BOXES) - 1;
+}
+
+fun lay_layout_document(root: Int, viewport_w: Int, viewport_h: Int) -> Int {
+    BOXES = [];
+    let base: Style = style_new();
+    base.font_size = 16;
+    base.display = "block";
+    let html_node: Int = root;
+    let body_box: Int = lay_block(html_node, base, 0, 0, viewport_w);
+    let b: Box = BOXES[body_box];
+    if (b.h < viewport_h) {
+        // Paint the viewport background as the html element at least.
+        b.h = viewport_h;
+        BOXES[body_box] = b;
+    }
+    return body_box;
+}
+
+fun lay_block(node: Int, parent: Style, margin_x: Int, margin_y: Int, avail_w: Int) -> Int {
+    let style: Style = css_style(node, parent);
+    mut kind: Str = "block";
+    if (style.display == "list-item") { kind = "list-item"; }
+    let box: Int = lay_new(node, style, kind);
+
+    let ml: Int = if (style.margin_left < 0) { 0 } else { style.margin_left };
+    let mr: Int = if (style.margin_right < 0) { 0 } else { style.margin_right };
+    let mt: Int = if (style.margin_top < 0) { 0 } else { style.margin_top };
+    let mb: Int = if (style.margin_bottom < 0) { 0 } else { style.margin_bottom };
+
+    let border_x: Int = margin_x + ml;
+    let border_y: Int = margin_y + mt;
+    mut outer_w: Int = avail_w - ml - mr;
+    if (outer_w < 1) { outer_w = 1; }
+
+    mut content_w: Int = outer_w - style.padding_left - style.padding_right - style.border_left - style.border_right;
+    if (style.width >= 0) { content_w = style.width; }
+    else if (style.width_pct > 0) { content_w = (outer_w * style.width_pct) / 100; }
+    if (content_w < 0) { content_w = 0; }
+
+    let content_x: Int = border_x + style.border_left + style.padding_left;
+    let content_y: Int = border_y + style.border_top + style.padding_top;
+
+    let fs: Any = {"lines": [], "items": [], "width": 0, "asc": 0, "desc": 0,
+        "cw": content_w, "y": content_y, "lh": 0, "align": style.text_align, "pending": false};
+    lay_flow(node, box, style, fs, content_x);
+    lay_flush(fs, content_x);
+
+    let content_h: Int = fs.y - content_y;
+    mut box_h: Int = content_h + style.padding_top + style.padding_bottom + style.border_top + style.border_bottom;
+    if (style.height >= 0) { box_h = style.height + style.padding_top + style.padding_bottom + style.border_top + style.border_bottom; }
+
+    let bx: Box = BOXES[box];
+    bx.x = border_x; bx.y = border_y;
+    bx.w = content_w + style.padding_left + style.padding_right + style.border_left + style.border_right;
+    bx.h = box_h;
+    bx.cx = content_x; bx.cy = content_y; bx.cw = content_w; bx.ch = content_h;
+    bx.lines = fs.lines;
+    BOXES[box] = bx;
+    return box;
+}
+
+fun lay_outer_height(box: Int) -> Int {
+    let b: Box = BOXES[box];
+    let ml: Int = if (b.style.margin_left < 0) { 0 } else { b.style.margin_left };
+    return b.h + (if (b.style.margin_top < 0) { 0 } else { b.style.margin_top })
+        + (if (b.style.margin_bottom < 0) { 0 } else { b.style.margin_bottom });
+}
+
+// Layout inline content (and nested block boxes) inside a block box.
+fun lay_flow(node: Int, box: Int, parent_style: Style, fs: Any, content_x: Int) -> Nil {
+    for child: Int in dom_children(node) {
+        if (dom_is_text(child)) {
+            let s: Style = parent_style;
+            lay_text(fs, dom_text(child), s, content_x);
+            continue;
+        }
+        let cstyle: Style = css_style(child, parent_style);
+        if (cstyle.display == "none") { continue; }
+        let tag: Str = dom_tag(child);
+        if (tag == "br") { lay_break(fs, content_x); continue; }
+        if (cstyle.display == "block" or cstyle.display == "list-item") {
+            lay_flush(fs, content_x);
+            let cb: Int = lay_block(child, parent_style, content_x, fs.y, fs.cw);
+            let ob: Box = BOXES[cb];
+            let top_margin: Int = if (ob.style.margin_top < 0) { 0 } else { ob.style.margin_top };
+            // margin-top was already applied inside lay_block; advance the cursor
+            fs.y = fs.y + lay_outer_height(cb);
+            let parent_box: Box = BOXES[box];
+            push(parent_box.children, cb);
+            BOXES[box] = parent_box;
+            let cbx: Box = BOXES[cb];
+            cbx.parent = box;
+            BOXES[cb] = cbx;
+            continue;
+        }
+        if (cstyle.display == "inline-block") {
+            let cb: Int = lay_inline_block(child, cstyle, content_x, fs.y, fs.cw);
+            lay_add_box(fs, cb, content_x);
+            continue;
+        }
+        // inline element: recurse
+        lay_flow(child, box, cstyle, fs, content_x);
+    }
+    return;
+}
+
+fun lay_text(fs: Any, text: Str, style: Style, content_x: Int) -> Nil {
+    let preserve: Bool = style.white_space == "pre" or style.white_space == "pre-wrap";
+    let font: Int = sup_font_id(style.font_family, style.font_weight);
+    let size: Float = float(style.font_size);
+    let asc: Int = int(sup_ascent(font, size) + 0.5);
+    let desc: Int = int(sup_descent(font, size) + 0.5);
+    let space_w: Int = sup_measure(font, size, " ");
+    mut word: List<Str> = [];
+    for ch: Str in text {
+        let c: Int = ord(ch);
+        let ws: Bool = c == 32 or c == 9 or c == 10 or c == 13;
+        if (ws) {
+            if (len(word) > 0) {
+                let w: Int = sup_measure(font, size, join(word, ""));
+                lay_add_word(fs, {"kind": "text", "text": join(word, ""), "style": style, "font": font,
+                    "size": style.font_size, "w": w, "asc": asc, "desc": desc, "lh": style.line_height}, content_x);
+                word = [];
+            }
+            if (preserve) {
+                if (c == 10 or c == 13) { lay_break(fs, content_x); }
+                else { lay_add_space(fs, space_w); }
+            } else {
+                fs.pending = true;
+            }
+        } else {
+            if (fs.pending == true) {
+                if (len(fs.items) > 0) { lay_add_space(fs, space_w); }
+                fs.pending = false;
+            }
+            push(word, ch);
+        }
+    }
+    if (len(word) > 0) {
+        let w: Int = sup_measure(font, size, join(word, ""));
+        lay_add_word(fs, {"kind": "text", "text": join(word, ""), "style": style, "font": font,
+            "size": style.font_size, "w": w, "asc": asc, "desc": desc, "lh": style.line_height}, content_x);
+    }
+    return;
+}
+
+fun lay_tokens(s: Str, preserve: Bool) -> List<Any> {
+    mut out: List<Any> = [];
+    mut word: List<Str> = [];
+    mut pending: Bool = false;
+    for ch: Str in s {
+        let c: Int = ord(ch);
+        let ws: Bool = c == 32 or c == 9 or c == 10 or c == 13;
+        if (ws) {
+            if (preserve) {
+                if (len(word) > 0) { push(out, {"t": "w", "s": join(word, "")}); word = []; }
+                if (c == 10 or c == 13) { push(out, {"t": "n", "s": "\n"}); }
+                else { push(out, {"t": "s", "s": " "}); }
+            } else {
+                if (len(word) > 0) { push(out, {"t": "w", "s": join(word, "")}); word = []; }
+                pending = true;
+            }
+        } else {
+            if (pending and len(out) > 0) { push(out, {"t": "s", "s": " "}); }
+            pending = false;
+            push(word, ch);
+        }
+    }
+    if (len(word) > 0) { push(out, {"t": "w", "s": join(word, "")}); }
+    else if (pending) { push(out, {"t": "s", "s": " "}); }
+    return out;
+}
+
+fun lay_add_word(fs: Any, item: Any, content_x: Int) -> Nil {
+    if (len(fs.items) > 0 and fs.width + item.w > fs.cw) {
+        lay_flush(fs, content_x);
+    }
+    push(fs.items, item);
+    fs.width = fs.width + item.w;
+    if (item.asc > fs.asc) { fs.asc = item.asc; }
+    if (item.desc > fs.desc) { fs.desc = item.desc; }
+    return;
+}
+
+fun lay_add_space(fs: Any, w: Int) -> Nil {
+    if (len(fs.items) == 0) { return; }
+    push(fs.items, {"kind": "space", "w": w, "asc": 0, "desc": 0, "lh": 0});
+    fs.width = fs.width + w;
+    return;
+}
+
+fun lay_add_box(fs: Any, box: Int, content_x: Int) -> Nil {
+    let b: Box = BOXES[box];
+    let ml: Int = if (b.style.margin_left < 0) { 0 } else { b.style.margin_left };
+    let mr: Int = if (b.style.margin_right < 0) { 0 } else { b.style.margin_right };
+    let item: Any = {"kind": "box", "box": box, "w": b.w + ml + mr, "h": b.h,
+        "asc": b.h, "desc": 0, "lh": b.h, "ml": ml};
+    if (len(fs.items) > 0 and fs.width + item.w > fs.cw) { lay_flush(fs, content_x); }
+    push(fs.items, item);
+    fs.width = fs.width + item.w;
+    if (item.asc > fs.asc) { fs.asc = item.asc; }
+    if (item.desc > fs.desc) { fs.desc = item.desc; }
+    return;
+}
+
+fun lay_break(fs: Any, content_x: Int) -> Nil {
+    lay_flush(fs, content_x);
+    // A <br> forces at least one line of the current line height.
+    let lh: Int = if (fs.lh > 0) { fs.lh } else { 16 };
+    push(fs.lines, {"y": fs.y, "baseline": fs.y + lh, "height": lh, "items": []});
+    fs.y = fs.y + lh;
+    fs.items = [];
+    fs.width = 0;
+    fs.asc = 0;
+    fs.desc = 0;
+    fs.lh = 0;
+    fs.pending = false;
+    return;
+}
+
+fun lay_flush(fs: Any, content_x: Int) -> Nil {
+    if (len(fs.items) == 0) { return; }
+    // trim leading spaces
+    while (len(fs.items) > 0 and fs.items[0].kind == "space") {
+        fs.width = fs.width - fs.items[0].w;
+        fs.items = slice(fs.items, 1, len(fs.items));
+    }
+    // trim trailing spaces
+    while (len(fs.items) > 0 and fs.items[len(fs.items) - 1].kind == "space") {
+        fs.width = fs.width - fs.items[len(fs.items) - 1].w;
+        fs.items = slice(fs.items, 0, len(fs.items) - 1);
+    }
+    if (len(fs.items) == 0) { return; }
+    mut line_h: Int = fs.asc + fs.desc;
+    for it: Any in fs.items {
+        if (it.kind != "space" and it.lh > line_h) { line_h = it.lh; }
+    }
+    if (line_h < 1) { line_h = 16; }
+    mut baseline: Int = fs.asc;
+    if (baseline + fs.desc < line_h) { baseline = line_h - fs.desc; }
+
+    mut x: Int = content_x;
+    mut placed: List<Any> = [];
+    for it: Any in fs.items {
+        if (it.kind == "box") {
+            let b: Box = BOXES[it.box];
+            let ml: Int = it.ml ?? 0;
+            let dx: Int = x + ml - b.x;
+            let dy: Int = (fs.y + baseline - b.h) - b.y;
+            lay_translate(it.box, dx, dy);
+        }
+        it["x"] = x;
+        push(placed, it);
+        x = x + it.w;
+    }
+    let line_width: Int = x - content_x;
+    let align: Str = fs.align ?? "left";
+    mut shift: Int = 0;
+    if (align == "center") { shift = (fs.cw - line_width) / 2; }
+    else if (align == "right") { shift = fs.cw - line_width; }
+    if (shift > 0) {
+        for it: Any in placed { it["x"] = it.x + shift; }
+        for it: Any in placed {
+            if (it.kind == "box") { lay_translate(it.box, shift, 0); }
+        }
+    }
+    push(fs.lines, {"y": fs.y, "baseline": fs.y + baseline, "height": line_h, "items": placed});
+    fs.y = fs.y + line_h;
+    fs.items = [];
+    fs.width = 0;
+    fs.asc = 0;
+    fs.desc = 0;
+    fs.lh = 0;
+    fs.pending = false;
+    return;
+}
+
+fun lay_inline_block(node: Int, style: Style, x: Int, y: Int, avail_w: Int) -> Int {
+    if (dom_tag(node) == "img") { return lay_image(node, style, x, y, avail_w); }
+    let box: Int = lay_new(node, style, "inline-block");
+    mut content_w: Int = style.width;
+    if (style.width < 0 and style.width_pct > 0) { content_w = (avail_w * style.width_pct) / 100; }
+    if (content_w < 0) {
+        let iw: Any = lay_intrinsic(node, css_parent_style(style));
+        content_w = iw[1];
+        if (content_w > avail_w) { content_w = avail_w; }
+        if (content_w < iw[0]) { content_w = iw[0]; }
+        if (content_w < 1) { content_w = 1; }
+    }
+    let content_x: Int = x + style.border_left + style.padding_left;
+    let content_y: Int = y + style.border_top + style.padding_top;
+    let fs: Any = {"lines": [], "items": [], "width": 0, "asc": 0, "desc": 0,
+        "cw": content_w, "y": content_y, "lh": 0, "align": style.text_align, "pending": false};
+    lay_flow(node, box, style, fs, content_x);
+    lay_flush(fs, content_x);
+    let content_h: Int = fs.y - content_y;
+    let bx: Box = BOXES[box];
+    bx.x = x; bx.y = y;
+    bx.cx = content_x; bx.cy = content_y; bx.cw = content_w; bx.ch = content_h;
+    bx.w = content_w + style.padding_left + style.padding_right + style.border_left + style.border_right;
+    bx.h = content_h + style.padding_top + style.padding_bottom + style.border_top + style.border_bottom;
+    bx.lines = fs.lines;
+    BOXES[box] = bx;
+    return box;
+}
+
+// Reconstruct the parent style for intrinsic measurement; approximate.
+fun css_parent_style(s: Style) -> Style {
+    let p: Style = style_new();
+    p.font_size = s.font_size;
+    p.font_family = s.font_family;
+    p.color = s.color;
+    p.font_weight = s.font_weight;
+    return p;
+}
+
+fun lay_image(node: Int, style: Style, x: Int, y: Int, avail_w: Int) -> Int {
+    let box: Int = lay_new(node, style, "image");
+    let b: Box = BOXES[box];
+    let src: Str = net_resolve_src(dom_attr(node, "src"));
+    let meta: Any = sup_image(src);
+    let iw: Int = if (meta == nil) { 32 } else { meta.w };
+    let ih: Int = if (meta == nil) { 24 } else { meta.h };
+    if (meta != nil) { b.img = meta.ptr; b.img_w = iw; b.img_h = ih; }
+    mut w: Int = iw;
+    mut h: Int = ih;
+    if (style.width >= 0) { w = style.width; if (style.height < 0 and iw > 0) { h = ih * w / iw; } }
+    if (style.height >= 0) { h = style.height; if (style.width < 0 and ih > 0) { w = iw * h / ih; } }
+    if (dom_has_attr(node, "width")) { w = may { int(dom_attr(node, "width")) } otherwise { w }; if (style.height < 0 and iw > 0) { h = ih * w / iw; } }
+    if (dom_has_attr(node, "height")) { h = may { int(dom_attr(node, "height")) } otherwise { h }; }
+    if (w > avail_w and avail_w > 0) {
+        let scaled: Int = avail_w;
+        if (iw > 0) { h = ih * scaled / iw; }
+        w = scaled;
+    }
+    b.x = x; b.y = y; b.cx = x; b.cy = y; b.cw = w; b.ch = h;
+    b.w = w + style.padding_left + style.padding_right + style.border_left + style.border_right;
+    b.h = h + style.padding_top + style.padding_bottom + style.border_top + style.border_bottom;
+    BOXES[box] = b;
+    return box;
+}
+
+// Approximate intrinsic widths: [min, preferred].
+fun lay_intrinsic(node: Int, parent: Style) -> Any {
+    let style: Style = css_style(node, parent);
+    mut min_w: Int = 0;
+    mut pref: Int = 0;
+    let add: Int = style.padding_left + style.padding_right + style.border_left + style.border_right;
+    if (style.width >= 0) { return [style.width + add, style.width + add]; }
+    for child: Int in dom_children(node) {
+        if (dom_is_text(child)) {
+            let tokens: List<Any> = lay_tokens(dom_text(child), style.white_space == "pre");
+            for tok: Any in tokens {
+                let w: Int = sup_measure(sup_font_id(style.font_family, style.font_weight), float(style.font_size), tok.s);
+                pref = pref + w;
+                if (tok.t == "w" and w > min_w) { min_w = w; }
+            }
+            continue;
+        }
+        let cstyle: Style = css_style(child, style);
+        if (cstyle.display == "none") { continue; }
+        let cw: Any = lay_intrinsic(child, style);
+        if (cstyle.display == "block" or cstyle.display == "list-item") {
+            if (cw[1] > pref) { pref = cw[1]; }
+            if (cw[0] > min_w) { min_w = cw[0]; }
+        } else {
+            pref = pref + cw[1];
+            if (cw[0] > min_w) { min_w = cw[0]; }
+        }
+    }
+    if (pref < min_w) { pref = min_w; }
+    return [min_w + add, pref + add];
+}
+
+fun lay_find_parent_of(node: Int) -> Int { return dom_parent(node); }
+
+// Shift an already laid-out subtree (used to place inline-blocks).
+fun lay_translate(bi: Int, dx: Int, dy: Int) -> Nil {
+    if (dx == 0 and dy == 0) { return; }
+    let b: Box = BOXES[bi];
+    b.x = b.x + dx; b.y = b.y + dy; b.cx = b.cx + dx; b.cy = b.cy + dy;
+    for line: Any in b.lines {
+        line["y"] = line.y + dy;
+        line["baseline"] = line.baseline + dy;
+        for it: Any in line.items {
+            it["x"] = it.x + dx;
+            if (it.kind == "box") { lay_translate(it.box, dx, dy); }
+        }
+    }
+    for c: Int in b.children { lay_translate(c, dx, dy); }
+    BOXES[bi] = b;
+    return;
+}

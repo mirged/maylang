@@ -1,0 +1,11 @@
+{
+  "authors": ["Maylang Contributors"],
+  "dependencies": {},
+  "description": "Maylang language server written in Maylang",
+  "entry": "main.may",
+  "modules": [],
+  "name": "maylsp",
+  "output": "maylsp",
+  "target": "host",
+  "version": "0.1.0"
+}

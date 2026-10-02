@@ -1,0 +1,82 @@
+// ml/classical.may — interpretable baseline algorithms for numeric features.
+import "random.may";
+
+fun ml_distance(a: Any, b: Any) -> Any {
+    if (len(a) != len(b)) { fail("feature vectors must have equal width"); }
+    return sqrt(sum([(a[i] - b[i]) * (a[i] - b[i]) for i: Any in 0..len(a)]));
+}
+fun ml_knn_predict(train_x: Any, train_y: Any, query: Any, k: Any) -> Any {
+    if (len(train_x) != len(train_y) || len(train_x) == 0) { fail("kNN needs nonempty matching training data"); }
+    if (k <= 0 || k > len(train_x)) { fail("kNN k must be within the training set size"); }
+    let distances: Any = [ml_distance(row, query) for row: Any in train_x];
+    mut used: Any = {}; mut votes: Any = {}; mut labels: Any = {};
+    for _: Any in 0..k {
+        mut best_i: Any = -1; mut best_d: Any = 1.0e300;
+        for i: Any in 0..len(distances) {
+            if (!has(used, str(i)) && distances[i] < best_d) { best_i = i; best_d = distances[i]; }
+        }
+        used[str(best_i)] = true;
+        let key: Any = str(train_y[best_i]); votes[key] = (votes[key] ?? 0) + 1; labels[key] = train_y[best_i];
+    }
+    mut best_label: Any = nil; mut best_votes: Any = -1;
+    for key: Any in keys(votes) { if (votes[key] > best_votes) { best_votes = votes[key]; best_label = labels[key]; } }
+    return best_label;
+}
+fun ml_kmeans(rows: Any, k: Any, iterations: Any, rng: Any) -> Any {
+    if (len(rows) < k || k <= 0 || iterations <= 0) { fail("k-means needs at least k rows, positive k and positive iterations"); }
+    let width: Any = len(rows[0]);
+    for row: Any in rows { if (len(row) != width) { fail("k-means rows must have equal width"); } }
+    mut centers: Any = random_sample(rng, rows, k);
+    mut labels: Any = [-1 for _: Any in rows]; mut inertia: Any = 0.0;
+    for _: Any in 0..iterations {
+        mut changed: Any = false; inertia = 0.0;
+        for i: Any in 0..len(rows) {
+            mut best: Any = 0; mut best_d: Any = ml_distance(rows[i], centers[0]);
+            for c: Any in 1..k { let d: Any = ml_distance(rows[i], centers[c]); if (d < best_d) { best = c; best_d = d; } }
+            if (labels[i] != best) { changed = true; labels[i] = best; }
+            inertia = inertia + best_d * best_d;
+        }
+        mut sums: Any = [[0.0 for _: Any in 0..width] for _: Any in 0..k]; mut counts: Any = [0 for _: Any in 0..k];
+        for i: Any in 0..len(rows) {
+            let c: Any = labels[i]; counts[c] = counts[c] + 1;
+            for j: Any in 0..width { sums[c][j] = sums[c][j] + rows[i][j]; }
+        }
+        for c: Any in 0..k { if (counts[c] > 0) { centers[c] = [sums[c][j] / counts[c] for j: Any in 0..width]; } }
+        if (!changed) { break; }
+    }
+    return {"centers": centers, "labels": labels, "inertia": inertia};
+}
+fun ml_linear_fit(xs: Any, ys: Any, epochs: Any, learning_rate: Any) -> Any {
+    if (len(xs) == 0 || len(xs) != len(ys)) { fail("linear fit needs matching nonempty data"); }
+    let width: Any = len(xs[0]); mut weights: Any = [0.0 for _: Any in 0..width]; mut bias: Any = 0.0;
+    if (epochs < 0 || learning_rate <= 0) { fail("linear fit epochs and learning rate are invalid"); }
+    for row: Any in xs { if (len(row) != width) { fail("linear fit feature widths must match"); } }
+    for _: Any in 0..epochs {
+        let errors: Any = [sum([xs[i][j] * weights[j] for j: Any in 0..width]) + bias - ys[i] for i: Any in 0..len(xs)];
+        let scale: Any = learning_rate / len(xs);
+        for j: Any in 0..width { weights[j] = weights[j] - scale * sum([errors[i] * xs[i][j] for i: Any in 0..len(xs)]); }
+        bias = bias - scale * sum(errors);
+    }
+    return {"weights": weights, "bias": bias};
+}
+fun ml_linear_predict(model: Any, rows: Any) -> Any {
+    return [sum([rows[i][j] * model.weights[j] for j: Any in 0..len(model.weights)]) + model.bias for i: Any in 0..len(rows)];
+}
+fun ml_classical_sigmoid(x: Any) -> Any { return 1.0 / (1.0 + exp(-max(-60.0, min(60.0, x)))); }
+fun ml_logistic_fit(xs: Any, ys: Any, epochs: Any, learning_rate: Any) -> Any {
+    if (len(xs) == 0 || len(xs) != len(ys)) { fail("logistic fit needs matching nonempty data"); }
+    if (epochs < 0 || learning_rate <= 0) { fail("logistic fit epochs and learning rate are invalid"); }
+    for y: Any in ys { if (y != 0 && y != 1) { fail("logistic labels must be 0 or 1"); } }
+    let width: Any = len(xs[0]); mut weights: Any = [0.0 for _: Any in 0..width]; mut bias: Any = 0.0;
+    for row: Any in xs { if (len(row) != width) { fail("logistic feature widths must match"); } }
+    for _: Any in 0..epochs {
+        let probs: Any = [ml_classical_sigmoid(sum([xs[i][j] * weights[j] for j: Any in 0..width]) + bias) for i: Any in 0..len(xs)];
+        let errors: Any = [probs[i] - ys[i] for i: Any in 0..len(xs)]; let scale: Any = learning_rate / len(xs);
+        for j: Any in 0..width { weights[j] = weights[j] - scale * sum([errors[i] * xs[i][j] for i: Any in 0..len(xs)]); }
+        bias = bias - scale * sum(errors);
+    }
+    return {"weights": weights, "bias": bias};
+}
+fun ml_logistic_predict(model: Any, rows: Any) -> Any {
+    return [ml_classical_sigmoid(sum([rows[i][j] * model.weights[j] for j: Any in 0..len(model.weights)]) + model.bias) for i: Any in 0..len(rows)];
+}

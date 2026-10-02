@@ -1,0 +1,74 @@
+// render.may — console and DOT rendering for maypkg.
+
+import "fs.may" as fs;
+import "graph.may" as graph;
+
+pub fun banner(title: Any) -> Any {
+    let line: Any = repeat("-", 64);
+    print(line);
+    print("  " + title);
+    return print(line);
+}
+
+pub fun field(key: Any, value: Any) -> Any { return print("  " + pad_right(key, 14, " ") + value); }
+
+pub fun rule() -> Any { return print(repeat("-", 64)); }
+
+pub fun entry_label(path: Any) -> Any {
+    let tag: Any = if (graph.is_stdlib(path)) { "  [stdlib]" } else { "" };
+    return fs.basename(path) + tag;
+}
+
+fun tree_children(st: Any, path: Any, indent: Any, seen: Any) -> Any {
+    if (!has(st.nodes, path)) { return; }
+    let imports: Any = st.nodes[path].imports;
+    mut k: Any = 0;
+    while (k < len(imports)) {
+        let im: Any = imports[k];
+        let is_last: Any = k == len(imports) - 1;
+        let branch: Any = if (is_last) { "`-- " } else { "|-- " };
+        let child_indent: Any = indent + (if (is_last) { "    " } else { "|   " });
+        let label: Any = entry_label(im.path) + (if (im.ok) { "" } else { "  [MISSING]" });
+        if (has(seen, im.path)) {
+            print("${indent}${branch}${label}  (see above)");
+        } else {
+            seen[im.path] = true;
+            print("${indent}${branch}${label}");
+            tree_children(st, im.path, child_indent, seen);
+        }
+        k = k + 1;
+    }
+ return nil; }
+
+pub fun tree(st: Any, entry: Any) -> Any {
+    let seen: Any = {};
+    seen[entry] = true;
+    print(entry_label(entry));
+    return tree_children(st, entry, "", seen);
+}
+
+pub fun dot(st: Any) -> Any {
+    print("digraph maypkg {");
+    print("  rankdir=LR;");
+    for path: Any in st.order {
+        let node: Any = st.nodes[path];
+        let shape: Any = if (node.stdlib) { "ellipse" } else { "box" };
+        print("  \"${node.name}\" [shape=${shape}];");
+        for im: Any in node.imports {
+            print("  \"${node.name}\" -> \"${fs.basename(im.path)}\";");
+        }
+    }
+    return print("}");
+}
+
+pub fun plan(st: Any) -> Any {
+    mut i: Any = 1;
+    for path: Any in st.order {
+        let node: Any = st.nodes[path];
+        let kind: Any = if (node.stdlib) { "stdlib" } else { "local" };
+        let index: Any = pad_left(str(i), 3, " ");
+        let name: Any = pad_right(node.name, 22, " ");
+        print("  ${index}. ${name} ${kind}  ${path}");
+        i = i + 1;
+    }
+ return nil; }

@@ -1,0 +1,6 @@
+fun dynamic(value: Any) -> Any { return value; }
+print(true || false, false || false, true && true, false && true);
+print(1 < 2 && 2 < 3, !(1 > 2));
+print(dynamic(nil) || dynamic("default"), dynamic("value") || dynamic("default"));
+print(may { dynamic(nil) && dynamic(5) });
+print(dynamic(0) || dynamic(1), dynamic("") || dynamic("x"));

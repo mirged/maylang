@@ -1,0 +1,75 @@
+import "codec.may";
+import "storage.may";
+import "../../../../stdlib/format.may";
+import "../../../../stdlib/io.may";
+import "os.may";
+
+fun kind_name(kind: Int) -> Str {
+    return if (kind == 1) { "BEGIN" } else if (kind == 2) { "PUT" } else if (kind == 3) { "DELETE" } else { "COMMIT" };
+}
+fun display_key(key: Str) -> Str {
+    let digits: Str = "0123456789abcdef";
+    mut result: Str = "";
+    let address: Int = int(addr(key));
+    for i: Int in 0..byte_length(key) {
+        let byte: Int = load8(address + i);
+        if (byte < 32 or byte == 127) { result += "\\x" + digits[byte / 16] + digits[byte % 16]; }
+        else if (byte == 92) { result += "\\\\"; }
+        else { result += raw_byte(byte); }
+    }
+    return result;
+}
+fun print_stats(database: Database) -> Nil {
+    mut live: Int = 0;
+    for key: Str in sorted_keys(database) {
+        let entry: Entry = entry_for(database, key); live += byte_length(key) + entry.size;
+    }
+    print(format_kv({"log size": format_bytes(database.mapping.size), "live payload": format_bytes(live),
+        "keys": len(keys(database.entries)), "transactions": database.transactions,
+        "frames": len(database.frames), "committed bytes": database.committed_end,
+        "uncommitted tail": database.tail}, 18));
+    return;
+}
+fun print_keys(database: Database, prefix: Str) -> Nil {
+    let rows: List<List<Str>> = [];
+    for key: Str in sorted_keys(database) {
+        if (!starts_with(key, prefix)) { continue; }
+        let entry: Entry = entry_for(database, key);
+        push(rows, [display_key(key), str(entry.size), str(entry.transaction)]);
+    }
+    print(format_table(["KEY", "BYTES", "TX"], rows));
+    return;
+}
+fun inspect_database(database: Database) -> Nil {
+    print_stats(database);
+    let rows: List<List<Str>> = [];
+    for frame: Frame in database.frames {
+        push(rows, [str(frame.offset), str(frame.size), str(frame.transaction), kind_name(frame.kind),
+            display_key(frame.key), str(frame.value_size), if (frame.committed) { "yes" } else { "pending" }]);
+    }
+    print(format_table(["OFFSET", "SIZE", "TX", "TYPE", "KEY", "VALUE", "COMMITTED"], rows));
+    return;
+}
+fun parse_batch(path: Str) -> List<Operation> {
+    // Bound the existing character-oriented stdlib JSON parser's work.
+    // Large values belong in put-file, which bypasses JSON string parsing.
+    let mapping: Mapping = map_file(path, 16384);
+    unmap_file(mapping);
+    let document: Any = io_read_json(path);
+    if (type(document) != "List") { fail("batch JSON must be an array"); }
+    if (len(document) < 1 or len(document) > 1024) { fail("batch requires 1..1024 operations"); }
+    let operations: List<Operation> = [];
+    for row: Any in document {
+        if (type(row) != "Map" or type(row["op"]) != "Str" or type(row["key"]) != "Str") {
+            fail("each batch item requires string op and key");
+        }
+        let kind: Str = row["op"];
+        if (kind == "put") {
+            if (type(row["value"]) != "Str") { fail("put requires a string value"); }
+            push(operations, Operation(2, row["key"], row["value"]));
+        } else if (kind == "delete") { push(operations, Operation(3, row["key"], "")); }
+        else { fail("unknown batch operation: " + kind); }
+    }
+    for operation: Operation in operations { validate_operation(operation); }
+    return operations;
+}

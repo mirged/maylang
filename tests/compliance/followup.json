@@ -1,0 +1,407 @@
+[
+  {
+    "name": "string_backslash",
+    "expected": "6 92 \\u00e9\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "6 92 \\u00e9\n",
+      "stdout_hex": "36203932205c75303065390a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "json_surrogate",
+    "expected": "🙂\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "🙂\n",
+      "stdout_hex": "f09f99820a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "min_construct",
+    "expected": "arithmetic\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "arithmetic\n",
+      "stdout_hex": "61726974686d657469630a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "min_parse_caught",
+    "expected": "-1152921504606846976\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "-1152921504606846976\n",
+      "stdout_hex": "2d313135323932313530343630363834363937360a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "json_string_roundtrip",
+    "expected": "true\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "true\n",
+      "stdout_hex": "747275650a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "minimum_literal",
+    "expected": "-1152921504606846976\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "-1152921504606846976\n",
+      "stdout_hex": "2d313135323932313530343630363834363937360a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "minimum_abs",
+    "expected": "arithmetic\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "arithmetic\n",
+      "stdout_hex": "61726974686d657469630a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "integer_parse_limits",
+    "expected": "arithmetic\narithmetic\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "arithmetic\narithmetic\n",
+      "stdout_hex": "61726974686d657469630a61726974686d657469630a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "shared_collection",
+    "expected": "[[1], [1]]\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[[1], [1]]\n",
+      "stdout_hex": "5b5b315d2c205b315d5d0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "mutual_cycle",
+    "expected": "[{\"back\": <cycle>}]\n[1]\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[{\"back\": <cycle>}]\n[1]\n",
+      "stdout_hex": "5b7b226261636b223a203c6379636c653e7d5d0a5b315d0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "invalid_calls",
+    "expected": "type\ntype\ntype\ntype\ntype\ntype\ntype\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "type\ntype\ntype\ntype\ntype\ntype\ntype\n",
+      "stdout_hex": "747970650a747970650a747970650a747970650a747970650a747970650a747970650a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "valid_closure",
+    "expected": "9\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "9\n",
+      "stdout_hex": "390a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "compound_property",
+    "expected": "15 1\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "15 1\n",
+      "stdout_hex": "313520310a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "compound_sequence",
+    "expected": "[10]\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[10]\n",
+      "stdout_hex": "5b31305d0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "compound_order",
+    "expected": "[15] oir\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[15] oir\n",
+      "stdout_hex": "5b31355d206f69720a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "json_invalid_surrogates",
+    "expected": "parse\nparse\nparse\nparse\nparse\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "parse\nparse\nparse\nparse\nparse\n",
+      "stdout_hex": "70617273650a70617273650a70617273650a70617273650a70617273650a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "json_surrogate_roundtrip",
+    "expected": "true\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "true\n",
+      "stdout_hex": "747275650a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "float_large_mantissa",
+    "expected": "true\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "true\n",
+      "stdout_hex": "747275650a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "module_selective",
+    "expected": "7\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "7\n",
+      "stdout_hex": "370a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "module_string_preserved",
+    "expected": "a.value 11\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "a.value 11\n",
+      "stdout_hex": "612e76616c75652031310a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "module_shared_name",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/module_shared_name.may:3:7: ambiguous imported name `value`; use an alias\nprint(value());\n      ^^^^^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "module_selective_hidden",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/module_selective_hidden.may:2:7: unknown name `other`\nprint(other);\n      ^^^^^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "integer_positive_overflow",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/integer_positive_overflow.may:1:7: integer literal out of range\nprint(1152921504606846976);\n      ^^^^^^^^^^^^^^^^^^^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "integer_negative_overflow",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/integer_negative_overflow.may:1:8: integer literal out of range\nprint(-1152921504606846977);\n       ^^^^^^^^^^^^^^^^^^^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "module_alias_shadow",
+    "expected": "8 11\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "8 11\n",
+      "stdout_hex": "382031310a",
+      "stderr": ""
+    },
+    "passed": true
+  }
+]

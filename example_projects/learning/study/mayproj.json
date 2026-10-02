@@ -1,0 +1,11 @@
+{
+  "authors": [],
+  "dependencies": {},
+  "description": "",
+  "entry": "main.may",
+  "modules": [],
+  "name": "study",
+  "output": "build/study",
+  "target": "host",
+  "version": "0.1.0"
+}

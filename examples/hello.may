@@ -1,0 +1,8 @@
+// The classic.
+print("Hello, Maylang!");
+
+fun greet(name: Str) -> Str {
+    return "Hello, " + name + "!";
+}
+
+print(greet("world"));

@@ -1,0 +1,1 @@
+let xs=[10]; mut n=0; fun idx() { n+=1; 0 } xs[idx()]+=5; print(xs,n);

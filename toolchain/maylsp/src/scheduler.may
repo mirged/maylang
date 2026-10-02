@@ -1,0 +1,134 @@
+import "protocol.may";
+import "text.may";
+import "diagnostics.may";
+import "index.may";
+// Compiler workers inherit the current unsaved buffers through fork. Only
+// the parent writes LSP packets. Each worker returns one JSON snapshot.
+mut LS_WORKER_PID: Any = 0;
+mut LS_WORKER_EPOCH: Any = -1;
+mut LS_WORKER_URI: Any = "";
+mut LS_WORKER_PARTS: Any = [];
+mut LS_WORKER_BYTES: Any = 0;
+mut LS_CHECK_QUEUE: Any = [];
+mut LS_CHECK_DEADLINE: Any = 0;
+mut LS_CHECK_WAITERS: Any = [];
+let LS_WORKER_IO: Any = syscall(9, 0, 65536, 3, 34, -1, 0);
+let LS_TIMER: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+fun ls_now() -> Any {
+    syscall(228, 1, LS_TIMER);
+    return load64(LS_TIMER) * 1000 + load64(LS_TIMER + 8) / 1000000;
+}
+fun ls_scheduler_stop() -> Any {
+    ls_worker_stop(); LS_CHECK_QUEUE = [];
+    for waiter: Any in LS_CHECK_WAITERS { ls_error(waiter.id, -32800, "Server is shutting down"); }
+    LS_CHECK_WAITERS = []; return nil;
+}
+fun ls_worker_stop() -> Any {
+    if (LS_WORKER_PID > 0) {
+        syscall(62, LS_WORKER_PID, 9);
+        mut result: Any = syscall(61, LS_WORKER_PID, 0, 0, 0);
+        while (result == -4) { result = syscall(61, LS_WORKER_PID, 0, 0, 0); }
+    }
+    if (LS_BACKGROUND_FD >= 0) { syscall(3, LS_BACKGROUND_FD); }
+    LS_WORKER_PID = 0; LS_BACKGROUND_FD = -1; LS_WORKER_PARTS = []; LS_WORKER_BYTES = 0;
+    return nil;
+}
+fun ls_queue_check(uri: Any) -> Any {
+    if (not has(LS_CHECK_QUEUE, uri) and uri != LS_WORKER_URI) { push(LS_CHECK_QUEUE, uri); }
+    return nil;
+}
+fun ls_schedule_checks() -> Any {
+    if (LS_WORKER_PID > 0 and LS_WORKER_EPOCH != LS_INDEX_EPOCH) { ls_worker_stop(); }
+    LS_WORKER_URI = ""; LS_CHECK_QUEUE = [];
+    for uri: Any in keys(LS_DOCS) {
+        if (LS_DOCS[uri].open and LS_CHECK_CACHE[uri]?.epoch != LS_INDEX_EPOCH) { ls_queue_check(uri); }
+    }
+    for waiter: Any in LS_CHECK_WAITERS { ls_queue_check(waiter.uri); }
+    // Coalesce bursts of didChange notifications before forking a snapshot.
+    LS_CHECK_DEADLINE = ls_now() + 120; return nil;
+}
+fun ls_report_check(uri: Any) -> Any {
+    let cached: Any = LS_CHECK_CACHE[uri]; let related: Any = {};
+    if (cached != nil) { for other: Any in keys(cached.errors) { if (other != uri) { related[other] = {"kind": "full", "items": cached.errors[other]}; } } }
+    return {"kind": "full", "items": cached?.errors[uri] ?? [], "relatedDocuments": related};
+}
+fun ls_request_check(id: Any, doc: Any) -> Any {
+    if (LS_CHECK_CACHE[doc.uri]?.epoch == LS_INDEX_EPOCH) { ls_reply(id, ls_report_check(doc.uri)); return nil; }
+    push(LS_CHECK_WAITERS, {"id": id, "uri": doc.uri}); ls_queue_check(doc.uri);
+    LS_CHECK_DEADLINE = 0; return nil;
+}
+fun ls_cancel_check(id: Any) -> Any {
+    let remaining: Any = [];
+    for waiter: Any in LS_CHECK_WAITERS {
+        if (waiter.id == id) { ls_error(id, -32800, "Request cancelled"); } else { push(remaining, waiter); }
+    }
+    LS_CHECK_WAITERS = remaining; return nil;
+}
+fun ls_worker_start(uri: Any) -> Any {
+    if (syscall(293, LS_WORKER_IO, 524288) < 0) { fail("diagnostic pipe failed"); }
+    let readFd: Any = load32(LS_WORKER_IO); let writeFd: Any = load32(LS_WORKER_IO + 4);
+    let parentPid: Any = syscall(39); let pid: Any = syscall(57);
+    if (pid < 0) { syscall(3, readFd); syscall(3, writeFd); fail("diagnostic fork failed"); }
+    if (pid == 0) {
+        syscall(157, 1, 9, 0, 0, 0);
+        if (syscall(110) != parentPid) { syscall(60, 0); }
+        syscall(3, readFd); LS_OUTPUT_FD = writeFd; LS_DIAGNOSTIC_PUBLISH = false;
+        may {
+            LS_CHECK_ERRORS = {}; LS_CHECK_SEEN = {};
+            let doc: Any = ls_document(uri);
+            if (doc != nil) { ls_diagnostics(doc); }
+            ls_write(ls_json({"root": uri, "epoch": LS_INDEX_EPOCH, "errors": LS_CHECK_ERRORS, "seen": LS_CHECK_SEEN}));
+        } otherwise { ls_write(ls_json({"root": uri, "epoch": LS_INDEX_EPOCH, "failure": err.message})); }
+        syscall(3, writeFd); syscall(60, 0); exit(0);
+    }
+    syscall(3, writeFd); syscall(72, readFd, 4, 2048);
+    LS_WORKER_PID = pid; LS_WORKER_URI = uri; LS_WORKER_EPOCH = LS_INDEX_EPOCH;
+    LS_BACKGROUND_FD = readFd; LS_WORKER_PARTS = []; LS_WORKER_BYTES = 0;
+    return nil;
+}
+fun ls_worker_result(snapshot: Any) -> Any {
+    if (snapshot.epoch != LS_INDEX_EPOCH) { return nil; }
+    let uri: Any = snapshot.root;
+    if (snapshot.failure != nil) {
+        let doc: Any = LS_DOCS[uri];
+        snapshot.errors = {}; snapshot.seen = {};
+        snapshot.seen[uri] = true;
+        snapshot.errors[uri] = if (doc == nil) { [] } else { [ls_diag(doc, 0, 0, snapshot.failure)] };
+    }
+    LS_CHECK_CACHE[uri] = {"epoch": snapshot.epoch, "errors": snapshot.errors, "seen": snapshot.seen};
+    for checked: Any in keys(snapshot.seen) {
+        let doc: Any = LS_DOCS[checked];
+        LS_DIAG_CACHE[checked] = snapshot.errors[checked] ?? [];
+        if (doc != nil and doc.open) { ls_notify("textDocument/publishDiagnostics", {"uri": checked, "version": doc.version, "diagnostics": LS_DIAG_CACHE[checked]}); }
+    }
+    let remaining: Any = [];
+    for waiter: Any in LS_CHECK_WAITERS {
+        if (waiter.uri == uri) { ls_reply(waiter.id, ls_report_check(uri)); } else { push(remaining, waiter); }
+    }
+    LS_CHECK_WAITERS = remaining; return nil;
+}
+fun ls_scheduler_tick() -> Any {
+    if (LS_BACKGROUND_FD >= 0) {
+        mut done: Any = false;
+        while (true) {
+            let n: Any = syscall(0, LS_BACKGROUND_FD, LS_WORKER_IO, 65536);
+            if (n == -4) { continue; }
+            if (n == -11) { break; }
+            if (n <= 0) { done = true; break; }
+            push(LS_WORKER_PARTS, ls_text(LS_WORKER_IO, n)); LS_WORKER_BYTES += n;
+            if (LS_WORKER_BYTES > 16777216) { done = true; break; }
+        }
+        if (done) {
+            let body: Any = ls_join(LS_WORKER_PARTS, ""); let uri: Any = LS_WORKER_URI; let epoch: Any = LS_WORKER_EPOCH;
+            ls_worker_stop(); LS_WORKER_URI = "";
+            let snapshot: Any = may { ls_parse_json(body) } otherwise { {"root": uri, "epoch": epoch, "failure": "Diagnostic worker failed"} };
+            ls_worker_result(snapshot);
+        }
+    }
+    if (LS_WORKER_PID == 0 and len(LS_CHECK_QUEUE) > 0 and ls_now() >= LS_CHECK_DEADLINE) {
+        let uri: Any = LS_CHECK_QUEUE[0]; LS_CHECK_QUEUE = slice(LS_CHECK_QUEUE, 1, len(LS_CHECK_QUEUE));
+        if (LS_CHECK_CACHE[uri]?.epoch != LS_INDEX_EPOCH) { ls_worker_start(uri); }
+    }
+    LS_POLL_TIMEOUT = if (LS_WORKER_PID == 0 and len(LS_CHECK_QUEUE) > 0) { max(0, LS_CHECK_DEADLINE - ls_now()) } else { -1 };
+    return nil;
+}

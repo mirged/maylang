@@ -1,0 +1,288 @@
+import "../regalloc.may";
+import "../sema.may";
+import "../lexer.may";
+import "../state.may";
+import "../ast.may";
+import "../diagnostics.may";
+import "../emitter.may";
+import "../symbols.may";
+import "../ir.may";
+import "../backend.may";
+import "x86_64.may";
+// Shared IR lowering for freestanding integer/pointer targets. The emitter
+// contract uses logical registers 0 (result), 1 (right operand), 2 (address).
+// Linear scan uses logical registers 20-23; branch joins keep private homes.
+
+fun raw_get(ctx: Any, emitter: Any, value: Any, register: Any) -> Any {
+    let location: Any = ctx.allocation.locations[value.slot];
+    if (location.register >= 0) { (emitter.move)(ctx, register, location.register); }
+    else { (emitter.load)(ctx, register, -1, 8 * (ctx.tempBase + location.home), 8); }
+    return 0;
+}
+
+fun raw_address(ctx: Any, emitter: Any, offset: Any) -> Any {
+    let position: Any = ctx.code.length;
+    (emitter.immediate)(ctx, 0, 2);
+    fx(ctx, 101, position, offset);
+    return 0;
+}
+
+fun raw_variable(ctx: Any, emitter: Any, name: Any, length: Any) -> Any {
+    if (name_eq(name, length, addr("true"), 4) == 1) { (emitter.immediate)(ctx, if (ctx.mode == 1) { 4 } else { 1 }, 0); return 0; }
+    if (name_eq(name, length, addr("false"), 5) == 1) { (emitter.immediate)(ctx, if (ctx.mode == 1) { 3 } else { 0 }, 0); return 0; }
+    if (name_eq(name, length, addr("nil"), 3) == 1) { (emitter.immediate)(ctx, if (ctx.mode == 1) { 2 } else { 0 }, 0); return 0; }
+    let local: Any = loc_find(ctx, name, length);
+    if (local >= 0) { (emitter.load)(ctx, 0, -1, local * 8, 8); return 0; }
+    let global: Any = glob_find(ctx, name, length);
+    if (global >= 0) { raw_address(ctx, emitter, glob_off(ctx, global)); (emitter.load)(ctx, 0, 2, 0, 8); return 0; }
+    die_str("mayc: unsupported raw variable\n");
+    return 0;
+}
+
+fun raw_set(ctx: Any, emitter: Any, name: Any, length: Any) -> Any {
+    let local: Any = loc_find(ctx, name, length);
+    if (local >= 0) { (emitter.store)(ctx, 0, -1, local * 8, 8); return 0; }
+    let global: Any = glob_find(ctx, name, length);
+    if (global >= 0) { raw_address(ctx, emitter, glob_off(ctx, global)); (emitter.store)(ctx, 0, 2, 0, 8); return 0; }
+    die_str("mayc: unsupported raw assignment\n");
+    return 0;
+}
+
+fun raw_call(ctx: Any, emitter: Any, payload: Any) -> Any {
+    let name: Any = symbol_name(payload.name, payload.length);
+    let args: Any = payload.args;
+    if (name == "__host_alloc" or name == "__host_write" or name == "__host_exit") { return raw_host(ctx, emitter, name, args); }
+    if (ctx.mode == 1) { return raw_core_call(ctx, emitter, payload); }
+    if (name == "addr" or name == "cstr") {
+        if (args.kind != E_STR) { diagnostic(payload.span, "raw addr/cstr requires a string literal"); }
+        let offset: Any = intern(ctx, args.span.source, args.start, args.length);
+        raw_address(ctx, emitter, offset); (emitter.move)(ctx, 0, 2); return 0;
+    }
+    if (name == "len") {
+        if (args.kind != E_STR) { diagnostic(payload.span, "raw len requires a string literal"); }
+        (emitter.immediate)(ctx, declen(args.span.source, args.start, args.length), 0); return 0;
+    }
+    if (name == "ptr") { raw_get(ctx, emitter, args, 0); return 0; }
+    if (name == "exit") {
+        raw_get(ctx, emitter, args, 0);
+        (emitter.immediate)(ctx, if (ctx.target.os == "macos") { 1 } else { 93 }, 3);
+        (emitter.trap)(ctx); return 0;
+    }
+    let loads: Any = {"load8": 1, "load16": 2, "load32": 4, "load64": 8};
+    let stores: Any = {"store8": 1, "store16": 2, "store32": 4, "store64": 8};
+    if (has(loads, name)) {
+        raw_get(ctx, emitter, args, 2); (emitter.load)(ctx, 0, 2, 0, loads[name]); return 0;
+    }
+    if (has(stores, name)) {
+        raw_get(ctx, emitter, args, 2); raw_get(ctx, emitter, args.next, 0);
+        (emitter.store)(ctx, 0, 2, 0, stores[name]); (emitter.immediate)(ctx, 0, 0); return 0;
+    }
+    let syscallCall: Any = name == "syscall";
+    let function: Any = if (syscallCall) { 0 } else { backend_find_func(ctx, payload.name, payload.length) };
+    if (not syscallCall and function == 0) { diagnostic(payload.span, "unsupported raw builtin `${name}`"); }
+    mut argument: Any = args;
+    mut index: Any = 0;
+    while (argument != 0) {
+        if (index >= 8 or (syscallCall and index >= 7)) { diagnostic(payload.span, "raw target supports eight function or six syscall arguments"); }
+        mut register: Any = 10 + index; // logical ABI argument register
+        if (syscallCall) { register = if (index == 0) { 3 } else { 9 + index }; }
+        raw_get(ctx, emitter, argument, register);
+        argument = argument.next; index += 1;
+    }
+    if (syscallCall) { (emitter.trap)(ctx); }
+    else {
+        if (index != function.pc) { diagnostic(payload.span, "raw call argument count mismatch"); }
+        (emitter.jump)(ctx, function.lab, true);
+    }
+    return 0;
+}
+
+fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        let payload: Any = instruction.extra;
+        if (op == IR_LABEL) { placelab(ctx, payload); }
+        else if (op == IR_JUMP) { (emitter.jump)(ctx, payload, false); }
+        else if (op == IR_COPY or op == IR_RETURN or op == IR_BOOL) {
+            raw_get(ctx, emitter, instruction.arg1, 0);
+            if (op == IR_RETURN) { (emitter.jump)(ctx, ctx.returnLabel, false); }
+            if (op == IR_BOOL) { (emitter.unary)(ctx, TK_NOT); (emitter.unary)(ctx, TK_NOT); }
+        } else if (op == IR_NIL) { (emitter.immediate)(ctx, if (ctx.mode == 1) { 2 } else { 0 }, 0); }
+        else if (op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL) {
+            raw_get(ctx, emitter, instruction.arg1, 0);
+            if (ctx.mode == 1 and (op == IR_FALSE or op == IR_TRUE)) {
+                (emitter.move)(ctx, 10, 0); raw_invoke(ctx, emitter, "rt_bool");
+                (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_MINUS);
+            }
+            if (op == IR_ISNIL or op == IR_NONNULL) { (emitter.immediate)(ctx, 2, 1); (emitter.binary)(ctx, TK_MINUS); }
+            (emitter.branch)(ctx, payload, op == IR_FALSE or op == IR_ISNIL);
+        } else if (op == IR_TAILCALL) {
+            mut arg: Any = instruction.arg1; mut index: Any = 0;
+            while (arg != 0) { raw_get(ctx, emitter, arg, 0); (emitter.store)(ctx, 0, -1, index * 8, 8); index += 1; arg = arg.next; }
+            (emitter.jump)(ctx, ctx.restartLabel, false);
+        } else if (op == S_LET or op == S_ASSIGN) {
+            let value: Any = if (op == S_LET) { payload.initializer } else { payload.value };
+            raw_get(ctx, emitter, value, 0); raw_set(ctx, emitter, payload.name, payload.length);
+        } else if (op == E_INT) {
+            (emitter.immediate)(ctx, payload.value, 0);
+            if (ctx.mode == 1) { (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR); }
+        }
+        else if (op == E_STR) {
+            let offset: Any = if (ctx.mode == 1) { intern_obj(ctx, payload.span.source, payload.start, payload.length) } else { intern(ctx, payload.span.source, payload.start, payload.length) };
+            raw_address(ctx, emitter, offset); (emitter.move)(ctx, 0, 2);
+            if (ctx.mode == 1) { (emitter.immediate)(ctx, 1, 1); (emitter.binary)(ctx, TK_PLUS); }
+        }
+        else if (op == E_VAR) { raw_variable(ctx, emitter, payload.name, payload.length); }
+        else if (op == E_BIN) {
+            if (ctx.mode == 1) {
+                raw_get(ctx, emitter, payload.left, 10); raw_get(ctx, emitter, payload.right, 11);
+                let names: Any = {20: "rt_add", 21: "rt_sub", 22: "rt_mul", 23: "rt_div", 24: "rt_mod", 25: "rt_eq", 26: "rt_ne", 27: "rt_lt", 28: "rt_le", 29: "rt_gt", 30: "rt_ge"};
+                raw_invoke(ctx, emitter, names[payload.op]);
+            } else { raw_get(ctx, emitter, payload.left, 0); raw_get(ctx, emitter, payload.right, 1); (emitter.binary)(ctx, payload.op); }
+        } else if (op == E_UN) {
+            if (ctx.mode == 1) { raw_get(ctx, emitter, payload.operand, 10); raw_invoke(ctx, emitter, if (payload.op == TK_MINUS) { "rt_neg" } else { "rt_not" }); }
+            else { raw_get(ctx, emitter, payload.operand, 0); (emitter.unary)(ctx, payload.op); }
+        }
+        else if (op == IR_RUNTIME) { raw_arguments(ctx, emitter, instruction.arg1); raw_invoke(ctx, emitter, payload); }
+        else if (op == E_INDEX or op == S_SETIDX) {
+            raw_get(ctx, emitter, payload.object, 10); raw_get(ctx, emitter, payload.index, 11);
+            if (op == S_SETIDX) { raw_get(ctx, emitter, payload.value, 12); }
+            raw_invoke(ctx, emitter, if (op == E_INDEX) { "rt_index_get" } else { "rt_index_set" });
+        }
+        else if (op == E_RANGE or op == E_POW) {
+            raw_get(ctx, emitter, if (op == E_POW) { payload.left } else { payload.start }, 10);
+            raw_get(ctx, emitter, if (op == E_POW) { payload.right } else { payload.end }, 11);
+            if (op == E_RANGE) { (emitter.immediate)(ctx, if (payload.inclusive) { 4 } else { 3 }, 12); }
+            raw_invoke(ctx, emitter, if (op == E_RANGE) { "rt_range" } else { "rt_pow" });
+        }
+        else if (op == E_CALL) { raw_call(ctx, emitter, payload); }
+        else { diagnostic(instruction.span, "operation is not supported by the freestanding raw target"); }
+        if (instruction.result != 0) {
+            let location: Any = ctx.allocation.locations[instruction.result.slot];
+            if (location.register >= 0) { (emitter.move)(ctx, location.register, 0); }
+            else { (emitter.store)(ctx, 0, -1, 8 * (ctx.tempBase + location.home), 8); }
+        }
+    }
+    return 0;
+}
+
+fun raw_function(ctx: Any, emitter: Any, block: Any, rec: Any) -> Any {
+    ctx.mode = if (ctx.dynamic == 1 and (rec == 0 or rec.mode != 1)) { 1 } else { 0 };
+    loc_reset(ctx);
+    if (rec != 0) {
+        if (rec.pc > 8 or rec.cc != 0) { die_str("mayc: raw target requires at most eight parameters and no captures\n"); }
+        for parameter: Any in rec.parr { loc_add(ctx, parameter.name, parameter.length); }
+    }
+    for instruction: Any in block.code {
+        if (instruction.op == S_LET and instruction.extra.global == 0) {
+            loc_add(ctx, instruction.extra.name, instruction.extra.length);
+        }
+    }
+    ctx.tempBase = len(ctx.locals);
+    ctx.allocation = lsra_allocate(block, [20, 21, 22, 23]);
+    let frame: Any = ((ctx.tempBase + ctx.allocation.stackSlots + len(ctx.allocation.used)) * 8 + 15) / 16 * 16;
+    if (frame > 2000) { die_str("mayc: raw target stack frame exceeds 2000 bytes\n"); }
+    if (rec == 0) { placelab(ctx, 1); }
+    else { placelab(ctx, rec.lab); rec.abiLab = rec.lab; }
+    (emitter.prologue)(ctx, frame);
+    for index: Any in 0..len(ctx.allocation.used) {
+        (emitter.store)(ctx, ctx.allocation.used[index], -1, 8 * (ctx.tempBase + ctx.allocation.stackSlots + index), 8);
+    }
+    if (rec != 0) {
+        for index: Any in 0..rec.pc { (emitter.store)(ctx, 10 + index, -1, index * 8, 8); }
+    }
+    if (rec == 0 and ctx.dynamic == 1) { raw_invoke(ctx, emitter, "rt_init"); }
+    ctx.returnLabel = newlab(ctx); ctx.restartLabel = newlab(ctx);
+    placelab(ctx, ctx.restartLabel);
+    raw_block(ctx, emitter, block);
+    placelab(ctx, ctx.returnLabel);
+    for index: Any in 0..len(ctx.allocation.used) {
+        (emitter.load)(ctx, ctx.allocation.used[index], -1, 8 * (ctx.tempBase + ctx.allocation.stackSlots + index), 8);
+    }
+    (emitter.epilogue)(ctx, frame);
+    ctx.allocation = 0;
+    return 0;
+}
+
+fun raw_program(ctx: Any, emitter: Any) -> Any {
+    placelab(ctx, 0);
+    (emitter.jump)(ctx, 1, true);
+    (emitter.immediate)(ctx, 0, 0);
+    (emitter.immediate)(ctx, if (ctx.target.os == "macos") { 1 } else { 93 }, 3);
+    (emitter.trap)(ctx);
+    raw_function(ctx, emitter, ctx.mainIR, 0);
+    for rec: Any in ctx.functions { raw_function(ctx, emitter, rec.ir, rec); }
+    return 0;
+}
+
+fun raw_invoke(ctx: Any, emitter: Any, name: Any) -> Any {
+    let function: Any = backend_find_func(ctx, addr(name), len(name));
+    if (function == 0) { die_str("mayc: missing core runtime function `${name}`\n"); }
+    (emitter.jump)(ctx, function.lab, true);
+    return 0;
+}
+
+fun raw_arguments(ctx: Any, emitter: Any, args: Any) -> Any {
+    mut value: Any = args; mut index: Any = 0;
+    while (value != 0) {
+        if (index >= 8) { die_str("mayc: portable target supports at most eight parameters\n"); }
+        raw_get(ctx, emitter, value, 10 + index); value = value.next; index += 1;
+    }
+    return 0;
+}
+
+fun raw_core_call(ctx: Any, emitter: Any, payload: Any) -> Any {
+    let name: Any = symbol_name(payload.name, payload.length);
+    let function: Any = backend_find_func(ctx, payload.name, payload.length);
+    if (function != 0) { raw_arguments(ctx, emitter, payload.args); (emitter.jump)(ctx, function.lab, true); return 0; }
+    if (name == "print") {
+        mut value: Any = payload.args; mut count: Any = 0;
+        while (value != 0) {
+            if (count > 0) { raw_invoke(ctx, emitter, "rt_space"); }
+            raw_get(ctx, emitter, value, 10); raw_invoke(ctx, emitter, "rt_to_str");
+            (emitter.move)(ctx, 10, 0); raw_invoke(ctx, emitter, "rt_print_str");
+            value = value.next; count += 1;
+        }
+        raw_invoke(ctx, emitter, "rt_newline"); (emitter.immediate)(ctx, 0, 0); return 0;
+    }
+    if (name == "ptr") { raw_get(ctx, emitter, payload.args, 0); return 0; }
+    if (starts_with(name, "load") or starts_with(name, "store")) {
+        let widths: Any = {"load8": 1, "load16": 2, "load32": 4, "load64": 8, "store8": 1, "store16": 2, "store32": 4, "store64": 8};
+        if (has(widths, name)) {
+            raw_get(ctx, emitter, payload.args, 0); (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_SLASH);
+            (emitter.move)(ctx, 2, 0);
+            if (starts_with(name, "load")) {
+                (emitter.load)(ctx, 0, 2, 0, widths[name]); (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR);
+            } else {
+                raw_get(ctx, emitter, payload.args.next, 0); (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_SLASH);
+                (emitter.store)(ctx, 0, 2, 0, widths[name]); (emitter.immediate)(ctx, 2, 0);
+            }
+            return 0;
+        }
+    }
+    let builtins: Any = {"len": "rt_len", "str": "rt_to_str", "str_of": "rt_to_str", "int_to_str": "rt_int_str", "int": "rt_int", "bool": "rt_bool", "push": "rt_push", "pop": "rt_pop", "slice": "rt_slice", "char_at": "rt_char_at", "char_from": "rt_char_from", "chr": "rt_chr", "ord": "rt_ord", "contains": "rt_contains", "starts_with": "rt_starts_with", "ends_with": "rt_ends_with", "split": "rt_split", "join": "rt_join", "index_of": "rt_index_of", "min": "rt_min", "max": "rt_max", "abs": "rt_abs", "pow": "rt_pow", "exit": "rt_exit", "fail": "rt_fail", "addr": "rt_addr", "cstr": "rt_cstr", "value_eq": "rt_eq", "str_cmp": "rt_str_cmp", "cmp": "rt_cmp", "to_lower": "rt_lower", "to_upper": "rt_upper"};
+    if (not has(builtins, name)) { diagnostic(payload.span, "`${name}` is not available in the core runtime"); }
+    raw_arguments(ctx, emitter, payload.args); raw_invoke(ctx, emitter, builtins[name]);
+    return 0;
+}
+
+fun raw_host(ctx: Any, emitter: Any, name: Any, args: Any) -> Any {
+    if (ctx.mode != 0 or ctx.runtime != "core") { die_str("mayc: platform primitives are internal to the core runtime\n"); }
+    if (name == "__host_write") {
+        raw_get(ctx, emitter, args, 11); raw_get(ctx, emitter, args.next, 12);
+        (emitter.immediate)(ctx, 1, 10);
+        (emitter.immediate)(ctx, if (ctx.target.os == "macos") { 4 } else { 64 }, 3);
+    } else if (name == "__host_alloc") {
+        raw_get(ctx, emitter, args, 11);
+        (emitter.immediate)(ctx, 0, 10); (emitter.immediate)(ctx, 3, 12);
+        (emitter.immediate)(ctx, if (ctx.target.os == "macos") { 4098 } else { 34 }, 13);
+        (emitter.immediate)(ctx, -1, 14); (emitter.immediate)(ctx, 0, 15);
+        (emitter.immediate)(ctx, if (ctx.target.os == "macos") { 197 } else { 222 }, 3);
+    } else {
+        raw_get(ctx, emitter, args, 10);
+        (emitter.immediate)(ctx, if (ctx.target.os == "macos") { 1 } else { 93 }, 3);
+    }
+    (emitter.trap)(ctx);
+    if (ctx.target.os == "macos") { e32(ctx, 3665835008); } // cneg x0,x0,cs: Darwin errors use carry
+    return 0;
+}

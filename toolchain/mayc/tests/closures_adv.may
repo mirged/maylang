@@ -1,0 +1,11 @@
+fun make_adders() -> Any {
+    mut out: Any = [];
+    for i: Any in 0..3 { push(out, |x: Any| -> Any { return x + i; }); }
+    return out;
+}
+for f: Any in make_adders() { print(f(10)); }
+let fs: Any = [];
+mut captured: Any = 0;
+push(fs, |_: Any| -> Any { captured = captured + 1; return captured; });
+push(fs, |_: Any| -> Any { captured = captured + 10; return captured; });
+print(fs[0](0), fs[1](0), captured);

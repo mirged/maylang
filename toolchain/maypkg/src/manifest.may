@@ -1,0 +1,80 @@
+// manifest.may — discovery, parsing and defaults for `mayproj.json`.
+//
+//   {
+//     "name": "hello", "version": "0.1.0", "entry": "main.may",
+//     "target": "host", "output": "hello", "dependencies": { }
+//   }
+
+import "fs.may" as fs;
+
+let FILENAME: Any = "mayproj.json";
+let LOCKFILE: Any = "mayproj.lock";
+
+pub fun filename() -> Any { return FILENAME; }
+pub fun lockfile() -> Any { return LOCKFILE; }
+
+pub fun default(name: Any) -> Any {
+    return {
+        "name": name,
+        "version": "0.1.0",
+        "entry": "main.may",
+        "target": "host",
+        "description": "",
+        "authors": [],
+        "dependencies": {},
+        "modules": [],
+        "output": name,
+    };
+}
+
+/// Search for a manifest: `$MAYPKG_MANIFEST`, then the current directory and
+/// every ancestor (so commands work from anywhere inside a project).
+pub fun find() -> Any {
+    let envm: Any = env("MAYPKG_MANIFEST");
+    if (envm != nil && len(trim(envm)) > 0) { return envm; }
+    mut dir: Any = fs.cwd();
+    mut i: Any = 0;
+    while (i < 64) {
+        let candidate: Any = fs.join_path(dir, FILENAME);
+        if (fs.exists(candidate)) { return candidate; }
+        let up: Any = fs.dirname(dir);
+        if (up == dir || len(up) == 0) { return nil; }
+        dir = up;
+        i = i + 1;
+    }
+    return nil;
+}
+
+fun folder_name(path: Any) -> Any {
+    let d: Any = fs.basename(fs.dirname(fs.normpath(path)));
+    if (d == "." || d == "/" || len(d) == 0) { return fs.basename(fs.cwd()); }
+    return d;
+}
+
+/// Parse a manifest and fill in defaults. Raises a fault on bad JSON.
+pub fun load(path: Any) -> Any {
+    let doc: Any = json_parse(read_file(path));
+    if (type(doc) != "Map") { fail("manifest must be a JSON object"); }
+    let name: Any = doc.name ?? folder_name(path);
+    return {
+        "name": name,
+        "version": doc.version ?? "0.0.0",
+        "entry": doc.entry ?? "main.may",
+        "target": doc.target ?? "host",
+        "description": doc.description ?? "",
+        "authors": doc.authors ?? [],
+        "dependencies": doc.dependencies ?? {},
+        "modules": doc.modules ?? [],
+        "output": doc.output ?? name,
+    };
+}
+
+pub fun save(path: Any, m: Any) -> Any {
+    return fs.write(path, json_stringify(m) + "\n");
+}
+
+pub fun root_of(manifest_path: Any) -> Any { return fs.normpath(fs.dirname(manifest_path)); }
+
+pub fun entry_path(m: Any, root: Any) -> Any { return fs.normpath(fs.join_path(root, m.entry)); }
+
+pub fun resolve(root: Any, relative: Any) -> Any { return fs.normpath(fs.join_path(root, relative)); }

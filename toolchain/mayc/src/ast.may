@@ -1,0 +1,179 @@
+import "state.may";
+import "parser.may";
+// ast.may — structured syntax nodes. Each variant owns named fields.
+
+
+// Expression kinds.
+let E_INT: Any = 100;
+let E_STR: Any = 101;
+let E_VAR: Any = 102;
+let E_BIN: Any = 103;
+let E_UN: Any = 104;
+let E_CALL: Any = 105;
+let E_AND: Any = 110;
+let E_OR: Any = 111;
+let E_LIST: Any = 112;
+let E_INDEX: Any = 113;
+let E_MAP: Any = 114;
+let E_GET: Any = 115;
+let E_ENTRY: Any = 116;
+let E_RANGE: Any = 117;
+let E_COALESCE: Any = 118;
+let E_SAFEGET: Any = 119;
+let E_LAMBDA: Any = 120;
+let E_ARM: Any = 121;
+let E_MATCH: Any = 122;
+let E_FLOAT: Any = 123;
+let E_MAY: Any = 124;
+let E_COMP: Any = 126;
+let E_STRB: Any = 127;
+let E_CLOSURE: Any = 128;
+let E_CAP: Any = 129;
+let E_CAPVAR: Any = 130;
+let E_ICALL: Any = 131;
+let E_SPREAD: Any = 132;
+let E_POW: Any = 133;
+let E_TRY: Any = 134;
+
+// Statement kinds.
+let S_LET: Any = 200;
+let S_ASSIGN: Any = 201;
+let S_EXPR: Any = 202;
+let S_IF: Any = 203;
+let S_WHILE: Any = 204;
+let S_RETURN: Any = 205;
+let S_BREAK: Any = 206;
+let S_CONT: Any = 207;
+let S_BLOCK: Any = 208;
+let S_FOR: Any = 209;
+let S_SETIDX: Any = 210;
+let S_CASSIGN: Any = 211;
+let S_SETPROP: Any = 212;
+let S_DESTRUCT: Any = 213;
+
+let E_PATTERN: Any = 135;
+
+struct SourceSpan { source: Any, start: Any, length: Any, line: Any, col: Any }
+struct SourceOrigin { start: Any, path: Any, line: Any }
+struct SourceFile { path: Any, origins: Any }
+struct TypeRef { name: Any, arguments: Any, result: Any, span: Any }
+struct TypeParameter { name: Any, span: Any }
+struct Parameter { name: Any, length: Any, annotation: Any, span: Any }
+struct FuncDecl { p: Any, l: Any, pc: Any, parr: Any, body: Any, lab: Any, mode: Any, cc: Any, caparr: Any, boxed: Any }
+struct StructField { name: Any, length: Any, annotation: Any, span: Any }
+struct StructDecl { name: Any, fields: Any, constructor: Any, span: Any }
+struct EnumVariant { name: Any, parameters: Any, constructor: Any }
+struct EnumDecl { name: Any, variants: Any, span: Any }
+struct Program { declarations: Any, functions: Any, statements: Any }
+struct IntLit { kind: Any, span: Any, next: Any, value: Any }
+struct StringLit { kind: Any, span: Any, next: Any, start: Any, length: Any }
+struct NameExpr { kind: Any, span: Any, next: Any, name: Any, length: Any }
+struct Binary { kind: Any, span: Any, next: Any, op: Any, left: Any, right: Any }
+struct Unary { kind: Any, span: Any, next: Any, op: Any, operand: Any }
+struct Call { kind: Any, span: Any, next: Any, name: Any, length: Any, args: Any }
+struct LogicalAnd { kind: Any, span: Any, next: Any, left: Any, right: Any }
+struct LogicalOr { kind: Any, span: Any, next: Any, left: Any, right: Any }
+struct ListLit { kind: Any, span: Any, next: Any, items: Any }
+struct Index { kind: Any, span: Any, next: Any, object: Any, index: Any }
+struct MapLit { kind: Any, span: Any, next: Any, entries: Any }
+struct Member { kind: Any, span: Any, next: Any, object: Any, start: Any, length: Any }
+struct MapEntry { kind: Any, span: Any, next: Any, key: Any, value: Any }
+struct RangeExpr { kind: Any, span: Any, next: Any, start: Any, end: Any, inclusive: Any }
+struct Coalesce { kind: Any, span: Any, next: Any, left: Any, right: Any }
+struct SafeMember { kind: Any, span: Any, next: Any, object: Any, start: Any, length: Any }
+struct LambdaExpr { kind: Any, span: Any, next: Any, params: Any, body: Any }
+struct MatchArm { kind: Any, span: Any, next: Any, patternKind: Any, pattern: Any, length: Any, guard: Any, body: Any, nested: Any }
+struct Match { kind: Any, span: Any, next: Any, subject: Any, arms: Any }
+struct FloatLit { kind: Any, span: Any, next: Any, start: Any, length: Any }
+struct MayExpr { kind: Any, span: Any, next: Any, body: Any, fallback: Any }
+struct Comprehension { kind: Any, span: Any, next: Any, element: Any, name: Any, length: Any, iterable: Any, condition: Any }
+struct StringBytes { kind: Any, span: Any, next: Any, address: Any, length: Any }
+struct Lambda { kind: Any, span: Any, next: Any, label: Any, captures: Any, arity: Any }
+struct Capture { kind: Any, span: Any, next: Any, name: Any, length: Any }
+struct CaptureRef { kind: Any, span: Any, next: Any, index: Any }
+struct IndirectCall { kind: Any, span: Any, next: Any, callee: Any, args: Any }
+struct Spread { kind: Any, span: Any, next: Any, operand: Any }
+struct Power { kind: Any, span: Any, next: Any, left: Any, right: Any }
+struct TryExpr { kind: Any, span: Any, next: Any, operand: Any }
+struct VarDecl { kind: Any, span: Any, next: Any, name: Any, length: Any, initializer: Any, global: Any, mutable: Any }
+struct Assign { kind: Any, span: Any, next: Any, name: Any, length: Any, value: Any }
+struct ExprStmt { kind: Any, span: Any, next: Any, expression: Any, terminated: Any }
+struct If { kind: Any, span: Any, next: Any, condition: Any, thenBranch: Any, elseBranch: Any }
+struct While { kind: Any, span: Any, next: Any, condition: Any, body: Any }
+struct Return { kind: Any, span: Any, next: Any, value: Any }
+struct Break { kind: Any, span: Any, next: Any }
+struct Continue { kind: Any, span: Any, next: Any }
+struct Block { kind: Any, span: Any, next: Any, statements: Any, tail: Any }
+struct For { kind: Any, span: Any, next: Any, name: Any, length: Any, iterable: Any, body: Any }
+struct IndexAssign { kind: Any, span: Any, next: Any, object: Any, index: Any, value: Any }
+struct CaptureAssign { kind: Any, span: Any, next: Any, index: Any, value: Any }
+struct MemberAssign { kind: Any, span: Any, next: Any, object: Any, start: Any, length: Any, value: Any }
+struct Destructure { kind: Any, span: Any, next: Any, pattern: Any, initializer: Any, global: Any, mutable: Any }
+struct PatternEntry { kind: Any, span: Any, next: Any, patternKind: Any, name: Any, length: Any, key: Any, keyLength: Any, nested: Any }
+
+fun mknode(kind: Any) -> Any {
+    mut span: Any = SourceSpan(SRC, 0, 0, 1, 1);
+    if (len(TOKS) > 0 and POS < len(TOKS)) {
+        let tokenSpan: Any = TOKS[POS];
+        span = SourceSpan(SRC, tokenSpan.start, tokenSpan.len, tokenSpan.line, tokenSpan.col);
+    }
+    if (kind == E_INT) { return IntLit(kind, span, 0, 0); }
+    if (kind == E_STR) { return StringLit(kind, span, 0, 0, 0); }
+    if (kind == E_VAR) { return NameExpr(kind, span, 0, 0, 0); }
+    if (kind == E_BIN) { return Binary(kind, span, 0, 0, 0, 0); }
+    if (kind == E_UN) { return Unary(kind, span, 0, 0, 0); }
+    if (kind == E_CALL) { return Call(kind, span, 0, 0, 0, 0); }
+    if (kind == E_AND) { return LogicalAnd(kind, span, 0, 0, 0); }
+    if (kind == E_OR) { return LogicalOr(kind, span, 0, 0, 0); }
+    if (kind == E_LIST) { return ListLit(kind, span, 0, 0); }
+    if (kind == E_INDEX) { return Index(kind, span, 0, 0, 0); }
+    if (kind == E_MAP) { return MapLit(kind, span, 0, 0); }
+    if (kind == E_GET) { return Member(kind, span, 0, 0, 0, 0); }
+    if (kind == E_ENTRY) { return MapEntry(kind, span, 0, 0, 0); }
+    if (kind == E_RANGE) { return RangeExpr(kind, span, 0, 0, 0, 0); }
+    if (kind == E_COALESCE) { return Coalesce(kind, span, 0, 0, 0); }
+    if (kind == E_SAFEGET) { return SafeMember(kind, span, 0, 0, 0, 0); }
+    if (kind == E_LAMBDA) { return LambdaExpr(kind, span, 0, 0, 0); }
+    if (kind == E_ARM) { return MatchArm(kind, span, 0, 0, 0, 0, 0, 0, 0); }
+    if (kind == E_MATCH) { return Match(kind, span, 0, 0, 0); }
+    if (kind == E_FLOAT) { return FloatLit(kind, span, 0, 0, 0); }
+    if (kind == E_MAY) { return MayExpr(kind, span, 0, 0, 0); }
+    if (kind == E_COMP) { return Comprehension(kind, span, 0, 0, 0, 0, 0, 0); }
+    if (kind == E_STRB) { return StringBytes(kind, span, 0, 0, 0); }
+    if (kind == E_CLOSURE) { return Lambda(kind, span, 0, 0, 0, 0); }
+    if (kind == E_CAP) { return Capture(kind, span, 0, 0, 0); }
+    if (kind == E_CAPVAR) { return CaptureRef(kind, span, 0, 0); }
+    if (kind == E_ICALL) { return IndirectCall(kind, span, 0, 0, 0); }
+    if (kind == E_SPREAD) { return Spread(kind, span, 0, 0); }
+    if (kind == E_POW) { return Power(kind, span, 0, 0, 0); }
+    if (kind == E_TRY) { return TryExpr(kind, span, 0, 0); }
+    if (kind == S_LET) { return VarDecl(kind, span, 0, 0, 0, 0, 0, 0); }
+    if (kind == S_ASSIGN) { return Assign(kind, span, 0, 0, 0, 0); }
+    if (kind == S_EXPR) { return ExprStmt(kind, span, 0, 0, 0); }
+    if (kind == S_IF) { return If(kind, span, 0, 0, 0, 0); }
+    if (kind == S_WHILE) { return While(kind, span, 0, 0, 0); }
+    if (kind == S_RETURN) { return Return(kind, span, 0, 0); }
+    if (kind == S_BREAK) { return Break(kind, span, 0); }
+    if (kind == S_CONT) { return Continue(kind, span, 0); }
+    if (kind == S_BLOCK) { return Block(kind, span, 0, 0, 0); }
+    if (kind == S_FOR) { return For(kind, span, 0, 0, 0, 0, 0); }
+    if (kind == S_SETIDX) { return IndexAssign(kind, span, 0, 0, 0, 0); }
+    if (kind == S_CASSIGN) { return CaptureAssign(kind, span, 0, 0, 0); }
+    if (kind == S_SETPROP) { return MemberAssign(kind, span, 0, 0, 0, 0, 0); }
+    if (kind == S_DESTRUCT) { return Destructure(kind, span, 0, 0, 0, 0, 0); }
+    if (kind == E_PATTERN) { return PatternEntry(kind, span, 0, 0, 0, 0, 0, 0, 0); }
+    die_str("mayc: invalid syntax node kind\n");
+    return 0;
+}
+
+fun rev_list(head: Any) -> Any {
+    mut previous: Any = 0;
+    mut current: Any = head;
+    while (current != 0) {
+        let following: Any = current.next;
+        current.next = previous;
+        previous = current;
+        current = following;
+    }
+    return previous;
+}

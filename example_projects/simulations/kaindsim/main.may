@@ -1,0 +1,57 @@
+import "src/model.may";
+import "src/hydrology.may";
+import "src/view.may";
+
+fun usage() -> Nil {
+    print("KAINDSIM / a city between the river and the tide");
+    print("kaindsim demo                      replay all three policies (144 hours)");
+    print("kaindsim compare [options]         same storm, different decisions");
+    print("kaindsim run [options]             simulate one pump policy");
+    print("Options: --steps 1..360 --seed 0..2147483645 --policy none|homes|canal");
+    print("         --budget 0..96 --out PATH_PREFIX (default: kaindsim-run)");
+    print("Exports: .html interactive replay, .json full data, .csv hourly metrics");
+    return;
+}
+
+fun kaindsim_main(argv: List<Str>) -> Int {
+    let command: Str = if (len(argv) > 1) { argv[1] } else { "demo" };
+    if (command == "help" or command == "--help" or command == "-h") { usage(); return 0; }
+    if (command != "demo" and command != "run" and command != "compare") { fail("unknown command: " + command); }
+    let config: Config = Config(144, 42, "homes", 24, "kaindsim-run");
+    mut index: Int = 2;
+    while (index < len(argv)) {
+        if (index + 1 >= len(argv)) { fail("missing value for " + argv[index]); }
+        let option: Str = argv[index]; let value: Str = argv[index + 1];
+        if (option == "--steps") { config.steps = int(value); }
+        else if (option == "--seed") { config.seed = int(value); }
+        else if (option == "--policy") { config.policy = value; }
+        else if (option == "--budget") { config.budget = int(value); }
+        else if (option == "--out") { config.output = value; }
+        else { fail("unknown option: " + option); }
+        index += 2;
+    }
+    if (config.steps < 1 or config.steps > 360) { fail("steps must be 1..360"); }
+    if (config.seed < 0 or config.seed > 2147483645) { fail("seed must be 0..2147483645"); }
+    if (config.budget < 0 or config.budget > 96) { fail("budget must be 0..96"); }
+    if (config.policy != "none" and config.policy != "homes" and config.policy != "canal") { fail("policy must be none, homes or canal"); }
+    if (len(config.output) == 0) { fail("output prefix must not be empty"); }
+    let policies: List<Str> = if (command == "run") { [config.policy] } else { ["none", "homes", "canal"] };
+    let results: List<Any> = [];
+    print("KAINDSIM / the river remembers");
+    print("Seed ${config.seed} / ${config.steps} hours / shared pump budget ${config.budget}");
+    for policy: Str in policies {
+        config.policy = policy;
+        let city: City = simulate(config);
+        show_city(city, policy);
+        push(results, result_data(city, config));
+    }
+    export_results(results, config);
+    print("Replay: " + config.output + ".html");
+    print("Data:   " + config.output + ".json / .csv");
+    return 0;
+}
+
+may { exit(kaindsim_main(args())); } otherwise {
+    print("kaindsim: " + err.message);
+    exit(2);
+};

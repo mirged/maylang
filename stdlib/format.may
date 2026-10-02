@@ -1,0 +1,35 @@
+// format.may — small presentation helpers for terminal and text output.
+
+fun format_percent(value: Any, digits: Any) -> Any {
+    let scale: Any = pow(10, digits);
+    return str(round(value * 100 * scale) / scale) + "%";
+}
+fun format_bytes(n: Any) -> Any {
+    if (abs(n) < 1024) { return str(n) + " B"; }
+    let units: Any = ["KiB", "MiB", "GiB", "TiB"];
+    mut value: Any = to_float(n); mut i: Any = -1;
+    while (abs(value) >= 1024 && i < len(units) - 1) { value = value / 1024.0; i = i + 1; }
+    return str(round(value * 10) / 10) + " " + units[i];
+}
+fun format_duration(seconds: Any) -> Any {
+    let s: Any = max(0, int(seconds));
+    let h: Any = s / 3600; let m: Any = (s % 3600) / 60; let sec: Any = s % 60;
+    return if (h > 0) { pad_left(str(h), 2, "0") + ":" + pad_left(str(m), 2, "0") + ":" + pad_left(str(sec), 2, "0") }
+    else { pad_left(str(m), 2, "0") + ":" + pad_left(str(sec), 2, "0") };
+}
+fun format_table(headers: Any, rows: Any) -> Any {
+    let widths: Any = [len(str(h)) for h: Any in headers];
+    for row: Any in rows {
+        for i: Any in 0..min(len(widths), len(row)) { widths[i] = max(widths[i], len(str(row[i]))); }
+    }
+    let render: Any = fun(row: Any) -> Any { return "| " + join([pad_right(str(if (i < len(row)) { row[i] } else { "" }), widths[i], " ") for i: Any in 0..len(widths)], " | ") + " |"; };
+    let rule: Any = "|-" + join([repeat("-", w) for w: Any in widths], "-+-") + "-|";
+    return join([render(headers), rule] + [render(row) for row: Any in rows], "\n");
+}
+fun format_kv(data: Any, width: Any) -> Any {
+    return join([pad_right(str(k), width, " ") + " : " + str(data[k]) for k: Any in keys(data)], "\n");
+}
+fun format_ansi(text: Any, code: Any) -> Any { return chr(27) + "[" + str(code) + "m" + text + chr(27) + "[0m"; }
+fun format_bold(text: Any) -> Any { return format_ansi(text, 1); }
+fun format_dim(text: Any) -> Any { return format_ansi(text, 2); }
+fun format_color(text: Any, color: Any) -> Any { return format_ansi(text, color); }

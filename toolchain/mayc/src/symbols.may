@@ -1,0 +1,80 @@
+import "state.may";
+import "emitter.may";
+import "sema.may";
+// Target independent symbol and frame slot tables.
+fun find_func(p: Any, l: Any) -> Any {
+    mut i: Any = len(FUNC_HEAD) - 1;
+    while (i >= 0) {
+        let fr: Any = FUNC_HEAD[i];
+        if (name_eq(p, l, fr.p, fr.l) == 1) { return fr; }
+        i = i - 1;
+    }
+    return 0;
+}
+
+fun loc_reset(ctx: Any) -> Any { ctx.locals = []; ctx.maxLocals = 0; return 0; }
+
+// Boxed locals for the function currently being compiled: names that some
+// nested closure captures.  Such a local slot holds a heap cell; reads and
+// writes go through the cell so sibling closures share mutation.
+
+fun bx_use_list(ctx: Any, lst: Any) -> Any { ctx.boxed = lst; return 0; }
+
+fun is_boxed(ctx: Any, p: Any, l: Any) -> Any {
+    for b: Any in ctx.boxed {
+        if (name_eq(p, l, b[0], b[1]) == 1) { return 1; }
+    }
+    return 0;
+}
+
+fun loc_add(ctx: Any, p: Any, l: Any) -> Any {
+    push(ctx.locals, [p, l]);
+    if (len(ctx.locals) > ctx.maxLocals) { ctx.maxLocals = len(ctx.locals); }
+    return len(ctx.locals) - 1;
+}
+
+fun loc_find(ctx: Any, p: Any, l: Any) -> Any {
+    mut i: Any = len(ctx.locals) - 1;
+    while (i >= 0) {
+        let e: Any = ctx.locals[i];
+        if (name_eq(p, l, e[0], e[1]) == 1) { return i; }
+        i = i - 1;
+    }
+    return 0 - 1;
+}
+
+fun glob_find(ctx: Any, p: Any, l: Any) -> Any {
+    mut i: Any = 0;
+    while (i < len(ctx.globals)) {
+        let g: Any = ctx.globals[i];
+        if (name_eq(p, l, g.p, g.l) == 1) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fun glob_add(ctx: Any, p: Any, l: Any) -> Any {
+    push(ctx.globals, {"p": p, "l": l, "off": dalloc(ctx, 8)});
+    return len(ctx.globals) - 1;
+}
+
+fun glob_off(ctx: Any, i: Any) -> Any { return ctx.globals[i].off; }
+
+fun loc_trunc(ctx: Any, n: Any) -> Any {
+    while (len(ctx.locals) > n) { pop(ctx.locals); }
+    return 0;
+}
+
+
+// Emission never consults the frontend's current function list.
+fun backend_find_func(ctx: Any, pointer: Any, length: Any) -> Any {
+    let cached: Any = ctx.functionIndex[symbol_name(pointer, length)];
+    if (cached != nil) { return cached; }
+    mut index: Any = len(ctx.functions) - 1;
+    while (index >= 0) {
+        let rec: Any = ctx.functions[index];
+        if (name_eq(pointer, length, rec.p, rec.l) == 1) { return rec; }
+        index -= 1;
+    }
+    return 0;
+}

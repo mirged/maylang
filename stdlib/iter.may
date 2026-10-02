@@ -1,0 +1,59 @@
+// iter.may — composable list iteration helpers.
+
+fun enumerate(xs: Any) -> Any { return [[i, xs[i]] for i: Any in 0..len(xs)]; }
+fun zip_with(a: Any, b: Any, f: Any) -> Any { return [f(a[i], b[i]) for i: Any in 0..min(len(a), len(b))]; }
+fun find_index(xs: Any, pred: Any) -> Any {
+    mut i: Any = 0;
+    while (i < len(xs)) { if (pred(xs[i])) { return i; } i = i + 1; }
+    return -1;
+}
+fun find_value(xs: Any, pred: Any, fallback: Any) -> Any {
+    for x: Any in xs { if (pred(x)) { return x; } }
+    return fallback;
+}
+fun take_while(xs: Any, pred: Any) -> Any {
+    mut out: Any = [];
+    mut i: Any = 0;
+    while (i < len(xs) && pred(xs[i])) { push(out, xs[i]); i = i + 1; }
+    return out;
+}
+fun drop_while(xs: Any, pred: Any) -> Any {
+    mut i: Any = 0;
+    while (i < len(xs) && pred(xs[i])) { i = i + 1; }
+    return slice(xs, i, len(xs));
+}
+fun scan(xs: Any, seed: Any, f: Any) -> Any {
+    mut out: Any = [seed];
+    mut acc: Any = seed;
+    for x: Any in xs { acc = f(acc, x); push(out, acc); }
+    return out;
+}
+fun windows(xs: Any, width: Any) -> Any {
+    if (width <= 0) { fail("windows width must be positive"); }
+    if (width > len(xs)) { return []; }
+    return [slice(xs, i, i + width) for i: Any in 0..(len(xs) - width + 1)];
+}
+fun pairwise(xs: Any) -> Any { return zip_with(slice(xs, 0, max(0, len(xs) - 1)), slice(xs, 1, len(xs)), |a: Any, b: Any| -> Any { return [a, b]; }); }
+fun sum_by(xs: Any, f: Any) -> Any { return reduce(xs, |acc: Any, x: Any| -> Any { return acc + f(x); }, 0); }
+fun min_by(xs: Any, f: Any) -> Any {
+    if (len(xs) == 0) { return nil; }
+    mut best: Any = xs[0]; mut score: Any = f(best);
+    for x: Any in slice(xs, 1, len(xs)) { let s: Any = f(x); if (s < score) { best = x; score = s; } }
+    return best;
+}
+fun max_by(xs: Any, f: Any) -> Any {
+    if (len(xs) == 0) { return nil; }
+    mut best: Any = xs[0]; mut score: Any = f(best);
+    for x: Any in slice(xs, 1, len(xs)) { let s: Any = f(x); if (s > score) { best = x; score = s; } }
+    return best;
+}
+fun frequencies(xs: Any) -> Any {
+    mut counts: Any = {};
+    for x: Any in xs { let k: Any = str(x); counts[k] = (counts[k] ?? 0) + 1; }
+    return counts;
+}
+fun cartesian(a: Any, b: Any) -> Any {
+    mut out: Any = [];
+    for x: Any in a { for y: Any in b { push(out, [x, y]); } }
+    return out;
+}

@@ -1,0 +1,125 @@
+import "../lexer.may";
+import "../state.may";
+import "../ast.may";
+import "../diagnostics.may";
+import "../emitter.may";
+import "../backend.may";
+// AArch64 integer emitter. Function ABI: x0-x7, x0 result, 16-byte SP.
+// Linux syscalls: x8 number; Darwin syscalls: x16 number; x0-x5 arguments.
+fun arm64_register(ctx: Any, register: Any) -> Any {
+    if (register == -1) { return 31; }
+    if (register >= 20) { return 19 + register - 20; } // x19-x22, callee-saved
+    if (register >= 10) { return register - 10; }
+    if (register == 2) { return 9; }
+    if (register == 3) { return if (ctx.target.os == "macos") { 16 } else { 8 }; }
+    return register;
+}
+
+fun arm64_immediate(ctx: Any, value: Any, register: Any) -> Any {
+    let rd: Any = arm64_register(ctx, register);
+    mut remaining: Any = value;
+    for half: Any in 0..4 {
+        mut bits: Any = remaining % 65536;
+        if (bits < 0) { bits += 65536; }
+        remaining = (remaining - bits) / 65536;
+        let opcode: Any = if (half == 0) { 3531603968 } else { 4068474880 };
+        e32(ctx, opcode + half * 2097152 + bits * 32 + rd);
+    }
+    return 0;
+}
+
+fun arm64_move(ctx: Any, destination: Any, source: Any) -> Any {
+    e32(ctx, 2852127712 + arm64_register(ctx, source) * 65536 + arm64_register(ctx, destination));
+    return 0;
+}
+
+fun arm64_load(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> Any {
+    let opcodes: Any = {1: 960495616, 2: 2034237440, 4: 3107979264, 8: 4181721088};
+    if (offset < 0 or offset % width != 0 or offset / width > 4095) { die_str("mayc: ARM64 load offset out of range\n"); }
+    e32(ctx, opcodes[width] + (offset / width) * 1024 + arm64_register(ctx, base) * 32 + arm64_register(ctx, register));
+    return 0;
+}
+
+fun arm64_store(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> Any {
+    let opcodes: Any = {1: 956301312, 2: 2030043136, 4: 3103784960, 8: 4177526784};
+    if (offset < 0 or offset % width != 0 or offset / width > 4095) { die_str("mayc: ARM64 store offset out of range\n"); }
+    e32(ctx, opcodes[width] + (offset / width) * 1024 + arm64_register(ctx, base) * 32 + arm64_register(ctx, register));
+    return 0;
+}
+
+fun arm64_binary(ctx: Any, op: Any) -> Any {
+    if (op == TK_PLUS) { e32(ctx, 2332098560); }
+    else if (op == TK_MINUS) { e32(ctx, 3405840384); }
+    else if (op == TK_STAR) { e32(ctx, 2600565760); }
+    else if (op == TK_SLASH) { e32(ctx, 2596342784); }
+    else if (op == TK_PCT) { e32(ctx, 2596342793); e32(ctx, 2600567072); }
+    else {
+        let conditions: Any = [1, 0, 10, 12, 13, 11];
+        if (op < TK_EQ or op > TK_GE) { die_str("mayc: unsupported ARM64 binary operator\n"); }
+        e32(ctx, 3942711327); // cmp x0,x1
+        e32(ctx, 2594113504 + conditions[op - TK_EQ] * 4096); // cset x0,condition
+    }
+    return 0;
+}
+
+fun arm64_unary(ctx: Any, op: Any) -> Any {
+    if (op == TK_MINUS) { e32(ctx, 3405775840); }
+    else { e32(ctx, 4043309087); e32(ctx, 2594117600); }
+    return 0;
+}
+
+fun arm64_jump(ctx: Any, label: Any, link: Any) -> Any {
+    fx(ctx, 100, ctx.code.length, label);
+    e32(ctx, if (link) { 2483027968 } else { 335544320 });
+    return 0;
+}
+
+fun arm64_branch(ctx: Any, label: Any, zero: Any) -> Any {
+    fx(ctx, 102, ctx.code.length, label);
+    e32(ctx, if (zero) { 3019898880 } else { 3036676096 });
+    return 0;
+}
+
+fun arm64_prologue(ctx: Any, frame: Any) -> Any {
+    e32(ctx, 2847898621); e32(ctx, 2432697341);
+    e32(ctx, 3506439167 + frame * 1024);
+    return 0;
+}
+
+fun arm64_epilogue(ctx: Any, frame: Any) -> Any {
+    e32(ctx, 2432697343 + frame * 1024);
+    e32(ctx, 2831252477); e32(ctx, 3596551104);
+    return 0;
+}
+
+fun arm64_trap(ctx: Any) -> Any {
+    e32(ctx, if (ctx.target.os == "macos") { 3556773889 } else { 3556769793 });
+    return 0;
+}
+
+fun arm64_patch(ctx: Any) -> Any {
+    for fixup: Any in ctx.fixups {
+        let pointer: Any = ctx.code.data + fixup.off;
+        if (fixup.kind == 101) {
+            mut value: Any = ctx.layout.dataAddress + fixup.tgt;
+            for half: Any in 0..4 {
+                let opcode: Any = if (half == 0) { 3531603968 } else { 4068474880 };
+                store32(pointer + half * 4, opcode + half * 2097152 + (value % 65536) * 32 + 9);
+                value = value / 65536;
+            }
+        } else {
+            let delta: Any = lab_off(ctx, fixup.tgt) - fixup.off;
+            let limit: Any = if (fixup.kind == 100) { 134217728 } else { 1048576 };
+            if (delta % 4 != 0 or delta < 0 - limit or delta >= limit) { die_str("mayc: ARM64 branch out of range\n"); }
+            let words: Any = (delta + limit * 2) / 4;
+            let opcode: Any = load32(pointer);
+            if (fixup.kind == 100) { store32(pointer, opcode + words % 67108864); }
+            else { store32(pointer, opcode + (words % 524288) * 32); }
+        }
+    }
+    return 0;
+}
+
+fun arm64_emitter() -> Any {
+    return CodeEmitter(arm64_immediate, arm64_move, arm64_load, arm64_store, arm64_binary, arm64_unary, arm64_jump, arm64_branch, arm64_prologue, arm64_epilogue, arm64_trap);
+}

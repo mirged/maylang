@@ -1,0 +1,6 @@
+// A small module. Everything top-level becomes a global of the importing VM.
+let TAU: Any = 6.283185307179586;
+
+fun square(x: Any) -> Any { return x * x; }
+fun cube(x: Any) -> Any { return x * x * x; }
+fun clamp(x: Any, lo: Any, hi: Any) -> Any { return if (x < lo) { lo } else if (x > hi) { hi } else { x }; }

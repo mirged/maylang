@@ -1,0 +1,86 @@
+import "../emitter.may";
+import "bytes.may";
+// PE32+ with fixed addresses, protected sections and no Linux headers/syscalls.
+// The core runtime imports its OS primitives from kernel32.dll.
+let PE_SIGNATURE_OFFSET: Any = 128;
+let PE_OPTIONAL_HEADER_SIZE: Any = 240;
+let PE_SECTION_HEADER_SIZE: Any = 40;
+
+fun pe_layout(ctx: Any) -> Any {
+    let base: Any = 4194304;
+    let offset: Any = ctx.target.alignment;
+    let layout: Any = ImageLayout(base, offset, base + offset, offset + ctx.code.length, base + offset + ctx.code.length, ctx.target.alignment);
+    if (len(ctx.platform) > 0) { pe_imports(ctx, layout.dataOffset); }
+    return layout;
+}
+
+fun pe_imports(ctx: Any, dataRva: Any) -> Any {
+    let padding: Any = image_align(ctx.data.length, 8) - ctx.data.length; dalloc(ctx, padding);
+    let descriptor: Any = dalloc(ctx, 40);
+    let lookup: Any = dalloc(ctx, 40);
+    let library: Any = dalloc(ctx, 13); image_copy(ctx.data.data + library, addr("kernel32.dll"), 12);
+    let names: Any = ["GetStdHandle", "WriteFile", "VirtualAlloc", "ExitProcess"];
+    for index: Any in 0..len(names) {
+        let name: Any = names[index];
+        dalloc(ctx, image_align(ctx.data.length, 2) - ctx.data.length);
+        let hint: Any = dalloc(ctx, len(name) + 3);
+        image_copy(ctx.data.data + hint + 2, addr(name), len(name));
+        store64(ctx.data.data + lookup + index * 8, dataRva + hint);
+        store64(ctx.data.data + ctx.platform[0] + index * 8, dataRva + hint);
+    }
+    store32(ctx.data.data + descriptor, dataRva + lookup);
+    store32(ctx.data.data + descriptor + 12, dataRva + library);
+    store32(ctx.data.data + descriptor + 16, dataRva + ctx.platform[0]);
+    ctx.platform[1] = dataRva + descriptor; ctx.platform[2] = 40;
+    return 0;
+}
+
+fun pe_section(header: Any, name: Any, offset: Any, size: Any, flags: Any) -> Any {
+    image_copy(header, addr(name), len(name));
+    store32(header + 8, size); store32(header + 12, offset);
+    store32(header + 16, image_align(size, 512)); store32(header + 20, offset);
+    store32(header + 36, flags);
+    return 0;
+}
+
+fun build_pe(ctx: Any) -> Any {
+    let layout: Any = ctx.layout;
+    let roOffset: Any = layout.dataOffset + ctx.rodataOffset;
+    let roSize: Any = ctx.data.length - ctx.rodataOffset;
+    ctx.image.length = image_align(layout.dataOffset + ctx.data.length, 512);
+    sink_require(ctx.image, ctx.image.length);
+    let image: Any = ctx.image.data;
+    store16(image, 23117); // MZ
+    store32(image + 60, PE_SIGNATURE_OFFSET);
+    let header: Any = image + PE_SIGNATURE_OFFSET;
+    store32(header, 17744); // PE\0\0
+    store16(header + 4, ctx.target.machine); store16(header + 6, 3);
+    store16(header + 20, PE_OPTIONAL_HEADER_SIZE);
+    store16(header + 22, 35); // executable, large address aware, fixed base
+    let optional: Any = header + 24;
+    store16(optional, 523); // PE32+
+    store32(optional + 4, ctx.code.length);
+    store32(optional + 8, ctx.image.length - layout.dataOffset);
+    store32(optional + 16, layout.codeOffset); store32(optional + 20, layout.codeOffset);
+    store64(optional + 24, layout.base);
+    store32(optional + 32, layout.alignment); store32(optional + 36, 512);
+    store16(optional + 40, 6); store16(optional + 48, 6);
+    store32(optional + 56, image_align(ctx.image.length, layout.alignment));
+    store32(optional + 60, 512);
+    store16(optional + 68, 3); // console subsystem
+    store16(optional + 70, 256); // NX compatible, no ASLR without relocations
+    store64(optional + 72, 1048576); store64(optional + 80, 4096);
+    store64(optional + 88, 1048576); store64(optional + 96, 4096);
+    store32(optional + 108, 16);
+    if (len(ctx.platform) > 0) {
+        store32(optional + 120, ctx.platform[1]); store32(optional + 124, ctx.platform[2]);
+        store32(optional + 208, layout.dataOffset + ctx.platform[0]); store32(optional + 212, 40);
+    }
+    let sections: Any = optional + PE_OPTIONAL_HEADER_SIZE;
+    pe_section(sections, ".text", layout.codeOffset, ctx.code.length, 1610612768);
+    pe_section(sections + PE_SECTION_HEADER_SIZE, ".data", layout.dataOffset, ctx.rodataOffset, 3221225536);
+    pe_section(sections + PE_SECTION_HEADER_SIZE * 2, ".rdata", roOffset, roSize, 1073741888);
+    image_copy(image + layout.codeOffset, ctx.code.data, ctx.code.length);
+    image_copy(image + layout.dataOffset, ctx.data.data, ctx.data.length);
+    return 0;
+}

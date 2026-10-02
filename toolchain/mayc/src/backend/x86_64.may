@@ -1,0 +1,1608 @@
+import "../regalloc.may";
+import "x86_64_ffi.may";
+import "platform_x86.may";
+import "../emitter.may";
+import "../symbols.may";
+import "../ffi.may";
+import "../state.may";
+import "../ast.may";
+import "../lexer.may";
+import "../sema.may";
+import "../ir.may";
+// backend/x86_64.may — x86-64 byte encoder for linear IR.
+//
+// Function bodies use the SysV integer ABI and aligned frames. Small entry
+// trampolines adapt Maylang's dynamically sized argument vectors (also used
+// by closures) to its six argument registers and stack overflow arguments.
+// The closure environment is an internal, caller-saved r10 extension.
+
+
+// Linear scan assigns temporaries to r12-r15; control-flow values have fixed
+// homes. Live register roots are synchronized to the stack before calls.
+struct X86Instruction { bytes: Any, immediate: Any, width: Any }
+
+fun x86_encode(ctx: Any, instruction: Any) -> Any {
+    for byte: Any in instruction.bytes { e8(ctx, byte); }
+    if (instruction.width == 1) { e8(ctx, instruction.immediate); }
+    else if (instruction.width == 4) { e32(ctx, instruction.immediate); }
+    else if (instruction.width == 8) { e64(ctx, instruction.immediate); }
+    return 0;
+}
+
+fun x86_argument_to_rax(ctx: Any, index: Any) -> Any {
+    if (index < 4) {
+        let registers: Any = [248, 240, 208, 200];
+        x86_encode(ctx, X86Instruction([72, 137, registers[index]], 0, 0));
+    } else if (index == 4) { x86_encode(ctx, X86Instruction([76, 137, 192], 0, 0)); }
+    else if (index == 5) { x86_encode(ctx, X86Instruction([76, 137, 200], 0, 0)); }
+    else { ld_pos(ctx, 16 + 8 * (index - 6)); }
+    return 0;
+}
+
+fun x86_call_trampoline(ctx: Any, rec: Any) -> Any {
+    rec.abiLab = newlab(ctx);
+    placelab(ctx, rec.lab);
+    x86_encode(ctx, X86Instruction([85, 72, 137, 229], 0, 0));
+    x86_encode(ctx, X86Instruction([72, 131, 228], 240, 1));
+    mut overflow: Any = rec.pc - 6;
+    if (overflow < 0) { overflow = 0; }
+    if (overflow % 2 == 1) { x86_encode(ctx, X86Instruction([72, 131, 236], 8, 1)); }
+    mut i: Any = rec.pc - 1;
+    while (i >= 6) {
+        ld_pos(ctx, 16 + 8 * (rec.pc - 1 - i));
+        e8(ctx, 80);
+        i = i - 1;
+    }
+    i = 0;
+    while (i < rec.pc and i < 6) {
+        ld_pos(ctx, 16 + 8 * (rec.pc - 1 - i));
+        mov_argreg(ctx, i);
+        i = i + 1;
+    }
+    call(ctx, rec.abiLab);
+    x86_encode(ctx, X86Instruction([72, 137, 236, 93, 195], 0, 0));
+    return 0;
+}
+
+// r12-r15 are excluded from instruction-selection scratch/argument registers.
+fun x86_store_register(ctx: Any, register: Any, displacement: Any) -> Any {
+    e8(ctx, 76); e8(ctx, 137); e8(ctx, 133 + (register - 8) * 8); e32(ctx, 0 - displacement);
+    return 0;
+}
+
+fun x86_load_register(ctx: Any, register: Any, displacement: Any) -> Any {
+    e8(ctx, 76); e8(ctx, 139); e8(ctx, 133 + (register - 8) * 8); e32(ctx, 0 - displacement);
+    return 0;
+}
+
+fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
+    ctx.tempBase = len(ctx.locals);
+    ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]);
+    for index: Any in 0..ctx.allocation.stackSlots { loc_add(ctx, addr("0temporary"), 10); }
+    for register: Any in ctx.allocation.used {
+        let slot: Any = loc_add(ctx, addr("0saved"), 6);
+        push(ctx.allocation.saves, [register, 8 * (slot + 1)]);
+    }
+    return 0;
+}
+
+fun x86_save_registers(ctx: Any) -> Any {
+    for saved: Any in ctx.allocation.saves { x86_store_register(ctx, saved[0], saved[1]); }
+    return 0;
+}
+
+fun x86_restore_registers(ctx: Any) -> Any {
+    for saved: Any in ctx.allocation.saves { x86_load_register(ctx, saved[0], saved[1]); }
+    return 0;
+}
+
+fun x86_root_registers(ctx: Any) -> Any {
+    if (ctx.dynamic == 1 and ctx.allocation != 0 and ctx.allocation.position >= 0) {
+        for interval: Any in ctx.allocation.roots[ctx.allocation.position] {
+            x86_store_register(ctx, interval.register, 8 * (ctx.tempBase + interval.home + 1));
+        }
+    }
+    return 0;
+}
+
+fun cg_expr(ctx: Any, value: Any) -> Any {
+    let location: Any = ctx.allocation.locations[value.slot];
+    if (location.register >= 0) { e8(ctx, 76); e8(ctx, 137); e8(ctx, 192 + (location.register - 8) * 8); }
+    else { ld_local(ctx, 8 * (ctx.tempBase + location.home + 1)); }
+    return 0;
+}
+
+fun x86_put_temp(ctx: Any, value: Any) -> Any {
+    let location: Any = ctx.allocation.locations[value.slot];
+    if (location.register >= 0) { e8(ctx, 73); e8(ctx, 137); e8(ctx, 192 + location.register - 8); }
+    else { st_local(ctx, 8 * (ctx.tempBase + location.home + 1)); }
+    return 0;
+}
+
+fun x86_handler_begin(ctx: Any, label: Any) -> Any {
+    let hd: Any = glob_find(ctx, addr("HDEPTH"), 6);
+    let hs: Any = glob_find(ctx, addr("HSTACK"), 6);
+    ld_abs(ctx, glob_off(ctx, hd));
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 192);
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
+    ld_abs(ctx, glob_off(ctx, hs));
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 194);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 34);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 106); e8(ctx, 8);
+    addr_lab(ctx, label, 6);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 66); e8(ctx, 16);
+    ld_abs(ctx, glob_off(ctx, hd));
+    e8(ctx, 72); e8(ctx, 5); e32(ctx, 1);
+    st_abs(ctx, glob_off(ctx, hd));
+    return 0;
+}
+
+fun x86_handler_end(ctx: Any) -> Any {
+    let hd: Any = glob_find(ctx, addr("HDEPTH"), 6);
+    ld_abs(ctx, glob_off(ctx, hd));
+    e8(ctx, 72); e8(ctx, 45); e32(ctx, 1);
+    st_abs(ctx, glob_off(ctx, hd));
+    return 0;
+}
+
+fun cg_ir(ctx: Any, block: Any) -> Any {
+    for instruction: Any in block.code {
+        ctx.allocation.position += 1;
+        let op: Any = instruction.op;
+        let payload: Any = instruction.extra;
+        if (op == IR_LABEL) { placelab(ctx, payload); }
+        else if (op == IR_JUMP) { jmp(ctx, payload); }
+        else if (op == IR_COPY) { cg_expr(ctx, instruction.arg1); }
+        else if (op == IR_NIL) {
+            if (ctx.mode == 0) { mov_imm(ctx, 0); } else { mov_imm(ctx, 2); }
+        } else if (op == IR_BOOL) { cg_expr(ctx, instruction.arg1); test_rax(ctx); setcc(ctx, 149); }
+        else if (op == IR_FALSE or op == IR_TRUE) {
+            cg_expr(ctx, instruction.arg1);
+            if (ctx.mode == 0) {
+                test_rax(ctx);
+                if (op == IR_FALSE) { jcc(ctx, 132, payload); } else { jcc(ctx, 133, payload); }
+            } else {
+                if (op == IR_FALSE) { jfalse(ctx, payload); } else { jtrue(ctx, payload); }
+            }
+        } else if (op == IR_ISNIL or op == IR_NONNULL) {
+            cg_expr(ctx, instruction.arg1);
+            e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, 2);
+            if (op == IR_ISNIL) { jcc(ctx, 132, payload); } else { jcc(ctx, 133, payload); }
+        } else if (op == IR_RUNTIME) { cg_calln(ctx, addr(payload), len(payload), instruction.arg1); }
+        else if (op == IR_RETURN) { cg_expr(ctx, instruction.arg1); jmp(ctx, ctx.returnLabel); }
+        else if (op == IR_TAILCALL) {
+            mut arg: Any = instruction.arg1;
+            mut i: Any = 0;
+            while (arg != 0) {
+                cg_expr(ctx, arg); st_local(ctx, 8 * (i + 1));
+                i = i + 1; arg = arg.next;
+            }
+            jmp(ctx, ctx.restartLabel);
+        }
+        else if (op == IR_TRY_BEGIN) { x86_handler_begin(ctx, payload); }
+        else if (op == IR_TRY_END) { x86_handler_end(ctx); }
+        else if (op == S_LET) { cg_let(ctx, payload); }
+        else if (op == S_ASSIGN) { cg_assign(ctx, payload); }
+        else if (op == S_SETIDX) { cg_setidx(ctx, payload); }
+        else if (op == S_CASSIGN) {
+            cg_expr(ctx, payload.value); e8(ctx, 80);
+            ld_local(ctx, 8 * (ctx.envSlot + 1));
+            e8(ctx, 72); e8(ctx, 139); e8(ctx, 136); e32(ctx, 8 * payload.index);
+            e8(ctx, 88); e8(ctx, 72); e8(ctx, 137); e8(ctx, 1);
+        } else if (op == S_SETPROP) {
+            cg_expr(ctx, payload.object); e8(ctx, 80);
+            let off: Any = intern_obj(ctx, payload.span.source, payload.start, payload.length);
+            addr_tag(ctx, off, 3); e8(ctx, 80);
+            cg_expr(ctx, payload.value); e8(ctx, 80);
+            call_rt0(ctx, addr("rt_map_set"), len("rt_map_set"));
+            e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 24);
+        } else { cg_operation(ctx, payload); }
+        if (instruction.result != 0) {
+            x86_put_temp(ctx, instruction.result);
+        }
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- byte emit
+
+fun jmp(ctx: Any, lab: Any) -> Any { e8(ctx, 233); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
+fun jcc(ctx: Any, op: Any, lab: Any) -> Any { e8(ctx, 15); e8(ctx, op); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
+fun call(ctx: Any, lab: Any) -> Any { x86_root_registers(ctx); e8(ctx, 232); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
+
+fun mov_imm(ctx: Any, v: Any) -> Any { e8(ctx, 72); e8(ctx, 184); e64(ctx, v); return 0; }
+fun addr_of(ctx: Any, off: Any) -> Any { e8(ctx, 72); e8(ctx, 184); let o: Any = ctx.code.length; e64(ctx, 0); fx(ctx, 1, o, off); return 0; }
+
+fun ld_local(ctx: Any, d: Any) -> Any { e8(ctx, 72); e8(ctx, 139); e8(ctx, 133); e32(ctx, 0 - d); return 0; }
+fun st_local(ctx: Any, d: Any) -> Any { e8(ctx, 72); e8(ctx, 137); e8(ctx, 133); e32(ctx, 0 - d); return 0; }
+fun ld_pos(ctx: Any, d: Any) -> Any { e8(ctx, 72); e8(ctx, 139); e8(ctx, 133); e32(ctx, d); return 0; }
+fun ld_abs(ctx: Any, off: Any) -> Any { e8(ctx, 72); e8(ctx, 139); e8(ctx, 4); e8(ctx, 37); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 2, o, off); return 0; }
+fun st_abs(ctx: Any, off: Any) -> Any { e8(ctx, 72); e8(ctx, 137); e8(ctx, 4); e8(ctx, 37); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 2, o, off); return 0; }
+
+fun test_rax(ctx: Any) -> Any { e8(ctx, 72); e8(ctx, 133); e8(ctx, 192); return 0; }
+fun cmp_rcx(ctx: Any) -> Any { e8(ctx, 72); e8(ctx, 57); e8(ctx, 200); return 0; }
+fun xor_eax(ctx: Any) -> Any { e8(ctx, 49); e8(ctx, 192); return 0; }
+fun setcc(ctx: Any, x: Any) -> Any { e8(ctx, 15); e8(ctx, x); e8(ctx, 192); e8(ctx, 15); e8(ctx, 182); e8(ctx, 192); return 0; }
+
+// ------------------------------------------------------------- symbol tables
+
+// ------------------------------------------------------------- expressions
+
+fun cg_name(ctx: Any, p: Any, l: Any) -> Any {
+    let li: Any = loc_find(ctx, p, l);
+    if (li >= 0) {
+        ld_local(ctx, 8 * (li + 1));
+        return 0;
+    }
+    let gi: Any = glob_find(ctx, p, l);
+    if (gi >= 0) { ld_abs(ctx, glob_off(ctx, gi)); return 0; }
+    let fr: Any = backend_find_func(ctx, p, l);
+    if (fr != 0) { cg_closure_named(ctx, fr); return 0; }
+    mut vname: Any = "";
+    mut q: Any = 0;
+    while (q < l) { vname = vname + chr(load8(p + q)); q = q + 1; }
+    die_str("mayc: unknown variable `${vname}`\n");
+    return 0;
+}
+
+fun cg_closure_named(ctx: Any, fr: Any) -> Any {
+    addr_lab(ctx, fr.lab, 6);
+    e8(ctx, 80);
+    mov_imm(ctx, 0);
+    e8(ctx, 80);
+    mov_imm(ctx, fr.pc);
+    e8(ctx, 80);
+    call_rt0(ctx, addr("rt_closure3"), len("rt_closure3"));
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 24);
+    return 0;
+}
+
+fun cg_var(ctx: Any, n: Any) -> Any {
+    let p: Any = n.name;
+    let l: Any = n.length;
+    if (ctx.mode == 0) {
+        if (name_eq(p, l, addr("true"), len("true")) == 1) { mov_imm(ctx, 1); return 0; }
+        if (name_eq(p, l, addr("false"), len("false")) == 1) { mov_imm(ctx, 0); return 0; }
+        if (name_eq(p, l, addr("nil"), len("nil")) == 1) { mov_imm(ctx, 0); return 0; }
+    }
+    if (ctx.mode != 0) {
+        if (name_eq(p, l, addr("nil"), len("nil")) == 1) { mov_imm(ctx, 2); return 0; }
+        if (name_eq(p, l, addr("true"), len("true")) == 1) { mov_imm(ctx, 4); return 0; }
+        if (name_eq(p, l, addr("false"), len("false")) == 1) { mov_imm(ctx, 3); return 0; }
+        if (name_eq(p, l, addr("err"), len("err")) == 1) {
+            let ei: Any = glob_find(ctx, addr("ERRVAL"), len("ERRVAL"));
+            ld_abs(ctx, glob_off(ctx, ei));
+            return 0;
+        }
+    }
+    let li: Any = loc_find(ctx, p, l);
+    if (li >= 0) {
+        ld_local(ctx, 8 * (li + 1));
+        if (is_boxed(ctx, p, l) == 1) { e8(ctx, 72); e8(ctx, 139); e8(ctx, 0); }
+        return 0;
+    }
+    cg_name(ctx, p, l);
+    return 0;
+}
+
+fun cg_bin(ctx: Any, n: Any) -> Any {
+    let op: Any = n.op;
+    // Signed power-of-two division/remainder: bias negatives before shifting.
+    // `% 8` is especially common in the runtime's value tag checks.
+    if ((op == TK_SLASH or op == TK_PCT) and n.right.kind == E_INT) {
+        let divisor: Any = n.right.value;
+        mut power: Any = 1; mut shift: Any = 0;
+        while (power < divisor and power < 1073741824) { power *= 2; shift += 1; }
+        if (divisor > 0 and power == divisor) {
+            cg_expr(ctx, n.left);
+            for byte: Any in [72,137,193,72,193,249,63,72,129,225] { e8(ctx, byte); }
+            e32(ctx, divisor - 1); // rcx = sign bias
+            e8(ctx, 72); e8(ctx, 1); e8(ctx, 200); // add rax,rcx
+            if (op == TK_SLASH) { e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, shift); }
+            else {
+                e8(ctx, 72); e8(ctx, 37); e32(ctx, divisor - 1);
+                e8(ctx, 72); e8(ctx, 41); e8(ctx, 200);
+            }
+            return 0;
+        }
+    }
+    cg_expr(ctx, n.left);
+    e8(ctx, 80);
+    cg_expr(ctx, n.right);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);      // mov rcx, rax
+    e8(ctx, 88);
+    if (op == TK_PLUS) { e8(ctx, 72); e8(ctx, 1); e8(ctx, 200); }
+    else if (op == TK_MINUS) { e8(ctx, 72); e8(ctx, 41); e8(ctx, 200); }
+    else if (op == TK_STAR) { e8(ctx, 72); e8(ctx, 15); e8(ctx, 175); e8(ctx, 193); }
+    else if (op == TK_SLASH) { e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249); }
+    else if (op == TK_PCT) {
+        e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249);
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 208);  // mov rax, rdx
+    }
+    else if (op == TK_EQ) { cmp_rcx(ctx); setcc(ctx, 148); }
+    else if (op == TK_NE) { cmp_rcx(ctx); setcc(ctx, 149); }
+    else if (op == TK_LT) { cmp_rcx(ctx); setcc(ctx, 156); }
+    else if (op == TK_LE) { cmp_rcx(ctx); setcc(ctx, 158); }
+    else if (op == TK_GT) { cmp_rcx(ctx); setcc(ctx, 159); }
+    else { cmp_rcx(ctx); setcc(ctx, 157); }
+    return 0;
+}
+
+fun cg_un(ctx: Any, n: Any) -> Any {
+    let op: Any = n.op;
+    cg_expr(ctx, n.operand);
+    if (op == TK_MINUS) {
+        e8(ctx, 72); e8(ctx, 247); e8(ctx, 216);  // neg rax
+    } else {
+        test_rax(ctx);
+        setcc(ctx, 148);               // setz al; movzx
+    }
+    return 0;
+}
+
+
+
+fun pop_reg(ctx: Any, i: Any) -> Any {
+    if (i == 0) { e8(ctx, 88); }
+    else if (i == 1) { e8(ctx, 95); }
+    else if (i == 2) { e8(ctx, 94); }
+    else if (i == 3) { e8(ctx, 90); }
+    else if (i == 4) { e8(ctx, 65); e8(ctx, 90); }
+    else if (i == 5) { e8(ctx, 65); e8(ctx, 88); }
+    else { e8(ctx, 65); e8(ctx, 89); }
+    return 0;
+}
+
+fun cg_syscall(ctx: Any, args: Any) -> Any {
+    if (ctx.target.os != "linux") { die_str("mayc: raw syscall is not supported for this target\n"); }
+    mut cnt: Any = 0;
+    mut cur: Any = args;
+    while (cur != 0) {
+        cg_expr(ctx, cur);
+        e8(ctx, 80);
+        cnt = cnt + 1;
+        cur = cur.next;
+    }
+    mut i: Any = cnt - 1;
+    while (i >= 0) {
+        pop_reg(ctx, i);
+        i = i - 1;
+    }
+    e8(ctx, 15); e8(ctx, 5);
+    return 0;
+}
+
+fun cg_store(ctx: Any, args: Any, width: Any) -> Any {
+    cg_expr(ctx, args);
+    e8(ctx, 80);
+    cg_expr(ctx, args.next);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);      // mov rcx, rax
+    e8(ctx, 88);
+    if (width == 1) { e8(ctx, 136); e8(ctx, 8); }
+    else if (width == 2) { e8(ctx, 102); e8(ctx, 137); e8(ctx, 8); }
+    else if (width == 4) { e8(ctx, 137); e8(ctx, 8); }
+    else { e8(ctx, 72); e8(ctx, 137); e8(ctx, 8); }
+    return 0;
+}
+
+fun untag_rax(ctx: Any) -> Any { e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3); return 0; }
+fun tag_rax(ctx: Any) -> Any { e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3); return 0; }
+
+fun cg_store_dyn(ctx: Any, args: Any, width: Any) -> Any {
+    cg_expr(ctx, args);
+    untag_rax(ctx);
+    e8(ctx, 80);
+    cg_expr(ctx, args.next);
+    untag_rax(ctx);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);
+    e8(ctx, 88);
+    if (width == 1) { e8(ctx, 136); e8(ctx, 8); }
+    else if (width == 2) { e8(ctx, 102); e8(ctx, 137); e8(ctx, 8); }
+    else if (width == 4) { e8(ctx, 137); e8(ctx, 8); }
+    else { e8(ctx, 72); e8(ctx, 137); e8(ctx, 8); }
+    return 0;
+}
+
+fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
+    let platformName: Any = symbol_name(np, nl);
+    if (platformName == "__host_write" or platformName == "__host_alloc" or platformName == "__host_exit") { x86_host(ctx, platformName, args); return 1; }
+    if (ctx.runtime == "core" and ctx.mode == 1 and platformName == "exit") { cg_expr(ctx, args); call_rt1(ctx, addr("rt_exit"), 7); return 1; }
+    if (ctx.runtime == "core" and ctx.mode == 1 and platformName == "pow") { cg_calln(ctx, addr("rt_pow"), 6, args); return 1; }
+    if (name_eq(np, nl, addr("__ccall6"), len("__ccall6")) == 1) { cg_ccall6(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("__longjmp"), len("__longjmp")) == 1) { cg_longjmp(ctx); return 1; }
+    if (name_eq(np, nl, addr("__sp"), len("__sp")) == 1) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 224); return 1; }
+    if (name_eq(np, nl, addr("__fbin"), len("__fbin")) == 1) { cg_fbin(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("__fcmp"), len("__fcmp")) == 1) { cg_fcmp(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("__ftrunc"), len("__ftrunc")) == 1) { cg_ftrunc(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("__ffrac"), len("__ffrac")) == 1) { cg_ffrac(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("__fsign"), len("__fsign")) == 1) { cg_fsign(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("__fabs"), len("__fabs")) == 1) { cg_f1op(ctx, 13, args); return 1; }
+    if (name_eq(np, nl, addr("__fpow2"), len("__fpow2")) == 1) { cg_fpow2(ctx, args, args.next); return 1; }
+    if (name_eq(np, nl, addr("__fiber_entry"), len("__fiber_entry")) == 1) {
+        let fr: Any = backend_find_func(ctx, addr("rt_fiber_entry"), len("rt_fiber_entry"));
+        addr_lab(ctx, fr.lab, 6);
+        return 1;
+    }
+    if (name_eq(np, nl, addr("__fib_switch"), len("__fib_switch")) == 1) {
+        cg_expr(ctx, args);
+        e8(ctx, 80);
+        cg_expr(ctx, args.next);
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 198);
+        e8(ctx, 95);
+        call(ctx, ctx.fiberLabel);
+        return 1;
+    }
+    if (ctx.mode == 0) {
+        if (name_eq(np, nl, addr("syscall"), len("syscall")) == 1) { cg_syscall(ctx, args); return 1; }
+        if (name_eq(np, nl, addr("addr"), len("addr")) == 1) {
+            let off: Any = intern(ctx, args.span.source, args.start, args.length);
+            addr_of(ctx, off);
+            return 1;
+        }
+        if (name_eq(np, nl, addr("cstr"), len("cstr")) == 1) {
+            let off: Any = intern(ctx, args.span.source, args.start, args.length);
+            addr_of(ctx, off);
+            return 1;
+        }
+        if (name_eq(np, nl, addr("len"), len("len")) == 1) {
+            let ln: Any = declen(args.span.source, args.start, args.length);
+            mov_imm(ctx, ln);
+            return 1;
+        }
+        if (name_eq(np, nl, addr("ptr"), len("ptr")) == 1) { cg_expr(ctx, args); return 1; }
+        if (name_eq(np, nl, addr("load8"), len("load8")) == 1) { cg_expr(ctx, args); e8(ctx, 15); e8(ctx, 182); e8(ctx, 0); return 1; }
+        if (name_eq(np, nl, addr("load16"), len("load16")) == 1) { cg_expr(ctx, args); e8(ctx, 15); e8(ctx, 183); e8(ctx, 0); return 1; }
+        if (name_eq(np, nl, addr("load32"), len("load32")) == 1) { cg_expr(ctx, args); e8(ctx, 139); e8(ctx, 0); return 1; }
+        if (name_eq(np, nl, addr("load64"), len("load64")) == 1) { cg_expr(ctx, args); e8(ctx, 72); e8(ctx, 139); e8(ctx, 0); return 1; }
+        if (name_eq(np, nl, addr("store8"), len("store8")) == 1) { cg_store(ctx, args, 1); return 1; }
+        if (name_eq(np, nl, addr("store16"), len("store16")) == 1) { cg_store(ctx, args, 2); return 1; }
+        if (name_eq(np, nl, addr("store32"), len("store32")) == 1) { cg_store(ctx, args, 4); return 1; }
+        if (name_eq(np, nl, addr("store64"), len("store64")) == 1) { cg_store(ctx, args, 8); return 1; }
+        if (name_eq(np, nl, addr("exit"), len("exit")) == 1) {
+            if (ctx.target.os != "linux") { die_str("mayc: raw exit requires a platform runtime on this target\n"); }
+            cg_expr(ctx, args);
+            e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);
+            mov_imm(ctx, 60);
+            e8(ctx, 15); e8(ctx, 5);
+            return 1;
+        }
+        return 0;
+    }
+    if (name_eq(np, nl, addr("print"), len("print")) == 1) { cg_print(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("fail"), len("fail")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_fail"), len("rt_fail")); return 1; }
+    if (name_eq(np, nl, addr("syscall"), len("syscall")) == 1) { cg_syscall_dyn(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("addr"), len("addr")) == 1) {
+        if (args.kind == E_STR) {
+            let off: Any = intern_obj(ctx, args.span.source, args.start, args.length);
+            addr_tag(ctx, off, 4);
+        } else {
+            cg_expr(ctx, args);
+            call_rt1(ctx, addr("rt_addr"), len("rt_addr"));
+        }
+        return 1;
+    }
+    if (name_eq(np, nl, addr("cstr"), len("cstr")) == 1) {
+        if (args.kind == E_STR) {
+            let off: Any = intern_obj(ctx, args.span.source, args.start, args.length);
+            addr_tag(ctx, off, 4);
+        } else {
+            cg_expr(ctx, args);
+            call_rt1(ctx, addr("rt_cstr"), len("rt_cstr"));
+        }
+        return 1;
+    }
+    if (name_eq(np, nl, addr("len"), len("len")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_len"), len("rt_len")); return 1; }
+    if (name_eq(np, nl, addr("str"), len("str")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_to_str"), len("rt_to_str")); return 1; }
+    if (name_eq(np, nl, addr("chr"), len("chr")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_chr"), len("rt_chr")); return 1; }
+    if (name_eq(np, nl, addr("ord"), len("ord")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_ord"), len("rt_ord")); return 1; }
+    if (name_eq(np, nl, addr("push"), len("push")) == 1) {
+        cg_expr(ctx, args);
+        e8(ctx, 80);
+        cg_expr(ctx, args.next);
+        e8(ctx, 80);
+        call_rt2(ctx, addr("rt_push"), len("rt_push"));
+        return 1;
+    }
+    if (name_eq(np, nl, addr("ptr"), len("ptr")) == 1) { cg_expr(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("load8"), len("load8")) == 1) { cg_expr(ctx, args); untag_rax(ctx); e8(ctx, 15); e8(ctx, 182); e8(ctx, 0); tag_rax(ctx); return 1; }
+    if (name_eq(np, nl, addr("load16"), len("load16")) == 1) { cg_expr(ctx, args); untag_rax(ctx); e8(ctx, 15); e8(ctx, 183); e8(ctx, 0); tag_rax(ctx); return 1; }
+    if (name_eq(np, nl, addr("load32"), len("load32")) == 1) { cg_expr(ctx, args); untag_rax(ctx); e8(ctx, 139); e8(ctx, 0); tag_rax(ctx); return 1; }
+    if (name_eq(np, nl, addr("load64"), len("load64")) == 1) { cg_expr(ctx, args); untag_rax(ctx); e8(ctx, 72); e8(ctx, 139); e8(ctx, 0); tag_rax(ctx); return 1; }
+    if (name_eq(np, nl, addr("store8"), len("store8")) == 1) { cg_store_dyn(ctx, args, 1); return 1; }
+    if (name_eq(np, nl, addr("store16"), len("store16")) == 1) { cg_store_dyn(ctx, args, 2); return 1; }
+    if (name_eq(np, nl, addr("store32"), len("store32")) == 1) { cg_store_dyn(ctx, args, 4); return 1; }
+    if (name_eq(np, nl, addr("store64"), len("store64")) == 1) { cg_store_dyn(ctx, args, 8); return 1; }
+    if (name_eq(np, nl, addr("exit"), len("exit")) == 1) {
+        cg_expr(ctx, args);
+        untag_rax(ctx);
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);
+        mov_imm(ctx, 60);
+        e8(ctx, 15); e8(ctx, 5);
+        return 1;
+    }
+    if (name_eq(np, nl, addr("map"), len("map")) == 1) { cg_calln(ctx, addr("rt_mapf"), len("rt_mapf"), args); return 1; }
+    if (name_eq(np, nl, addr("filter"), len("filter")) == 1) { cg_calln(ctx, addr("rt_filter"), len("rt_filter"), args); return 1; }
+    if (name_eq(np, nl, addr("sum"), len("sum")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_sum"), len("rt_sum")); return 1; }
+    if (name_eq(np, nl, addr("reduce"), len("reduce")) == 1) { cg_calln(ctx, addr("rt_reduce"), len("rt_reduce"), args); return 1; }
+    if (name_eq(np, nl, addr("any"), len("any")) == 1) { cg_calln(ctx, addr("rt_any"), len("rt_any"), args); return 1; }
+    if (name_eq(np, nl, addr("all"), len("all")) == 1) { cg_calln(ctx, addr("rt_all"), len("rt_all"), args); return 1; }
+    if (name_eq(np, nl, addr("count"), len("count")) == 1) { cg_calln(ctx, addr("rt_count"), len("rt_count"), args); return 1; }
+    if (name_eq(np, nl, addr("each"), len("each")) == 1) { cg_calln(ctx, addr("rt_each"), len("rt_each"), args); return 1; }
+    if (name_eq(np, nl, addr("times"), len("times")) == 1) { cg_calln(ctx, addr("rt_times"), len("rt_times"), args); return 1; }
+    if (name_eq(np, nl, addr("char_at"), len("char_at")) == 1) { cg_calln(ctx, addr("rt_char_at"), len("rt_char_at"), args); return 1; }
+    if (name_eq(np, nl, addr("char_from"), len("char_from")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_char_from"), len("rt_char_from")); return 1; }
+    if (name_eq(np, nl, addr("to_lower"), len("to_lower")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_lower"), len("rt_lower")); return 1; }
+    if (name_eq(np, nl, addr("to_upper"), len("to_upper")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_upper"), len("rt_upper")); return 1; }
+    if (name_eq(np, nl, addr("trim"), len("trim")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_trim"), len("rt_trim")); return 1; }
+    if (name_eq(np, nl, addr("split"), len("split")) == 1) { cg_calln(ctx, addr("rt_split"), len("rt_split"), args); return 1; }
+    if (name_eq(np, nl, addr("repeat"), len("repeat")) == 1) { cg_calln(ctx, addr("rt_repeat"), len("rt_repeat"), args); return 1; }
+    if (name_eq(np, nl, addr("join"), len("join")) == 1) { cg_calln(ctx, addr("rt_join"), len("rt_join"), args); return 1; }
+    if (name_eq(np, nl, addr("contains"), len("contains")) == 1) { cg_calln(ctx, addr("rt_contains"), len("rt_contains"), args); return 1; }
+    if (name_eq(np, nl, addr("starts_with"), len("starts_with")) == 1) { cg_calln(ctx, addr("rt_starts_with"), len("rt_starts_with"), args); return 1; }
+    if (name_eq(np, nl, addr("ends_with"), len("ends_with")) == 1) { cg_calln(ctx, addr("rt_ends_with"), len("rt_ends_with"), args); return 1; }
+    if (name_eq(np, nl, addr("index_of"), len("index_of")) == 1) { cg_calln(ctx, addr("rt_index_of"), len("rt_index_of"), args); return 1; }
+    if (name_eq(np, nl, addr("cmp"), len("cmp")) == 1) { cg_calln(ctx, addr("rt_cmp"), len("rt_cmp"), args); return 1; }
+    if (name_eq(np, nl, addr("min"), len("min")) == 1) { cg_calln(ctx, addr("rt_min"), len("rt_min"), args); return 1; }
+    if (name_eq(np, nl, addr("max"), len("max")) == 1) { cg_calln(ctx, addr("rt_max"), len("rt_max"), args); return 1; }
+    if (name_eq(np, nl, addr("abs"), len("abs")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_abs"), len("rt_abs")); return 1; }
+    if (name_eq(np, nl, addr("to_map"), len("to_map")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_to_map"), len("rt_to_map")); return 1; }
+    if (name_eq(np, nl, addr("map_get"), len("map_get")) == 1) { cg_calln(ctx, addr("rt_map_get"), len("rt_map_get"), args); return 1; }
+    if (name_eq(np, nl, addr("map_set"), len("map_set")) == 1) { cg_calln(ctx, addr("rt_map_set"), len("rt_map_set"), args); return 1; }
+    if (name_eq(np, nl, addr("keys"), len("keys")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_keys"), len("rt_keys")); return 1; }
+    if (name_eq(np, nl, addr("values"), len("values")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_values"), len("rt_values")); return 1; }
+    if (name_eq(np, nl, addr("has"), len("has")) == 1) { cg_calln(ctx, addr("rt_has"), len("rt_has"), args); return 1; }
+    if (name_eq(np, nl, addr("read_stdin"), len("read_stdin")) == 1) { cg_calln(ctx, addr("rt_read_stdin"), len("rt_read_stdin"), args); return 1; }
+    if (name_eq(np, nl, addr("pi"), len("pi")) == 1) { call_rt0(ctx, addr("rt_pi"), len("rt_pi")); return 1; }
+    if (name_eq(np, nl, addr("e"), len("e")) == 1) { call_rt0(ctx, addr("rt_e"), len("rt_e")); return 1; }
+    if (name_eq(np, nl, addr("sqrt"), len("sqrt")) == 1) { cg_f1op(ctx, 0, args); return 1; }
+    if (name_eq(np, nl, addr("floor"), len("floor")) == 1) { cg_f1op(ctx, 1, args); return 1; }
+    if (name_eq(np, nl, addr("ceil"), len("ceil")) == 1) { cg_f1op(ctx, 2, args); return 1; }
+    if (name_eq(np, nl, addr("round"), len("round")) == 1) { cg_f1op(ctx, 3, args); return 1; }
+    if (name_eq(np, nl, addr("trunc"), len("trunc")) == 1) { cg_f1op(ctx, 4, args); return 1; }
+    if (name_eq(np, nl, addr("sin"), len("sin")) == 1) { cg_f1op(ctx, 5, args); return 1; }
+    if (name_eq(np, nl, addr("cos"), len("cos")) == 1) { cg_f1op(ctx, 6, args); return 1; }
+    if (name_eq(np, nl, addr("tan"), len("tan")) == 1) { cg_f1op(ctx, 7, args); return 1; }
+    if (name_eq(np, nl, addr("ln"), len("ln")) == 1) { cg_f1op(ctx, 8, args); return 1; }
+    if (name_eq(np, nl, addr("log2"), len("log2")) == 1) { cg_f1op(ctx, 9, args); return 1; }
+    if (name_eq(np, nl, addr("log10"), len("log10")) == 1) { cg_f1op(ctx, 10, args); return 1; }
+    if (name_eq(np, nl, addr("exp"), len("exp")) == 1) { cg_f1op(ctx, 11, args); return 1; }
+    if (name_eq(np, nl, addr("pow"), len("pow")) == 1) { cg_fpow2(ctx, args, args.next); return 1; }
+    if (name_eq(np, nl, addr("chars"), len("chars")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_chars"), len("rt_chars")); return 1; }
+    if (name_eq(np, nl, addr("reverse"), len("reverse")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_reverse"), len("rt_reverse")); return 1; }
+    if (name_eq(np, nl, addr("sort"), len("sort")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_sort"), len("rt_sort")); return 1; }
+    if (name_eq(np, nl, addr("env"), len("env")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_env"), len("rt_env")); return 1; }
+    if (name_eq(np, nl, addr("file_exists"), len("file_exists")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_file_exists"), len("rt_file_exists")); return 1; }
+    if (name_eq(np, nl, addr("read_file"), len("read_file")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_read_file"), len("rt_read_file")); return 1; }
+    if (name_eq(np, nl, addr("write_file"), len("write_file")) == 1) { cg_calln(ctx, addr("rt_write_file"), len("rt_write_file"), args); return 1; }
+    if (name_eq(np, nl, addr("time"), len("time")) == 1) { call_rt0(ctx, addr("rt_time"), len("rt_time")); return 1; }
+    if (name_eq(np, nl, addr("clock"), len("clock")) == 1) { call_rt0(ctx, addr("rt_clock"), len("rt_clock")); return 1; }
+    if (name_eq(np, nl, addr("sleep"), len("sleep")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_sleep"), len("rt_sleep")); return 1; }
+    if (name_eq(np, nl, addr("mkdir"), len("mkdir")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_mkdir"), len("rt_mkdir")); return 1; }
+    if (name_eq(np, nl, addr("read_dir"), len("read_dir")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_read_dir"), len("rt_read_dir")); return 1; }
+    if (name_eq(np, nl, addr("system"), len("system")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_system"), len("rt_system")); return 1; }
+    if (name_eq(np, nl, addr("exec"), len("exec")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_exec"), len("rt_exec")); return 1; }
+    if (name_eq(np, nl, addr("wait"), len("wait")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_wait"), len("rt_wait")); return 1; }
+    if (name_eq(np, nl, addr("pop"), len("pop")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_pop"), len("rt_pop")); return 1; }
+    if (name_eq(np, nl, addr("remove"), len("remove")) == 1) { cg_calln(ctx, addr("rt_remove"), len("rt_remove"), args); return 1; }
+    if (name_eq(np, nl, addr("merge"), len("merge")) == 1) { cg_calln(ctx, addr("rt_merge"), len("rt_merge"), args); return 1; }
+    if (name_eq(np, nl, addr("slice"), len("slice")) == 1) { cg_calln(ctx, addr("rt_slice"), len("rt_slice"), args); return 1; }
+    if (name_eq(np, nl, addr("unique"), len("unique")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_unique"), len("rt_unique")); return 1; }
+    if (name_eq(np, nl, addr("pad_left"), len("pad_left")) == 1) { cg_calln(ctx, addr("rt_pad_left"), len("rt_pad_left"), args); return 1; }
+    if (name_eq(np, nl, addr("pad_right"), len("pad_right")) == 1) { cg_calln(ctx, addr("rt_pad_right"), len("rt_pad_right"), args); return 1; }
+    if (name_eq(np, nl, addr("int"), len("int")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_int"), len("rt_int")); return 1; }
+    if (name_eq(np, nl, addr("str_of"), len("str_of")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_to_str"), len("rt_to_str")); return 1; }
+    if (name_eq(np, nl, addr("int_to_str"), len("int_to_str")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_int_str"), len("rt_int_str")); return 1; }
+    if (name_eq(np, nl, addr("str_cmp"), len("str_cmp")) == 1) { cg_calln(ctx, addr("rt_str_cmp"), len("rt_str_cmp"), args); return 1; }
+    if (name_eq(np, nl, addr("value_eq"), len("value_eq")) == 1) { cg_calln(ctx, addr("rt_eq"), len("rt_eq"), args); return 1; }
+    if (name_eq(np, nl, addr("map_keys"), len("map_keys")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_keys"), len("rt_keys")); return 1; }
+    if (name_eq(np, nl, addr("map_values"), len("map_values")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_values"), len("rt_values")); return 1; }
+    if (name_eq(np, nl, addr("map_has"), len("map_has")) == 1) { cg_calln(ctx, addr("rt_has"), len("rt_has"), args); return 1; }
+    if (name_eq(np, nl, addr("to_float"), len("to_float")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_to_f"), len("rt_to_f")); return 1; }
+    if (name_eq(np, nl, addr("rt_raise"), len("rt_raise")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_raise"), len("rt_raise")); return 1; }
+    if (name_eq(np, nl, addr("json_parse"), len("json_parse")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_json_parse"), len("rt_json_parse")); return 1; }
+    if (name_eq(np, nl, addr("json_stringify"), len("json_stringify")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_json_stringify"), len("rt_json_stringify")); return 1; }
+    if (name_eq(np, nl, addr("args"), len("args")) == 1) { call_rt0(ctx, addr("rt_args"), len("rt_args")); return 1; }
+    if (name_eq(np, nl, addr("input"), len("input")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_input"), len("rt_input")); return 1; }
+    if (name_eq(np, nl, addr("spawn"), len("spawn")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_spawn"), len("rt_spawn")); return 1; }
+    if (name_eq(np, nl, addr("yield"), len("yield")) == 1) { call_rt0(ctx, addr("rt_yield"), len("rt_yield")); return 1; }
+    if (name_eq(np, nl, addr("run"), len("run")) == 1) { call_rt0(ctx, addr("rt_run"), len("rt_run")); return 1; }
+    if (name_eq(np, nl, addr("bool"), len("bool")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_bool"), len("rt_bool")); return 1; }
+    if (name_eq(np, nl, addr("value_tag"), len("value_tag")) == 1) {
+        cg_expr(ctx, args);
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 224); e8(ctx, 7);
+        e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+        return 1;
+    }
+    return 0;
+}
+
+fun cg_calln(ctx: Any, name: Any, sl: Any, args: Any) -> Any {
+    mut cnt: Any = 0;
+    mut cur: Any = args;
+    while (cur != 0) {
+        cg_expr(ctx, cur);
+        e8(ctx, 80);
+        cnt = cnt + 1;
+        cur = cur.next;
+    }
+    call_rt0(ctx, name, sl);
+    let total: Any = cnt * 8;
+    if (total > 0) {
+        if (total < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, total); }
+        else { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, total); }
+    }
+    return 0;
+}
+
+// Apply a closure value held in local slot `cv` to a linked list of argument
+// expressions.  Arguments are evaluated left to right into temporary slots,
+// pushed in order, then padded with `nil` up to the closure's declared arity
+// so a short argument list still binds its parameters correctly.
+fun cg_apply(ctx: Any, cv: Any, args: Any) -> Any {
+    ld_local(ctx, 8 * (cv + 1));
+    call_rt1(ctx, addr("rt_require_callable"), len("rt_require_callable"));
+    mut cnt: Any = 0;
+    mut cur: Any = args;
+    while (cur != 0) {
+        cnt = cnt + 1;
+        cur = cur.next;
+    }
+    mut slots: Any = [];
+    mut i: Any = 0;
+    cur = args;
+    while (cur != 0) {
+        cg_expr(ctx, cur);
+        let si: Any = loc_add(ctx, addr("0a"), 2);
+        st_local(ctx, 8 * (si + 1));
+        push(slots, si);
+        i = i + 1;
+        cur = cur.next;
+    }
+    i = 0;
+    while (i < cnt) {
+        ld_local(ctx, 8 * (slots[i] + 1));
+        e8(ctx, 80);
+        i = i + 1;
+    }
+    let lskip: Any = newlab(ctx);
+    let ltop: Any = newlab(ctx);
+    let lsmall: Any = newlab(ctx);
+    let ldone: Any = newlab(ctx);
+    let rv: Any = loc_add(ctx, addr("0r"), 3);
+    ld_local(ctx, 8 * (cv + 1));
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 16);
+    e8(ctx, 72); e8(ctx, 61); e32(ctx, cnt);
+    jcc(ctx, 142, lskip);
+    e8(ctx, 72); e8(ctx, 45); e32(ctx, cnt);
+    let pv: Any = loc_add(ctx, addr("0p"), 3);
+    st_local(ctx, 8 * (pv + 1));
+    placelab(ctx, ltop);
+    ld_local(ctx, 8 * (pv + 1));
+    e8(ctx, 72); e8(ctx, 133); e8(ctx, 192);
+    jcc(ctx, 132, lskip);
+    mov_imm(ctx, 2);
+    e8(ctx, 80);
+    ld_local(ctx, 8 * (pv + 1));
+    e8(ctx, 72); e8(ctx, 45); e32(ctx, 1);
+    st_local(ctx, 8 * (pv + 1));
+    jmp(ctx, ltop);
+    placelab(ctx, lskip);
+    ld_local(ctx, 8 * (cv + 1));
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 16);
+    e8(ctx, 76); e8(ctx, 139); e8(ctx, 80); e8(ctx, 8);
+    x86_root_registers(ctx);
+    e8(ctx, 255); e8(ctx, 210);
+    st_local(ctx, 8 * (rv + 1));
+    ld_local(ctx, 8 * (cv + 1));
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 16);
+    e8(ctx, 72); e8(ctx, 61); e32(ctx, cnt);
+    jcc(ctx, 142, lsmall);
+    ld_local(ctx, 8 * (cv + 1));
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 16);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 196);
+    jmp(ctx, ldone);
+    placelab(ctx, lsmall);
+    if (cnt > 0) {
+        if (cnt * 8 < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, cnt * 8); }
+        else { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, cnt * 8); }
+    }
+    placelab(ctx, ldone);
+    ld_local(ctx, 8 * (rv + 1));
+    return 0;
+}
+
+fun cg_call(ctx: Any, n: Any) -> Any {
+    let np: Any = n.name;
+    let nl: Any = n.length;
+    let args: Any = n.args;
+    let li: Any = loc_find(ctx, np, nl);
+    let gi: Any = glob_find(ctx, np, nl);
+    if (li < 0  and  gi < 0) {
+        let fr: Any = backend_find_func(ctx, np, nl);
+        if (fr != 0) {
+            let pc: Any = fr.pc;
+            mut cnt: Any = 0;
+            mut idx: Any = 0;
+            mut cur: Any = args;
+            while (cur != 0) {
+                cg_expr(ctx, cur);
+                if (idx < pc) {
+                    e8(ctx, 80);
+                    cnt = cnt + 1;
+                }
+                idx = idx + 1;
+                cur = cur.next;
+            }
+            while (cnt < pc) {
+                if (ctx.mode == 0) { mov_imm(ctx, 0); } else { mov_imm(ctx, 2); }
+                e8(ctx, 80); cnt = cnt + 1;
+            }
+            call(ctx, fr.lab);
+            if (cnt > 0) {
+                if (cnt * 8 < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, cnt * 8); }
+                else { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, cnt * 8); }
+            }
+            return 0;
+        }
+        if (cg_builtin(ctx, np, nl, args) == 1) { return 0; }
+        mut fname: Any = "";
+        mut q: Any = 0;
+        while (q < nl) { fname = fname + chr(load8(np + q)); q = q + 1; }
+        die_str("mayc: unknown function `${fname}`\n");
+    }
+    if (li < 0) {
+        ld_abs(ctx, glob_off(ctx, gi));
+    } else {
+        ld_local(ctx, 8 * (li + 1));
+    }
+    let cv: Any = loc_add(ctx, addr("0cl"), 3);
+    st_local(ctx, 8 * (cv + 1));
+    cg_apply(ctx, cv, args);
+    return 0;
+}
+
+fun call_rt0(ctx: Any, s: Any, sl: Any) -> Any {
+    let fr: Any = backend_find_func(ctx, s, sl);
+    if (fr == 0) { die_str("mayc: missing runtime fn\n"); }
+    call(ctx, fr.lab);
+    return 0;
+}
+
+fun call_rt1(ctx: Any, s: Any, sl: Any) -> Any {
+    e8(ctx, 80);
+    call_rt0(ctx, s, sl);
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 8);
+    return 0;
+}
+
+fun call_rt2(ctx: Any, s: Any, sl: Any) -> Any {
+    call_rt0(ctx, s, sl);
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 16);
+    return 0;
+}
+
+fun intern_obj(ctx: Any, s: Any, st: Any, n: Any) -> Any {
+    mut off: Any = ctx.data.length;
+    let r: Any = off % 8;
+    if (r != 0) { off = off + (8 - r); ctx.data.length = off; }
+    let ln: Any = declen(s, st, n);
+    dalloc(ctx, ln + 9);
+    store64(ctx.data.data + off, ln);
+    decopy(ctx.data.data + off + 8, s, st, n);
+    store8(ctx.data.data + off + 8 + ln, 0);
+    return off;
+}
+
+fun addr_tag(ctx: Any, off: Any, tag: Any) -> Any {
+    e8(ctx, 72); e8(ctx, 184);
+    let o: Any = ctx.code.length;
+    e64(ctx, 0);
+    fx(ctx, tag, o, off);
+    return 0;
+}
+
+fun jfalse(ctx: Any, lab: Any) -> Any {
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, 2);
+    jcc(ctx, 132, lab);
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, 3);
+    jcc(ctx, 132, lab);
+    return 0;
+}
+
+fun jtrue(ctx: Any, lab: Any) -> Any {
+    let l1: Any = newlab(ctx);
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, 2);
+    jcc(ctx, 132, l1);
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, 3);
+    jcc(ctx, 132, l1);
+    jmp(ctx, lab);
+    placelab(ctx, l1);
+    return 0;
+}
+
+fun set_true(ctx: Any) -> Any { e8(ctx, 184); e32(ctx, 4); return 0; }
+fun set_false(ctx: Any) -> Any { e8(ctx, 184); e32(ctx, 3); return 0; }
+
+fun cg_bin_dyn(ctx: Any, n: Any) -> Any {
+    let op: Any = n.op;
+    cg_expr(ctx, n.left);
+    e8(ctx, 80);
+    cg_expr(ctx, n.right);
+    e8(ctx, 80);
+    let fallback: Any = newlab(ctx); let done: Any = newlab(ctx);
+    // Keep both original tagged operands on the stack as GC roots and for the
+    // runtime fallback. Only integers use the inline path.
+    for byte: Any in [72,139,68,36,8,72,139,12,36,72,137,194,72,9,202,246,194,7] { e8(ctx, byte); }
+    jcc(ctx, 133, fallback);
+    if (op == TK_PLUS or op == TK_MINUS or op == TK_STAR) {
+        if (op == TK_PLUS) { e8(ctx, 72); e8(ctx, 1); e8(ctx, 200); }
+        else if (op == TK_MINUS) { e8(ctx, 72); e8(ctx, 41); e8(ctx, 200); }
+        else { untag_rax(ctx); e8(ctx, 72); e8(ctx, 15); e8(ctx, 175); e8(ctx, 193); }
+        jcc(ctx, 128, fallback); // overflow uses the existing error path
+    } else if (op == TK_SLASH or op == TK_PCT) {
+        e8(ctx, 72); e8(ctx, 133); e8(ctx, 201); jcc(ctx, 132, fallback);
+        e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249);
+        if (op == TK_PCT) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 208); }
+        else {
+            e8(ctx, 72); e8(ctx, 137); e8(ctx, 194); // save quotient
+            tag_rax(ctx);
+            for byte: Any in [73,137,195,73,193,251,3,73,57,211] { e8(ctx, byte); }
+            jcc(ctx, 133, fallback); // tagged integer range overflow
+        }
+    } else {
+        cmp_rcx(ctx);
+        if (op == TK_EQ) { setcc(ctx, 148); }
+        else if (op == TK_NE) { setcc(ctx, 149); }
+        else if (op == TK_LT) { setcc(ctx, 156); }
+        else if (op == TK_LE) { setcc(ctx, 158); }
+        else if (op == TK_GT) { setcc(ctx, 159); }
+        else { setcc(ctx, 157); }
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 192); e8(ctx, 3);
+    }
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 16);
+    jmp(ctx, done);
+    placelab(ctx, fallback);
+    if (op == TK_PLUS) { call_rt2(ctx, addr("rt_add"), len("rt_add")); }
+    else if (op == TK_MINUS) { call_rt2(ctx, addr("rt_sub"), len("rt_sub")); }
+    else if (op == TK_STAR) { call_rt2(ctx, addr("rt_mul"), len("rt_mul")); }
+    else if (op == TK_SLASH) { call_rt2(ctx, addr("rt_div"), len("rt_div")); }
+    else if (op == TK_PCT) { call_rt2(ctx, addr("rt_mod"), len("rt_mod")); }
+    else if (op == TK_EQ) { call_rt2(ctx, addr("rt_eq"), len("rt_eq")); }
+    else if (op == TK_NE) { call_rt2(ctx, addr("rt_ne"), len("rt_ne")); }
+    else if (op == TK_LT) { call_rt2(ctx, addr("rt_lt"), len("rt_lt")); }
+    else if (op == TK_LE) { call_rt2(ctx, addr("rt_le"), len("rt_le")); }
+    else if (op == TK_GT) { call_rt2(ctx, addr("rt_gt"), len("rt_gt")); }
+    else { call_rt2(ctx, addr("rt_ge"), len("rt_ge")); }
+    placelab(ctx, done);
+    return 0;
+}
+
+fun cg_un_dyn(ctx: Any, n: Any) -> Any {
+    let op: Any = n.op;
+    cg_expr(ctx, n.operand);
+    if (op == TK_MINUS) {
+        call_rt1(ctx, addr("rt_neg"), len("rt_neg"));
+    } else {
+        call_rt1(ctx, addr("rt_not"), len("rt_not"));
+    }
+    return 0;
+}
+
+
+
+fun cg_print(ctx: Any, args: Any) -> Any {
+    mut cnt: Any = 0;
+    mut cur: Any = args;
+    while (cur != 0) {
+        cg_expr(ctx, cur);
+        e8(ctx, 80);
+        cnt = cnt + 1;
+        cur = cur.next;
+    }
+    mut i: Any = 0;
+    while (i < cnt) {
+        if (i > 0) { call_rt0(ctx, addr("rt_space"), len("rt_space")); }
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 132); e8(ctx, 36); e32(ctx, 8 * (cnt - 1 - i));
+        call_rt1(ctx, addr("str"), len("str"));
+        call_rt1(ctx, addr("rt_print_str"), len("rt_print_str"));
+        i = i + 1;
+    }
+    call_rt0(ctx, addr("rt_newline"), len("rt_newline"));
+    let total: Any = cnt * 8;
+    if (total > 0) {
+        if (total < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, total); }
+        else { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, total); }
+    }
+    return 0;
+}
+
+fun cg_syscall_dyn(ctx: Any, args: Any) -> Any {
+    mut cnt: Any = 0;
+    mut cur: Any = args;
+    while (cur != 0) {
+        cg_expr(ctx, cur);
+        e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);   // sar rax, 3
+        e8(ctx, 80);
+        cnt = cnt + 1;
+        cur = cur.next;
+    }
+    mut i: Any = cnt - 1;
+    while (i >= 0) {
+        pop_reg(ctx, i);
+        i = i - 1;
+    }
+    e8(ctx, 15); e8(ctx, 5);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);       // shl rax, 3
+    return 0;
+}
+
+
+
+fun cg_icall(ctx: Any, n: Any) -> Any {
+    cg_expr(ctx, n.callee);
+    let cv: Any = loc_add(ctx, addr("0ic"), 3);
+    st_local(ctx, 8 * (cv + 1));
+    let lnil: Any = newlab(ctx);
+    let lend: Any = newlab(ctx);
+    ld_local(ctx, 8 * (cv + 1));
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, 2);
+    jcc(ctx, 132, lnil);
+    cg_apply(ctx, cv, n.args);
+    jmp(ctx, lend);
+    placelab(ctx, lnil);
+    mov_imm(ctx, 2);
+    placelab(ctx, lend);
+    return 0;
+}
+
+fun mov_argreg(ctx: Any, i: Any) -> Any {
+    if (i == 0) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 199); }
+    else if (i == 1) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 198); }
+    else if (i == 2) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 194); }
+    else if (i == 3) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 193); }
+    else if (i == 4) { e8(ctx, 73); e8(ctx, 137); e8(ctx, 192); }
+    else { e8(ctx, 73); e8(ctx, 137); e8(ctx, 193); }
+    return 0;
+}
+
+fun cg_ccall6(ctx: Any, args: Any) -> Any {
+    cg_expr(ctx, args);
+    untag_rax(ctx);
+    let fs: Any = loc_add(ctx, addr("0cc"), 3);
+    st_local(ctx, 8 * (fs + 1));
+    mut cur: Any = args.next;
+    mut i: Any = 0;
+    while (cur != 0) {
+        cg_expr(ctx, cur);
+        untag_rax(ctx);
+        let si: Any = loc_add(ctx, addr("0cr"), 3);
+        st_local(ctx, 8 * (si + 1));
+        ld_local(ctx, 8 * (si + 1));
+        mov_argreg(ctx, i);
+        i = i + 1;
+        cur = cur.next;
+    }
+    ld_local(ctx, 8 * (fs + 1));
+    e8(ctx, 73); e8(ctx, 137); e8(ctx, 195);
+    xor_eax(ctx);
+    x86_root_registers(ctx);
+    e8(ctx, 65); e8(ctx, 255); e8(ctx, 211);
+    tag_rax(ctx);
+    return 0;
+}
+
+fun cg_capval(ctx: Any, p: Any, l: Any) -> Any {
+    mut i: Any = 0;
+    while (i < ctx.envCount) {
+        let c: Any = ctx.envCaptures[i];
+        if (name_eq(p, l, c[0], c[1]) == 1) {
+            ld_local(ctx, 8 * (ctx.envSlot + 1));
+            e8(ctx, 72); e8(ctx, 139); e8(ctx, 128); e32(ctx, 8 * i);
+            return 0;
+        }
+        i = i + 1;
+    }
+    cg_name(ctx, p, l);
+    return 0;
+}
+
+fun cg_closure(ctx: Any, n: Any) -> Any {
+    let lab: Any = n.label;
+    let caps: Any = n.captures;
+    let pc: Any = n.arity;
+    addr_lab(ctx, lab, 6);
+    e8(ctx, 80);
+    mut cnt: Any = 0;
+    mut cur0: Any = caps;
+    while (cur0 != 0) {
+        cnt = cnt + 1;
+        cur0 = cur0.next;
+    }
+    if (cnt > 0) {
+        mov_imm(ctx, cnt);
+        call_rt1(ctx, addr("rt_env_new"), len("rt_env_new"));
+        e8(ctx, 80);
+        mut cur: Any = caps;
+        mut i: Any = 0;
+        while (cur != 0) {
+            cg_capval(ctx, cur.name, cur.length);
+            e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
+            e8(ctx, 72); e8(ctx, 139); e8(ctx, 12); e8(ctx, 36);
+            e8(ctx, 72); e8(ctx, 137); e8(ctx, 145); e32(ctx, 8 * i);
+            cur = cur.next;
+            i = i + 1;
+        }
+    } else {
+        mov_imm(ctx, 0);
+        e8(ctx, 80);
+    }
+    mov_imm(ctx, pc);
+    e8(ctx, 80);
+    call_rt0(ctx, addr("rt_closure3"), len("rt_closure3"));
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 24);
+    return 0;
+}
+
+fun cg_operation(ctx: Any, n: Any) -> Any {
+    let k: Any = n.kind;
+    if (k == E_INT) {
+        if (ctx.mode == 0) { mov_imm(ctx, n.value); }
+        else { mov_imm(ctx, n.value); e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3); }
+    }
+    else if (k == E_STR) {
+        if (ctx.mode == 0) {
+            let off: Any = intern(ctx, n.span.source, n.start, n.length);
+            addr_of(ctx, off);
+        } else {
+            let off: Any = intern_obj(ctx, n.span.source, n.start, n.length);
+            addr_tag(ctx, off, 3);
+        }
+    }
+    else if (k == E_VAR) { cg_var(ctx, n); }
+    else if (k == E_INDEX) {
+        if (ctx.mode == 0) { die_str("mayc: index in raw mode\n"); }
+        cg_expr(ctx, n.object);
+        e8(ctx, 80);
+        cg_expr(ctx, n.index);
+        e8(ctx, 80);
+        call_rt2(ctx, addr("rt_index_get"), len("rt_index_get"));
+    }
+    else if (k == E_GET) {
+        if (ctx.mode == 0) { die_str("mayc: get in raw mode\n"); }
+        cg_expr(ctx, n.object);
+        e8(ctx, 80);
+        let off: Any = intern_obj(ctx, n.span.source, n.start, n.length);
+        addr_tag(ctx, off, 3);
+        e8(ctx, 80);
+        call_rt2(ctx, addr("rt_map_get"), len("rt_map_get"));
+    }
+    else if (k == E_CLOSURE) {
+        if (ctx.mode == 0) { die_str("mayc: closure in raw mode\n"); }
+        cg_closure(ctx, n);
+    }
+    else if (k == E_CAPVAR) {
+        if (ctx.mode == 0) { die_str("mayc: capvar in raw mode\n"); }
+        ld_local(ctx, 8 * (ctx.envSlot + 1));
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 128); e32(ctx, 8 * n.index);
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 0);
+    }
+    else if (k == E_ICALL) {
+        if (ctx.mode == 0) { die_str("mayc: icall in raw mode\n"); }
+        cg_icall(ctx, n);
+    }
+    else if (k == E_FLOAT) {
+        if (ctx.mode == 0) { die_str("mayc: float in raw mode\n"); }
+        // Parse literals once in the compiler. Emit their exact binary64 bits
+        // and allocate a fresh runtime box, rather than reparsing every use.
+        let value: Any = float(symbol_name(n.span.source + n.start, n.length));
+        let address: Any = addr(value);
+        e8(ctx, 72); e8(ctx, 184); e32(ctx, load32(address)); e32(ctx, load32(address + 4));
+        call_rt1(ctx, addr("rt_box"), len("rt_box"));
+    }
+    else if (k == E_STRB) {
+        if (ctx.mode == 0) { die_str("mayc: strb in raw mode\n"); }
+        let off: Any = intern_obj2(ctx, n.address, n.length);
+        addr_tag(ctx, off, 3);
+    }
+    else if (k == E_RANGE) {
+        if (ctx.mode == 0) { die_str("mayc: range in raw mode\n"); }
+        cg_range(ctx, n);
+    }
+    else if (k == E_POW) {
+        if (ctx.mode == 0) { die_str("mayc: pow in raw mode\n"); }
+        cg_expr(ctx, n.left);
+        e8(ctx, 80);
+        cg_expr(ctx, n.right);
+        e8(ctx, 80);
+        call_rt2(ctx, addr("rt_pow"), len("rt_pow"));
+    }
+    else if (k == E_BIN) {
+        if (ctx.mode == 0) { cg_bin(ctx, n); } else { cg_bin_dyn(ctx, n); }
+    }
+    else if (k == E_UN) {
+        if (ctx.mode == 0) { cg_un(ctx, n); } else { cg_un_dyn(ctx, n); }
+    }
+    else if (k == E_CALL) { cg_call(ctx, n); }
+    else { die_str("mayc: unsupported IR operation\n"); }
+    return 0;
+}
+
+// -------------------------------------------------------------- statements
+
+
+fun addr_lab(ctx: Any, lab: Any, tag: Any) -> Any {
+    e8(ctx, 72); e8(ctx, 184);
+    let o: Any = ctx.code.length;
+    e64(ctx, 0);
+    fx(ctx, 6, o, lab);
+    return 0;
+}
+
+fun align8(ctx: Any) -> Any {
+    let r: Any = ctx.code.length % 8;
+    if (r != 0) {
+        mut k: Any = 8 - r;
+        while (k > 0) {
+            e8(ctx, 0);
+            k = k - 1;
+        }
+    }
+    return 0;
+}
+
+fun cg_range(ctx: Any, n: Any) -> Any {
+    cg_expr(ctx, n.start);
+    e8(ctx, 80);
+    cg_expr(ctx, n.end);
+    e8(ctx, 80);
+    if (n.inclusive == 1) { mov_imm(ctx, 4); } else { mov_imm(ctx, 3); }
+    e8(ctx, 80);
+    call_rt0(ctx, addr("rt_range"), len("rt_range"));
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 24);
+    return 0;
+}
+
+fun fxmm0_from_rax(ctx: Any) -> Any { e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 110); e8(ctx, 192); return 0; }
+fun fxmm1_from_rax(ctx: Any) -> Any { e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 110); e8(ctx, 200); return 0; }
+
+fun cg_fbin(ctx: Any, args: Any) -> Any {
+    let op: Any = args.value;
+    let a: Any = args.next;
+    let b: Any = a.next;
+    cg_expr(ctx, a);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);
+    fxmm0_from_rax(ctx);
+    cg_expr(ctx, b);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);
+    fxmm1_from_rax(ctx);
+    if (op == 0) { e8(ctx, 242); e8(ctx, 15); e8(ctx, 88); e8(ctx, 193); }
+    else if (op == 1) { e8(ctx, 242); e8(ctx, 15); e8(ctx, 92); e8(ctx, 193); }
+    else if (op == 2) { e8(ctx, 242); e8(ctx, 15); e8(ctx, 89); e8(ctx, 193); }
+    else { e8(ctx, 242); e8(ctx, 15); e8(ctx, 94); e8(ctx, 193); }
+    e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 126); e8(ctx, 192);
+    call_rt1(ctx, addr("rt_box"), len("rt_box"));
+    return 0;
+}
+
+fun cg_fcmp(ctx: Any, args: Any) -> Any {
+    let op: Any = args.value;
+    let a: Any = args.next;
+    let b: Any = a.next;
+    cg_expr(ctx, a);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);
+    fxmm0_from_rax(ctx);
+    cg_expr(ctx, b);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);
+    fxmm1_from_rax(ctx);
+    e8(ctx, 102); e8(ctx, 15); e8(ctx, 47); e8(ctx, 193);
+    if (op == 0) { setcc(ctx, 148); }
+    else if (op == 1) { setcc(ctx, 149); }
+    else if (op == 2) { setcc(ctx, 146); }
+    else if (op == 3) { setcc(ctx, 150); }
+    else if (op == 4) { setcc(ctx, 151); }
+    else { setcc(ctx, 147); }
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 192); e8(ctx, 3);
+    return 0;
+}
+
+fun cg_ftrunc(ctx: Any, args: Any) -> Any {
+    cg_expr(ctx, args);
+    fxmm0_from_rax(ctx);
+    e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 44); e8(ctx, 192);
+    return 0;
+}
+
+fun cg_ffrac(ctx: Any, args: Any) -> Any {
+    let b: Any = args.next;
+    cg_expr(ctx, args);
+    fxmm0_from_rax(ctx);
+    e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 44); e8(ctx, 208);
+    e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 42); e8(ctx, 202);
+    e8(ctx, 242); e8(ctx, 15); e8(ctx, 92); e8(ctx, 193);
+    cg_expr(ctx, b);
+    e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 42); e8(ctx, 208);
+    e8(ctx, 242); e8(ctx, 15); e8(ctx, 89); e8(ctx, 194);
+    e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 44); e8(ctx, 192);
+    return 0;
+}
+
+fun cg_fsign(ctx: Any, args: Any) -> Any {
+    cg_expr(ctx, args);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 234); e8(ctx, 63);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 208);
+    return 0;
+}
+
+fun cg_pow2_seq(ctx: Any) -> Any {
+    e8(ctx, 217); e8(ctx, 192);
+    e8(ctx, 217); e8(ctx, 252);
+    e8(ctx, 220); e8(ctx, 233);
+    e8(ctx, 217); e8(ctx, 201);
+    e8(ctx, 217); e8(ctx, 240);
+    e8(ctx, 217); e8(ctx, 232);
+    e8(ctx, 222); e8(ctx, 193);
+    e8(ctx, 217); e8(ctx, 253);
+    e8(ctx, 221); e8(ctx, 217);
+    e8(ctx, 221); e8(ctx, 92); e8(ctx, 36); e8(ctx, 248);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 68); e8(ctx, 36); e8(ctx, 248);
+    return 0;
+}
+
+fun cg_f1op(ctx: Any, op: Any, x: Any) -> Any {
+    cg_expr(ctx, x);
+    mut boxed: Any = 1;
+    if (op == 0) {
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);
+        fxmm0_from_rax(ctx);
+        e8(ctx, 242); e8(ctx, 15); e8(ctx, 81); e8(ctx, 192);
+        e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 126); e8(ctx, 192);
+    } else if (op == 1  or  op == 2  or  op == 3  or  op == 4) {
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);
+        fxmm0_from_rax(ctx);
+        e8(ctx, 102); e8(ctx, 15); e8(ctx, 58); e8(ctx, 11); e8(ctx, 192);
+        if (op == 1) { e8(ctx, 1); }
+        else if (op == 2) { e8(ctx, 2); }
+        else if (op == 3) { e8(ctx, 0); }
+        else { e8(ctx, 3); }
+        e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 126); e8(ctx, 192);
+        if (op != 3) {
+            boxed = 0;
+            e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 44); e8(ctx, 192);
+            e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+        }
+    } else if (op == 12) {
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);
+        e8(ctx, 72); e8(ctx, 15); e8(ctx, 186); e8(ctx, 240); e8(ctx, 63);
+    } else if (op == 11) {
+        e8(ctx, 221); e8(ctx, 64); e8(ctx, 250);
+        e8(ctx, 217); e8(ctx, 234);
+        e8(ctx, 222); e8(ctx, 201);
+        cg_pow2_seq(ctx);
+    } else if (op == 13) {
+        e8(ctx, 221); e8(ctx, 64); e8(ctx, 250);
+        e8(ctx, 217); e8(ctx, 225);
+        e8(ctx, 221); e8(ctx, 92); e8(ctx, 36); e8(ctx, 248);
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 68); e8(ctx, 36); e8(ctx, 248);
+    } else {
+        if (op == 8) { e8(ctx, 217); e8(ctx, 237); }
+        else if (op == 9) { e8(ctx, 217); e8(ctx, 232); }
+        else if (op == 10) { e8(ctx, 217); e8(ctx, 236); }
+        e8(ctx, 221); e8(ctx, 64); e8(ctx, 250);
+        if (op == 5) { e8(ctx, 217); e8(ctx, 254); }
+        else if (op == 6) { e8(ctx, 217); e8(ctx, 255); }
+        else if (op == 7) { e8(ctx, 217); e8(ctx, 242); e8(ctx, 221); e8(ctx, 216); }
+        else { e8(ctx, 217); e8(ctx, 241); }
+        e8(ctx, 221); e8(ctx, 92); e8(ctx, 36); e8(ctx, 248);
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 68); e8(ctx, 36); e8(ctx, 248);
+    }
+    if (boxed == 1) { call_rt1(ctx, addr("rt_box"), len("rt_box")); }
+    return 0;
+}
+
+fun cg_fpow2(ctx: Any, x: Any, y: Any) -> Any {
+    cg_expr(ctx, x);
+    e8(ctx, 80);
+    cg_expr(ctx, y);
+    e8(ctx, 221); e8(ctx, 64); e8(ctx, 250);
+    e8(ctx, 88);
+    e8(ctx, 221); e8(ctx, 64); e8(ctx, 250);
+    e8(ctx, 217); e8(ctx, 241);
+    cg_pow2_seq(ctx);
+    call_rt1(ctx, addr("rt_box"), len("rt_box"));
+    return 0;
+}
+
+fun cg_let(ctx: Any, s: Any) -> Any {
+    let p: Any = s.name;
+    let l: Any = s.length;
+    let e: Any = s.initializer;
+    let g: Any = s.global;
+    if (g == 1) {
+        let gi: Any = glob_find(ctx, p, l);
+        cg_expr(ctx, e);
+        st_abs(ctx, glob_off(ctx, gi));
+    } else {
+        cg_expr(ctx, e);
+        if (is_boxed(ctx, p, l) == 1) { call_rt1(ctx, addr("rt_box_val"), len("rt_box_val")); }
+        let slot: Any = loc_add(ctx, p, l);
+        st_local(ctx, 8 * (slot + 1));
+    }
+    return 0;
+}
+
+
+
+fun cg_assign(ctx: Any, s: Any) -> Any {
+    let p: Any = s.name;
+    let l: Any = s.length;
+    cg_expr(ctx, s.value);
+    let li: Any = loc_find(ctx, p, l);
+    if (li >= 0) {
+        if (is_boxed(ctx, p, l) == 1) {
+            e8(ctx, 80);
+            ld_local(ctx, 8 * (li + 1));
+            e8(ctx, 89);
+            e8(ctx, 72); e8(ctx, 137); e8(ctx, 8);
+        } else {
+            st_local(ctx, 8 * (li + 1));
+        }
+    } else {
+        let gi: Any = glob_find(ctx, p, l);
+        if (gi < 0) { die_str("mayc: assign to unknown\n"); }
+        st_abs(ctx, glob_off(ctx, gi));
+    }
+    return 0;
+}
+
+
+fun cg_longjmp(ctx: Any) -> Any {
+    let hd: Any = glob_find(ctx, addr("HDEPTH"), 6);
+    let hs: Any = glob_find(ctx, addr("HSTACK"), 6);
+    ld_abs(ctx, glob_off(ctx, hd));
+    e8(ctx, 72); e8(ctx, 133); e8(ctx, 192);
+    let live: Any = newlab(ctx);
+    jcc(ctx, 133, live);
+    call_rt0(ctx, addr("rt_die_uncaught"), len("rt_die_uncaught"));
+    placelab(ctx, live);
+    ld_abs(ctx, glob_off(ctx, hd));
+    e8(ctx, 72); e8(ctx, 45); e32(ctx, 1);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 192);
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
+    ld_abs(ctx, glob_off(ctx, hs));
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 194);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 66); e8(ctx, 16);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 34);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 106); e8(ctx, 8);
+    e8(ctx, 255); e8(ctx, 224);
+    return 0;
+}
+
+
+
+
+
+
+
+fun intern_obj2(ctx: Any, p: Any, n: Any) -> Any {
+    mut off: Any = ctx.data.length;
+    let r: Any = off % 8;
+    if (r != 0) { off = off + (8 - r); ctx.data.length = off; }
+    dalloc(ctx, n + 9);
+    store64(ctx.data.data + off, n);
+    mut j: Any = 0;
+    while (j < n) {
+        store8(ctx.data.data + off + 8 + j, load8(p + j));
+        j = j + 1;
+    }
+    store8(ctx.data.data + off + 8 + n, 0);
+    return off;
+}
+
+fun cg_setidx(ctx: Any, s: Any) -> Any {
+    cg_expr(ctx, s.object);
+    e8(ctx, 80);
+    cg_expr(ctx, s.index);
+    e8(ctx, 80);
+    cg_expr(ctx, s.value);
+    e8(ctx, 80);
+    call_rt0(ctx, addr("rt_index_set"), len("rt_index_set"));
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 24);
+    return 0;
+}
+
+
+// ------------------------------------------------------------------ driver
+
+fun cg_func(ctx: Any, rec: Any) -> Any {
+    if (ctx.dynamic == 0) { ctx.mode = 0; }
+    else if (rec.mode == 1) { ctx.mode = 0; }
+    else { ctx.mode = 1; }
+    loc_reset(ctx);
+    bx_use_list(ctx, rec.boxed);
+    let pc: Any = rec.pc;
+    let parr: Any = rec.parr;
+    mut i: Any = 0;
+    while (i < pc) {
+        loc_add(ctx, parr[i].name, parr[i].length);
+        i = i + 1;
+    }
+    let cc: Any = rec.cc;
+    ctx.envCaptures = rec.caparr;
+    ctx.envCount = cc;
+    mut es: Any = 0;
+    if (cc > 0) { es = loc_add(ctx, addr("0env"), 4); }
+    ctx.envSlot = es;
+    x86_allocate_temps(ctx, rec.ir);
+    align8(ctx);
+    x86_call_trampoline(ctx, rec);
+    placelab(ctx, rec.abiLab);
+    e8(ctx, 85);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);
+    e8(ctx, 72); e8(ctx, 129); e8(ctx, 236);
+    let fp: Any = ctx.code.length;
+    e32(ctx, 0);
+    x86_save_registers(ctx);
+    if (cc > 0) { e8(ctx, 76); e8(ctx, 137); e8(ctx, 149); e32(ctx, 0 - 8 * (es + 1)); }
+    xor_eax(ctx);
+    i = 0;
+    while (i < pc) {
+        x86_argument_to_rax(ctx, i);
+        st_local(ctx, 8 * (i + 1));
+        i = i + 1;
+    }
+    i = 0;
+    while (i < pc) {
+        if (is_boxed(ctx, parr[i].name, parr[i].length) == 1) {
+            ld_local(ctx, 8 * (i + 1));
+            call_rt1(ctx, addr("rt_box_val"), len("rt_box_val"));
+            st_local(ctx, 8 * (i + 1));
+        }
+        i = i + 1;
+    }
+    ctx.returnLabel = newlab(ctx);
+    ctx.restartLabel = newlab(ctx);
+    placelab(ctx, ctx.restartLabel);
+    if (rec.foreign == true) { ffi_emit_call(ctx, rec); }
+    else { cg_ir(ctx, rec.ir); }
+    placelab(ctx, ctx.returnLabel);
+    x86_restore_registers(ctx);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 236);
+    e8(ctx, 93);
+    e8(ctx, 195);
+    mut frame: Any = ctx.maxLocals * 8;
+    let fr: Any = frame % 16;
+    if (fr != 0) { frame = frame + (16 - fr); }
+    store32(ctx.code.data + fp, frame);
+    ctx.allocation = 0;
+    return 0;
+}
+
+fun cg_program(ctx: Any) -> Any {
+
+
+    // _start
+    placelab(ctx, 0);
+    if (ctx.target.os == "windows") { e8(ctx, 87); e8(ctx, 86); }
+    if (ctx.dynamic == 1) {
+        let st: Any = glob_find(ctx, addr("STACKTOP"), 8);
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 224);      // mov rax, rsp
+        st_abs(ctx, glob_off(ctx, st));
+    }
+    if (len(ctx.foreign) > 0) { ffi_start(ctx); }
+    else if (ctx.target.os == "windows") {
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 236); e8(ctx, 40);
+        call(ctx, 1);
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 40);
+    } else { call(ctx, 1); }
+    if (ctx.target.os == "windows") { xor_eax(ctx); e8(ctx, 94); e8(ctx, 95); e8(ctx, 195); }
+    else {
+        e8(ctx, 49); e8(ctx, 255); // xor edi, edi
+        mov_imm(ctx, 60); e8(ctx, 15); e8(ctx, 5);
+    }
+
+    // main (top-level statements)
+    ctx.mode = ctx.dynamic;
+    loc_reset(ctx);
+    bx_use_list(ctx, ctx.mainBoxed);
+    x86_allocate_temps(ctx, ctx.mainIR);
+    placelab(ctx, 1);
+    e8(ctx, 85);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);
+    e8(ctx, 72); e8(ctx, 129); e8(ctx, 236);
+    let fp: Any = ctx.code.length;
+    e32(ctx, 0);
+    x86_save_registers(ctx);
+    xor_eax(ctx);
+    if (ctx.dynamic == 1) {
+        call_rt0(ctx, addr("rt_init"), len("rt_init"));
+        mut gi: Any = 0;
+        while (gi < len(ctx.globals)) {
+            addr_of(ctx, glob_off(ctx, gi));
+            call_rt1(ctx, addr("rt_gc_root"), len("rt_gc_root"));
+            gi = gi + 1;
+        }
+    }
+    ctx.returnLabel = newlab(ctx);
+    cg_ir(ctx, ctx.mainIR);
+    placelab(ctx, ctx.returnLabel);
+    if (len(ctx.foreign) > 0) { xor_eax(ctx); }
+    x86_restore_registers(ctx);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 236);
+    e8(ctx, 93);
+    e8(ctx, 195);
+    mut frame: Any = ctx.maxLocals * 8;
+    let fr: Any = frame % 16;
+    if (fr != 0) { frame = frame + (16 - fr); }
+    store32(ctx.code.data + fp, frame);
+    ctx.allocation = 0;
+
+    // fiber context-switch routine
+    if (ctx.dynamic == 1) {
+    placelab(ctx, ctx.fiberLabel);
+    e8(ctx, 85);
+    e8(ctx, 83);
+    e8(ctx, 65); e8(ctx, 84);
+    e8(ctx, 65); e8(ctx, 85);
+    e8(ctx, 65); e8(ctx, 86);
+    e8(ctx, 65); e8(ctx, 87);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 39);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 38);
+    e8(ctx, 65); e8(ctx, 95);
+    e8(ctx, 65); e8(ctx, 94);
+    e8(ctx, 65); e8(ctx, 93);
+    e8(ctx, 65); e8(ctx, 92);
+    e8(ctx, 91);
+    e8(ctx, 93);
+    e8(ctx, 195);
+    }
+
+    // user functions (runtime functions, mode 1, were emitted earlier)
+    for r: Any in ctx.functions {
+        if (r.mode == 0) { cg_func(ctx, r); }
+    }
+    return 0;
+}
+
+fun patch_all(ctx: Any) -> Any {
+    let base: Any = ctx.layout.dataAddress;
+    for f: Any in ctx.fixups {
+        let off: Any = f.off;
+        let kind: Any = f.kind;
+        let tgt: Any = f.tgt;
+        if (kind == 0) {
+            store32(ctx.code.data + off, lab_off(ctx, tgt) - (off + 4));
+        } else if (kind == 1) {
+            store64(ctx.code.data + off, base + tgt);
+        } else if (kind == 3) {
+            store64(ctx.code.data + off, base + tgt + 1);
+        } else if (kind == 4) {
+            store64(ctx.code.data + off, (base + tgt + 8) * 8);
+        } else if (kind == 5) {
+            store64(ctx.code.data + off, base + tgt + 5);
+        } else if (kind == 6) {
+            store64(ctx.code.data + off, ctx.layout.codeAddress + lab_off(ctx, tgt));
+        } else if (kind == 7) {
+            store32(ctx.code.data + off, base + tgt - (ctx.layout.codeAddress + off + 4));
+        } else {
+            store32(ctx.code.data + off, base + tgt);
+        }
+    }
+    return 0;
+}
+
+fun x86_emit(ctx: Any) -> Any {
+    if (ctx.dynamic == 1) {
+        jmp(ctx, 0);
+        ctx.fiberLabel = newlab(ctx);
+        for rec: Any in ctx.functions { if (rec.mode == 1) { cg_func(ctx, rec); } }
+    }
+    return cg_program(ctx);
+}

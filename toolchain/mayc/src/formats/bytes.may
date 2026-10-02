@@ -1,0 +1,14 @@
+// Shared byte operations; no object format or target policy.
+fun image_copy(destination: Any, source: Any, count: Any) -> Any {
+    mut i: Any = 0;
+    // Dynamic Int values have 61 bits; 32-bit words preserve arbitrary bytes.
+    while (i + 4 <= count) { store32(destination + i, load32(source + i)); i += 4; }
+    while (i < count) { store8(destination + i, load8(source + i)); i = i + 1; }
+    return 0;
+}
+
+fun image_align(value: Any, alignment: Any) -> Any {
+    let remainder: Any = value % alignment;
+    if (remainder == 0) { return value; }
+    return value + alignment - remainder;
+}

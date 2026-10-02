@@ -1,0 +1,1 @@
+let a=[]; let b={}; push(a,b); b.back=a; print(a); print([1]);

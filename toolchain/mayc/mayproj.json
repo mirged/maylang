@@ -1,0 +1,10 @@
+{
+  "name": "mayc",
+  "version": "0.1.0",
+  "entry": "main.may",
+  "target": "host",
+  "description": "mayc - the self-hosted Maylang compiler (lexer, parser, x86-64 codegen, ELF emitter)",
+  "authors": ["Maylang Contributors"],
+  "dependencies": {},
+  "output": "mayc"
+}

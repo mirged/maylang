@@ -1,0 +1,5 @@
+print(may { may { fail("inner") } otherwise { 1 } });
+print(may { let x: Any = may { fail("a") } otherwise { 2 }; fail("b"); x } otherwise { err.kind });
+fun boom() -> Any { return fail("deep"); }
+print(may { may { boom() } otherwise { "caught inner" } } otherwise { "outer" });
+print(may { 0 } otherwise { 1 });

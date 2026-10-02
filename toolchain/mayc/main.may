@@ -1,0 +1,362 @@
+import "src/emitter.may";
+import "src/state.may";
+import "src/ast.may";
+import "src/diagnostics.may";
+import "src/lexer.may";
+import "src/parser.may";
+import "src/sema.may";
+import "src/strict.may";
+import "src/ir.may";
+import "src/backend.may";
+import "src/formats.may";
+import "src/modules.may";
+import "src/profile.may";
+
+// main.may — the mayc CLI driver.
+//
+//   mayc [options] <source.may> [-o <binary>]
+//
+// Resolves textual imports, lexes, parses, lowers to target machine code,
+// packages it in the selected executable format, and writes it to disk with executable permissions.
+
+// ---------------------------------------------------------------- Constants
+// Immutable let is Maylang's constant declaration. Update the version here.
+let MAYC_VERSION: Str = "0.8.1-2026-09-30-nightly";
+let RUNTIME_FILE_NAME: Any  = "runtime.may";
+let PRELUDE_FILE_NAME: Any  = "prelude.may";
+let NATIVE_FILE_NAME: Any   = "native.may";
+
+let CANONICAL_RUNTIME: Any  = "/home/mirged/Projects/maylang/toolchain/mayc/runtime.may";
+let CANONICAL_PRELUDE: Any  = "/home/mirged/Projects/maylang/stdlib/prelude.may";
+let CANONICAL_NATIVE: Any   = "/home/mirged/Projects/maylang/stdlib/native.may";
+
+// ------------------------------------------------------------- Path Helpers
+
+fun path_next(a0: Any, a0l: Any, np: Any, nl: Any) -> Any {
+    mut dl: Any = 0;
+    mut k: Any = 0;
+    while (k < a0l) {
+        if (load8(a0 + k) == 47) { dl = k + 1; } // '/'
+        k = k + 1;
+    }
+    let rp: Any = irt_alloc(dl + nl + 1);
+    mut j: Any = 0;
+    while (j < dl) {
+        store8(rp + j, load8(a0 + j));
+        j = j + 1;
+    }
+    j = 0;
+    while (j < nl) {
+        store8(rp + dl + j, load8(np + j));
+        j = j + 1;
+    }
+    store8(rp + dl + nl, 0);
+    return rp;
+}
+
+fun side_slurp(a0: Any, a0l: Any, np: Any, nl: Any) -> Any {
+    let rp: Any = path_next(a0, a0l, np, nl);
+    return slurp(rp, 0);
+}
+
+// --------------------------------------------------- File Resolvers (Multi-Tier)
+
+fun load_runtime(a0: Any, a0l: Any) -> Any {
+    // 1. Next to mayc executable
+    mut rsrc: Any = side_slurp(a0, a0l, addr(RUNTIME_FILE_NAME), len(RUNTIME_FILE_NAME));
+    if (LASTLEN == 0) {
+        // 2. Current working directory
+        rsrc = slurp(addr(RUNTIME_FILE_NAME), len(RUNTIME_FILE_NAME));
+    }
+    if (LASTLEN == 0) {
+        // 3. Absolute canonical system path
+        rsrc = slurp(addr(CANONICAL_RUNTIME), len(CANONICAL_RUNTIME));
+    }
+    if (LASTLEN == 0) {
+        die_str("mayc: cannot find runtime.may\n");
+    }
+    SRC = rsrc;
+    SRCLEN = LASTLEN;
+    SOURCE_FILES[rsrc] = SourceFile(symbol_name(addr(RUNTIME_FILE_NAME), len(RUNTIME_FILE_NAME)), []);
+    return 0;
+}
+
+fun load_prelude(a0: Any, a0l: Any) -> Any {
+    // 1. Next to mayc executable
+    let p1: Any = side_slurp(a0, a0l, addr(PRELUDE_FILE_NAME), len(PRELUDE_FILE_NAME));
+    if (LASTLEN > 0) { return p1; }
+
+    // 2. Repo-relative to toolchain/mayc (../../stdlib/prelude.may)
+    let repo_rel: Any = "../../stdlib/prelude.may";
+    let p2: Any = side_slurp(a0, a0l, addr(repo_rel), len(repo_rel));
+    if (LASTLEN > 0) { return p2; }
+
+    // 3. Current working directory
+    let cwd_rel: Any = "stdlib/prelude.may";
+    let p3: Any = slurp(addr(cwd_rel), len(cwd_rel));
+    if (LASTLEN > 0) { return p3; }
+
+    // 4. Absolute canonical path
+    let p4: Any = slurp(addr(CANONICAL_PRELUDE), len(CANONICAL_PRELUDE));
+    return p4;
+}
+
+fun load_native(a0: Any, a0l: Any) -> Any {
+    // 1. Next to mayc executable
+    let n1: Any = side_slurp(a0, a0l, addr(NATIVE_FILE_NAME), len(NATIVE_FILE_NAME));
+    if (LASTLEN > 0) { return n1; }
+
+    // 2. Repo-relative to toolchain/mayc (../../stdlib/native.may)
+    let repo_rel: Any = "../../stdlib/native.may";
+    let n2: Any = side_slurp(a0, a0l, addr(repo_rel), len(repo_rel));
+    if (LASTLEN > 0) { return n2; }
+
+    // 3. Current working directory
+    let cwd_rel: Any = "stdlib/native.may";
+    let n3: Any = slurp(addr(cwd_rel), len(cwd_rel));
+    if (LASTLEN > 0) { return n3; }
+
+    // 4. Absolute canonical path
+    let n4: Any = slurp(addr(CANONICAL_NATIVE), len(CANONICAL_NATIVE));
+    return n4;
+}
+
+fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
+    let name: Any = "runtime/" + file;
+    mut source: Any = side_slurp(a0, a0l, addr(name), len(name));
+    if (LASTLEN == 0) {
+        let canonical: Any = "/home/mirged/Projects/maylang/toolchain/mayc/" + name;
+        source = slurp(addr(canonical), len(canonical));
+    }
+    if (LASTLEN == 0) { die_str("mayc: cannot find ${name}\n"); }
+    if (file == "core.may") {
+        SRC = source; SRCLEN = LASTLEN;
+        SOURCE_FILES[source] = SourceFile(name, []);
+    }
+    return source;
+}
+
+// ------------------------------------------------------------- Driver Entry
+
+fun cli_usage() -> Any {
+    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --strict            Enable strict type checking (default)\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    syscall(1, 1, addr(message), len(message));
+    syscall(60, 0);
+    return 0;
+}
+
+fun cli_default_output(pointer: Any, length: Any) -> Any {
+    mut baseLength: Any = length;
+    let hasMaySuffix: Any = length >= 4 and load8(pointer + length - 4) == 46 and load8(pointer + length - 3) == 109 and load8(pointer + length - 2) == 97 and load8(pointer + length - 1) == 121;
+    if (hasMaySuffix) { baseLength = length - 4; }
+    let suffix: Any = if (hasMaySuffix) { "" } else { ".out" };
+    let suffixLength: Any = len(suffix);
+    let result: Any = irt_alloc(baseLength + suffixLength + 1);
+    mut i: Any = 0;
+    while (i < baseLength) { store8(result + i, load8(pointer + i)); i = i + 1; }
+    mut j: Any = 0;
+    while (j < suffixLength) { store8(result + baseLength + j, load8(addr(suffix) + j)); j = j + 1; }
+    store8(result + baseLength + suffixLength, 0);
+    return [result, baseLength + suffixLength];
+}
+
+fun main2() -> Any {
+    irt_init();
+
+    let cmd: Any = slurp(addr("/proc/self/cmdline"), len("/proc/self/cmdline"));
+    let cn: Any = LASTLEN;
+
+    // Split the NUL-separated command line into a list of [ptr, len] spans.
+    mut argv: Any = [];
+    mut i: Any = 0;
+    while (i < cn) {
+        let s: Any = i;
+        while (i < cn) {
+            if (load8(cmd + i) == 0) { break; }
+            i = i + 1;
+        }
+        if (i > s) { push(argv, [cmd + s, i - s]); }
+        i = i + 1;
+    }
+
+    let a0: Any = argv[0][0];
+    let a0l: Any = argv[0][1];
+    mut sp: Any = 0;
+    mut sl: Any = 0;
+    mut op: Any = 0;
+    mut ol: Any = 0;
+    mut targetName: Any = "x86_64-linux";
+    mut runtimeName: Any = "auto";
+    mut rawflag: Any = 0;
+    mut dumpflag: Any = 0;
+    mut checkflag: Any = 0;
+    mut expandedflag: Any = 0;
+    mut k: Any = 1;
+    while (k < len(argv)) {
+        let ap: Any = argv[k][0];
+        let al: Any = argv[k][1];
+        if (name_eq(ap, al, addr("-h"), 2) == 1 or name_eq(ap, al, addr("--help"), 6) == 1) {
+            cli_usage();
+        } else if (name_eq(ap, al, addr("-V"), 2) == 1 or name_eq(ap, al, addr("--version"), 9) == 1) {
+            let version: Str = "mayc " + MAYC_VERSION + "\n";
+            syscall(1, 1, addr(version), len(version));
+            syscall(60, 0);
+        } else if (name_eq(ap, al, addr("-o"), 2) == 1 or name_eq(ap, al, addr("--output"), 8) == 1) {
+            k = k + 1;
+            if (k >= len(argv)) { die_str("mayc: -o/--output requires a path\n"); }
+            op = argv[k][0]; ol = argv[k][1];
+        } else if (name_eq(ap, al, addr("--target"), 8) == 1) {
+            k += 1;
+            if (k >= len(argv)) { die_str("mayc: --target requires a target name\n"); }
+            targetName = symbol_name(argv[k][0], argv[k][1]);
+        } else if (name_eq(ap, al, addr("--raw"), 5) == 1) {
+            rawflag = 1;
+        } else if (name_eq(ap, al, addr("--runtime"), 9) == 1) {
+            k += 1;
+            if (k >= len(argv)) { die_str("mayc: --runtime requires full, core, or none\n"); }
+            runtimeName = symbol_name(argv[k][0], argv[k][1]);
+            if (runtimeName != "full" and runtimeName != "core" and runtimeName != "none") { die_str("mayc: unknown runtime `${runtimeName}`\n"); }
+        } else if (name_eq(ap, al, addr("--time"), 6) == 1) {
+            PROFILE_ENABLED = true;
+        } else if (name_eq(ap, al, addr("--dump"), 6) == 1) {
+            dumpflag = 1;
+        } else if (name_eq(ap, al, addr("--dump-expanded"), 15) == 1) {
+            expandedflag = 1;
+        } else if (name_eq(ap, al, addr("--check"), 7) == 1) {
+            checkflag = 1;
+        } else if (name_eq(ap, al, addr("--legacy"), 8) == 1) {
+            STRICT_TYPES = false;
+        } else if (name_eq(ap, al, addr("--strict"), 8) == 1) {
+            STRICT_TYPES = true;
+        } else if (al > 0 and load8(ap) == 45) {
+            die_str("mayc: unknown option (use --help)\n");
+        } else if (sl == 0) {
+            sp = ap;
+            sl = al;
+        } else if (ol == 0) {
+            op = ap;
+            ol = al;
+        }
+        k = k + 1;
+    }
+    if (sl == 0) {
+        die_str("mayc: missing source file (use --help)\n");
+    }
+    if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
+        let default: Any = cli_default_output(sp, sl);
+        op = default[0]; ol = default[1];
+    }
+    if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
+        die_str("mayc: missing -o <binary>\n");
+    }
+
+    let ctx: Any = emitter_new(target_select(targetName));
+    if (runtimeName == "auto") { runtimeName = if (targetName == "x86_64-linux") { "full" } else { "core" }; }
+    if (runtimeName == "none") { rawflag = 1; }
+    ctx.runtime = if (rawflag == 1) { "none" } else { runtimeName };
+    profile_begin();
+    if (checkflag == 0 and dumpflag == 0 and expandedflag == 0) { backend_validate(ctx, rawflag); }
+    if (rawflag == 1) {
+        PARSE_RAW = 1;
+        DYNMODE = 0;
+        expand(sp, sl);
+        if (expandedflag == 1) {
+            syscall(1, 1, SRC, SRCLEN);
+            syscall(60, 0);
+        }
+        lex_all();
+        parse_program(ctx);
+        profile_mark("parse");
+        strict_program(ctx);
+        profile_mark("types");
+        sem_program();
+        profile_mark("resolve");
+        if (checkflag == 1) { syscall(60, 0); }
+        ir_program(ctx);
+
+    } else {
+        DYNMODE = 1;
+        if (ctx.runtime == "core") { load_core(a0, a0l, "core.may"); }
+        else { load_runtime(a0, a0l); }
+        PARSE_RAW = 1;
+        lex_all();
+        parse_program(ctx);
+        profile_mark("runtime");
+        RUNTIME_BODY = MAINBODY;
+        for r: Any in FUNC_HEAD {
+            r.mode = 1;
+        }
+        PARSE_RAW = 0;
+        expand(sp, sl);
+        let ub: Any = SRC;
+        let un: Any = SRCLEN;
+        if (expandedflag == 1) {
+            syscall(1, 1, ub, un);
+            syscall(60, 0);
+        }
+
+        // Resolve prelude and native library support
+        let pb: Any = if (ctx.runtime == "core") { load_core(a0, a0l, "corelib.may") } else { load_prelude(a0, a0l) };
+        let pn: Any = LASTLEN;
+        let nb: Any = if (ctx.runtime == "core") { 0 } else { load_native(a0, a0l) };
+        if (ctx.runtime == "core") { LASTLEN = 0; }
+        let nn: Any = LASTLEN;
+
+        if (pn + nn > 0) {
+            let cb: Any = irt_alloc(pn + nn + un + 8);
+            mut z: Any = 0;
+            while (z < pn) {
+                store8(cb + z, load8(pb + z));
+                z = z + 1;
+            }
+            z = 0;
+            while (z < nn) {
+                store8(cb + pn + z, load8(nb + z));
+                z = z + 1;
+            }
+            z = 0;
+            while (z < un) {
+                store8(cb + pn + nn + z, load8(ub + z));
+                z = z + 1;
+            }
+            SRC = cb;
+            SRCLEN = pn + nn + un;
+            mut origins: Any = [];
+            push(origins, SourceOrigin(0, "prelude.may", 1));
+            push(origins, SourceOrigin(pn, "native.may", 1));
+            for origin: Any in EXPAND_ORIGINS {
+                push(origins, SourceOrigin(pn + nn + origin.start, origin.path, origin.line));
+            }
+            SOURCE_FILES[cb] = SourceFile(symbol_name(sp, sl), origins);
+        }
+        if (dumpflag == 1) {
+            let fd: Any = syscall(2, addr("mayc_expanded.may"), 577, 420);
+            syscall(1, fd, SRC, SRCLEN);
+            syscall(3, fd);
+            syscall(60, 0);
+        }
+        lex_all();
+        parse_program(ctx);
+        profile_mark("parse");
+        strict_program(ctx);
+        profile_mark("types");
+        sem_program();
+        profile_mark("resolve");
+        if (checkflag == 1) { syscall(60, 0); }
+        ir_program(ctx);
+
+    }
+    profile_mark("ir");
+    backend_emit(ctx);
+    profile_mark("emit");
+    pad_code(ctx);
+    format_layout(ctx);
+    backend_patch(ctx);
+    format_build(ctx);
+    write_out(ctx, op, ol);
+    emitter_release(ctx);
+    profile_mark("package");
+    return 0;
+}
+
+may { main2(); } otherwise { report_diagnostic(err.message); }

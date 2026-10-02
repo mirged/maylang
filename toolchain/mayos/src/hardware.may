@@ -1,0 +1,33 @@
+// Raw mode has untagged integers and pointers. __ccall6's existing compiler
+// bridge still shifts arguments/results by three, so compensate only here.
+fun port_read(port: Int) -> Int {
+    return __ccall6(load64(2097216) * 8, port * 8, 0, 0, 0, 0, 0) / 8;
+}
+fun port_write(port: Int, value: Int) -> Nil {
+    __ccall6(load64(2097224) * 8, port * 8, value * 8, 0, 0, 0, 0);
+    return;
+}
+fun idle_cpu() -> Nil {
+    __ccall6(load64(2097232) * 8, 0, 0, 0, 0, 0, 0);
+    return;
+}
+fun ticks() -> Int { return load64(2097152); }
+fun port_read16(port: Int) -> Int {
+    return __ccall6(load64(2097256) * 8, port * 8, 0, 0, 0, 0, 0) / 8;
+}
+fun port_write16(port: Int, value: Int) -> Nil {
+    __ccall6(load64(2097248) * 8, port * 8, value * 8, 0, 0, 0, 0);
+    return;
+}
+fun shutdown() -> Nil {
+    __ccall6(load64(2097240) * 8, 244 * 8, 16 * 8, 0, 0, 0, 0);
+    // QEMU ACPI fallback when the debug-exit device is absent.
+    __ccall6(load64(2097248) * 8, 1540 * 8, 8192 * 8, 0, 0, 0, 0);
+    while (1 == 1) { idle_cpu(); }
+    return;
+}
+fun boot_error_exit() -> Nil {
+    __ccall6(load64(2097240) * 8, 244 * 8, 17 * 8, 0, 0, 0, 0);
+    while (1 == 1) { idle_cpu(); }
+    return;
+}

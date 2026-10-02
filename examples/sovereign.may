@@ -1,0 +1,51 @@
+// The Sovereign Trio: raw pointers, raw syscalls and C-ABI calls.
+//
+// Maylang's safety rails come off here. Pointers are ordinary integers holding
+// machine addresses; `addr` exposes a heap object, `load*`/`store*` read and
+// write raw memory, `syscall(id, ...)` issues any system call, and `ccall` /
+// `extern_c` invoke machine code with the System V C ABI.
+
+// --- addr + raw loads: peek inside a string -------------------------------
+let s: Any = "hello";
+let a: Any = addr(s); // address of the bytes (length lives at addr-8)
+print("length via load64(addr - 8):", load64(a - 8));
+print("first two bytes:", chr(load8(a)), chr(load8(a + 1)));
+
+// --- raw memory: map an RWX page and poke it ------------------------------
+// mmap(NULL, 4096, PROT_READ|WRITE|EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)
+let page: Any = syscall(9, 0, 4096, 7, 34, 0 - 1, 0);
+print("mapped an executable page:", page > 0);
+let p: Any = ptr(page);
+store64(p + 64, 3735928559); // 0xDEADBEEF
+print("store/load 64-bit:", load64(p + 64));
+store8(p + 128, 200);
+print("store/load 8-bit:", load8(p + 128));
+
+// --- raw syscall: write(2) straight to the kernel -------------------------
+let msg: Any = "written by raw write(2)\n";
+syscall(1, 1, addr(msg), len(msg)); // fd 1, buffer, count
+print("getpid via syscall(39):", syscall(39));
+
+// --- C ABI: hand-written "mov eax, 12345; ret" ----------------------------
+store8(p, 184); // B8
+store8(p + 1, 57); // 39
+store8(p + 2, 48); // 30
+store8(p + 3, 0); // 00
+store8(p + 4, 0); // 00
+store8(p + 5, 195); // C3
+print("ccall constant:", ccall(p, []));
+let constf: Any = extern_c(p);
+print("extern_c constant:", constf());
+
+// --- C ABI with arguments: "mov rax,rdi; add rax,rsi; ret" ----------------
+let q: Any = ptr(page + 16);
+store8(q, 72); // 48 89 F8 = mov rax, rdi
+store8(q + 1, 137);
+store8(q + 2, 248);
+store8(q + 3, 72); // 48 01 F0 = add rax, rsi
+store8(q + 4, 1);
+store8(q + 5, 240);
+store8(q + 6, 195); // C3 = ret
+print("ccall add(40, 2):", ccall(q, [40, 2]));
+let addf: Any = extern_c(q);
+print("extern_c add(19, 23):", addf(19, 23));

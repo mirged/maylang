@@ -1,0 +1,1 @@
+for x in [nil, true, "x", [], {}, 3.0, -1] { print(may { x() } otherwise { err.kind }); }

@@ -1,0 +1,52 @@
+// ml/model.may — minibatch training, prediction, metrics and model snapshots.
+import "nn.may";
+import "loss.may";
+import "optim.may";
+import "random.may";
+
+fun ml_loss_value(pred: Any, target: Any, name: Any) -> Any {
+    if (name == "mse") { return ml_mse(pred, target); }
+    if (name == "binary_cross_entropy") { return ml_binary_cross_entropy(pred, target); }
+    if (name == "cross_entropy") { return ml_categorical_cross_entropy(pred, target); }
+    return fail("unknown loss: " + name);
+}
+fun ml_loss_gradient(pred: Any, target: Any, name: Any) -> Any {
+    if (name == "mse") { return ml_mse_gradient(pred, target); }
+    if (name == "binary_cross_entropy") { return ml_binary_cross_entropy_gradient(pred, target); }
+    if (name == "cross_entropy") { return ml_categorical_cross_entropy_gradient(pred, target); }
+    return fail("unknown loss: " + name);
+}
+fun ml_train_batch(model: Any, xs: Any, ys: Any, optimizer: Any, loss_name: Any) -> Any {
+    let pred: Any = nn_forward(model, xs);
+    let loss: Any = ml_loss_value(pred, ys, loss_name);
+    nn_backward(model, ml_loss_gradient(pred, ys, loss_name));
+    ml_optimizer_step(optimizer, model);
+    return loss;
+}
+fun ml_fit(model: Any, xs: Any, ys: Any, epochs: Any, batch_size: Any, optimizer: Any, rng: Any, loss_name: Any) -> Any {
+    if (len(xs) != len(ys) || len(xs) == 0) { fail("training data must be nonempty with matching row counts"); }
+    if (epochs < 0 || batch_size <= 0) { fail("epochs must be nonnegative and batch size positive"); }
+    mut history: Any = []; let n: Any = len(xs);
+    for _: Any in 0..epochs {
+        let order: Any = random_shuffle(rng, [i for i: Any in 0..n]);
+        mut epoch_loss: Any = 0.0; mut seen: Any = 0; mut start: Any = 0;
+        while (start < n) {
+            let stop: Any = min(start + batch_size, n);
+            let ix: Any = slice(order, start, stop);
+            let bx: Any = [xs[i] for i: Any in ix]; let by: Any = [ys[i] for i: Any in ix];
+            let batch_loss: Any = ml_train_batch(model, bx, by, optimizer, loss_name);
+            epoch_loss = epoch_loss + batch_loss * len(ix); seen = seen + len(ix); start = stop;
+        }
+        push(history, epoch_loss / (1.0 * seen));
+    }
+    return {"model": model, "history": history};
+}
+fun ml_evaluate(model: Any, xs: Any, ys: Any, loss_name: Any) -> Any {
+    let pred: Any = nn_predict(model, xs);
+    return {"loss": ml_loss_value(pred, ys, loss_name), "accuracy": ml_accuracy(pred, ys), "predictions": pred};
+}
+fun ml_save(model: Any, path: Any) -> Any { return write_file(path, json_stringify(nn_state_dict(model))); }
+fun ml_load(model: Any, path: Any) -> Any {
+    let states: Any = json_parse(read_file(path));
+    return nn_load_state(model, states);
+}

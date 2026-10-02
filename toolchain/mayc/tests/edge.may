@@ -1,0 +1,12 @@
+print(len(""), len([]), len({}));
+print([1,2,3][0], {"a":1}["a"], "abc"[1]);
+print(0.1 + 0.2);
+print(1000000 * 1000000);
+print([1] + [2] + [3]);
+print("a" + "b" + "c");
+print(str([1, [2, [3]]]));
+print({"a": [1, {"b": 2}]});
+let empty: Any = [];
+print(empty);
+print(unique([]), sort([]), reverse([]));
+print(sum([]), product([]));

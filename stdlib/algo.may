@@ -1,0 +1,123 @@
+// algo.may — classic algorithms over lists.
+
+/// Sort a list with a quicksort (pivot = first element). Returns a new list.
+fun quick_sort(xs: Any) -> Any {
+    if (len(xs) <= 1) { return xs; }
+    let pivot: Any = xs[0];
+    mut less: Any = [];
+    mut equal: Any = [];
+    mut more: Any = [];
+    for x: Any in xs {
+        if (x < pivot) { push(less, x); }
+        else if (x > pivot) { push(more, x); }
+        else { push(equal, x); }
+    }
+    return quick_sort(less) + equal + quick_sort(more);
+}
+
+/// Sort a list with a stable merge sort. Returns a new list.
+fun merge_sort(xs: Any) -> Any {
+    let n: Any = len(xs);
+    if (n <= 1) { return xs; }
+    let mid: Any = n / 2;
+    let left: Any = [xs[i] for i: Any in 0..mid];
+    let right: Any = [xs[i] for i: Any in mid..n];
+    return merge_sorted(merge_sort(left), merge_sort(right));
+}
+
+/// Merge two already-sorted lists into one sorted list.
+fun merge_sorted(a: Any, b: Any) -> Any {
+    mut out: Any = [];
+    mut i: Any = 0;
+    mut j: Any = 0;
+    while (i < len(a) && j < len(b)) {
+        if (a[i] <= b[j]) { push(out, a[i]); i = i + 1; }
+        else { push(out, b[j]); j = j + 1; }
+    }
+    while (i < len(a)) { push(out, a[i]); i = i + 1; }
+    while (j < len(b)) { push(out, b[j]); j = j + 1; }
+    return out;
+}
+
+/// Index of `target` in a sorted list, or `-1`.
+fun binary_search(sorted: Any, target: Any) -> Any {
+    mut lo: Any = 0;
+    mut hi: Any = len(sorted) - 1;
+    while (lo <= hi) {
+        let mid: Any = (lo + hi) / 2;
+        if (sorted[mid] == target) { return mid; }
+        if (sorted[mid] < target) { lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return -1;
+}
+
+/// Remove duplicates, preserving the order of first appearance.
+fun dedupe(xs: Any) -> Any {
+    let seen: Any = {};
+    mut out: Any = [];
+    for x: Any in xs {
+        if (!has(seen, x)) {
+            seen[x] = true;
+            push(out, x);
+        }
+    }
+    return out;
+}
+
+/// Pair up the elements of two lists, stopping at the shorter one.
+fun zip(a: Any, b: Any) -> Any {
+    let n: Any = min(len(a), len(b));
+    return [[a[i], b[i]] for i: Any in 0..n];
+}
+
+/// Concatenate a list of lists into a single list.
+fun flatten(xss: Any) -> Any { return reduce(xss, |acc: Any, xs: Any| -> Any { return acc + xs; }, []); }
+
+/// `[a, a+1, ..., b-1]`.
+fun range_list(a: Any, b: Any) -> Any { return [i for i: Any in a..b]; }
+
+/// The first `n` elements (or fewer).
+fun take(xs: Any, n: Any) -> Any { return [xs[i] for i: Any in 0..max(0, min(n, len(xs)))]; }
+
+/// Drop the first `n` elements.
+fun drop(xs: Any, n: Any) -> Any { return [xs[i] for i: Any in max(0, n)..len(xs)]; }
+
+/// Split a list into consecutive groups of `size`.
+fun chunk(xs: Any, size: Any) -> Any {
+    mut out: Any = [];
+    mut i: Any = 0;
+    while (i < len(xs)) {
+        mut part: Any = [];
+        mut j: Any = i;
+        while (j < i + size && j < len(xs)) { push(part, xs[j]); j = j + 1; }
+        push(out, part);
+        i = i + size;
+    }
+    return out;
+}
+
+/// Split a list into `[matching, non-matching]` by `pred`.
+fun partition(xs: Any, pred: Any) -> Any {
+    return [filter(xs, pred), filter(xs, |x: Any| -> Any { return !pred(x); })];
+}
+
+/// Group elements into a map keyed by `str(key_fn(x))`.
+fun group_by(xs: Any, key_fn: Any) -> Any {
+    mut out: Any = {};
+    for x: Any in xs {
+        let key: Any = str(key_fn(x));
+        if (!has(out, key)) { out[key] = []; }
+        push(out[key], x);
+    }
+    return out;
+}
+
+/// Count elements by `str(key_fn(x))`.
+fun count_by(xs: Any, key_fn: Any) -> Any {
+    mut out: Any = {};
+    for x: Any in xs {
+        let key: Any = str(key_fn(x));
+        out[key] = (out[key] ?? 0) + 1;
+    }
+    return out;
+}

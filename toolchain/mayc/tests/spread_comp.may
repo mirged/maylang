@@ -1,0 +1,9 @@
+let a: Any = [1, 2, 3];
+print([...a, 4, 5]);
+print([0, ...a]);
+print([...a, ...a]);
+let d: Any = {"a": 1};
+print({...d, "b": 2});
+print([x * x for x: Any in 1..=5]);
+print([x for x: Any in 1..=10 if x % 3 == 0]);
+print([[x, x * x] for x: Any in 0..3 if x > 0]);

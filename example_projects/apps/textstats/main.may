@@ -1,0 +1,26 @@
+// main.may — a text analytics CLI.
+//
+//   maylang build -o textstats example_projects/apps/textstats/main.may
+//   ./textstats < somefile.txt
+//   cat somefile.txt | ./textstats
+//
+// Reads text from standard input, tokenises it, counts words and prints a
+// ranked frequency report. If no input is given, a built-in sample is used.
+import "src/text.may";
+import "src/stats.may";
+import "src/report.may";
+
+let sample: Any =
+    "The quick brown fox jumps over the lazy dog. " +
+    "The dog barks, and the fox runs away. " +
+    "A quick fox is a happy fox; a lazy dog is a sleepy dog.";
+
+mut source: Any = read_stdin();
+if (len(trim(source)) == 0) { source = sample; }
+
+let tokens: Any = words(source);
+let counts: Any = count_words(tokens);
+let entries: Any = rank(counts);
+let summary: Any = summarize(tokens, counts);
+
+render("TEXT STATISTICS", summary, entries, 15);

@@ -1,0 +1,2 @@
+fun identity(value: Int) -> Int { return value; }
+print(identity("wrong"));

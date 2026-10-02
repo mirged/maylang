@@ -1,0 +1,28 @@
+import "model.may";
+import "ecology.may";
+import "evolution.may";
+import "metrics.may";
+import "persistence.may";
+
+fun simulate(world: World, stop_at: Int) -> World {
+    let started: Float = clock();
+    while (world.generation < world.config.generations and world.generation < stop_at and len(world.creatures) > 0) {
+        for step: Int in 0..world.config.ticks { ecology_step(world); }
+        let generation: Int = world.generation + 1;
+        let report: Bool = generation == 1 or generation % world.config.report_every == 0 or generation == world.config.generations;
+        // Measure adult behavior before replacing the cohort, including victims.
+        let sample: Any = if (report) { cohort_metrics(world) } else { nil };
+        next_generation(world);
+        if (sample != nil) { record_metrics(world, sample); }
+        if (len(world.creatures) == 0 and sample == nil) {
+            // Extinction is terminal, never hidden by spontaneous immigrants.
+            print("extinction at generation", world.generation);
+        }
+        if (world.generation % world.config.checkpoint_every == 0) { save_checkpoint(world); }
+    }
+    save_results(world, clock() - started);
+    if (world.generation >= world.config.generations or len(world.creatures) == 0) {
+        print("completed", world.generation, "generations; results:", world.config.output + ".summary.json");
+    }
+    return world;
+}

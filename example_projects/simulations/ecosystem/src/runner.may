@@ -1,0 +1,57 @@
+import "model.may";
+
+// Bound the native runtime's live allocation history with worker processes.
+// Generation-boundary checkpoints carry the exact world and RNG between them.
+// This is execution isolation, not a restart of evolution or its population.
+fun read_progress(path: Str, buffer: Int) -> List<Int> {
+    let descriptor: Int = syscall(2, cstr(path), 0, 0);
+    if (descriptor < 0) { fail("cannot read ecosystem worker progress"); }
+    let count: Int = syscall(0, descriptor, buffer, 64);
+    syscall(3, descriptor);
+    if (count < 3 or count >= 64) { fail("invalid worker progress length"); }
+    let values: List<Int> = [];
+    mut current: Int = 0;
+    for index: Int in 0..count {
+        let byte: Int = load8(buffer + index);
+        if (byte == 32) { push(values, current); current = 0; }
+        else if (byte >= 48 and byte <= 57) { current = current * 10 + byte - 48; }
+        else { fail("invalid worker progress byte"); }
+    }
+    push(values, current);
+    if (len(values) != 2) { fail("invalid worker progress fields"); }
+    return values;
+}
+fun run_workers(config: Config, executable: Str, checkpoint: Str, start: Int) -> Int {
+    let buffer: Int = syscall(9, 0, 4096, 3, 34, -1, 0);
+    if (buffer < 0) { fail("cannot allocate worker progress buffer"); }
+    mut generation: Int = start;
+    mut source: Str = checkpoint;
+    while (generation < config.generations) {
+        // Keep each native runtime lifetime below the collector's observed
+        // corruption threshold; checkpoints carry the exact world between workers.
+        let stop: Int = if (generation + 512 < config.generations) { generation + 512 } else { config.generations };
+        let command: List<Str> = [executable, "_worker", source,
+            "--generations", str(config.generations), "--stop-at", str(stop),
+            "--out", config.output, "--report", str(config.report_every), "--checkpoint", str(config.checkpoint_every)];
+        if (source == "fresh") {
+            push(command, "--seed"); push(command, str(config.seed));
+            push(command, "--population"); push(command, str(config.population));
+            push(command, "--width"); push(command, str(config.width));
+            push(command, "--ticks"); push(command, str(config.ticks));
+            push(command, "--mutation-rate"); push(command, str(config.mutation_rate));
+            push(command, "--mutation-step"); push(command, str(config.mutation_step));
+        }
+        let status: Int = wait(exec(command));
+        if (status != 0) { fail("ecosystem worker failed; resume the last generation-boundary checkpoint"); }
+        let progress: List<Int> = read_progress(config.output + ".progress", buffer);
+        let completed: Int = progress[0];
+        let population: Int = progress[1];
+        if (completed < generation or completed > stop) { fail("invalid worker generation progress"); }
+        if (population == 0) { syscall(11, buffer, 4096); return 0; }
+        if (completed != stop) { fail("worker did not reach its generation boundary"); }
+        generation = completed;
+        source = config.output + ".checkpoint.json";
+    }
+    syscall(11, buffer, 4096);
+    return 0;
+}

@@ -1,0 +1,11 @@
+{
+  "authors": [],
+  "dependencies": {},
+  "description": "",
+  "entry": "main.may",
+  "modules": [],
+  "name": "sdl_test",
+  "output": "build/sdl_test",
+  "target": "host",
+  "version": "0.1.0"
+}

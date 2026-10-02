@@ -1,0 +1,64 @@
+// tasks.may — the task model and JSON persistence for `maytasks`.
+//
+// Tasks are stored as a list of maps:
+//   { "id": Int, "text": Str, "done": Bool, "created": Int }
+// and persisted to `$HOME/.maytasks.json` (or `./maytasks.json` when HOME is
+// unset).
+
+fun tasks_path() -> Any {
+    let home: Any = env("HOME");
+    if (home == nil || len(home) == 0) { return "maytasks.json"; }
+    return home + "/.maytasks.json";
+}
+
+/// Load the task list, tolerating a missing or corrupt file.
+fun load_tasks() -> Any {
+    let path: Any = tasks_path();
+    if (!file_exists(path)) { return []; }
+    let raw: Any = may { read_file(path) } otherwise { return []; };
+    if (len(trim(raw)) == 0) { return []; }
+    let parsed: Any = may { json_parse(raw) } otherwise { return []; };
+    if (value_tag(parsed) != 5) { return []; } // must be a list
+    return parsed;
+}
+
+fun save_tasks(ts: Any) -> Any {
+    return write_file(tasks_path(), json_stringify(ts));
+}
+
+fun next_id(ts: Any) -> Any {
+    mut highest: Any = 0;
+    for t: Any in ts {
+        if (t.id > highest) { highest = t.id; }
+    }
+    return highest + 1;
+}
+
+/// Add a task and return the (new) list.
+fun add_task(ts: Any, text: Any) -> Any {
+    push(ts, {"id": next_id(ts), "text": text, "done": false, "created": time()});
+    return ts;
+}
+
+fun find_task(ts: Any, id: Any) -> Any {
+    for t: Any in ts {
+        if (t.id == id) { return t; }
+    }
+    return nil;
+}
+
+fun remove_task(ts: Any, id: Any) -> Any {
+    return [t for t: Any in ts if t.id != id];
+}
+
+fun clear_completed(ts: Any) -> Any {
+    return [t for t: Any in ts if !t.done];
+}
+
+fun open_tasks(ts: Any) -> Any { return [t for t: Any in ts if !t.done]; }
+fun done_tasks(ts: Any) -> Any { return [t for t: Any in ts if t.done]; }
+
+fun search_tasks(ts: Any, needle: Any) -> Any {
+    let q: Any = to_lower(needle);
+    return [t for t: Any in ts if contains(to_lower(t.text), q)];
+}

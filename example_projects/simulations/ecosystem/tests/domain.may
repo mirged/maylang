@@ -1,0 +1,117 @@
+import "../src/model.may";
+import "../src/genome.may";
+import "../src/environment.may";
+import "../src/controller.may";
+import "../src/ecology.may";
+import "../src/evolution.may";
+import "../src/metrics.may";
+import "../../../../stdlib/random.may";
+import "../../../../stdlib/ml/nn.may";
+import "../../../../stdlib/ml/fixed.may";
+
+fun check(condition: Bool, message: Str) -> Nil {
+    if (not condition) { fail(message); }
+    return;
+}
+fun near(a: Float, b: Float) -> Bool { return abs(a - b) < 0.0000001; }
+fun check_neural_inference() -> Nil {
+    let rng: Any = random_new(19);
+    let modes: List<Str> = ["linear", "relu", "sigmoid", "tanh", "softmax"];
+    for activation: Str in modes {
+        let network: Any = nn_model();
+        nn_add_dense(network, 3, 4, activation, rng);
+        nn_add_dense(network, 4, 2, "tanh", rng);
+        let row: List<Float> = [0.5, -0.25, 0.75];
+        let expected: List<Float> = nn_predict(network, [row])[0];
+        let cache: Any = network.layers[0].cache_input;
+        let actual: List<Float> = nn_predict_one(network, row);
+        for i: Int in 0..2 { check(near(expected[i], actual[i]), "ML inference parity"); }
+        check(network.layers[0].cache_input == cache, "inference must preserve training caches");
+        let rejected: Bool = may { nn_predict_one(network, [0.0]); false } otherwise { true };
+        check(rejected, "input shape must be checked");
+    }
+    print("PASS ML single-row parity, activations, caches and shape checking");
+    return;
+}
+fun check_fixed_inference() -> Nil {
+    let params: List<Int> = [512, -256, 1024, 128, 0, 256];
+    let network: FixedNetwork = nn_fixed_model([2, 2], params, 1024);
+    let input: List<Int> = [512, -256];
+    let result: List<Int> = nn_fixed_predict(network, input);
+    for k: Int in 0..2 {
+        let z: Float = float(params[4 + k]) / 1024.0 + float(params[k * 2]) / 1024.0 * 0.5 + float(params[k * 2 + 1]) / 1024.0 * -0.25;
+        check(abs(float(result[k]) / 1024.0 - z / (1.0 + abs(z))) < 0.002, "fixed inference must match softsign reference");
+    }
+    check(may { nn_fixed_predict(network, [0]); false } otherwise { true }, "fixed input shape validation");
+    check(may { nn_fixed_model([2, 2], [0], 1024); false } otherwise { true }, "fixed parameter count validation");
+    check(may { nn_fixed_model([2, 2], params, 0); false } otherwise { true }, "fixed scale validation");
+    check(may { nn_fixed_predict(network, [1000000, 0]); false } otherwise { true }, "fixed input safe range");
+    print("PASS fixed-point neural reference parity and validation");
+    return;
+}
+fun check_genomes() -> Nil {
+    let config: Config = default_config();
+    let parent: Genome = founder_genome(random_new(17));
+    check(len(parent.traits) == 6 and len(parent.weights) == WEIGHT_COUNT, "genome dimensions");
+    let network: Any = build_brain(parent);
+    check(len(network.parameters) == WEIGHT_COUNT, "every neural parameter must be heritable");
+    config.mutation_rate = 0.0;
+    let clone: Genome = mutate_genome(parent, random_new(5), config);
+    clone.traits[0] = 0.0;
+    check(parent.traits[0] > 0.0, "offspring must not alias parent genes");
+    config.mutation_rate = 1.0;
+    let child: Genome = mutate_genome(parent, random_new(5), config);
+    for trait: Float in child.traits { check(trait >= 0.0 and trait <= 1.0, "trait mutation bounds"); }
+    for weight: Int in child.weights { check(weight >= -4096 and weight <= 4096, "weight mutation bounds"); }
+    check(child.weights != parent.weights, "mutation must change genes");
+    print("PASS genome dimensions, inheritance isolation and mutation bounds");
+    return;
+}
+fun check_ecology() -> Nil {
+    let config: Config = default_config(); config.population = 2;
+    let world: World = new_world(config);
+    let attacker: Creature = world.creatures[0];
+    let victim: Creature = world.creatures[1];
+    attacker.x = 0; attacker.y = 0; victim.x = config.width - 1; victim.y = 0;
+    check(displacement(0, config.width - 1, config.width) == -1, "toroidal displacement");
+    check(neighbor_index(world, occupancy(world), 0) == 1, "adjacent wraparound detection");
+    // Traits are ordinary continuous genes, not a predator flag.
+    attacker.genome.traits[3] = 1.0;
+    victim.health = 0.1;
+    let expected_energy: Float = stored_energy(world);
+    bite(world, attacker, victim);
+    check(victim.health == 0.0 and attacker.kills == 1, "physical attack must kill weak prey");
+    check(attacker.hunted > 0.0 and strategy(attacker) == "hunter", "behavioral hunter classification");
+    check(near(expected_energy, stored_energy(world) + world.totals.heat), "predation must conserve energy");
+    let kill_total: Int = world.totals.kills;
+    bite(world, attacker, victim);
+    check(world.totals.kills == kill_total, "dead prey must not be harvested twice");
+    check(near(energy_error(world), 0.0), "world energy ledger");
+    attacker.energy = 0.0;
+    metabolize(world, attacker);
+    check(attacker.health == 0.0, "starvation must remove a creature");
+    print("PASS toroidal sensing, emergent attack mechanics and energy accounting");
+    return;
+}
+fun check_generations() -> Nil {
+    let config: Config = default_config(); config.population = 4;
+    let world: World = new_world(config);
+    // Funding reproduction must consume energy. No free births or immigration.
+    for creature: Creature in world.creatures { creature.energy = 30.0; creature.reproduction = 1.0; }
+    let before: Float = stored_energy(world);
+    next_generation(world);
+    check(world.generation == 1 and len(world.creatures) == 4, "cohort replacement and carrying capacity");
+    for creature: Creature in world.creatures { check(creature.lineage == 1 and creature.parent > 0, "actual genetic generation"); }
+    check(near(before, stored_energy(world)), "offspring and nursery losses must conserve energy");
+    check(world.totals.eggs > world.totals.births and world.totals.nursery_deaths > 0, "crowding must be accounted for");
+    for creature: Creature in world.creatures { creature.energy = 0.0; creature.reproduction = -1.0; }
+    next_generation(world);
+    check(len(world.creatures) == 0, "extinction must not silently reseed founders");
+    print("PASS paid reproduction, lineage depth, crowding and terminal extinction");
+    return;
+}
+check_neural_inference();
+check_fixed_inference();
+check_genomes();
+check_ecology();
+check_generations();

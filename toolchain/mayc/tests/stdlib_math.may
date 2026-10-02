@@ -1,0 +1,6 @@
+import "../../../stdlib/math.may";
+print(square(5), cube(3));
+print(gcd(1071, 462), lcm(4, 6));
+print(is_prime(17), is_prime(18));
+print(factorial(5), fibonacci(10));
+print(average([1,2,3,4]), median([3,1,4,2]));

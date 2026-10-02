@@ -1,0 +1,112 @@
+import "text.may";
+import "index.may";
+import "protocol.may";
+import "../../mayc/src/state.may";
+import "../../mayc/src/ast.may";
+import "../../mayc/src/lexer.may";
+import "../../mayc/src/parser.may";
+import "../../mayc/src/sema.may";
+import "../../mayc/src/diagnostics.may";
+import "../../mayc/src/modules.may";
+import "../../mayc/src/strict.may";
+mut LS_COMPILER_READY: Any = false;
+mut LS_ARENA_BASE: Any = 0;
+mut LS_CHECK_TEXT: Any = "";
+mut LS_CHECK_ORIGINS: Any = [];
+mut LS_CHECK_SEEN: Any = {};
+mut LS_CHECK_ERRORS: Any = {};
+mut LS_DIAG_CACHE: Any = {};
+mut LS_CHECK_CACHE: Any = {};
+mut LS_DIAGNOSTIC_PUBLISH: Any = true;
+mut LS_RECHECK_HOOK: Any = nil;
+mut LS_CHECK_PARTS: Any = [];
+mut LS_CHECK_LENGTH: Any = 0;
+fun ls_diag(doc: Any, a: Any, b: Any, message: Any) -> Any {
+    return {"range": ls_range(doc.text, a, b), "severity": 1, "source": "maylsp", "message": message};
+}
+fun ls_check_append(doc: Any, builtin: Any) -> Any {
+    if (has(LS_CHECK_SEEN, doc.uri)) { return nil; }
+    LS_CHECK_SEEN[doc.uri] = true;
+    if (not builtin) {
+        MODULE_IMPORTS[doc.path] = [];
+        for imp: Any in doc.imports {
+            let imported: Any = ls_import_doc(doc, imp);
+            if (imported == nil) {
+                if (not has(LS_CHECK_ERRORS, doc.uri)) { LS_CHECK_ERRORS[doc.uri] = []; }
+                push(LS_CHECK_ERRORS[doc.uri], ls_diag(doc, imp.a, imp.b, "Cannot resolve import: " + imp.path));
+            } else {
+                push(MODULE_IMPORTS[doc.path], {"path": imported.path, "alias": imp.alias, "plain": imp.plain, "selected": imp.selected});
+                ls_check_append(imported, false);
+            }
+        }
+    }
+    let start: Any = LS_CHECK_LENGTH;
+    push(LS_CHECK_ORIGINS, {"start": start, "path": doc.path, "line": 1, "uri": doc.uri});
+    // One copy per module, then blank import bytes in place. Newlines and
+    // UTF-8 offsets remain identical to the original source.
+    let text: Any = ls_text(addr(doc.text), ls_bytes(doc.text));
+    for imp: Any in doc.imports {
+        for k: Any in imp.start..imp.end { if (ls_byte(text, k) != 10 and ls_byte(text, k) != 13) { store8(addr(text) + k, 32); } }
+    }
+    push(LS_CHECK_PARTS, text + "\n"); LS_CHECK_LENGTH += ls_bytes(text) + 1;
+    return nil;
+}
+fun ls_diagnostics(doc: Any) -> Any {
+    let cached: Any = LS_CHECK_CACHE[doc.uri];
+    if (cached != nil and cached.epoch == LS_INDEX_EPOCH) {
+        LS_CHECK_ERRORS = cached.errors; LS_CHECK_SEEN = cached.seen;
+        LS_DIAG_CACHE[doc.uri] = LS_CHECK_ERRORS[doc.uri] ?? [];
+        return nil;
+    }
+    if (not LS_COMPILER_READY) { irt_init(); LS_ARENA_BASE = ARENAP; LS_COMPILER_READY = true; }
+    ARENAP = LS_ARENA_BASE; DATALEN = 0;
+    FUNC_HEAD = []; LABOFF = [0, 0]; GLOBALS = []; LOCALS = []; FOREIGN_DECLS = [];
+    IN_FUN = 0; RUNTIME_BODY = 0; MAINBODY = 0; PARSE_RAW = 0; DYNMODE = 1;
+    DIAGNOSTIC_SPAN = 0; SOURCE_FILES = {}; MODULE_PUBLIC = {}; MODULE_EXPLICIT = {}; MODULE_IMPORTS = {};
+    SEM_LOOPS = 0;
+    LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_LENGTH = 0; LS_CHECK_ORIGINS = []; LS_CHECK_SEEN = {}; LS_CHECK_ERRORS = {};
+    may {
+        for name: Any in ["prelude.may", "native.may"] {
+            let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
+            if (builtin != nil) { ls_check_append(builtin, true); }
+        }
+        ls_check_append(doc, false);
+        if (len(keys(LS_CHECK_ERRORS)) == 0) {
+            LS_CHECK_TEXT = ls_join(LS_CHECK_PARTS, "");
+            SRC = addr(LS_CHECK_TEXT); SRCLEN = ls_bytes(LS_CHECK_TEXT);
+            SOURCE_FILES[SRC] = SourceFile(doc.path, LS_CHECK_ORIGINS);
+            lex_all(); parse_program(); strict_program(); sem_program();
+        }
+    } otherwise {
+        let span: Any = DIAGNOSTIC_SPAN;
+        mut origin: Any = nil;
+        if (span != 0) {
+            for candidate: Any in LS_CHECK_ORIGINS { if (candidate.start <= span.start) { origin = candidate; } else { break; } }
+        }
+        if (origin != nil) {
+            let bad: Any = ls_document(origin.uri); let offset: Any = min(ls_bytes(bad.text), max(0, span.start - origin.start));
+            LS_CHECK_ERRORS[bad.uri] = [ls_diag(bad, offset, min(ls_bytes(bad.text), offset + max(1, span.length)), err.message)];
+        } else { LS_CHECK_ERRORS[doc.uri] = [ls_diag(doc, 0, 0, err.message)]; }
+    }
+    // Every open buffer in this dependency closure gets a fresh result.
+    for uri: Any in keys(LS_CHECK_SEEN) {
+        let checked: Any = LS_DOCS[uri];
+        LS_DIAG_CACHE[uri] = LS_CHECK_ERRORS[uri] ?? [];
+        if (LS_DIAGNOSTIC_PUBLISH and checked.open) {
+            ls_notify("textDocument/publishDiagnostics", {"uri": uri, "version": checked.version, "diagnostics": LS_CHECK_ERRORS[uri] ?? []});
+        }
+    }
+    LS_CHECK_CACHE[doc.uri] = {"epoch": LS_INDEX_EPOCH, "errors": LS_CHECK_ERRORS, "seen": LS_CHECK_SEEN};
+    // Release AST roots; the raw compiler scratch arena is reused next time.
+    SRC = 0; TOKS = []; NTOKS = 0; FUNC_HEAD = []; MAINBODY = 0; PROGRAM_AST = 0;
+    DECLARATIONS = []; STRUCT_DECLS = []; ENUM_DECLS = []; SEM_SCOPES = []; SEM_FUNCTIONS = {}; SOURCE_FILES = {};
+    LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_ORIGINS = [];
+    return nil;
+}
+fun ls_pull_diagnostics(doc: Any) -> Any {
+    ls_diagnostics(doc);
+    let related: Any = {};
+    for uri: Any in keys(LS_CHECK_ERRORS) { if (uri != doc.uri) { related[uri] = {"kind": "full", "items": LS_CHECK_ERRORS[uri]}; } }
+    return {"kind": "full", "items": LS_DIAG_CACHE[doc.uri] ?? [], "relatedDocuments": related};
+}
+fun ls_recheck() -> Any { if (LS_RECHECK_HOOK != nil) { return LS_RECHECK_HOOK(); } for uri: Any in keys(LS_DOCS) { if (LS_DOCS[uri].open) { ls_diagnostics(LS_DOCS[uri]); } } return nil; }

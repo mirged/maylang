@@ -1,0 +1,11 @@
+{
+  "authors": [],
+  "dependencies": {},
+  "description": "",
+  "entry": "main.may",
+  "modules": [],
+  "name": "learn",
+  "output": "build/learn",
+  "target": "host",
+  "version": "0.1.0"
+}

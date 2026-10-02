@@ -1,0 +1,6 @@
+print("tab\there");
+print("newline\nhere");
+print("quote\"here");
+print("back\\slash");
+print("dollar\$sign");
+print("null\0end");

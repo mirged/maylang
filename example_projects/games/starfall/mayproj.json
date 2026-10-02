@@ -1,0 +1,12 @@
+{
+  "name": "starfall",
+  "version": "0.1.0",
+  "entry": "main.may",
+  "target": "host",
+  "description": "A turn-based space salvage game",
+  "authors": [
+    "Maylang Contributors"
+  ],
+  "dependencies": {},
+  "output": "build/starfall"
+}

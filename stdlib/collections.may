@@ -1,0 +1,84 @@
+// collections.may — stacks, queues and sets built from lists and maps.
+
+// --- Stack (LIFO) ---------------------------------------------------------
+
+/// Create an empty stack.
+fun stack() -> Any { return {"items": []}; }
+
+/// Push `value` onto `st` and return it.
+fun stack_push(st: Any, value: Any) -> Any { push(st.items, value); return st; }
+
+/// Pop the top of `st`, or `nil` when empty.
+fun stack_pop(st: Any) -> Any { return pop(st.items); }
+
+/// The top of `st` without removing it.
+fun stack_peek(st: Any) -> Any { let xs: Any = st.items; return xs[len(xs) - 1]; }
+
+/// Number of items on `st`.
+fun stack_size(st: Any) -> Any { return len(st.items); }
+
+/// Whether `st` is empty.
+fun stack_empty(st: Any) -> Any { return len(st.items) == 0; }
+
+// --- Queue (FIFO) ---------------------------------------------------------
+
+/// Create an empty queue.
+fun queue() -> Any { return {"items": [], "head": 0}; }
+
+/// Enqueue `value`.
+fun queue_push(q: Any, value: Any) -> Any { push(q.items, value); return q; }
+
+/// Dequeue the oldest value, or `nil` when empty.
+fun queue_pop(q: Any) -> Any {
+    if (q.head >= len(q.items)) { return nil; }
+    let value: Any = q.items[q.head];
+    q.head = q.head + 1;
+    return value;
+}
+
+/// Number of queued items.
+fun queue_size(q: Any) -> Any { return len(q.items) - q.head; }
+
+/// Whether `q` is empty.
+fun queue_empty(q: Any) -> Any { return queue_size(q) == 0; }
+
+// --- Set ------------------------------------------------------------------
+
+/// Create an empty set.
+fun set_new() -> Any { return {}; }
+
+/// Add `value` to `s` and return it.
+fun set_add(s: Any, value: Any) -> Any { s[value] = true; return s; }
+
+/// Whether `value` is in `s`.
+fun set_has(s: Any, value: Any) -> Any { return has(s, value); }
+
+/// Return a copy of `s` without `value`.
+fun set_remove(s: Any, value: Any) -> Any { return remove(s, value); }
+
+/// The members of `s` in sorted order.
+fun set_values(s: Any) -> Any { return sort(keys(s)); }
+
+/// Number of members.
+fun set_size(s: Any) -> Any { return len(keys(s)); }
+
+/// Union of two sets.
+fun set_union(a: Any, b: Any) -> Any { return merge(merge({}, a), b); }
+
+/// Intersection of two sets.
+fun set_intersect(a: Any, b: Any) -> Any {
+    let out: Any = {};
+    for key: Any in keys(a) {
+        if (has(b, key)) { out[key] = true; }
+    }
+    return out;
+}
+
+/// Elements in `a` but not in `b`.
+fun set_difference(a: Any, b: Any) -> Any {
+    let out: Any = {};
+    for key: Any in keys(a) {
+        if (!has(b, key)) { out[key] = true; }
+    }
+    return out;
+}

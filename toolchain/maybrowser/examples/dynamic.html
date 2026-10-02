@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>MayBrowser JS</title>
+<style>
+  html { background: #0f1226; }
+  body { margin: 32px; font-family: "DejaVu Sans", sans-serif; color: #e7e9f3; }
+  h1 { color: #8be9fd; font-size: 30px; margin: 0 0 12px 0; }
+  .panel {
+    background: #1a1f3d;
+    border: 1px solid #38406e;
+    padding: 20px 24px;
+    width: 560px;
+    margin-bottom: 18px;
+  }
+  .row { margin: 0 0 8px 0; font-size: 16px; }
+  .tag { color: #ffb86c; }
+  .val { color: #50fa7b; }
+  button {
+    background: #6272a4; color: #ffffff; border: 1px solid #7285bd;
+    padding: 8px 16px; font-size: 15px; display: inline-block; margin-right: 8px;
+  }
+</style>
+<script>
+  console.log("Duktape says hello");
+  var count = 0;
+  function render() {
+    var list = document.getElementById("list");
+    list.innerHTML = "";
+    for (var i = 1; i <= 4; i++) {
+      var row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = "<span class=\"tag\">item " + i + "</span> = <span class=\"val\">" + (i * i) + "</span>";
+      list.appendChild(row);
+    }
+    document.getElementById("status").textContent = "rendered " + count + " time(s)";
+  }
+  window.onload = function () {
+    count = count + 1;
+    render();
+    console.log("onload rendered", count);
+  };
+</script>
+</head>
+<body>
+  <h1>JavaScript, executed through FFI</h1>
+  <div class="panel">
+    <div id="list"></div>
+    <div id="status" class="row">loading…</div>
+    <button onclick="count++; render();">Re-render</button>
+  </div>
+  <div class="panel">
+    <div class="row">The DOM below was produced by <span class="tag">document.createElement</span>.</div>
+  </div>
+</body>
+</html>

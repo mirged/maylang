@@ -1,0 +1,65 @@
+// A tour of Maylang's extended feature set.
+let time: Any = clock();
+// --- Bare may + nil-coalescing + safe navigation -------------------------
+print("bare may:", may { 1 / 0 });            // nil
+let port: Any = (may { int("not-a-number") }) ?? 8080;
+print("port:", port);                          // 8080
+
+let config: Any = {"server": {"host": "localhost"}};
+print("host:", config?.server?.host);          // localhost
+print("missing:", config?.server?.port);       // nil (no fault)
+print("chain on nil:", nil?.a?.b() ?? "none");
+
+// --- Structured errors ----------------------------------------------------
+let detail: Any = may {
+    fail("disk is full")
+} otherwise {
+    "${err.kind}: ${err.message}"
+};
+print("error:", detail);
+
+// --- String interpolation, power, compound assignment ---------------------
+mut retries: Any = 3;
+retries += 1;
+retries *= 2;
+print("retries=${retries}, 2**10=${2 ** 10}");
+
+// --- Pattern matching -----------------------------------------------------
+fun describe(code: Any) -> Any {
+    return match (code) {
+        200 => "OK",
+        301 => "Moved",
+        n if n >= 500 => "Server error (${n})",
+        _ => "Unknown",
+    };
+}
+print(describe(200), describe(503), describe(42));
+
+// --- Spread and comprehensions -------------------------------------------
+let extra: Any = [3, 4];
+print("spread:", [1, 2, ...extra, 5]);
+
+let defaults: Any = {"theme": "dark", "lang": "en"};
+print("merged:", {...defaults, "lang": "fr", "dev": true});
+
+let squares: Any = [x * x for x: Any in 1..=10 if x % 2 == 0];
+print("squares:", squares);
+
+// --- Short lambdas, any/all ----------------------------------------------
+let nums: Any = [1, 2, 3, 4, 5];
+print("any >4:", any(nums, |x: Any| -> Any { return x > 4; }));
+print("all >0:", all(nums, |x: Any| -> Any { return x > 0; }));
+print("pipeline:", nums |> filter(|x: Any| -> Any { return x % 2 == 1; }) |> map(|x: Any| -> Any { return x * 10; }) |> sum);
+
+// --- String methods -------------------------------------------------------
+let raw: Any = "  Maylang, the speculative language  ";
+print(raw.trim().to_upper());
+print("parts:", raw.trim().split(", "));
+print("replace:", "a-b-c".replace("-", "+"));
+
+// --- JSON -----------------------------------------------------------------
+let doc: Any = json_parse("{\"name\": \"Ada\", \"scores\": [1, 2, 3]}");
+print("json name:", doc.name, "| total:", doc.scores |> sum);
+print("json out:", json_stringify({"ok": true, "scores": doc.scores}));
+
+print("running time is: ${(clock() - time)} seconds");

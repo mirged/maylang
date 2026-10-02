@@ -1,0 +1,1 @@
+let s=chr(34)+chr(92)+"u00e9"+chr(34); print(s); print(json_parse(s));

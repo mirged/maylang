@@ -1,0 +1,151 @@
+import "ir.may";
+import "ast.may";
+import "state.may";
+// Basic linear scan: inclusive live intervals, furthest-end eviction, and
+// reusable stack homes. Control-flow/multi-definition intervals are pinned to
+// private homes; this avoids assuming SSA or ignoring back-edge liveness.
+struct LiveInterval { slot: Any, start: Any, end: Any, definitions: Any, register: Any, home: Any, pinned: Any, next: Any }
+struct RegisterAllocation { locations: Any, used: Any, stackSlots: Any, roots: Any, position: Any, saves: Any }
+
+fun lsra_touch(intervals: Any, value: Any, position: Any, definition: Any) -> Any {
+    if (value == 0 or value == nil) { return 0; }
+    let interval: Any = intervals[value.slot];
+    if (position < interval.start) { interval.start = position; }
+    if (position > interval.end) { interval.end = position; }
+    if (definition) { interval.definitions += 1; }
+    return 0;
+}
+
+fun lsra_arguments(intervals: Any, values: Any, position: Any) -> Any {
+    mut value: Any = values;
+    while (value != 0 and value != nil) {
+        lsra_touch(intervals, value, position, false);
+        value = value.next;
+    }
+    return 0;
+}
+
+fun lsra_operands(intervals: Any, instruction: Any, position: Any) -> Any {
+    lsra_arguments(intervals, instruction.arg1, position);
+    lsra_arguments(intervals, instruction.arg2, position);
+    let op: Any = instruction.op;
+    let payload: Any = instruction.extra;
+    if (op == E_BIN or op == E_POW) {
+        lsra_touch(intervals, payload.left, position, false);
+        lsra_touch(intervals, payload.right, position, false);
+    } else if (op == E_UN) { lsra_touch(intervals, payload.operand, position, false); }
+    else if (op == E_CALL or op == E_ICALL) {
+        lsra_arguments(intervals, payload.args, position);
+        if (op == E_ICALL) { lsra_touch(intervals, payload.callee, position, false); }
+    } else if (op == S_LET) { lsra_touch(intervals, payload.initializer, position, false); }
+    else if (op == S_ASSIGN or op == S_CASSIGN) { lsra_touch(intervals, payload.value, position, false); }
+    else if (op == E_INDEX or op == S_SETIDX) {
+        lsra_touch(intervals, payload.object, position, false);
+        lsra_touch(intervals, payload.index, position, false);
+        if (op == S_SETIDX) { lsra_touch(intervals, payload.value, position, false); }
+    } else if (op == E_GET or op == S_SETPROP) {
+        lsra_touch(intervals, payload.object, position, false);
+        if (op == S_SETPROP) { lsra_touch(intervals, payload.value, position, false); }
+    } else if (op == E_RANGE) {
+        lsra_touch(intervals, payload.start, position, false);
+        lsra_touch(intervals, payload.end, position, false);
+    }
+    return 0;
+}
+
+fun lsra_boundary(op: Any) -> Any {
+    return op == IR_LABEL or op == IR_JUMP or op == IR_FALSE or op == IR_TRUE or
+        op == IR_ISNIL or op == IR_NONNULL or op == IR_RETURN or
+        op == IR_TAILCALL or op == IR_TRY_BEGIN or op == IR_TRY_END;
+}
+
+fun lsra_allocate(block: Any, registers: Any) -> Any {
+    let count: Any = len(block.code);
+    let intervals: Any = [];
+    for slot: Any in 0..block.temporaries {
+        push(intervals, LiveInterval(slot, count, -1, 0, -1, -1, false, 0));
+    }
+    let boundaries: Any = [0];
+    let buckets: Any = [];
+    let roots: Any = [];
+    mut position: Any = 0;
+    for instruction: Any in block.code {
+        lsra_operands(intervals, instruction, position);
+        lsra_touch(intervals, instruction.result, position, true);
+        push(boundaries, boundaries[position] + if (lsra_boundary(instruction.op)) { 1 } else { 0 });
+        push(buckets, 0); push(roots, []);
+        position += 1;
+    }
+    // Bucket ordering is linear in instruction/temporary count; starts are
+    // instruction indices. No comparison sort or quadratic insertion pass.
+    for interval: Any in intervals {
+        if (interval.end >= 0) {
+            interval.pinned = interval.definitions != 1 or boundaries[interval.end + 1] != boundaries[interval.start];
+            interval.next = buckets[interval.start];
+            buckets[interval.start] = interval;
+        }
+    }
+    let ordered: Any = [];
+    for head: Any in buckets {
+        mut interval: Any = head;
+        while (interval != 0) { push(ordered, interval); interval = interval.next; }
+    }
+    mut free: Any = [];
+    for register: Any in registers { push(free, register); }
+    mut active: Any = [];
+    for current: Any in ordered {
+        if (not current.pinned) {
+            let remaining: Any = [];
+            for interval: Any in active {
+                if (interval.end < current.start) { push(free, interval.register); }
+                else { push(remaining, interval); }
+            }
+            active = remaining;
+            if (len(free) > 0) {
+                current.register = pop(free); push(active, current);
+            } else if (len(active) > 0) {
+                mut farthest: Any = 0;
+                for index: Any in 1..len(active) {
+                    if (active[index].end > active[farthest].end) { farthest = index; }
+                }
+                if (active[farthest].end > current.end) {
+                    current.register = active[farthest].register;
+                    active[farthest].register = -1;
+                    active[farthest] = current;
+                }
+            }
+        }
+    }
+    let used: Any = [];
+    for register: Any in registers {
+        mut present: Any = false;
+        for interval: Any in intervals { if (interval.register == register) { present = true; } }
+        if (present) { push(used, register); }
+    }
+    // Pinned homes remain private for the whole function. Lexical intervals
+    // alone cannot justify reusing their slots around loops or exception edges.
+    mut stackSlots: Any = 0;
+    for interval: Any in ordered {
+        if (interval.pinned) { interval.home = stackSlots; stackSlots += 1; }
+    }
+    active = []; free = [];
+    for current: Any in ordered {
+        if (not current.pinned) {
+            let remaining: Any = [];
+            for interval: Any in active {
+                if (interval.end < current.start) { push(free, interval.home); }
+                else { push(remaining, interval); }
+            }
+            active = remaining;
+            if (len(free) > 0) { current.home = pop(free); }
+            else { current.home = stackSlots; stackSlots += 1; }
+            push(active, current);
+        }
+        if (current.register >= 0) {
+            // Incoming operands are rooted before calls; a result's first
+            // definition is available only after its instruction has returned.
+            for index: Any in (current.start + 1)..(current.end + 1) { push(roots[index], current); }
+        }
+    }
+    return RegisterAllocation(intervals, used, stackSlots, roots, -1, []);
+}

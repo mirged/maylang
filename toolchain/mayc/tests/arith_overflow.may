@@ -1,0 +1,5 @@
+print(may { 100000000000000000 * 100 } otherwise { err.kind });
+print(may { 100000000000000000 * 1000 } otherwise { err.kind });
+print(may { 100000000000000000 + 100000000000000000 } otherwise { err.kind });
+print(may { 50000000000000000 * 2 } otherwise { err.kind });
+print(may { 100000000000000000 - -90000000000000000 } otherwise { err.kind });

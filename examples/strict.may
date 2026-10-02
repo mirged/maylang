@@ -1,0 +1,29 @@
+// Strict typing is the default. Any is unnecessary for this example.
+struct Point { x: Int, y: Int }
+
+fun add(a: Int, b: Int) -> Int {
+    return a + b;
+}
+
+fun doubled(values: List<Int>) -> List<Int> {
+    return map(values, fun(value: Int) -> Int {
+        return value * 2;
+    });
+}
+
+fun classify(value: Int) -> Str {
+    if (value < 0) {
+        return "negative";
+    } else {
+        return "nonnegative";
+    }
+}
+
+let answer: Int = add(20, 22);
+let values: List<Int> = doubled([1, 2, 3]);
+let point: Point = Point(3, 4);
+mut total: Int = 0;
+for value: Int in values {
+    total += value;
+}
+print(answer, values, point.x, total, classify(total));

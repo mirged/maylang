@@ -1,0 +1,11 @@
+// examples/selfhost_test.may — the verification target for mayc.
+//
+// Exercises: top-level variables, a user function call, string-literal
+// addressing and a raw Linux write(2) syscall.  Exits with status 42.
+
+fun add(a: Any, b: Any) -> Any { return a + b; }
+
+let x: Any = add(40, 2);
+
+syscall(1, 1, addr("mayc stage0 ok\n"), len("mayc stage0 ok\n"));
+syscall(60, x);

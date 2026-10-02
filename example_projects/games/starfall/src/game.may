@@ -1,0 +1,85 @@
+import "model.may";
+// Turn rules and sector events. Actions are intentionally deterministic, so
+// pilots can learn the belt and plan around its hazards.
+fun advance(state: Any) -> Any { state.day = state.day + 1; return state; }
+
+fun scan_sector(state: Any) -> Any {
+    if (state.scanned) { print("Scanner already swept this sector. Salvage or jump."); return state; }
+    state.scanned = true;
+    let signal: Any = (state.sector + state.day) % 3;
+    state.signal = signal;
+    if (signal == 0) {
+        print("SCAN: A quiet debris field. The beacon is weak, but there is metal here.");
+        record(state, "Scanner found a calm debris field.");
+    } else if (signal == 1) {
+        print("SCAN: A fractured freighter is tumbling nearby. Salvage signature: rich.");
+        record(state, "A fractured freighter came up on scan.");
+    } else {
+        print("SCAN: Ion squall building. Salvage window is short; hull risk is high.");
+        record(state, "Ion squall warning. Salvage at your own risk.");
+    }
+    return advance(state);
+}
+
+fun salvage(state: Any) -> Any {
+    if (!state.scanned) { print("Blind salvage is a good way to become more debris. Scan first."); return state; }
+    if (state.fuel <= 0) { print("No fuel for the grapple winch. Repair or jump is impossible."); return state; }
+    state.fuel = state.fuel - 1;
+    let signal: Any = state.signal;
+    if (signal == 0) {
+        state.credits = state.credits + 5;
+        state.cargo = state.cargo + 1;
+        print("Recovered a sealed crate and clean alloy. +1 cargo, +5 credits.");
+        record(state, "Calm salvage yielded one crate and 5 credits.");
+    } else if (signal == 1) {
+        state.credits = state.credits + 11;
+        state.cargo = state.cargo + 2;
+        print("Freighter cache secured! +2 cargo, +11 credits.");
+        record(state, "Freighter salvage yielded two crates and 11 credits.");
+    } else {
+        state.hull = state.hull - 2;
+        state.credits = state.credits + 7;
+        state.cargo = state.cargo + 1;
+        print("Squall clips the ship during recovery. Hull -2, but the pod is yours. +7 credits.");
+        record(state, "Ion squall damage: hull -2. Salvaged a pod worth 7 credits.");
+    }
+    state.scanned = false;
+    return advance(state);
+}
+
+fun repair(state: Any) -> Any {
+    if (state.hull >= 8) { print("Hull is already pristine."); return state; }
+    if (state.credits < 6) { print("A patch kit costs 6 credits. Sell salvage by jumping sectors."); return state; }
+    state.credits = state.credits - 6;
+    state.hull = min(8, state.hull + 3);
+    print("Patch kit installed. Hull restored to " + str(state.hull) + "/8. (-6 credits)");
+    record(state, "Spent 6 credits on emergency hull repair.");
+    return advance(state);
+}
+
+fun refuel(state: Any) -> Any {
+    if (state.fuel >= 6) { print("Fuel tanks are already full."); return state; }
+    if (state.credits < 5) { print("A relay fuel cell costs 5 credits."); return state; }
+    state.credits = state.credits - 5;
+    state.fuel = min(6, state.fuel + 3);
+    print("Relay fuel cell loaded. Fuel " + str(state.fuel) + "/6. (-5 credits)");
+    record(state, "Bought a relay fuel cell for 5 credits.");
+    return advance(state);
+}
+
+fun jump(state: Any) -> Any {
+    if (state.fuel < 2) { print("Jump drive needs 2 fuel. Salvage burns 1; plan your route."); return state; }
+    state.fuel = state.fuel - 2;
+    state.sector = state.sector + 1;
+    state.scanned = false;
+    state.credits = state.credits + state.cargo * 4;
+    print("Jump complete: sector " + str(state.sector) + ". Cargo sold for " + str(state.cargo * 4) + " credits.");
+    state.cargo = 0;
+    record(state, "Jumped to sector " + str(state.sector) + ". Cargo sold at the relay.");
+    if (state.sector >= 4) {
+        state.rescued = true;
+        print("RESCUE BEACON LOCKED. The Wayfarer is clear of the Starfall belt!");
+        record(state, "Rescue beacon reached. Flight complete.");
+    }
+    return advance(state);
+}

@@ -1,0 +1,63 @@
+// ml/loss.may — scalar objectives and output gradients for minibatch training.
+import "tensor.may";
+
+fun ml_mse(prediction: Any, target: Any) -> Any {
+    if (len(prediction) != len(target) || len(prediction) == 0) { fail("MSE batch sizes must match and be nonempty"); }
+    let total: Any = sum([sum([(prediction[i][j] - target[i][j]) * (prediction[i][j] - target[i][j]) for j: Any in 0..len(prediction[i])]) for i: Any in 0..len(prediction)]);
+    return total / (1.0 * (len(prediction) * len(prediction[0])));
+}
+fun ml_mse_gradient(prediction: Any, target: Any) -> Any {
+    if (len(prediction) != len(target) || len(prediction) == 0) { fail("MSE gradient batch sizes must match and be nonempty"); }
+    let scale: Any = 2.0 / (len(prediction) * len(prediction[0]));
+    return [[scale * (prediction[i][j] - target[i][j]) for j: Any in 0..len(prediction[i])] for i: Any in 0..len(prediction)];
+}
+fun ml_binary_cross_entropy(prediction: Any, target: Any) -> Any {
+    let eps: Any = 0.00000001;
+    let total: Any = sum([sum([-(target[i][j] * ln(max(eps, prediction[i][j])) + (1 - target[i][j]) * ln(max(eps, 1 - prediction[i][j]))) for j: Any in 0..len(prediction[i])]) for i: Any in 0..len(prediction)]);
+    return total / (1.0 * (len(prediction) * len(prediction[0])));
+}
+fun ml_binary_cross_entropy_gradient(prediction: Any, target: Any) -> Any {
+    let eps: Any = 0.00000001; let scale: Any = 1.0 / (len(prediction) * len(prediction[0]));
+    return [[scale * ((prediction[i][j] - target[i][j]) / max(eps, prediction[i][j] * (1 - prediction[i][j]))) for j: Any in 0..len(prediction[i])] for i: Any in 0..len(prediction)];
+}
+fun ml_categorical_cross_entropy(prediction: Any, target: Any) -> Any {
+    if (len(prediction) != len(target) || len(prediction) == 0) { fail("cross entropy batches must match and be nonempty"); }
+    let eps: Any = 0.00000001;
+    return sum([sum([-(target[i][j] * ln(max(eps, prediction[i][j]))) for j: Any in 0..len(prediction[i])]) for i: Any in 0..len(prediction)]) / (1.0 * len(prediction));
+}
+fun ml_categorical_cross_entropy_gradient(prediction: Any, target: Any) -> Any {
+    let eps: Any = 0.00000001; let scale: Any = 1.0 / len(prediction);
+    return [[-scale * target[i][j] / max(eps, prediction[i][j]) for j: Any in 0..len(prediction[i])] for i: Any in 0..len(prediction)];
+}
+fun ml_accuracy(prediction: Any, target: Any) -> Any {
+    if (len(prediction) == 0 || len(prediction) != len(target)) { return 0.0; }
+    let correct: Any = sum([if (len(prediction[i]) == 1) {
+        if ((prediction[i][0] >= 0.5) == (target[i][0] >= 0.5)) { 1 } else { 0 }
+    } else if (tensor_argmax(tensor_vector(prediction[i])) == tensor_argmax(tensor_vector(target[i]))) { 1 } else { 0 } for i: Any in 0..len(prediction)]);
+    return correct / (1.0 * len(prediction));
+}
+fun ml_confusion_matrix(prediction: Any, target: Any, class_count: Any) -> Any {
+    if (len(prediction) != len(target)) { fail("prediction and target lengths must match"); }
+    mut matrix: Any = [[0 for _: Any in 0..class_count] for _: Any in 0..class_count];
+    for i: Any in 0..len(prediction) {
+        let actual: Any = if (len(target[i]) == 1 && class_count == 2) { if (target[i][0] >= 0.5) { 1 } else { 0 } }
+                     else { tensor_argmax(tensor_vector(target[i])) };
+        let guessed: Any = if (len(prediction[i]) == 1 && class_count == 2) { if (prediction[i][0] >= 0.5) { 1 } else { 0 } }
+                      else { tensor_argmax(tensor_vector(prediction[i])) };
+        if (actual < 0 || actual >= class_count || guessed < 0 || guessed >= class_count) { fail("class index outside confusion matrix"); }
+        matrix[actual][guessed] = matrix[actual][guessed] + 1;
+    }
+    return matrix;
+}
+fun ml_classification_report(matrix: Any) -> Any {
+    let classes: Any = len(matrix); mut rows: Any = [];
+    for c: Any in 0..classes {
+        let tp: Any = matrix[c][c]; let actual: Any = sum(matrix[c]);
+        let predicted: Any = sum([matrix[r][c] for r: Any in 0..classes]);
+        let precision: Any = if (predicted == 0) { 0.0 } else { tp / (1.0 * predicted) };
+        let recall: Any = if (actual == 0) { 0.0 } else { tp / (1.0 * actual) };
+        let f1: Any = if (precision + recall == 0) { 0.0 } else { 2 * precision * recall / (precision + recall) };
+        push(rows, {"class": c, "precision": precision, "recall": recall, "f1": f1, "support": actual});
+    }
+    return rows;
+}

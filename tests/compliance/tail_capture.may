@@ -1,0 +1,1 @@
+fun f(n,x) { let g = fun() { x }; if n == 0 { g() } else { f(n-1,x+1) } } print(f(10000,0));

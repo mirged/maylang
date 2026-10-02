@@ -1,0 +1,94 @@
+// MayBrowser — a small web browser with a native HTML/CSS engine written in
+// Maylang and a Duktape JavaScript engine reached through FFI.
+//
+//   maybrowser <file|url|data:...> [options]
+//
+// Options:
+//   -o, --out PATH     output PNG (default out.png)
+//   --width N          viewport width  (default 1024)
+//   --height N         viewport height (default 768)
+//   --no-js            do not execute <script> elements
+//   --html             treat the argument as an inline HTML document
+//   -h, --help         show this help
+
+import "src/support.may";
+import "src/dom.may";
+import "src/html.may";
+import "src/css.may";
+import "src/layout.may";
+import "src/render.may";
+import "src/net.may";
+import "src/js.may";
+import "src/browser.may";
+
+fun mb_usage() -> Nil {
+    print("MayBrowser — an HTML/CSS browser with a native engine and Duktape JS");
+    print("usage: maybrowser <file|url|data:...|- > [options]");
+    print("  -o, --out PATH   output PNG (default out.png)");
+    print("  --width N        viewport width (default 1024)");
+    print("  --height N       viewport height (default 768)");
+    print("  --no-js          do not execute <script> elements");
+    print("  --html           treat the argument as inline HTML");
+    print("  -h, --help       show this help");
+    return;
+}
+
+fun mb_main(argv: List<Str>) -> Int {
+    if (len(argv) < 2) { mb_usage(); return 1; }
+    if (argv[1] == "-h" or argv[1] == "--help") { mb_usage(); return 0; }
+
+    let input: Str = argv[1];
+    mut out: Str = "out.png";
+    mut width: Int = 1024;
+    mut height: Int = 768;
+    mut run_js: Bool = true;
+    mut inline_html: Bool = false;
+
+    mut i: Int = 2;
+    while (i < len(argv)) {
+        let flag: Str = argv[i];
+        if (flag == "-o" or flag == "--out") {
+            if (i + 1 >= len(argv)) { print("missing value for " + flag); return 2; }
+            out = argv[i + 1]; i += 2;
+        } else if (flag == "--width") {
+            width = may { int(argv[i + 1]) } otherwise { width }; i += 2;
+        } else if (flag == "--height") {
+            height = may { int(argv[i + 1]) } otherwise { height }; i += 2;
+        } else if (flag == "--no-js") {
+            run_js = false; i += 1;
+        } else if (flag == "--html") {
+            inline_html = true; i += 1;
+        } else {
+            print("unknown option: " + flag);
+            return 2;
+        }
+    }
+
+    if (width < 1 or height < 1) { print("viewport must be positive"); return 2; }
+
+    mut src: Str = "";
+    if (inline_html) {
+        src = input;
+        net_set_document("");
+    } else if (input == "-") {
+        src = read_stdin();
+        net_set_document("");
+    } else {
+        net_set_document(input);
+        src = net_load_document(input);
+    }
+
+    if (len(src) == 0) {
+        print("maybrowser: could not read document: " + input);
+        return 1;
+    }
+
+    browser_render(src, out, width, height, run_js);
+    print("MayBrowser rendered " + str(width) + "x" + str(height) + " to " + out);
+    return 0;
+}
+
+may { exit(mb_main(args())); } otherwise {
+    print("maybrowser: " + err.message);
+    exit(2);
+};

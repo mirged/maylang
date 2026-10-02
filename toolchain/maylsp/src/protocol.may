@@ -1,0 +1,211 @@
+import "text.may";
+// Framed streaming I/O. Never reopen or truncate /dev/stdout.
+let LS_INPUT: Any = syscall(9, 0, 65536, 3, 34, -1, 0);
+mut LS_READ_POS: Any = 0;
+mut LS_READ_END: Any = 0;
+mut LS_OUTPUT_FD: Any = 1;
+mut LS_IDLE_HOOK: Any = nil;
+mut LS_BACKGROUND_FD: Any = -1;
+mut LS_POLL_TIMEOUT: Any = -1;
+let LS_POLL: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+fun ls_wait_input() -> Any {
+    if (LS_IDLE_HOOK == nil) { return nil; }
+    while (true) {
+        LS_IDLE_HOOK();
+        store32(LS_POLL, 0); store16(LS_POLL + 4, 1); store16(LS_POLL + 6, 0);
+        store32(LS_POLL + 8, LS_BACKGROUND_FD); store16(LS_POLL + 12, 1); store16(LS_POLL + 14, 0);
+        let n: Any = syscall(7, LS_POLL, 2, LS_POLL_TIMEOUT);
+        if (n == -4) { continue; }
+        if (n < 0) { fail("poll failed"); }
+        if (load16(LS_POLL + 6) != 0) { return nil; }
+    }
+    return nil;
+}
+fun ls_read_byte() -> Any {
+    if (LS_READ_POS == LS_READ_END) {
+        ls_wait_input();
+        mut n: Any = syscall(0, 0, LS_INPUT, 65536);
+        while (n == -4) { n = syscall(0, 0, LS_INPUT, 65536); }
+        if (n <= 0) { return -1; }
+        LS_READ_POS = 0; LS_READ_END = n;
+    }
+    let c: Any = load8(LS_INPUT + LS_READ_POS); LS_READ_POS += 1; return c;
+}
+fun ls_read_line() -> Any {
+    mut s: Any = "";
+    while (true) {
+        let c: Any = ls_read_byte();
+        if (c < 0) { return nil; }
+        if (c == 10) { return ls_trim(s); }
+        if (len(s) >= 8192) { fail("header too long"); }
+        s = s + chr(c);
+    }
+    return nil;
+}
+fun ls_packet() -> Any {
+    mut size: Any = -1;
+    mut headers: Any = 0;
+    while (true) {
+        let line: Any = ls_read_line();
+        if (line == nil) { return nil; }
+        if (line == "") { break; }
+        headers += 1;
+        if (headers > 64) { fail("too many headers"); }
+        let colon: Any = ls_find(line, ":");
+        if (colon <= 0) { fail("invalid header"); }
+        if (ls_lower(ls_slice(line, 0, colon)) == "content-length") {
+            if (size != -1) { fail("duplicate Content-Length"); }
+            size = int(ls_trim(ls_slice(line, colon + 1, ls_bytes(line))));
+        }
+    }
+    if (size < 0 or size > 16777216) { fail("invalid Content-Length"); }
+    let p: Any = syscall(9, 0, max(1, size), 3, 34, -1, 0);
+    for i: Any in 0..size {
+        let c: Any = ls_read_byte();
+        if (c < 0) { syscall(11, p, max(1, size)); return nil; }
+        store8(p + i, c);
+    }
+    let body: Any = ls_text(p, size); syscall(11, p, max(1, size)); return body;
+}
+fun ls_write(s: Any) -> Any {
+    mut i: Any = 0;
+    while (i < ls_bytes(s)) {
+        let n: Any = syscall(1, LS_OUTPUT_FD, addr(s) + i, ls_bytes(s) - i);
+        if (n == -4) { continue; }
+        if (n <= 0) { exit(1); }
+        i += n;
+    }
+ return nil; }
+// Strict JSON, independent of the permissive stdlib object reader.
+mut LS_JSON: Any = "";
+mut LS_JPOS: Any = 0;
+fun ls_jspace() -> Any {
+    while (LS_JPOS < ls_bytes(LS_JSON) and has([32, 9, 10, 13], ls_byte(LS_JSON, LS_JPOS))) { LS_JPOS += 1; }
+ return nil; }
+fun ls_jchar() -> Any { if (LS_JPOS >= ls_bytes(LS_JSON)) { return -1; } return ls_byte(LS_JSON, LS_JPOS); }
+fun ls_jexpect(c: Any) -> Any { if (ls_jchar() != c) { fail("invalid JSON"); } LS_JPOS += 1;  return LS_JPOS; }
+fun ls_jstring() -> Any {
+    ls_jexpect(34); let parts: Any = []; mut start: Any = LS_JPOS;
+    while (true) {
+        let c: Any = ls_jchar();
+        if (c == 34) { push(parts, ls_slice(LS_JSON, start, LS_JPOS)); LS_JPOS += 1; return ls_join(parts, ""); }
+        if (c < 32) { fail("invalid JSON string"); }
+        if (c != 92) { LS_JPOS += ls_width(c); continue; }
+        push(parts, ls_slice(LS_JSON, start, LS_JPOS)); LS_JPOS += 1;
+        let e: Any = ls_jchar(); LS_JPOS += 1;
+        if (e == 34 or e == 92 or e == 47) { push(parts, chr(e)); }
+        else if (e == 110) { push(parts, "\n"); }
+        else if (e == 114) { push(parts, "\r"); }
+        else if (e == 116) { push(parts, "\t"); }
+        else if (e == 98) { push(parts, chr(8)); }
+        else if (e == 102) { push(parts, chr(12)); }
+        else if (e == 117) {
+            mut code: Any = 0;
+            for k: Any in 0..4 { code = code * 16 + ls_hex(ls_jchar()); LS_JPOS += 1; }
+            if (code >= 55296 and code <= 56319) {
+                ls_jexpect(92); ls_jexpect(117); mut low: Any = 0;
+                for k: Any in 0..4 { low = low * 16 + ls_hex(ls_jchar()); LS_JPOS += 1; }
+                if (low < 56320 or low > 57343) { fail("invalid surrogate"); }
+                code = 65536 + (code - 55296) * 1024 + low - 56320;
+            } else if (code >= 56320 and code <= 57343) { fail("invalid surrogate"); }
+            push(parts, chr(code));
+        } else { fail("invalid JSON escape"); }
+        start = LS_JPOS;
+    }
+    return "";
+}
+fun ls_jvalue(depth: Any) -> Any {
+    if (depth > 128) { fail("JSON nesting limit"); }
+    ls_jspace(); let c: Any = ls_jchar();
+    if (c == 34) { return ls_jstring(); }
+    if (c == 123 or c == 91) {
+        LS_JPOS += 1;
+        let close: Any = if (c == 123) { 125 } else { 93 };
+        let out: Any = if (c == 123) { ({}) } else { [] };
+        ls_jspace(); if (ls_jchar() == close) { LS_JPOS += 1; return out; }
+        while (true) {
+            ls_jspace();
+            if (c == 123) {
+                let key: Any = ls_jstring(); ls_jspace(); ls_jexpect(58);
+                out[key] = ls_jvalue(depth + 1);
+            } else { push(out, ls_jvalue(depth + 1)); }
+            ls_jspace(); if (ls_jchar() == close) { LS_JPOS += 1; return out; }
+            ls_jexpect(44);
+        }
+    }
+    for pair: Any in [["true", true], ["false", false], ["null", nil]] {
+        if (LS_JPOS + ls_bytes(pair[0]) <= ls_bytes(LS_JSON) and ls_slice(LS_JSON, LS_JPOS, LS_JPOS + ls_bytes(pair[0])) == pair[0]) { LS_JPOS += len(pair[0]); return pair[1]; }
+    }
+    let start: Any = LS_JPOS;
+    if (ls_jchar() == 45) { LS_JPOS += 1; }
+    if (ls_jchar() == 48) { LS_JPOS += 1; }
+    else {
+        if (ls_jchar() < 49 or ls_jchar() > 57) { fail("invalid JSON number"); }
+        while (ls_jchar() >= 48 and ls_jchar() <= 57) { LS_JPOS += 1; }
+    }
+    mut decimal: Any = false;
+    if (ls_jchar() == 46) {
+        decimal = true; LS_JPOS += 1;
+        if (ls_jchar() < 48 or ls_jchar() > 57) { fail("invalid fraction"); }
+        while (ls_jchar() >= 48 and ls_jchar() <= 57) { LS_JPOS += 1; }
+    }
+    if (ls_jchar() == 101 or ls_jchar() == 69) {
+        decimal = true; LS_JPOS += 1;
+        if (ls_jchar() == 43 or ls_jchar() == 45) { LS_JPOS += 1; }
+        if (ls_jchar() < 48 or ls_jchar() > 57) { fail("invalid exponent"); }
+        while (ls_jchar() >= 48 and ls_jchar() <= 57) { LS_JPOS += 1; }
+    }
+    let number: Any = ls_slice(LS_JSON, start, LS_JPOS);
+    if (decimal) { return to_float(number); } return int(number);
+}
+fun ls_parse_json(s: Any) -> Any {
+    ls_validate_utf8(s);
+    LS_JSON = s; LS_JPOS = 0; let v: Any = ls_jvalue(0); ls_jspace();
+    if (LS_JPOS != ls_bytes(s)) { fail("trailing JSON"); } return v;
+}
+fun ls_quote(s: Any) -> Any {
+    let parts: Any = ["\""]; let hex: Any = "0123456789abcdef"; mut start: Any = 0;
+    for i: Any in 0..ls_bytes(s) {
+        let c: Any = ls_byte(s, i);
+        if (c == 34 or c == 92 or c < 32) {
+            push(parts, ls_slice(s, start, i));
+            if (c == 34) { push(parts, "\\\""); }
+            else if (c == 92) { push(parts, "\\\\"); }
+            else { push(parts, "\\u00" + chr(ls_byte(hex, c / 16)) + chr(ls_byte(hex, c % 16))); }
+            start = i + 1;
+        }
+    }
+    push(parts, ls_slice(s, start, ls_bytes(s))); push(parts, "\""); return ls_join(parts, "");
+}
+fun ls_join(parts: Any, separator: Any) -> Any {
+    if (len(parts) == 0) { return ""; }
+    mut level: Any = parts;
+    // Balanced concatenation bounds copied bytes for large semantic-token
+    // arrays; the stdlib join repeatedly copies the entire growing result.
+    while (len(level) > 1) {
+        let next: Any = []; mut i: Any = 0;
+        while (i < len(level)) {
+            if (i + 1 < len(level)) { push(next, level[i] + separator + level[i + 1]); }
+            else { push(next, level[i]); }
+            i += 2;
+        }
+        level = next;
+    }
+    return level[0];
+}
+fun ls_json(v: Any) -> Any {
+    let t: Any = value_tag(v);
+    if (t == 1) { return ls_quote(v); }
+    if (t == 2) { return "null"; }
+    if (t == 3) { return "false"; }
+    if (t == 4) { return "true"; }
+    if (t == 0 or t == 6) { return str(v); }
+    let parts: Any = [];
+    if (t == 5) { for item: Any in v { push(parts, ls_json(item)); } return "[" + ls_join(parts, ",") + "]"; }
+    if (t == 7) { for key: Any in keys(v) { push(parts, ls_quote(key) + ":" + ls_json(v[key])); } return "{" + ls_join(parts, ",") + "}"; }
+    return "null";
+}
+fun ls_send(v: Any) -> Any { let body: Any = ls_json(v); return ls_write("Content-Length: " + str(ls_bytes(body)) + "\r\n\r\n" + body); }
+fun ls_reply(id: Any, result: Any) -> Any { return ls_send({"jsonrpc": "2.0", "id": id, "result": result}); }
+fun ls_error(id: Any, code: Any, message: Any) -> Any { return ls_send({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}); }
+fun ls_notify(method: Any, params: Any) -> Any { return ls_send({"jsonrpc": "2.0", "method": method, "params": params}); }

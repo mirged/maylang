@@ -1,0 +1,22 @@
+// prelude.may — a tiny set of helpers loaded before user code.
+//
+// Disable with MAYLANG_NO_PRELUDE=1 if you would rather start from nothing.
+
+fun id(x: Any) -> Any { return x; }
+fun inc(x: Any) -> Any { return x + 1; }
+fun dec(x: Any) -> Any { return x - 1; }
+fun truthy(x: Any) -> Any { return bool(x); }
+fun default(value: Any, fallback: Any) -> Any { return value ?? fallback; }
+
+fun repeat(s: Any, n: Any) -> Any {
+    mut out: Any = "";
+    for _: Any in 1..=n { out = out + s; }
+    return out;
+}
+
+fun substring(s: Any, start: Any, count: Any) -> Any {
+    mut out: Any = "";
+    let stop: Any = start + count;
+    for i: Any in start..stop { out = out + s[i]; }
+    return out;
+}

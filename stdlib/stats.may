@@ -1,0 +1,65 @@
+// stats.may — descriptive statistics and simple regression.
+
+fun stats_mean(xs: Any) -> Any {
+    if (len(xs) == 0) { return nil; }
+    return sum(xs) / (1.0 * len(xs));
+}
+fun stats_sum_squares(xs: Any) -> Any { return reduce(xs, |acc: Any, x: Any| -> Any { return acc + x * x; }, 0.0); }
+fun stats_variance(xs: Any) -> Any {
+    let n: Any = len(xs);
+    if (n == 0) { return nil; }
+    let mu: Any = stats_mean(xs);
+    let d: Any = [x - mu for x: Any in xs];
+    return stats_sum_squares(d) / (1.0 * n);
+}
+fun stats_sample_variance(xs: Any) -> Any {
+    if (len(xs) < 2) { return nil; }
+    let mu: Any = stats_mean(xs);
+    return stats_sum_squares([x - mu for x: Any in xs]) / (1.0 * (len(xs) - 1));
+}
+fun stats_stddev(xs: Any) -> Any { let v: Any = stats_variance(xs); return if (v == nil) { nil } else { sqrt(v) }; }
+fun stats_zscores(xs: Any) -> Any {
+    let mu: Any = stats_mean(xs); let sd: Any = stats_stddev(xs);
+    if (mu == nil || sd == 0) { return [0.0 for _: Any in xs]; }
+    return [(x - mu) / sd for x: Any in xs];
+}
+fun stats_quantile(xs: Any, q: Any) -> Any {
+    if (len(xs) == 0) { return nil; }
+    if (q < 0 || q > 1) { fail("quantile must be in [0, 1]"); }
+    let s: Any = sort(xs); let p: Any = q * (len(s) - 1);
+    let lo: Any = floor(p); let hi: Any = ceil(p);
+    return s[lo] + (s[hi] - s[lo]) * (p - lo);
+}
+fun stats_median(xs: Any) -> Any { return stats_quantile(xs, 0.5); }
+fun stats_mode(xs: Any) -> Any {
+    if (len(xs) == 0) { return nil; }
+    mut counts: Any = {}; mut best: Any = xs[0]; mut best_count: Any = 0;
+    for x: Any in xs {
+        let k: Any = str(x); counts[k] = (counts[k] ?? 0) + 1;
+        if (counts[k] > best_count) { best = x; best_count = counts[k]; }
+    }
+    return best;
+}
+fun stats_covariance(xs: Any, ys: Any) -> Any {
+    let n: Any = min(len(xs), len(ys));
+    if (n < 2) { return nil; }
+    let xm: Any = stats_mean(slice(xs, 0, n)); let ym: Any = stats_mean(slice(ys, 0, n));
+    let accum: Any = sum([((xs[i] - xm) * (ys[i] - ym)) for i: Any in 0..n]);
+    return accum / (1.0 * (n - 1));
+}
+fun stats_correlation(xs: Any, ys: Any) -> Any {
+    if (min(len(xs), len(ys)) < 2) { return nil; }
+    let cov: Any = stats_covariance(xs, ys);
+    let sx: Any = sqrt(stats_sample_variance(xs)); let sy: Any = sqrt(stats_sample_variance(ys));
+    if (cov == nil || sx == 0 || sy == 0) { return nil; }
+    return cov / (sx * sy);
+}
+fun stats_linear_regression(xs: Any, ys: Any) -> Any {
+    let n: Any = min(len(xs), len(ys));
+    if (n < 2) { fail("linear regression needs at least two points"); }
+    let x: Any = slice(xs, 0, n); let y: Any = slice(ys, 0, n);
+    let vx: Any = stats_sample_variance(x); let cov: Any = stats_covariance(x, y);
+    if (vx == 0) { fail("linear regression x values must vary"); }
+    let slope: Any = cov / vx;
+    return {"slope": slope, "intercept": stats_mean(y) - slope * stats_mean(x), "r": stats_correlation(x, y)};
+}

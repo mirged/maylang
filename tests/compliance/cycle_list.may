@@ -1,0 +1,1 @@
+let a=[]; push(a,a); print(a);

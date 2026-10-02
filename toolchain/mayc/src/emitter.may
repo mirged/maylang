@@ -1,0 +1,100 @@
+import "state.may";
+// ByteSink owns its mapping; all accesses must fit before touching memory.
+struct ByteSink { data: Any, length: Any, capacity: Any }
+struct ImageLayout { base: Any, codeOffset: Any, codeAddress: Any, dataOffset: Any, dataAddress: Any, alignment: Any }
+struct EmissionContext { code: Any, data: Any, image: Any, labels: Any, fixups: Any, maxLocals: Any, locals: Any, globals: Any, returnLabel: Any, mode: Any, envSlot: Any, envCaptures: Any, envCount: Any, fiberLabel: Any, globalBytes: Any, rodataOffset: Any, ffiStartSlot: Any, tempBase: Any, restartLabel: Any, boxed: Any, target: Any, layout: Any, functions: Any, foreign: Any, mainIR: Any, dynamic: Any, mainBoxed: Any, allocation: Any, runtime: Any, platform: Any, functionIndex: Any }
+
+fun sink_new(capacity: Any) -> Any {
+    let pointer: Any = syscall(9, 0, capacity, 3, 34, 0 - 1, 0);
+    if (pointer < 0) { die_str("mayc: cannot allocate output sink\n"); }
+    return ByteSink(pointer, 0, capacity);
+}
+
+fun sink_require(sink: Any, end: Any) -> Any {
+    if (end < 0 or end > sink.capacity) { die_str("mayc: output sink capacity exceeded\n"); }
+    return 0;
+}
+
+fun sink_release(sink: Any) -> Any {
+    if (sink.data != 0) { syscall(11, sink.data, sink.capacity); }
+    sink.data = 0; sink.length = 0; sink.capacity = 0;
+    return 0;
+}
+
+fun emitter_new(target: Any) -> Any {
+    return EmissionContext(sink_new(16777216), sink_new(4194304), sink_new(33554432), [0, 0], [], 0, [], [], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], target, 0, [], [], 0, 0, [], 0, "none", [], {});
+}
+
+fun emitter_release(ctx: Any) -> Any {
+    sink_release(ctx.code); sink_release(ctx.data); sink_release(ctx.image);
+    return 0;
+}
+
+fun newlab(ctx: Any) -> Any {
+    push(ctx.labels, 0);
+    return len(ctx.labels) - 1;
+}
+
+fun dalloc(ctx: Any, n: Any) -> Any {
+    let o: Any = ctx.data.length;
+    sink_require(ctx.data, ctx.data.length + n);
+    ctx.data.length = ctx.data.length + n;
+    return o;
+}
+
+// Copy a source string literal into the data buffer, NUL-terminated.
+// Returns its offset from the start of the data buffer.
+fun intern(ctx: Any, s: Any, st: Any, n: Any) -> Any {
+    let ln: Any = declen(s, st, n);
+    let off: Any = dalloc(ctx, ln + 1);
+    let d: Any = ctx.data.data + off;
+    decopy(d, s, st, n);
+    store8(d + ln, 0);
+    return off;
+}
+
+fun write_out(ctx: Any, pointer: Any, length: Any) -> Any {
+    // Syscall 87 is `sys_unlink` (delete file).
+    // If the file is currently running, this unlinks it immediately!
+    // (If the file doesn't exist yet, it safely returns -ENOENT, which we just ignore)
+    syscall(87, pointer);
+
+    let fd: Any = syscall(2, pointer, 577, 493);
+    if (fd < 0) { die_str("mayc: cannot open output\n"); }
+    mut written: Any = 0;
+    while (written < ctx.image.length) {
+        let count: Any = syscall(1, fd, ctx.image.data + written, ctx.image.length - written);
+        if (count <= 0) { syscall(3, fd); die_str("mayc: cannot write output\n"); }
+        written = written + count;
+    }
+    syscall(3, fd);
+    syscall(90, pointer, 493);
+    return 0;
+}
+
+
+// Architecture independent byte emission and label/fixup bookkeeping.
+fun e8(ctx: Any, v: Any) -> Any { sink_require(ctx.code, ctx.code.length + 1); store8(ctx.code.data + ctx.code.length, v); ctx.code.length = ctx.code.length + 1; return 0; }
+fun e32(ctx: Any, v: Any) -> Any { sink_require(ctx.code, ctx.code.length + 4); store32(ctx.code.data + ctx.code.length, v); ctx.code.length = ctx.code.length + 4; return 0; }
+fun e64(ctx: Any, v: Any) -> Any { sink_require(ctx.code, ctx.code.length + 8); store64(ctx.code.data + ctx.code.length, v); ctx.code.length = ctx.code.length + 8; return 0; }
+
+fun placelab(ctx: Any, id: Any) -> Any { ctx.labels[id] = ctx.code.length; return 0; }
+fun lab_off(ctx: Any, id: Any) -> Any { return ctx.labels[id]; }
+
+fun fx(ctx: Any, kind: Any, off: Any, tgt: Any) -> Any {
+    push(ctx.fixups, {"kind": kind, "off": off, "tgt": tgt});
+    return 0;
+}
+
+
+fun pad_code(ctx: Any) -> Any {
+    let alignment: Any = ctx.target.alignment;
+    let remainder: Any = ctx.code.length % alignment;
+    if (remainder != 0) {
+        let end: Any = ctx.code.length + alignment - remainder;
+        sink_require(ctx.code, end);
+        // Fresh mappings are zero-filled; no encoder calls needed for padding.
+        ctx.code.length = end;
+    }
+    return 0;
+}

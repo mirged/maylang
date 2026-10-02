@@ -1,0 +1,8 @@
+fun worker(id: Any) -> Any {
+    mut i: Any = 0;
+    while i < 3 { print("w", id, i); yield(); i = i + 1; }
+ return nil; }
+spawn(fun() -> Any { return worker(1); });
+spawn(fun() -> Any { return worker(2); });
+run();
+print("done");

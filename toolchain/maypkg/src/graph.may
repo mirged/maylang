@@ -1,0 +1,235 @@
+// graph.may — the import graph: scanning, path resolution and traversal.
+//
+// This is the part of a package manager that actually understands a project.
+// It reads the entry module, finds every `import "..."` / `from "..." import`
+// directive (ignoring strings and comments), resolves each one exactly like the
+// compiler does (relative to the importing file, then across the stdlib search
+// path), and walks the graph depth-first — producing a topological build order,
+// a list of unresolved imports and any import cycles.
+
+import "fs.may" as fs;
+
+// ---------------------------------------------------------------- scanning
+
+fun is_ident_start(c: Any) -> Any {
+    if (c >= "a" && c <= "z") { return true; }
+    if (c >= "A" && c <= "Z") { return true; }
+    return c == "_";
+}
+
+fun is_ident_char(c: Any) -> Any {
+    if (is_ident_start(c)) { return true; }
+    return c >= "0" && c <= "9";
+}
+
+fun is_space(c: Any) -> Any {
+    if (c == " " || c == "\t" || c == "\n" || c == "\r") { return true; }
+    return false;
+}
+
+fun skip_line(cs: Any, i: Any) -> Any {
+    mut j: Any = i;
+    while (j < len(cs) && cs[j] != "\n") { j = j + 1; }
+    return j;
+}
+
+fun skip_block(cs: Any, i: Any) -> Any {
+    mut j: Any = i + 2;
+    mut depth: Any = 1;
+    while (j < len(cs) && depth > 0) {
+        if (cs[j] == "/" && j + 1 < len(cs) && cs[j + 1] == "*") {
+            depth = depth + 1;
+            j = j + 2;
+        } else if (cs[j] == "*" && j + 1 < len(cs) && cs[j + 1] == "/") {
+            depth = depth - 1;
+            j = j + 2;
+        } else {
+            j = j + 1;
+        }
+    }
+    return j;
+}
+
+fun read_str(cs: Any, i: Any) -> Any {
+    mut j: Any = i + 1;
+    mut buf: Any = "";
+    while (j < len(cs)) {
+        let c: Any = cs[j];
+        if (c == "\\") { buf = buf + cs[j + 1]; j = j + 2; continue; }
+        if (c == "\"") { return {"value": buf, "next": j + 1}; }
+        buf = buf + c;
+        j = j + 1;
+    }
+    return {"value": buf, "next": j};
+}
+
+fun read_ident(cs: Any, i: Any) -> Any {
+    mut j: Any = i;
+    mut buf: Any = "";
+    while (j < len(cs) && is_ident_char(cs[j])) {
+        buf = buf + cs[j];
+        j = j + 1;
+    }
+    return {"value": buf, "next": j};
+}
+
+/// All import paths mentioned in a source file, with comments and unrelated
+/// strings ignored.
+pub fun scan_imports(src: Any) -> Any {
+    let cs: Any = chars(src);
+    let n: Any = len(cs);
+    mut out: Any = [];
+    mut i: Any = 0;
+    mut last: Any = "";
+    while (i < n) {
+        let c: Any = cs[i];
+        if (c == "/" && i + 1 < n && cs[i + 1] == "/") { i = skip_line(cs, i); continue; }
+        if (c == "/" && i + 1 < n && cs[i + 1] == "*") { i = skip_block(cs, i); continue; }
+        if (c == "\"") {
+            let r: Any = read_str(cs, i);
+            if (last == "import" || last == "from") { push(out, r.value); }
+            i = r.next;
+            last = "";
+            continue;
+        }
+        if (is_ident_start(c)) {
+            let r: Any = read_ident(cs, i);
+            last = r.value;
+            i = r.next;
+            continue;
+        }
+        if (is_space(c)) { i = i + 1; continue; }
+        last = "";
+        i = i + 1;
+    }
+    return out;
+}
+
+// -------------------------------------------------------------- resolution
+
+pub fun is_stdlib(path: Any) -> Any {
+    for d: Any in fs.stdlib_dirs() {
+        let nd: Any = fs.normpath(d);
+        if (path == nd || starts_with(path, nd + "/")) { return true; }
+    }
+    return false;
+}
+
+/// Resolve a module specifier from an importing file, mirroring the loader.
+pub fun resolve_module(importing: Any, module: Any) -> Any {
+    let withext: Any = if (len(fs.extname(module)) > 0) { module } else { module + ".may" };
+    if (fs.is_abs(withext)) { return fs.normpath(withext); }
+    let candidate: Any = fs.normpath(fs.join_path(fs.dirname(importing), withext));
+    if (fs.exists(candidate)) { return candidate; }
+    for d: Any in fs.stdlib_dirs() {
+        let c: Any = fs.normpath(fs.join_path(d, withext));
+        if (fs.exists(c)) { return c; }
+    }
+    return candidate;
+}
+
+// --------------------------------------------------------------- traversal
+
+fun list_index(xs: Any, x: Any) -> Any {
+    mut i: Any = 0;
+    while (i < len(xs)) {
+        if (xs[i] == x) { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fun stack_from(st: Any, path: Any) -> Any {
+    let i: Any = list_index(st.stack, path);
+    if (i < 0) { return [path]; }
+    let cycle: Any = slice(st.stack, i, len(st.stack));
+    push(cycle, path);
+    return cycle;
+}
+
+fun visit(st: Any, path: Any) -> Any {
+    if (!fs.exists(path)) {
+        push(st.missing, {"source": "entry", "module": path, "resolved": path});
+        return;
+    }
+    if (has(st.nodes, path)) {
+        let existing: Any = st.nodes[path];
+        if (existing.state == "visiting") { push(st.cycles, stack_from(st, path)); }
+        return;
+    }
+    let node: Any = {
+        "path": path,
+        "name": fs.basename(path),
+        "state": "visiting",
+        "imports": [],
+        "stdlib": is_stdlib(path),
+    };
+    st.nodes[path] = node;
+    push(st.stack, path);
+    for module: Any in scan_imports(fs.read_or(path, "")) {
+        let target: Any = resolve_module(path, module);
+        let ok: Any = fs.exists(target);
+        push(node.imports, {"module": module, "path": target, "ok": ok});
+        if (!ok) {
+            push(st.missing, {"source": path, "module": module, "resolved": target});
+        } else {
+            visit(st, target);
+        }
+    }
+    node.state = "done";
+    st.nodes[path] = node;
+    pop(st.stack);
+    return push(st.order, path);
+}
+
+/// Build the full import graph for `entry`.
+pub fun build(entry: Any) -> Any {
+    let st: Any = {"nodes": {}, "order": [], "missing": [], "cycles": [], "stack": [], "entry": entry};
+    visit(st, entry);
+    return st;
+}
+
+// ---------------------------------------------------------- syntax sanity
+
+fun matching(open_ch: Any, close_ch: Any) -> Any {
+    if (open_ch == "(" && close_ch == ")") { return true; }
+    if (open_ch == "[" && close_ch == "]") { return true; }
+    if (open_ch == "{" && close_ch == "}") { return true; }
+    return false;
+}
+
+/// A cheap brace/paren balance check that skips comments and strings. It is
+/// not a parser, but catches the most common editing mistake before a build.
+pub fun balance_errors(src: Any) -> Any {
+    let cs: Any = chars(src);
+    let n: Any = len(cs);
+    mut stack: Any = [];
+    mut errs: Any = [];
+    mut line: Any = 1;
+    mut i: Any = 0;
+    while (i < n) {
+        let c: Any = cs[i];
+        if (c == "\n") { line = line + 1; i = i + 1; continue; }
+        if (c == "/" && i + 1 < n && cs[i + 1] == "/") { i = skip_line(cs, i); continue; }
+        if (c == "/" && i + 1 < n && cs[i + 1] == "*") { i = skip_block(cs, i); continue; }
+        if (c == "\"") { let r: Any = read_str(cs, i); i = r.next; continue; }
+        if (c == "(" || c == "[" || c == "{") {
+            push(stack, {"ch": c, "line": line});
+        } else if (c == ")" || c == "]" || c == "}") {
+            if (len(stack) == 0) {
+                push(errs, "line ${line}: unmatched `${c}`");
+            } else {
+                let top: Any = stack[len(stack) - 1];
+                if (!matching(top.ch, c)) {
+                    push(errs, "line ${line}: `${c}` closes `${top.ch}` from line ${top.line}");
+                }
+                stack = slice(stack, 0, len(stack) - 1);
+            }
+        }
+        i = i + 1;
+    }
+    for s: Any in stack {
+        push(errs, "line ${s.line}: unclosed `${s.ch}`");
+    }
+    return errs;
+}

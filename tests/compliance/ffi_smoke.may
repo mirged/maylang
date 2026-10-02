@@ -1,0 +1,9 @@
+extern "libm.so.6" {
+    fun c_cos(x: Float) -> Float = "cos";
+}
+extern "libc.so.6" {
+    fun c_strlen(s: Str) -> UInt = "strlen";
+    fun c_puts(s: Str) -> Int32 = "puts";
+}
+print(c_cos(0.0), c_strlen("Maylang"));
+c_puts("hello from libc");

@@ -1,0 +1,44 @@
+// Integer water units make the mass balance exact and replayable.
+struct Config { steps: Int, seed: Int, policy: Str, budget: Int, output: Str }
+struct Cell { elevation: Int, kind: Str, people: Int, water: Int }
+struct Ledger { rain: Int, river: Int, sea: Int, drained: Int, soaked: Int, pumped: Int, damage: Int, peak: Int }
+struct City { cells: List<Cell>, rng: Int, tick: Int, ledger: Ledger, history: List<Any> }
+
+fun smaller(a: Int, b: Int) -> Int { return if (a < b) { a } else { b }; }
+fun positive(a: Int) -> Int { return if (a > 0) { a } else { 0 }; }
+fun next_random(city: City, bound: Int) -> Int {
+    city.rng = city.rng * 48271 % 2147483647;
+    return city.rng % bound;
+}
+fun new_city(seed: Int) -> City {
+    let cells: List<Cell> = [];
+    for y: Int in 0..8 {
+        for x: Int in 0..12 {
+            let canal: Bool = x == 5 or x == 6 or y == 3;
+            let park: Bool = !canal and (x + y * 3) % 7 == 0;
+            let kind: Str = if (canal) { "canal" } else if (park) { "park" } else { "homes" };
+            let elevation: Int = if (canal) { 0 } else { 7 + (x * 3 + y * 5) % 13 };
+            let people: Int = if (kind == "homes") { 18 + (x * 7 + y * 11) % 43 } else { 0 };
+            push(cells, Cell(elevation, kind, people, 0));
+        }
+    }
+    return City(cells, seed + 1, 0, Ledger(0, 0, 0, 0, 0, 0, 0, 0), []);
+}
+fun stored_water(city: City) -> Int {
+    mut total: Int = 0;
+    for cell: Cell in city.cells { total += cell.water; }
+    return total;
+}
+fun balance_error(city: City) -> Int {
+    let t: Ledger = city.ledger;
+    return t.rain + t.river + t.sea - t.drained - t.soaked - t.pumped - stored_water(city);
+}
+fun exposed_people(city: City) -> Int {
+    mut total: Int = 0;
+    for cell: Cell in city.cells { if (cell.water > 8) { total += cell.people; } }
+    return total;
+}
+fun tide_at(tick: Int) -> Int {
+    let phase: Int = tick % 24;
+    return 4 + if (phase < 12) { phase } else { 24 - phase };
+}

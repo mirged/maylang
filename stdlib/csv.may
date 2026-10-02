@@ -1,0 +1,45 @@
+// csv.may — small RFC-4180-style CSV reader/writer.
+// Supports commas/newlines and escaped quotes inside quoted cells.
+
+fun csv_parse(text: Any) -> Any {
+    let cs: Any = chars(text); let n: Any = len(cs);
+    mut rows: Any = []; mut row: Any = []; mut cell: Any = ""; mut quoted: Any = false; mut started: Any = false; mut i: Any = 0;
+    while (i < n) {
+        let c: Any = cs[i];
+        if (quoted) {
+            if (c == "\"" && i + 1 < n && cs[i + 1] == "\"") { cell = cell + "\""; started = true; i = i + 2; continue; }
+            if (c == "\"") { quoted = false; }
+            else { cell = cell + c; }
+        } else if (c == "\"" && len(cell) == 0) { quoted = true; started = true; }
+        else if (c == ",") { push(row, cell); cell = ""; started = true; }
+        else if (c == "\n" || c == "\r") {
+            push(row, cell); cell = "";
+            if (started || len(row) > 1) { push(rows, row); }
+            row = []; started = false;
+            if (c == "\r" && i + 1 < n && cs[i + 1] == "\n") { i = i + 1; }
+        } else { cell = cell + c; started = true; }
+        i = i + 1;
+    }
+    if (quoted) { fail("unterminated quoted CSV field"); }
+    if (started || len(row) > 0) { push(row, cell); push(rows, row); }
+    return rows;
+}
+fun csv_escape(cell: Any) -> Any {
+    let s: Any = str(cell);
+    return if (len(s) == 0 || contains(s, ",") || contains(s, "\"") || contains(s, "\n") || contains(s, "\r")) {
+        "\"" + replace(s, "\"", "\"\"") + "\""
+    } else { s };
+}
+fun csv_stringify(rows: Any) -> Any {
+    let lines: Any = [join([csv_escape(cell) for cell: Any in row], ",") for row: Any in rows];
+    return join(lines, "\n");
+}
+fun csv_records(headers: Any, rows: Any) -> Any {
+    mut out: Any = [];
+    for row: Any in rows {
+        mut item: Any = {};
+        for i: Any in 0..len(headers) { item[headers[i]] = if (i < len(row)) { row[i] } else { "" }; }
+        push(out, item);
+    }
+    return out;
+}

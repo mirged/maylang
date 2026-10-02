@@ -1,0 +1,119 @@
+// SDL3 orbit demo. Handles and floating point values cross the C ABI as
+// pointers and Float32 values; the rest of the application uses typed records.
+
+extern "libm.so.6" {
+    fun c_cos(x: Float32) -> Float32 = "cosf";
+    fun c_sin(x: Float32) -> Float32 = "sinf";
+}
+
+extern "libSDL3.so.0" {
+    fun sdl_init(flags: UInt32) -> Bool = "SDL_Init";
+    fun sdl_create_window(title: Str, width: Int32, height: Int32, flags: UInt32) -> Ptr = "SDL_CreateWindow";
+    fun sdl_create_renderer(window: Ptr, name: Str) -> Ptr = "SDL_CreateRenderer";
+    fun sdl_set_render_draw_color(renderer: Ptr, r: UInt32, g: UInt32, b: UInt32, a: UInt32) -> Bool = "SDL_SetRenderDrawColor";
+    fun sdl_render_clear(renderer: Ptr) -> Bool = "SDL_RenderClear";
+    fun sdl_render_debug_text(renderer: Ptr, x: Float32, y: Float32, text: Str) -> Bool = "SDL_RenderDebugText";
+    fun sdl_render_present(renderer: Ptr) -> Bool = "SDL_RenderPresent";
+    fun sdl_pump_events() -> Void = "SDL_PumpEvents";
+    fun sdl_get_ticks() -> UInt32 = "SDL_GetTicks";
+    fun sdl_delay(ms: UInt32) -> Void = "SDL_Delay";
+    fun sdl_destroy_renderer(renderer: Ptr) -> Void = "SDL_DestroyRenderer";
+    fun sdl_destroy_window(window: Ptr) -> Void = "SDL_DestroyWindow";
+    fun sdl_quit() -> Void = "SDL_Quit";
+}
+
+struct Vec2 { x: Float32, y: Float32 }
+struct Color { r: UInt32, g: UInt32, b: UInt32 }
+struct Demo { window: Ptr, renderer: Ptr, frame: UInt32, origin: [Float32; 2] }
+enum Startup { Ready, WindowUnavailable, RendererUnavailable }
+
+let palette: Slice<Color> = [
+    Color(255, 220, 80),
+    Color(70, 220, 255),
+    Color(110, 255, 170),
+];
+
+fun orbit(origin: [Float32; 2], time: Float32) -> Vec2 {
+    return Vec2(
+        origin[0] + c_cos(time * 2.0) * 120.0,
+        origin[1] + c_sin(time * 2.0) * 72.0
+    );
+}
+
+fun draw_color(renderer: Ptr, color: Color) -> Nil {
+    sdl_set_render_draw_color(renderer, color.r, color.g, color.b, 255);
+    return;
+}
+
+fun draw_frame(demo: Demo, time: Float32) -> Nil {
+    sdl_pump_events();
+    sdl_set_render_draw_color(demo.renderer, 9, 13, 28, 255);
+    sdl_render_clear(demo.renderer);
+
+    let title_color: Color = Color(110, 190, 255);
+    draw_color(demo.renderer, title_color);
+    sdl_render_debug_text(demo.renderer, 20.0, 20.0, "MAYLANG / SDL3");
+
+    let center: Vec2 = orbit(demo.origin, time);
+    let active: Color = palette[demo.frame % len(palette)];
+    draw_color(demo.renderer, active);
+    sdl_render_debug_text(demo.renderer, center.x, center.y, "MAY IS ALIVE");
+
+    let satellite: Vec2 = Vec2(
+        center.x + c_cos(time * 5.0) * 54.0,
+        center.y + c_sin(time * 5.0) * 38.0
+    );
+    let accent: Color = Color(80, 255, 180);
+    draw_color(demo.renderer, accent);
+    sdl_render_debug_text(demo.renderer, satellite.x, satellite.y, "*");
+    sdl_render_present(demo.renderer);
+    return;
+}
+
+fun main() -> Nil {
+    let initialized: Bool = sdl_init(32); // SDL_INIT_VIDEO
+    if (not initialized) {
+        print("SDL initialization failed");
+        return;
+    }
+
+    let raw_window: Ptr = sdl_create_window("Maylang SDL3", 640, 480, 0);
+    let maybe_window: Option<Ptr> = if (raw_window == 0) { nil } else { raw_window };
+    let window: Ptr = maybe_window ?? ptr(0);
+    mut startup: Startup = Ready();
+    if (window == 0) { startup = WindowUnavailable(); }
+    if (startup == WindowUnavailable()) {
+        print("Could not create SDL window");
+        sdl_quit();
+        return;
+    }
+
+    let raw_renderer: Ptr = sdl_create_renderer(window, "");
+    let maybe_renderer: Option<Ptr> = if (raw_renderer == 0) { nil } else { raw_renderer };
+    let renderer: Ptr = maybe_renderer ?? ptr(0);
+    if (renderer == 0) { startup = RendererUnavailable(); }
+    if (startup == RendererUnavailable()) {
+        print("Could not create SDL renderer");
+        sdl_destroy_window(window);
+        sdl_quit();
+        return;
+    }
+
+    mut demo: Demo = Demo(window, renderer, 0, [320.0, 240.0]);
+    let start: UInt32 = sdl_get_ticks();
+    while demo.frame < 600 {
+        let elapsed: UInt32 = sdl_get_ticks() - start;
+        let time: Float32 = float(elapsed) / 1000.0;
+        draw_frame(demo, time);
+        demo.frame += 1;
+        sdl_delay(16);
+    }
+
+    sdl_destroy_renderer(renderer);
+    sdl_destroy_window(window);
+    sdl_quit();
+    print("SDL demo closed");
+    return;
+}
+
+main();

@@ -1,0 +1,34 @@
+let GOLDEN_RATIO: Float = (1.0 + sqrt(5.0)) / 2.0;
+let KM_PER_MILE: Float = 1.609344;
+
+fun fibonacci(n: Int) -> Int {
+    mut a: Int = 0;
+    mut b: Int = 1;
+
+    for _: Int in 0..n {
+        let previous_a: Int = a;
+        a = b;
+        b = previous_a + b;
+    }
+
+    return a;
+}
+
+fun miles_to_km(miles: Float, n: Int) -> Float {
+    // Approximate the golden ratio using Fibonacci.
+    let ratio: Float = float(fibonacci(n + 1)) / float(fibonacci(n));
+    return miles * ratio;
+}
+
+fun miles_to_km_exact(miles: Float) -> Float {
+    return miles * KM_PER_MILE;
+}
+
+let miles: Float = parse_float(input("Enter miles: "));
+
+let approximate: Float = miles_to_km(miles, 20);
+let exact: Float = miles_to_km_exact(miles);
+
+print("Fibonacci:", approximate, "km");
+print("Exact:    ", exact, "km");
+print("Error:    ", abs(approximate - exact), "km");

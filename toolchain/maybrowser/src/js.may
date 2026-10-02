@@ -1,0 +1,97 @@
+// js.may — JavaScript execution via the Duktape engine (FFI).
+//
+// Scripts run against a JavaScript-side DOM built from a JSON snapshot of the
+// current document.  When they finish, the DOM is serialised back to HTML and
+// the Maylang pipeline re-parses it, so script-driven mutations are rendered.
+
+import "support.may";
+import "dom.may";
+import "net.may";
+import "js_prelude.may";
+
+extern "libduktape.so.207" {
+    fun duk_create_heap(a: Ptr, b: Ptr, c: Ptr, d: Ptr, e: Ptr) -> Ptr = "duk_create_heap";
+    fun duk_eval_raw(ctx: Ptr, src: Str, length: Int, flags: Int) -> Int32 = "duk_eval_raw";
+    fun duk_safe_to_lstring(ctx: Ptr, idx: Int, out_len: Ptr) -> Str = "duk_safe_to_lstring";
+    fun duk_destroy_heap(ctx: Ptr) -> Void = "duk_destroy_heap";
+}
+
+// 0 args | EVAL | SAFE | NOSOURCE | STRLEN | NOFILENAME
+let JS_EVAL_FLAGS: Int = 3720;
+
+// Serialise the DOM into the snapshot shape consumed by dom_bridge.js.
+fun js_snapshot(i: Int) -> Any {
+    let n: Any = {"tag": dom_tag(i), "attrs": {}, "children": []};
+    if (dom_is_text(i)) {
+        n["text"] = dom_text(i);
+        n["tag"] = "#text";
+        return n;
+    }
+    let attrs: Map<Str, Str> = NODES[i].attrs;
+    let clean: Any = {};
+    for k: Str in keys(attrs) { clean[k] = attrs[k] ?? ""; }
+    n["attrs"] = clean;
+    let kids: List<Any> = [];
+    for c: Int in dom_children(i) { push(kids, js_snapshot(c)); }
+    n["children"] = kids;
+    return n;
+}
+
+fun js_collect_scripts(root: Int) -> List<Str> {
+    mut out: List<Str> = [];
+    for n: Int in dom_descendants(root) {
+        if (dom_tag(n) != "script") { continue; }
+        let type: Str = to_lower(dom_attr(n, "type"));
+        let is_js: Bool = len(type) == 0 or contains(type, "javascript") or contains(type, "ecmascript") or type == "module";
+        if (not is_js) { continue; }
+        let src: Str = dom_attr(n, "src");
+        if (len(src) > 0) {
+            let code: Str = net_read(src);
+            if (len(code) > 0) { push(out, code); }
+        } else {
+            let code: Str = dom_text(n);
+            if (len(trim(code)) > 0) { push(out, code); }
+        }
+    }
+    return out;
+}
+
+// Run the document's scripts.  Returns the serialised HTML, or "" if there is
+// nothing to do (or execution failed).
+fun js_run_page(root: Int) -> Str {
+    let scripts: List<Str> = js_collect_scripts(root);
+    if (len(scripts) == 0) { return ""; }
+
+    let ctx: Ptr = duk_create_heap(ptr(0), ptr(0), ptr(0), ptr(0), ptr(0));
+    if (ctx == 0) {
+        print("maybrowser: could not create JavaScript heap");
+        return "";
+    }
+
+    mut src: Str = js_prelude();
+    src = src + "\nvar __snapshot = " + json_stringify(js_snapshot(root)) + ";\n";
+    src = src + "__init(__snapshot);\n";
+    for code: Str in scripts {
+        src = src + "__run(" + json_stringify(code) + ");\n";
+    }
+    src = src + "JSON.stringify({html: __serialize(), logs: __logdump()});\n";
+
+    let rc: Int32 = duk_eval_raw(ctx, src, 0, JS_EVAL_FLAGS);
+    if (rc != 0) {
+        let message: Str = duk_safe_to_lstring(ctx, 0 - 1, ptr(0));
+        print("maybrowser: javascript error: " + message);
+        duk_destroy_heap(ctx);
+        return "";
+    }
+
+    let payload: Str = duk_safe_to_lstring(ctx, 0 - 1, ptr(0));
+    duk_destroy_heap(ctx);
+
+    mut html: Str = "";
+    let parsed: Any = may { json_parse(payload) } otherwise { return ""; };
+    for line: Any in (parsed.logs ?? []) {
+        print("[js] " + str(line));
+    }
+    html = str(parsed.html ?? "");
+    return html;
+}

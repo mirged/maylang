@@ -1,0 +1,9 @@
+import "emitter.may";
+// OS primitives are selected independently of the object format and IR.
+fun platform_prepare(ctx: Any) -> Any {
+    if (ctx.runtime == "core" and ctx.target.os == "windows") {
+        let base: Any = dalloc(ctx, 40); // four loader-filled IAT slots + terminator
+        ctx.platform = [base, 0, 0];
+    }
+    return 0;
+}

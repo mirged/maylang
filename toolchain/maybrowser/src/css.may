@@ -1,0 +1,776 @@
+import "support.may";
+import "dom.may";
+// css.may — stylesheet parsing, selector matching and the cascade.
+//
+// The computed style is a fixed record so the layout engine can read known
+// fields.  Selector and rule data are kept as dynamic maps because they are
+// short-lived compiler-ish structures.
+
+struct Style {
+    display: Str,
+    color: Int,
+    background: Int,
+    font_family: Str,
+    font_size: Int,
+    font_weight: Int,
+    text_align: Str,
+    line_height: Int,          // 0 = normal
+    margin_top: Int,
+    margin_right: Int,
+    margin_bottom: Int,
+    margin_left: Int,
+    padding_top: Int,
+    padding_right: Int,
+    padding_bottom: Int,
+    padding_left: Int,
+    border_top: Int,
+    border_right: Int,
+    border_bottom: Int,
+    border_left: Int,
+    border_color: Int,
+    border_style: Str,
+    width: Int,                // -1 = auto
+    width_pct: Int,            // 0 = unset, else percent
+    height: Int,               // -1 = auto
+    height_pct: Int,
+    white_space: Str,
+    list_style: Str,
+    text_decoration: Str,
+    opacity: Int,
+}
+
+fun style_new() -> Style {
+    return Style("inline", sup_rgb(0, 0, 0), 0 - 1, "", 16, 400, "left", 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, sup_rgb(0, 0, 0), "none",
+        0 - 1, 0, 0 - 1, 0, "normal", "disc", "none", 100);
+}
+
+fun style_copy(s: Style) -> Style {
+    return Style(s.display, s.color, s.background, s.font_family, s.font_size,
+        s.font_weight, s.text_align, s.line_height,
+        s.margin_top, s.margin_right, s.margin_bottom, s.margin_left,
+        s.padding_top, s.padding_right, s.padding_bottom, s.padding_left,
+        s.border_top, s.border_right, s.border_bottom, s.border_left,
+        s.border_color, s.border_style, s.width, s.width_pct, s.height, s.height_pct,
+        s.white_space, s.list_style, s.text_decoration, s.opacity);
+}
+
+// Inherit inherited properties from the parent, reset the rest.
+fun style_inherit(parent: Style) -> Style {
+    let s: Style = style_new();
+    s.color = parent.color;
+    s.font_family = parent.font_family;
+    s.font_size = parent.font_size;
+    s.font_weight = parent.font_weight;
+    s.text_align = parent.text_align;
+    s.line_height = parent.line_height;
+    s.white_space = parent.white_space;
+    s.list_style = parent.list_style;
+    s.display = "inline";
+    return s;
+}
+
+mut CSS_RULES: List<Any> = [];
+
+// ------------------------------------------------------------------ parsing
+
+fun css_strip_comments(src: Str) -> Str {
+    if (index_of(src, "/*") < 0) { return src; }
+    let cs: List<Str> = chars(src);
+    let n: Int = len(cs);
+    mut out: List<Str> = [];
+    mut i: Int = 0;
+    while (i < n) {
+        if (i + 1 < n and cs[i] == "/" and cs[i + 1] == "*") {
+            i += 2;
+            while (i + 1 < n and not (cs[i] == "*" and cs[i + 1] == "/")) { i += 1; }
+            i += 2;
+        } else {
+            push(out, cs[i]);
+            i += 1;
+        }
+    }
+    return join(out, "");
+}
+
+fun css_parse(src: Str) -> Nil {
+    let text: Str = css_strip_comments(src);
+    css_parse_block(text);
+    return;
+}
+
+fun css_parse_block(text: Str) -> Nil {
+    let n: Int = len(text);
+    mut i: Int = 0;
+    while (i < n) {
+        while (i < n and (text[i] == " " or text[i] == "\n" or text[i] == "\t" or text[i] == "\r" or text[i] == ";")) { i += 1; }
+        if (i >= n) { break; }
+        let open: Int = index_from(text, "{", i);
+        if (open < 0) { break; }
+        let selector: Str = trim(substring(text, i, open - i));
+        let close: Int = css_match_brace(text, open + 1);
+        let body: Str = substring(text, open + 1, close - open - 1);
+        if (starts_with(selector, "@")) {
+            let at: Str = to_lower(selector);
+            if (starts_with(at, "@media")) {
+                if (not contains(at, "print")) { css_parse_block(body); }
+            } else if (starts_with(at, "@supports") or starts_with(at, "@layer") or starts_with(at, "@container")) {
+                css_parse_block(body);
+            }
+            // @font-face, @keyframes, @import: ignored
+        } else {
+            css_add_rule(selector, body);
+        }
+        i = close + 1;
+    }
+    return;
+}
+
+fun index_from(s: Str, needle: Str, start: Int) -> Int {
+    let cs: List<Str> = chars(s);
+    mut i: Int = start;
+    while (i + len(needle) <= len(cs)) {
+        if (join(slice(cs, i, i + len(needle)), "") == needle) { return i; }
+        i += 1;
+    }
+    return 0 - 1;
+}
+
+fun css_match_brace(text: Str, start: Int) -> Int {
+    let n: Int = len(text);
+    mut depth: Int = 1;
+    mut i: Int = start;
+    while (i < n) {
+        if (text[i] == "{") { depth += 1; }
+        else if (text[i] == "}") {
+            depth -= 1;
+            if (depth == 0) { return i; }
+        }
+        i += 1;
+    }
+    return n;
+}
+
+fun css_parse_decls(body: Str) -> Map<Str, Str> {
+    mut out: Map<Str, Str> = {};
+    for chunk: Str in split(body, ";") {
+        let colon: Int = index_of(chunk, ":");
+        if (colon < 0) { continue; }
+        let prop: Str = to_lower(trim(substring(chunk, 0, colon)));
+        mut value: Str = trim(substring(chunk, colon + 1, len(chunk) - colon - 1));
+        if (ends_with(to_lower(value), "!important")) {
+            value = trim(substring(value, 0, len(value) - 10));
+        }
+        if (len(prop) > 0 and len(value) > 0) { out[prop] = value; }
+    }
+    return out;
+}
+
+fun css_add_rule(selector_text: Str, body: Str) -> Nil {
+    let decls: Map<Str, Str> = css_parse_decls(body);
+    if (len(decls) == 0) { return; }
+    for one: Str in split(selector_text, ",") {
+        let sel: Str = trim(one);
+        if (len(sel) == 0) { continue; }
+        if (contains(sel, "::")) { continue; }
+        if (contains(sel, ":hover") or contains(sel, ":focus") or contains(sel, ":active")
+            or contains(sel, ":visited") or contains(sel, ":checked") or contains(sel, ":target")) { continue; }
+        let parsed: Any = css_parse_selector(sel);
+        if (parsed == nil) { continue; }
+        push(CSS_RULES, {"parts": parsed[0], "spec": parsed[1], "decls": decls, "order": len(CSS_RULES)});
+    }
+    return;
+}
+
+// Returns [parts, specificity] or nil.
+fun css_parse_selector(sel: Str) -> Any {
+    mut parts: List<Any> = [];
+    mut spec: Int = 0;
+    let tokens: List<Str> = css_tokenize(sel);
+    if (len(tokens) == 0) { return nil; }
+    mut comb: Str = " ";
+    for token: Str in tokens {
+        if (token == ">") { comb = ">"; continue; }
+        if (len(token) == 0) { comb = " "; continue; }
+        let part: Any = css_parse_compound(token, spec);
+        if (part == nil) { return nil; }
+        part["comb"] = comb;
+        spec = int(part["spec"]);
+        push(parts, part);
+        comb = " ";
+    }
+    return [parts, spec];
+}
+
+fun css_tokenize(sel: Str) -> List<Str> {
+    mut out: List<Str> = [];
+    let cs: List<Str> = chars(sel);
+    let n: Int = len(cs);
+    mut i: Int = 0;
+    mut cur: List<Str> = [];
+    while (i < n) {
+        if (cs[i] == ">") {
+            if (len(cur) > 0) { push(out, join(cur, "")); cur = []; }
+            push(out, ">");
+            i += 1;
+        } else if (cs[i] == " " or cs[i] == "\n" or cs[i] == "\t") {
+            if (len(cur) > 0) { push(out, join(cur, "")); cur = []; }
+            i += 1;
+        } else if (cs[i] == "+" or cs[i] == "~") {
+            // sibling combinators: treat as descendant (approximation)
+            if (len(cur) > 0) { push(out, join(cur, "")); cur = []; }
+            i += 1;
+        } else {
+            push(cur, cs[i]);
+            i += 1;
+        }
+    }
+    if (len(cur) > 0) { push(out, join(cur, "")); }
+    return out;
+}
+
+fun css_parse_compound(token: Str, spec_in: Int) -> Any {
+    let cs: List<Str> = chars(token);
+    let n: Int = len(cs);
+    mut spec: Int = spec_in;
+    mut tag: Str = "";
+    mut id: Str = "";
+    mut classes: List<Str> = [];
+    mut first: Bool = false;
+    mut last: Bool = false;
+    mut nth: Int = 0 - 1;
+    mut root: Bool = false;
+    mut i: Int = 0;
+    // leading type or *
+    while (i < n and cs[i] != "." and cs[i] != "#" and cs[i] != ":" and cs[i] != "[") {
+        tag = tag + cs[i];
+        i += 1;
+    }
+    if (len(tag) > 0 and tag != "*") { tag = to_lower(tag); spec += 1; }
+    else { tag = ""; }
+    while (i < n) {
+        if (cs[i] == ".") {
+            i += 1;
+            mut name: Str = "";
+            while (i < n and cs[i] != "." and cs[i] != "#" and cs[i] != ":" and cs[i] != "[") { name = name + cs[i]; i += 1; }
+            push(classes, name);
+            spec += 10;
+        } else if (cs[i] == "#") {
+            i += 1;
+            while (i < n and cs[i] != "." and cs[i] != "#" and cs[i] != ":" and cs[i] != "[") { id = id + cs[i]; i += 1; }
+            spec += 100;
+        } else if (cs[i] == "[") {
+            // attribute selector: only support [attr] and [attr=value]
+            i += 1;
+            mut attr: Str = "";
+            while (i < n and cs[i] != "]" and cs[i] != "=") { attr = attr + cs[i]; i += 1; }
+            if (i < n and cs[i] == "=") {
+                i += 1;
+                // skip
+                while (i < n and cs[i] != "]") { i += 1; }
+            }
+            if (len(attr) > 0) { push(classes, ""); } // placeholder, unsupported match
+            if (i < n) { i += 1; }
+            spec += 10;
+        } else if (cs[i] == ":") {
+            i += 1;
+            if (i < n and cs[i] == ":") { i += 1; }
+            mut name: Str = "";
+            while (i < n and cs[i] != "." and cs[i] != "#" and cs[i] != ":" and cs[i] != "[") { name = name + cs[i]; i += 1; }
+            let lower: Str = to_lower(name);
+            if (starts_with(lower, "not(")) { spec += 10; }
+            else if (lower == "first-child") { first = true; spec += 10; }
+            else if (lower == "last-child") { last = true; spec += 10; }
+            else if (lower == "only-child") { first = true; last = true; spec += 10; }
+            else if (starts_with(lower, "nth-child")) {
+                nth = css_nth(lower);
+                spec += 10;
+            }
+            else if (lower == "root") { root = true; spec += 10; }
+            else { first = false; }
+        } else {
+            i += 1;
+        }
+    }
+    return {"tag": tag, "id": id, "classes": classes, "first": first, "last": last,
+        "nth": nth, "root": root, "spec": spec};
+}
+
+fun css_nth(lower: Str) -> Int {
+    let lp: Int = index_of(lower, "(");
+    let rp: Int = index_of(lower, ")");
+    if (lp < 0 or rp < 0) { return 0 - 1; }
+    let inner: Str = trim(substring(lower, lp + 1, rp - lp - 1));
+    if (inner == "odd") { return 0 - 2; }
+    if (inner == "even") { return 0 - 3; }
+    return may { int(inner) } otherwise { 0 - 1 };
+}
+
+// ------------------------------------------------------------------ matching
+
+fun css_rule_match(rule: Any, node: Int) -> Bool {
+    return css_match_parts(rule.parts, len(rule.parts) - 1, node);
+}
+
+fun css_match_parts(parts: List<Any>, pi: Int, node: Int) -> Bool {
+    if (node < 0 or dom_is_text(node)) { return false; }
+    if (not css_compound_match(parts[pi], node)) { return false; }
+    if (pi == 0) { return true; }
+    if (parts[pi].comb == ">") {
+        return css_match_parts(parts, pi - 1, dom_parent(node));
+    }
+    mut p: Int = dom_parent(node);
+    while (p >= 0) {
+        if (css_match_parts(parts, pi - 1, p)) { return true; }
+        p = dom_parent(p);
+    }
+    return false;
+}
+
+fun css_compound_match(part: Any, node: Int) -> Bool {
+    if (len(part.tag) > 0 and dom_tag(node) != part.tag) { return false; }
+    if (part.root and dom_tag(node) != "html") { return false; }
+    if (len(part.id) > 0 and dom_id(node) != part.id) { return false; }
+    if (len(part.classes) > 0) {
+        let have: List<Str> = dom_classes(node);
+        for c: Str in part.classes {
+            if (len(c) == 0) { continue; }
+            if (not has_class(have, c)) { return false; }
+        }
+    }
+    if (part.first and not css_is_first(node)) { return false; }
+    if (part.last and not css_is_last(node)) { return false; }
+    if (part.nth >= 0 and css_child_index(node) != part.nth) { return false; }
+    if (part.nth == 0 - 2 and css_child_index(node) % 2 == 0) { return false; }
+    if (part.nth == 0 - 3 and css_child_index(node) % 2 == 1) { return false; }
+    return true;
+}
+
+fun has_class(list: List<Str>, name: Str) -> Bool {
+    for c: Str in list { if (c == name) { return true; } }
+    return false;
+}
+
+fun css_element_index(node: Int) -> Int {
+    let p: Int = dom_parent(node);
+    if (p < 0) { return 1; }
+    mut idx: Int = 0;
+    for c: Int in dom_children(p) {
+        if (not dom_is_text(c)) {
+            idx += 1;
+            if (c == node) { return idx; }
+        }
+    }
+    return idx;
+}
+
+fun css_child_index(node: Int) -> Int { return css_element_index(node); }
+
+fun css_is_first(node: Int) -> Bool {
+    let p: Int = dom_parent(node);
+    if (p < 0) { return true; }
+    for c: Int in dom_children(p) {
+        if (not dom_is_text(c)) { return c == node; }
+    }
+    return false;
+}
+
+fun css_is_last(node: Int) -> Bool {
+    let p: Int = dom_parent(node);
+    if (p < 0) { return true; }
+    let kids: List<Int> = dom_children(p);
+    mut i: Int = len(kids) - 1;
+    while (i >= 0) {
+        if (not dom_is_text(kids[i])) { return kids[i] == node; }
+        i -= 1;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------- computing
+
+fun css_style(node: Int, parent: Style) -> Style {
+    let s: Style = style_inherit(parent);
+    css_ua(node, s, parent);
+    if (CSS_RULES_ACTIVE) {
+        let hits: List<Any> = [];
+        for r: Any in CSS_RULES {
+            if (css_rule_match(r, node)) { push(hits, r); }
+        }
+        css_sort_hits(hits);
+        for r: Any in hits {
+            css_apply_decls(s, r.decls, parent.font_size);
+        }
+    }
+    let inline: Str = dom_attr(node, "style");
+    if (len(inline) > 0) {
+        css_apply_decls(s, css_parse_decls(inline), parent.font_size);
+    }
+    css_finalize(s);
+    return s;
+}
+
+mut CSS_RULES_ACTIVE: Bool = true;
+
+fun css_sort_hits(hits: List<Any>) -> Nil {
+    // insertion sort by (spec, order)
+    mut i: Int = 1;
+    while (i < len(hits)) {
+        let key: Any = hits[i];
+        mut j: Int = i - 1;
+        while (j >= 0 and css_lower(hits[j], key)) {
+            hits[j + 1] = hits[j];
+            j -= 1;
+        }
+        hits[j + 1] = key;
+        i += 1;
+    }
+    return;
+}
+
+fun css_lower(a: Any, b: Any) -> Bool {
+    if (a.spec != b.spec) { return a.spec > b.spec; }
+    return a.order > b.order;
+}
+
+fun css_finalize(s: Style) -> Nil {
+    if (s.font_size < 1) { s.font_size = 16; }
+    if (s.line_height == 0) {
+        let fid: Int = sup_font_id(s.font_family, s.font_weight);
+        let asc: Float = sup_ascent(fid, float(s.font_size));
+        let desc: Float = sup_descent(fid, float(s.font_size));
+        let gap: Float = sup_line_gap(fid, float(s.font_size));
+        s.line_height = int(asc + desc + gap + 0.5);
+        if (s.line_height < s.font_size) { s.line_height = int(float(s.font_size) * 1.35 + 0.5); }
+    }
+    return;
+}
+
+fun css_apply_decls(s: Style, decls: Map<Str, Str>, parent_size: Int) -> Nil {
+    for prop: Str in keys(decls) {
+        css_apply(s, prop, decls[prop] ?? "", parent_size);
+    }
+    return;
+}
+
+fun css_apply(s: Style, prop: Str, value: Str, parent_size: Int) -> Nil {
+    let v: Str = trim(value);
+    let low: Str = to_lower(v);
+    if (prop == "display") {
+        if (low == "none") { s.display = "none"; }
+        else if (low == "block" or low == "flex" or low == "grid" or low == "table") { s.display = "block"; }
+        else if (low == "inline-block" or low == "inline-flex" or low == "inline-grid") { s.display = "inline-block"; }
+        else if (low == "list-item") { s.display = "list-item"; }
+        else if (low == "inline" or low == "inline-table") { s.display = "inline"; }
+        else { s.display = "block"; }
+        return;
+    }
+    if (prop == "visibility") { return; }
+    if (prop == "color") { css_set_color(s, v, true); return; }
+    if (prop == "background" or prop == "background-color") { css_set_color(s, v, false); return; }
+    if (prop == "background-image") { return; }
+    if (prop == "font-size") { s.font_size = css_font_size(v, parent_size, s.font_size); return; }
+    if (prop == "font-family") { s.font_family = css_first_family(v); return; }
+    if (prop == "font-weight") { s.font_weight = css_weight(v, s.font_weight); return; }
+    if (prop == "font-style") { return; }
+    if (prop == "font") { css_font_shorthand(s, v, parent_size); return; }
+    if (prop == "text-align") { s.text_align = css_align(v); return; }
+    if (prop == "line-height") { s.line_height = css_line_height(v, s.font_size); return; }
+    if (prop == "white-space") {
+        if (low == "pre" or low == "pre-wrap" or low == "nowrap" or low == "pre-line") { s.white_space = low; }
+        else { s.white_space = "normal"; }
+        return;
+    }
+    if (prop == "text-decoration" or prop == "text-decoration-line") {
+        s.text_decoration = if (contains(low, "underline")) { "underline" } else { "none" };
+        return;
+    }
+    if (prop == "list-style" or prop == "list-style-type") { s.list_style = v; return; }
+    if (prop == "opacity") { s.opacity = clamp(int(float(v) * 100.0 + 0.5), 0, 100); return; }
+    if (prop == "margin") { css_box4(s, "margin", v, parent_size); return; }
+    if (prop == "padding") { css_box4(s, "padding", v, parent_size); return; }
+    if (prop == "margin-top") { s.margin_top = css_len(v, s.font_size, 0 - 1); return; }
+    if (prop == "margin-right") { s.margin_right = css_len(v, s.font_size, 0 - 1); return; }
+    if (prop == "margin-bottom") { s.margin_bottom = css_len(v, s.font_size, 0 - 1); return; }
+    if (prop == "margin-left") { s.margin_left = css_len(v, s.font_size, 0 - 1); return; }
+    if (prop == "padding-top") { s.padding_top = css_len(v, s.font_size, 0); return; }
+    if (prop == "padding-right") { s.padding_right = css_len(v, s.font_size, 0); return; }
+    if (prop == "padding-bottom") { s.padding_bottom = css_len(v, s.font_size, 0); return; }
+    if (prop == "padding-left") { s.padding_left = css_len(v, s.font_size, 0); return; }
+    if (prop == "width") { css_size(v, s, true); return; }
+    if (prop == "height") { css_size(v, s, false); return; }
+    if (prop == "min-width" or prop == "max-width" or prop == "min-height" or prop == "max-height") { return; }
+    if (prop == "border") { css_border_shorthand(s, v); return; }
+    if (prop == "border-width") {
+        let w: Int = css_len(v, s.font_size, 0);
+        s.border_top = w; s.border_right = w; s.border_bottom = w; s.border_left = w;
+        return;
+    }
+    if (prop == "border-color") { css_set_color(s, v, false); s.border_color = s.background; return; }
+    if (prop == "border-style") {
+        if (low != "none" and len(low) > 0) { s.border_style = low; }
+        return;
+    }
+    if (prop == "border-top") { s.border_top = css_border_width(v); css_border_extra(s, v); return; }
+    if (prop == "border-right") { s.border_right = css_border_width(v); css_border_extra(s, v); return; }
+    if (prop == "border-bottom") { s.border_bottom = css_border_width(v); css_border_extra(s, v); return; }
+    if (prop == "border-left") { s.border_left = css_border_width(v); css_border_extra(s, v); return; }
+    if (prop == "border-top-width") { s.border_top = css_len(v, s.font_size, 0); return; }
+    if (prop == "border-right-width") { s.border_right = css_len(v, s.font_size, 0); return; }
+    if (prop == "border-bottom-width") { s.border_bottom = css_len(v, s.font_size, 0); return; }
+    if (prop == "border-left-width") { s.border_left = css_len(v, s.font_size, 0); return; }
+    if (starts_with(prop, "border-") and ends_with(prop, "color")) { css_set_color(s, v, false); s.border_color = s.background; return; }
+    if (prop == "overflow" or prop == "position" or prop == "top" or prop == "left"
+        or prop == "right" or prop == "bottom" or prop == "z-index" or prop == "float"
+        or prop == "clear" or prop == "transform" or prop == "transition" or prop == "cursor"
+        or prop == "box-shadow" or prop == "border-radius" or prop == "flex"
+        or prop == "gap" or prop == "align-items" or prop == "justify-content"
+        or prop == "grid-template-columns" or prop == "aspect-ratio") { return; }
+    return;
+}
+
+fun css_set_color(s: Style, v: Str, is_fg: Bool) -> Nil {
+    let c: Int = sup_color(v);
+    if (c == 0 - 2) { return; }         // inherit/currentcolor: keep inherited
+    if (c == 0 - 1) { if (not is_fg) { s.background = 0 - 1; } return; }
+    if (is_fg) { s.color = c; } else { s.background = c; }
+    return;
+}
+
+fun css_border_extra(s: Style, v: Str) -> Nil {
+    let parts: List<Str> = split(v, " ");
+    for p: Str in parts {
+        let c: Int = sup_color(p);
+        if (c >= 0) { s.border_color = c; }
+        let low: Str = to_lower(trim(p));
+        if (low == "solid" or low == "dashed" or low == "dotted" or low == "double") { s.border_style = low; }
+    }
+    if (s.border_style == "none" and s.border_top + s.border_right + s.border_bottom + s.border_left > 0) { s.border_style = "solid"; }
+    return;
+}
+
+fun css_border_shorthand(s: Style, v: Str) -> Nil {
+    let parts: List<Str> = split(v, " ");
+    mut width: Int = 0;
+    for p: Str in parts {
+        let low: Str = to_lower(trim(p));
+        if (low == "thin") { width = 1; }
+        else if (low == "medium") { width = 3; }
+        else if (low == "thick") { width = 5; }
+        else {
+            let w: Int = css_len(p, s.font_size, 0 - 1);
+            if (w >= 0) { width = w; }
+            let c: Int = sup_color(p);
+            if (c >= 0) { s.border_color = c; }
+            if (low == "solid" or low == "dashed" or low == "dotted" or low == "double") { s.border_style = low; }
+        }
+    }
+    s.border_top = width; s.border_right = width; s.border_bottom = width; s.border_left = width;
+    if (s.border_style == "none") { s.border_style = "solid"; }
+    return;
+}
+
+fun css_border_width(v: Str) -> Int {
+    let low: Str = to_lower(trim(v));
+    if (low == "thin") { return 1; }
+    if (low == "medium") { return 3; }
+    if (low == "thick") { return 5; }
+    let w: Int = css_len(v, 16, 0 - 1);
+    return if (w < 0) { 0 } else { w };
+}
+
+fun css_box4(s: Style, which: Str, v: Str, parent_size: Int) -> Nil {
+    let parts: List<Str> = [];
+    for p: Str in split(v, " ") { if (len(trim(p)) > 0) { push(parts, trim(p)); } }
+    if (len(parts) == 0) { return; }
+    mut top: Int = 0; mut right: Int = 0; mut bottom: Int = 0; mut left: Int = 0;
+    if (len(parts) == 1) { let a: Int = css_len(parts[0], s.font_size, 0); top = a; right = a; bottom = a; left = a; }
+    else if (len(parts) == 2) {
+        top = css_len(parts[0], s.font_size, 0); bottom = top;
+        right = css_len(parts[1], s.font_size, 0); left = right;
+    } else if (len(parts) == 3) {
+        top = css_len(parts[0], s.font_size, 0);
+        right = css_len(parts[1], s.font_size, 0); left = right;
+        bottom = css_len(parts[2], s.font_size, 0);
+    } else {
+        top = css_len(parts[0], s.font_size, 0);
+        right = css_len(parts[1], s.font_size, 0);
+        bottom = css_len(parts[2], s.font_size, 0);
+        left = css_len(parts[3], s.font_size, 0);
+    }
+    if (which == "margin") { s.margin_top = top; s.margin_right = right; s.margin_bottom = bottom; s.margin_left = left; }
+    else { s.padding_top = top; s.padding_right = right; s.padding_bottom = bottom; s.padding_left = left; }
+    return;
+}
+
+fun css_size(v: Str, s: Style, is_width: Bool) -> Nil {
+    let low: Str = to_lower(trim(v));
+    if (low == "auto" or low == "initial") { if (is_width) { s.width = 0 - 1; s.width_pct = 0; } else { s.height = 0 - 1; s.height_pct = 0; } return; }
+    if (ends_with(low, "%")) {
+        let pct: Int = may { int(substring(low, 0, len(low) - 1)) } otherwise { 0 };
+        if (is_width) { s.width_pct = pct; s.width = 0 - 1; } else { s.height_pct = pct; s.height = 0 - 1; }
+        return;
+    }
+    let px: Int = css_len(low, s.font_size, 0 - 1);
+    if (is_width) { s.width = px; s.width_pct = 0; } else { s.height = px; s.height_pct = 0; }
+    return;
+}
+
+fun css_len(v: Str, em: Int, fallback: Int) -> Int {
+    let low: Str = to_lower(trim(v));
+    if (low == "auto" or low == "initial" or low == "inherit" or low == "") { return fallback; }
+    if (low == "0") { return 0; }
+    if (ends_with(low, "px")) { return int(float(substring(low, 0, len(low) - 2)) + 0.5); }
+    if (ends_with(low, "rem")) { return int(float(substring(low, 0, len(low) - 3)) * 16.0 + 0.5); }
+    if (ends_with(low, "em")) { return int(float(substring(low, 0, len(low) - 2)) * float(em) + 0.5); }
+    if (ends_with(low, "pt")) { return int(float(substring(low, 0, len(low) - 2)) * 1.333 + 0.5); }
+    if (ends_with(low, "%")) { return 0; }
+    return may { int(float(low) + 0.5) } otherwise { fallback };
+}
+
+fun css_font_size(v: Str, parent: Int, current: Int) -> Int {
+    let low: Str = to_lower(trim(v));
+    if (low == "xx-small") { return 9; }
+    if (low == "x-small") { return 10; }
+    if (low == "small") { return 13; }
+    if (low == "medium") { return 16; }
+    if (low == "large") { return 18; }
+    if (low == "x-large") { return 24; }
+    if (low == "xx-large") { return 32; }
+    if (low == "smaller") { return int(float(parent) * 0.83 + 0.5); }
+    if (low == "larger") { return int(float(parent) * 1.2 + 0.5); }
+    if (ends_with(low, "%")) { return int(float(substring(low, 0, len(low) - 1)) / 100.0 * float(parent) + 0.5); }
+    if (ends_with(low, "em")) { return int(float(substring(low, 0, len(low) - 2)) * float(parent) + 0.5); }
+    if (ends_with(low, "rem")) { return int(float(substring(low, 0, len(low) - 3)) * 16.0 + 0.5); }
+    if (ends_with(low, "px")) { return int(float(substring(low, 0, len(low) - 2)) + 0.5); }
+    if (ends_with(low, "pt")) { return int(float(substring(low, 0, len(low) - 2)) * 1.333 + 0.5); }
+    return current;
+}
+
+fun css_line_height(v: Str, size: Int) -> Int {
+    let low: Str = to_lower(trim(v));
+    if (low == "normal" or low == "") { return 0; }
+    if (ends_with(low, "px")) { return int(float(substring(low, 0, len(low) - 2)) + 0.5); }
+    if (ends_with(low, "em")) { return int(float(substring(low, 0, len(low) - 2)) * float(size) + 0.5); }
+    if (ends_with(low, "%")) { return int(float(substring(low, 0, len(low) - 1)) / 100.0 * float(size) + 0.5); }
+    return int(float(low) * float(size) + 0.5);
+}
+
+fun css_weight(v: Str, fallback: Int) -> Int {
+    let low: Str = to_lower(trim(v));
+    if (low == "bold") { return 700; }
+    if (low == "bolder") { return 700; }
+    if (low == "lighter") { return 300; }
+    if (low == "normal") { return 400; }
+    return may { int(low) } otherwise { fallback };
+}
+
+fun css_align(v: Str) -> Str {
+    let low: Str = to_lower(trim(v));
+    if (low == "center" or low == "right" or low == "left" or low == "justify") { return low; }
+    return "left";
+}
+
+fun css_first_family(v: Str) -> Str {
+    let parts: List<Str> = split(v, ",");
+    if (len(parts) == 0) { return ""; }
+    mut first: Str = trim(parts[0]);
+    if (len(first) >= 2 and (first[0] == "\"" or first[0] == "'")) {
+        first = substring(first, 1, len(first) - 2);
+    }
+    return first;
+}
+
+fun css_font_shorthand(s: Style, v: Str, parent: Int) -> Nil {
+    let parts: List<Str> = [];
+    for p: Str in split(v, " ") { push(parts, trim(p)); }
+    mut size_seen: Bool = false;
+    mut fam_start: Int = -1;
+    for i: Int in 0..len(parts) {
+        let p: Str = parts[i];
+        let low: Str = to_lower(p);
+        if (low == "bold" or low == "bolder") { s.font_weight = 700; }
+        else if (low == "italic" or low == "oblique") { }
+        else if (contains(low, "px") or contains(low, "em") or contains(low, "%") or contains(low, "pt")) {
+            let slash: Int = index_of(p, "/");
+            if (slash >= 0) {
+                s.font_size = css_font_size(substring(p, 0, slash), parent, s.font_size);
+                s.line_height = css_line_height(substring(p, slash + 1, len(p) - slash - 1), s.font_size);
+            } else {
+                s.font_size = css_font_size(p, parent, s.font_size);
+            }
+            size_seen = true;
+            fam_start = i + 1;
+        }
+    }
+    if (size_seen and fam_start >= 0 and fam_start < len(parts)) {
+        s.font_family = css_first_family(join(slice(parts, fam_start, len(parts)), ", "));
+    }
+    return;
+}
+
+// ------------------------------------------------------------------ UA styles
+
+fun css_ua(node: Int, s: Style, parent: Style) -> Nil {
+    let tag: Str = dom_tag(node);
+    s.display = "inline";
+
+    if (tag == "html" or tag == "body") { s.display = "block"; }
+    if (tag == "body") { s.margin_top = 8; s.margin_right = 8; s.margin_bottom = 8; s.margin_left = 8; }
+
+    let block_tags: List<Str> = ["div", "p", "h1", "h2", "h3", "h4", "h5", "h6",
+        "ul", "ol", "li", "header", "footer", "section", "article", "nav", "aside",
+        "main", "figure", "figcaption", "blockquote", "pre", "form", "fieldset",
+        "address", "details", "summary", "dl", "dd", "dt", "table", "tr", "thead",
+        "tbody", "tfoot", "center", "hr", "canvas", "video", "audio", "menu", "dir"];
+    if (list_has(block_tags, tag)) { s.display = "block"; }
+    if (tag == "li") { s.display = "list-item"; }
+
+    if (tag == "h1") { s.font_weight = 700; s.font_size = int(float(parent.font_size) * 2.0); s.margin_top = 21; s.margin_bottom = 21; }
+    else if (tag == "h2") { s.font_weight = 700; s.font_size = int(float(parent.font_size) * 1.5); s.margin_top = 18; s.margin_bottom = 18; }
+    else if (tag == "h3") { s.font_weight = 700; s.font_size = int(float(parent.font_size) * 1.17); s.margin_top = 16; s.margin_bottom = 16; }
+    else if (tag == "h4") { s.font_weight = 700; s.font_size = parent.font_size; s.margin_top = 16; s.margin_bottom = 16; }
+    else if (tag == "h5") { s.font_weight = 700; s.font_size = int(float(parent.font_size) * 0.83); s.margin_top = 16; s.margin_bottom = 16; }
+    else if (tag == "h6") { s.font_weight = 700; s.font_size = int(float(parent.font_size) * 0.67); s.margin_top = 16; s.margin_bottom = 16; }
+    if (tag == "p") { s.margin_top = parent.font_size; s.margin_bottom = parent.font_size; }
+    if (tag == "ul" or tag == "ol") {
+        s.margin_top = 16; s.margin_bottom = 16;
+        s.padding_left = 40;
+        if (tag == "ul") { s.list_style = "disc"; } else { s.list_style = "decimal"; }
+    }
+    if (tag == "blockquote") { s.margin_top = 16; s.margin_bottom = 16; s.margin_left = 40; s.margin_right = 40; }
+    if (tag == "pre") { s.font_family = "monospace"; s.white_space = "pre"; s.margin_top = 16; s.margin_bottom = 16; }
+    if (tag == "code" or tag == "kbd" or tag == "samp" or tag == "tt") { s.font_family = "monospace"; }
+    if (tag == "b" or tag == "strong" or tag == "th") { s.font_weight = 700; }
+    if (tag == "small") { s.font_size = int(float(parent.font_size) * 0.83); }
+    if (tag == "big") { s.font_size = int(float(parent.font_size) * 1.17); }
+    if (tag == "sub" or tag == "sup") { s.font_size = int(float(parent.font_size) * 0.75); }
+    if (tag == "a") { s.color = sup_rgb(0, 0, 238); s.text_decoration = "underline"; }
+    if (tag == "th") { s.text_align = "center"; }
+    if (tag == "center") { s.text_align = "center"; }
+    if (tag == "hr") {
+        s.border_top = 1; s.border_style = "solid"; s.border_color = sup_rgb(170, 170, 170);
+        s.margin_top = 8; s.margin_bottom = 8;
+    }
+    if (tag == "img") { s.display = "inline-block"; }
+    if (tag == "button" or tag == "input" or tag == "select" or tag == "textarea") {
+        s.display = "inline-block";
+        s.padding_top = 3; s.padding_bottom = 3; s.padding_left = 8; s.padding_right = 8;
+        s.border_top = 1; s.border_right = 1; s.border_bottom = 1; s.border_left = 1;
+        s.border_style = "solid"; s.border_color = sup_rgb(118, 118, 118);
+        s.background = sup_rgb(239, 239, 239);
+        s.margin_right = 3;
+    }
+    if (tag == "head" or tag == "title" or tag == "meta" or tag == "link"
+        or tag == "script" or tag == "style" or tag == "base" or tag == "template"
+        or tag == "noscript") {
+        s.display = "none";
+    }
+    if (tag == "br") { s.display = "inline"; }
+    return;
+}
+
+fun list_has(items: List<Str>, needle: Str) -> Bool {
+    for it: Str in items { if (it == needle) { return true; } }
+    return false;
+}

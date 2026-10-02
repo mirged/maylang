@@ -1,0 +1,46 @@
+// main.may — maypkg, a build manager for Maylang projects.
+//
+//   maylang build -o maypkg toolchain/maypkg/main.may
+//   cd my_project
+//   /path/to/maypkg dev            # watch, rebuild and rerun on every save
+//
+// There is no manifest to write by hand: maypkg finds the entry point, walks
+// the import graph, classifies local and stdlib modules, and derives
+// `mayproj.json` from what the code actually does.
+
+import "src/commands.may" as cmd;
+
+let argv: Any = args();
+let rest: Any = slice(argv, 1, len(argv));
+let sub: Any = if (len(rest) > 0) { rest[0] } else { "help" };
+let opts: Any = if (len(rest) > 1) { slice(rest, 1, len(rest)) } else { [] };
+
+match (sub) {
+    "init" => cmd.cmd_init(opts),
+    "new" => cmd.cmd_new(opts),
+    "sync" => cmd.cmd_sync(opts),
+    "info" => cmd.cmd_info(opts),
+    "status" => cmd.cmd_status(opts),
+    "st" => cmd.cmd_status(opts),
+    "add" => cmd.cmd_add(opts),
+    "rm" => cmd.cmd_rm(opts),
+    "deps" => cmd.cmd_deps(opts),
+    "tree" => cmd.cmd_tree(opts),
+    "check" => cmd.cmd_check(opts),
+    "dot" => cmd.cmd_dot(opts),
+    "lock" => cmd.cmd_lock(opts),
+    "verify" => cmd.cmd_verify(opts),
+    "build" => cmd.cmd_build(opts),
+    "dev" => cmd.cmd_dev(opts),
+    "watch" => cmd.cmd_dev(opts),
+    "run" => cmd.cmd_run(opts),
+    "fmt" => cmd.cmd_fmt(opts),
+    "clean" => cmd.cmd_clean(opts),
+    "help" => cmd.cmd_help(opts),
+    "-h" => cmd.cmd_help(opts),
+    "--help" => cmd.cmd_help(opts),
+    "version" => cmd.cmd_version(opts),
+    "-V" => cmd.cmd_version(opts),
+    "--version" => cmd.cmd_version(opts),
+    _ => cmd.cmd_unknown(sub),
+}

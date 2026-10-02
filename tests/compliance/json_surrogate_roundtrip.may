@@ -1,0 +1,1 @@
+let x="🙂é中"; print(json_parse(json_stringify(x)) == x);

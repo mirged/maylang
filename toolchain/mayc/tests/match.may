@@ -1,0 +1,19 @@
+fun describe(n: Any) -> Any {
+    return match (n) {
+        0 => "zero",
+        1 => "one",
+        2 => "two",
+        k if k < 0 => "neg",
+        k if k > 100 => "big",
+        _ => "other",
+    };
+}
+print(describe(0), describe(1), describe(2), describe(-5), describe(1000), describe(7));
+print(match (3) { 1 => "a", 2 => "b", _ => "c" });
+print(match ("x") { "x" => 1, "y" => 2, _ => 0 });
+let v: Any = 5;
+print(match (v) {
+    n if n % 2 == 0 => "even",
+    n if n % 3 == 0 => "fizz",
+    _ => "odd",
+});

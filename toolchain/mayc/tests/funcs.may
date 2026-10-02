@@ -1,0 +1,22 @@
+fun add(a: Any, b: Any) -> Any { return a + b }
+fun fact(n: Any) -> Any { return if n <= 1 { 1 } else { n * fact(n - 1) } }
+fun fib(n: Any) -> Any { return if n < 2 { n } else { fib(n-1) + fib(n-2) } }
+print(add(2,3), fact(5), fib(10));
+fun adder(n: Any) -> Any { return |x: Any| -> Any { return x + n ; }}
+let a5: Any = adder(5);
+print(a5(10));
+fun counter() -> Any { mut c: Any = 0; return |_: Any| -> Any { c = c + 1; return c } }
+let c: Any = counter();
+print(c(0), c(0), c(0));
+fun compose(f: Any, g: Any) -> Any { return |x: Any| -> Any { return f(g(x)) ; }}
+let h: Any = compose(|x: Any| -> Any { return x + 1; }, |x: Any| -> Any { return x * 2; });
+print(h(5));
+print((|x: Any| -> Any { return x * x; })(6));
+print((|x: Any| -> Any { return x + 100; })(1));
+print((fun(x: Any) -> Any { return x * 3 })(7));
+fun apply(f: Any, v: Any) -> Any { return f(v) }
+print(apply(|x: Any| -> Any { return x - 1; }, 10));
+fun ret() -> Any { return 42; return 99 }
+print(ret());
+fun early(n: Any) -> Any { for i: Any in 0..n { if i == 3 { return i; } } return -1; }
+print(early(10));

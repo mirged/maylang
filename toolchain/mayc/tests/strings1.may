@@ -1,0 +1,18 @@
+let s: Any = "Hello, World";
+print(len(s));
+print(s.to_upper(), s.to_lower());
+print(s.contains("World"), s.starts_with("Hello"), s.ends_with("World"));
+print(s.index_of("World"), s.index_of("xyz"));
+print(s.replace("o", "0"));
+print(s.split(", "));
+print(s[0], s[7], s[11]);
+print("  pad  ".trim());
+print("ab".repeat(3));
+print(join(["a", "b", "c"], "-"));
+print(chars("abc"));
+print(reverse("abc"));
+print("x" + "y" + "z");
+print("a" + str(1) + str(true) + str(nil));
+print(chr(65), ord("A"));
+print("héllo"[1], len("héllo"), chars("héllo"));
+print("日本語"[1], len("日本語"));

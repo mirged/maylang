@@ -1,0 +1,8 @@
+print(pad_left("7", 3, "0"), pad_right("x", 4, "."));
+print(split_lines("a\nb\nc"));
+print(join(["x", "y"], ""));
+print("a,b,,c".split(","));
+print("aaa".replace("a", "b"));
+print("hello".index_of("l"));
+print("aBc".to_upper(), "AbC".to_lower());
+print("  a b  ".trim());

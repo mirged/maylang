@@ -1,0 +1,49 @@
+import "model.may";
+import "genome.may";
+import "environment.may";
+import "../../../../stdlib/random.may";
+import "ecology.may";
+
+fun discard_egg(world: World, egg: Egg) -> Nil {
+    world.cells[cell_index(egg.x, egg.y, world.config.width)].carrion += egg.body + egg.energy;
+    world.totals.nursery_deaths += 1;
+    return;
+}
+// Reservoir sampling models neutral nursery crowding. Every paid offspring has
+// the same admission probability; prolific parents supply more candidates.
+fun next_generation(world: World) -> Nil {
+    let eggs: List<Egg> = [];
+    mut candidates: Int = 0;
+    let order: List<Int> = random_shuffle(world.rng, 0..len(world.creatures));
+    for index: Int in order {
+        let parent: Creature = world.creatures[index];
+        if (parent.health > 0.0 and parent.reproduction > -0.2) {
+            let margin: Float = 0.2 + 2.0 * parent.genome.traits[5];
+            mut attempts: Int = 0;
+            while (parent.energy >= 6.0 + margin and attempts < 8) {
+                let genome: Genome = mutate_genome(parent.genome, world.rng, world.config);
+                let body: Float = body_energy(genome);
+                let cost: Float = body + 3.0;
+                if (parent.energy < cost + margin) { break; }
+                parent.energy -= cost;
+                let egg: Egg = Egg(world.next_id, parent.id, parent.lineage + 1, genome,
+                    wrap(parent.x + int(random_int(world.rng, -1, 1)), world.config.width),
+                    wrap(parent.y + int(random_int(world.rng, -1, 1)), world.config.width), 3.0, body);
+                world.next_id += 1; world.totals.eggs += 1; candidates += 1; attempts += 1;
+                if (len(eggs) < world.config.population) { push(eggs, egg); }
+                else {
+                    let slot: Int = int(random_int(world.rng, 0, candidates - 1));
+                    if (slot < world.config.population) { discard_egg(world, eggs[slot]); eggs[slot] = egg; }
+                    else { discard_egg(world, egg); }
+                }
+            }
+        }
+        if (parent.health > 0.0) { world.totals.natural_deaths += 1; deposit_corpse(world, parent); }
+    }
+    let children: List<Creature> = [];
+    for egg: Egg in eggs { push(children, hatch(egg)); }
+    world.totals.births += len(children);
+    world.creatures = children;
+    world.generation += 1;
+    return;
+}

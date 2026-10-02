@@ -1,0 +1,259 @@
+// ============================================================================
+// doom_60fps.may — Real-time 60 FPS Animated 3D Raycaster in Maylang
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// ANSI Terminal Control (Zero external dependencies)
+// ----------------------------------------------------------------------------
+let ESC: Any = char_from(27);
+let HOME: Any = ESC + "[H";
+let CLEAR: Any = ESC + "[2J";
+let HIDE_CURSOR: Any = ESC + "[?25l";
+let SHOW_CURSOR: Any = ESC + "[?25h";
+
+// ----------------------------------------------------------------------------
+// World Map: 16x16 Dungeon Grid
+// ----------------------------------------------------------------------------
+let MAP_W: Any = 16;
+let MAP_H: Any = 16;
+let MAP: Any = [
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 0, 2, 2, 0, 0, 1, 0, 2, 2, 2, 2, 2, 0, 0, 1,
+    1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1,
+    1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 1,
+    1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 2, 2, 2, 0, 0, 1,
+    1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1,
+    1, 0, 2, 2, 2, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1,
+    1, 0, 2, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 0, 2, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 3, 3, 0, 1,
+    1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 3, 3, 0, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+];
+
+fun get_cell(x: Any, y: Any) -> Any {
+    if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) { return 1; }
+    return MAP[y * MAP_W + x];
+}
+
+// Speculative trig fallback: if native cos isn't exposed, derive from co-function
+fun cos_safe(a: Any) -> Any {
+    return may { cos(a) } otherwise { sin(pi() / 2.0 - a) };
+}
+
+fun sin_safe(a: Any) -> Any { return sin(a); }
+
+// ----------------------------------------------------------------------------
+// Raycaster Kernel
+// ----------------------------------------------------------------------------
+fun cast_ray(px: Any, py: Any, ray_dx: Any, ray_dy: Any) -> Any {
+    let delta_x: Any = may { abs(1.0 / ray_dx) } otherwise { 1e30 };
+    let delta_y: Any = may { abs(1.0 / ray_dy) } otherwise { 1e30 };
+
+    mut map_x: Any = int(px);
+    mut map_y: Any = int(py);
+
+    mut step_x: Any = 0;
+    mut side_x: Any = 0.0;
+    if (ray_dx < 0.0) {
+        step_x = -1;
+        side_x = (px - float(map_x)) * delta_x;
+    } else {
+        step_x = 1;
+        side_x = (float(map_x + 1) - px) * delta_x;
+    }
+
+    mut step_y: Any = 0;
+    mut side_y: Any = 0.0;
+    if (ray_dy < 0.0) {
+        step_y = -1;
+        side_y = (py - float(map_y)) * delta_y;
+    } else {
+        step_y = 1;
+        side_y = (float(map_y + 1) - py) * delta_y;
+    }
+
+    mut hit: Any = 0;
+    mut side: Any = 0;
+    mut steps: Any = 0;
+
+    while (hit == 0 && steps < 24) {
+        if (side_x < side_y) {
+            side_x += delta_x;
+            map_x += step_x;
+            side = 0;
+        } else {
+            side_y += delta_y;
+            map_y += step_y;
+            side = 1;
+        }
+        let cell: Any = get_cell(map_x, map_y);
+        if (cell > 0) { hit = cell; }
+        steps += 1;
+    }
+
+    let perp_dist: Any = if (side == 0) { side_x - delta_x } else { side_y - delta_y };
+    return {"dist": max(0.15, perp_dist), "tile": hit, "side": side};
+}
+
+fun shade_wall(tile: Any, dist: Any, side: Any) -> Any {
+    let base: Any = match (tile) {
+        1 => if (side == 1) { "░" } else { "█" },
+        2 => if (side == 1) { "▒" } else { "▓" },
+        3 => "$",
+        _ => " ",
+    };
+
+    return match (dist) {
+        d if d < 3.0 => base,
+        d if d < 5.5 => if (side == 1) { ":" } else { "#" },
+        d if d < 8.0 => if (side == 1) { "." } else { "+" },
+        _ => ".",
+    };
+}
+
+fun render_frame(player: Any, screen_w: Any, screen_h: Any) -> Any {
+    let px: Any = player.x;
+    let py: Any = player.y;
+    let dir_x: Any = player.dir_x;
+    let dir_y: Any = player.dir_y;
+    let plane_x: Any = player.plane_x;
+    let plane_y: Any = player.plane_y;
+
+
+    mut buffer: Any = [ [ " " for _: Any in 0..screen_w ] for _: Any in 0..screen_h ];
+
+    for col: Any in 0..screen_w {
+        let cam_x: Any = (2.0 * float(col) / float(screen_w)) - 1.0;
+        let ray_dx: Any = dir_x + plane_x * cam_x;
+        let ray_dy: Any = dir_y + plane_y * cam_x;
+
+        let ray: Any = cast_ray(px, py, ray_dx, ray_dy);
+        let dist: Any = ray.dist;
+
+        let line_height: Any = may { int(float(screen_h) / dist) } otherwise { screen_h };
+        let draw_start: Any = max(0, (screen_h - line_height) / 2);
+        let draw_end: Any = min(screen_h - 1, (screen_h + line_height) / 2);
+        let glyph: Any = shade_wall(ray.tile, dist, ray.side);
+
+        // Ceiling
+        for y: Any in 0..draw_start {
+            buffer[y][col] = " ";
+        }
+        // Wall
+        for y: Any in draw_start..=draw_end {
+            buffer[y][col] = glyph;
+        }
+        // Floor
+        for y: Any in (draw_end + 1)..screen_h {
+            buffer[y][col] = match (y) {
+                row if row > screen_h - 2 => "=",
+                row if row > screen_h - 4 => "-",
+                _ => ".",
+            };
+        }
+    }
+
+    return [join(row, "") for row: Any in buffer] |> join("\n");
+}
+
+// ----------------------------------------------------------------------------
+// Animation Driver (60 FPS Pacing Loop)
+// ----------------------------------------------------------------------------
+let TARGET_FPS: Any = 60.0;
+let FRAME_BUDGET: Any = 1.0 / TARGET_FPS; // ~0.016666s
+let TOTAL_FRAMES: Any = 360;             // 6 seconds of smooth rotation
+
+print(CLEAR + HIDE_CURSOR);
+
+mut angle: Any = 0.0;
+mut frames_rendered: Any = 0;
+let anim_start: Any = clock();
+mut last_frame_time: Any = clock();
+mut fps_display: Any = 60.0;
+
+for frame: Any in 0..TOTAL_FRAMES {
+    let frame_start: Any = clock();
+
+    // Player patrols smoothly around open corridor (x: 4.0..6.0, y: 3.5)
+    let px: Any = 5.0 + 1.2 * sin_safe(angle * 0.5);
+    let py: Any = 3.5 + 0.3 * cos_safe(angle * 0.5);
+
+    // Camera vector rotation
+    let dir_x: Any = cos_safe(angle);
+    let dir_y: Any = sin_safe(angle);
+    let plane_x: Any = 0.0 - (dir_y * 0.66);
+    let plane_y: Any = dir_x * 0.66;
+
+    let marine: Any = {
+        "x": px,
+        "y": py,
+        "dir_x": dir_x,
+        "dir_y": dir_y,
+        "plane_x": plane_x,
+        "plane_y": plane_y
+    };
+
+
+    // Render viewport: 64 columns x 16 rows
+    let scene: Any = render_frame(marine, 64, 16);
+
+    // Compute Compass Heading
+    let heading_idx: Any = (int((angle / (2.0 * pi())) * 8.0) % 8 + 8) % 8;
+    let compass: Any = match (heading_idx) {
+        0 => "EAST  [ > ]",
+        1 => "S-EAST[ \\ ]",
+        2 => "SOUTH [ v ]",
+        3 => "S-WEST[ / ]",
+        4 => "WEST  [ < ]",
+        5 => "N-WEST[ \\ ]",
+        6 => "NORTH [ ^ ]",
+        _ => "N-EAST[ / ]",
+    };
+
+    // Calculate rolling FPS
+    let dt: Any = frame_start - last_frame_time;
+    if (dt > 0.001) {
+        fps_display = 0.9 * fps_display + 0.1 * (1.0 / dt);
+    }
+    last_frame_time = frame_start;
+
+    let px_clean: Any = int(px * 10.0) / 10.0;
+    let py_clean: Any = int(py * 10.0) / 10.0;
+    let fps_int: Any = int(fps_display + 0.5);
+
+    // HUD Assembly via string interpolation
+    let hud: Any = "================================================================\n"
+        + " MAYLANG 60 FPS ENGINE | TARGET: 60 | REAL: ${fps_int} FPS\n"
+        + " POS: (${px_clean}, ${py_clean}) | HEADING: ${compass}\n"
+        + " HEALTH: [████████████████████] 100% | AMMO: 50 | FRAME: ${frame}/${TOTAL_FRAMES}\n"
+        + "================================================================";
+
+    // In-place terminal refresh (Zero Flicker)
+    print(HOME + scene + "\n" + hud);
+
+    // Step rotation (1 degree = ~0.01745 radians)
+    angle += (2.0 * pi()) / 360.0;
+    frames_rendered += 1;
+
+    // Precise 60 FPS pacing lock
+    let target_wake: Any = frame_start + FRAME_BUDGET;
+    while (clock() < target_wake) {
+        // High-precision spin lock
+    }
+}
+
+// Restore terminal cursor
+print(SHOW_CURSOR);
+
+let total_elapsed: Any = clock() - anim_start;
+let average_fps: Any = (frames_rendered * 1.0) / total_elapsed;
+let elapsed_clean: Any = int(total_elapsed * 100.0) / 100.0;
+let fps_avg_clean: Any = int(average_fps * 10.0) / 10.0;
+
+print("\nAnimation completed: ${frames_rendered} frames in ${elapsed_clean}s");
+print("Average framerate: ${fps_avg_clean} FPS\n");

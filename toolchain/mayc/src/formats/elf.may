@@ -1,0 +1,203 @@
+import "bytes.may";
+import "../state.may";
+import "../sema.may";
+import "../emitter.may";
+import "../symbols.may";
+// formats/elf.may — deterministic ELF64 sections, symbols and protected segments.
+
+let ELF_HEADER_SIZE: Any = 64;
+let ELF_PROGRAM_HEADER_SIZE: Any = 56;
+
+struct ElfSection { name: Any, type: Any, flags: Any, address: Any, offset: Any, size: Any, link: Any, info: Any, alignment: Any, entrySize: Any }
+struct ElfSymbol { name: Any, info: Any, section: Any, value: Any, size: Any }
+
+fun elf_segment(ctx: Any, index: Any, flags: Any, offset: Any, size: Any) -> Any {
+    let header: Any = ctx.image.data + ELF_HEADER_SIZE + index * ELF_PROGRAM_HEADER_SIZE;
+    store32(header, 1);
+    store32(header + 4, flags);
+    store64(header + 8, offset);
+    store64(header + 16, ctx.layout.base + offset);
+    store64(header + 24, ctx.layout.base + offset);
+    store64(header + 32, size);
+    store64(header + 40, size);
+    store64(header + 48, ctx.layout.alignment);
+    return 0;
+}
+
+fun elf_section(header: Any, section: Any) -> Any {
+    store32(header, section.name);
+    store32(header + 4, section.type);
+    store64(header + 8, section.flags);
+    store64(header + 16, section.address);
+    store64(header + 24, section.offset);
+    store64(header + 32, section.size);
+    store32(header + 40, section.link);
+    store32(header + 44, section.info);
+    store64(header + 48, section.alignment);
+    store64(header + 56, section.entrySize);
+    return 0;
+}
+
+fun build_elf(ctx: Any) -> Any {
+    let dataOffset: Any = ctx.layout.dataOffset;
+    let roOffset: Any = dataOffset + ctx.rodataOffset;
+    let roDataSize: Any = ctx.data.length - ctx.rodataOffset;
+    mut roSize: Any = roDataSize;
+    mut imageEnd: Any = dataOffset + ctx.data.length;
+    let dynamic: Any = len(ctx.foreign) > 0;
+    mut metadata: Any = 0;
+    let interpreter: Any = "/lib64/ld-linux-x86-64.so.2\0";
+    if (dynamic) {
+        metadata = elf_dynamic(ctx, imageEnd, dataOffset);
+        imageEnd = metadata.end;
+        roSize = imageEnd - roOffset;
+    }
+    let symOffset: Any = image_align(imageEnd, 8);
+    mut strings: Any = "\0_start\0";
+    mut symbols: Any = [ElfSymbol(1, 18, 1, ctx.layout.codeAddress, 0)];
+    for rec: Any in ctx.functions {
+        let name: Any = symbol_name(rec.p, rec.l);
+        push(symbols, ElfSymbol(len(strings), 18, 1, ctx.layout.codeAddress + lab_off(ctx, rec.abiLab), 0));
+        strings = strings + name + "\0";
+    }
+    for global: Any in ctx.globals {
+        let name: Any = symbol_name(global.p, global.l);
+        push(symbols, ElfSymbol(len(strings), 17, 3, ctx.layout.base + dataOffset + global.off, 8));
+        strings = strings + name + "\0";
+    }
+    let symSize: Any = (len(symbols) + 1) * 24;
+    let strOffset: Any = symOffset + symSize;
+    mut sectionNames: Any = "\0.text\0.rodata\0.data\0.symtab\0.strtab\0.shstrtab\0";
+    if (dynamic) {
+        push(metadata.sections, [".interp", ElfSection(0, 1, 2, ctx.layout.base + 512, 512, len(interpreter), 0, 0, 1, 0)]);
+        for entry: Any in metadata.sections {
+            entry[1].name = len(sectionNames);
+            sectionNames = sectionNames + entry[0] + "\0";
+        }
+    }
+    let sectionCount: Any = if (dynamic) { 13 } else { 7 };
+    let namesOffset: Any = strOffset + len(strings);
+    let sectionOffset: Any = image_align(namesOffset + len(sectionNames), 8);
+    ctx.image.length = sectionOffset + sectionCount * 64;
+    sink_require(ctx.image, ctx.image.length);
+
+    store32(ctx.image.data, 1179403647);
+    store8(ctx.image.data + 4, 2); store8(ctx.image.data + 5, 1); store8(ctx.image.data + 6, 1);
+    store16(ctx.image.data + 16, 2); store16(ctx.image.data + 18, ctx.target.machine); store32(ctx.image.data + 20, 1);
+    store64(ctx.image.data + 24, ctx.layout.codeAddress); store64(ctx.image.data + 32, 64);
+    store64(ctx.image.data + 40, sectionOffset);
+    store16(ctx.image.data + 52, ELF_HEADER_SIZE); store16(ctx.image.data + 54, ELF_PROGRAM_HEADER_SIZE); store16(ctx.image.data + 56, if (dynamic) { 7 } else { 4 });
+    store16(ctx.image.data + 58, 64); store16(ctx.image.data + 60, sectionCount); store16(ctx.image.data + 62, 6);
+    let firstLoad: Any = if (dynamic) { 2 } else { 0 };
+    if (dynamic) {
+        elf_header(ctx, 0, 6, 4, 64, 7 * ELF_PROGRAM_HEADER_SIZE, 8); // PT_PHDR
+        elf_header(ctx, 1, 3, 4, 512, len(interpreter), 1); // PT_INTERP
+        image_copy(ctx.image.data + 512, addr(interpreter), len(interpreter));
+        elf_header(ctx, 6, 2, 4, metadata.offset, metadata.size, 8); // PT_DYNAMIC
+    }
+    elf_segment(ctx, firstLoad, 4, 0, ctx.layout.codeOffset);
+    elf_segment(ctx, firstLoad + 1, 5, ctx.layout.codeOffset, ctx.code.length);
+    elf_segment(ctx, firstLoad + 2, 6, dataOffset, ctx.rodataOffset);
+    elf_segment(ctx, firstLoad + 3, 4, roOffset, roSize);
+    image_copy(ctx.image.data + ctx.layout.codeOffset, ctx.code.data, ctx.code.length);
+    image_copy(ctx.image.data + dataOffset, ctx.data.data, ctx.data.length);
+
+    mut i: Any = 1;
+    for symbol: Any in symbols {
+        let entry: Any = ctx.image.data + symOffset + i * 24;
+        store32(entry, symbol.name); store8(entry + 4, symbol.info);
+        store16(entry + 6, symbol.section); store64(entry + 8, symbol.value);
+        store64(entry + 16, symbol.size);
+        i = i + 1;
+    }
+    image_copy(ctx.image.data + strOffset, addr(strings), len(strings));
+    image_copy(ctx.image.data + namesOffset, addr(sectionNames), len(sectionNames));
+    let sections: Any = [
+        ElfSection(1, 1, 6, ctx.layout.codeAddress, ctx.layout.codeOffset, ctx.code.length, 0, 0, 16, 0),
+        ElfSection(7, 1, 2, ctx.layout.base + roOffset, roOffset, roDataSize, 0, 0, 8, 0),
+        ElfSection(15, 1, 3, ctx.layout.base + dataOffset, dataOffset, ctx.globalBytes, 0, 0, 8, 0),
+        ElfSection(21, 2, 0, 0, symOffset, symSize, 5, 1, 8, 24),
+        ElfSection(29, 3, 0, 0, strOffset, len(strings), 0, 0, 1, 0),
+        ElfSection(37, 3, 0, 0, namesOffset, len(sectionNames), 0, 0, 1, 0),
+    ];
+    if (dynamic) { for entry: Any in metadata.sections { push(sections, entry[1]); } }
+    i = 1;
+    for section: Any in sections { elf_section(ctx.image.data + sectionOffset + i * 64, section); i = i + 1; }
+    return 0;
+}
+
+fun elf_header(ctx: Any, index: Any, type: Any, flags: Any, offset: Any, size: Any, alignment: Any) -> Any {
+    let header: Any = ctx.image.data + ELF_HEADER_SIZE + index * ELF_PROGRAM_HEADER_SIZE;
+    store32(header, type); store32(header + 4, flags);
+    store64(header + 8, offset);
+    store64(header + 16, ctx.layout.base + offset); store64(header + 24, ctx.layout.base + offset);
+    store64(header + 32, size); store64(header + 40, size); store64(header + 48, alignment);
+    return 0;
+}
+
+fun elf_dynamic(ctx: Any, begin: Any, dataOffset: Any) -> Any {
+    let imports: Any = [{"symbol": "__libc_start_main", "ffiSlot": ctx.ffiStartSlot}];
+    let libraries: Any = ["libc.so.6"];
+    let seen: Any = {"libc.so.6": true};
+    for rec: Any in ctx.foreign {
+        push(imports, rec);
+        if (not has(seen, rec.library)) { push(libraries, rec.library); seen[rec.library] = true; }
+    }
+    mut strings: Any = "\0";
+    let needed: Any = [];
+    for library: Any in libraries { push(needed, len(strings)); strings = strings + library + "\0"; }
+    let names: Any = [];
+    for rec: Any in imports { push(names, len(strings)); strings = strings + rec.symbol + "\0"; }
+    mut metadataBudget: Any = 1024 + len(imports) * 128;
+    for library: Any in libraries { metadataBudget += len(library) + 17; }
+    for rec: Any in imports { metadataBudget += len(rec.symbol) + 1; }
+    sink_require(ctx.image, begin + metadataBudget);
+    let strOffset: Any = begin;
+    image_copy(ctx.image.data + strOffset, addr(strings), len(strings));
+    let symOffset: Any = image_align(strOffset + len(strings), 8);
+    let symSize: Any = (len(imports) + 1) * 24;
+    for i: Any in 0..len(imports) {
+        let entry: Any = ctx.image.data + symOffset + (i + 1) * 24;
+        store32(entry, names[i]); store8(entry + 4, 18);
+    }
+    let hashOffset: Any = symOffset + symSize;
+    let count: Any = len(imports) + 1;
+    let hashSize: Any = (3 + count) * 4;
+    store32(ctx.image.data + hashOffset, 1); store32(ctx.image.data + hashOffset + 4, count);
+    store32(ctx.image.data + hashOffset + 8, 1);
+    for i: Any in 1..(count - 1) { store32(ctx.image.data + hashOffset + 12 + i * 4, i + 1); }
+    let relaOffset: Any = image_align(hashOffset + hashSize, 8);
+    let relaSize: Any = len(imports) * 24;
+    for i: Any in 0..len(imports) {
+        let entry: Any = ctx.image.data + relaOffset + i * 24;
+        store64(entry, ctx.layout.base + dataOffset + imports[i].ffiSlot);
+        store64(entry + 8, (i + 1) * 4294967296 + 6); // R_X86_64_GLOB_DAT
+    }
+    let dynOffset: Any = relaOffset + relaSize;
+    mut tags: Any = [];
+    for name: Any in needed { push(tags, [1, name]); }
+    push(tags, [4, ctx.layout.base + hashOffset]);
+    push(tags, [5, ctx.layout.base + strOffset]); push(tags, [10, len(strings)]);
+    push(tags, [6, ctx.layout.base + symOffset]); push(tags, [11, 24]);
+    push(tags, [7, ctx.layout.base + relaOffset]); push(tags, [8, relaSize]); push(tags, [9, 24]);
+    push(tags, [0, 0]);
+    for i: Any in 0..len(tags) {
+        store64(ctx.image.data + dynOffset + i * 16, tags[i][0]);
+        store64(ctx.image.data + dynOffset + i * 16 + 8, tags[i][1]);
+    }
+    let dynamicSize: Any = len(tags) * 16;
+    return {"end": dynOffset + dynamicSize, "offset": dynOffset, "size": dynamicSize,
+        "sections": [
+            [".dynstr", ElfSection(0, 3, 2, ctx.layout.base + strOffset, strOffset, len(strings), 0, 0, 1, 0)],
+            [".dynsym", ElfSection(0, 11, 2, ctx.layout.base + symOffset, symOffset, symSize, 7, 1, 8, 24)],
+            [".hash", ElfSection(0, 5, 2, ctx.layout.base + hashOffset, hashOffset, hashSize, 8, 0, 4, 4)],
+            [".rela.dyn", ElfSection(0, 4, 2, ctx.layout.base + relaOffset, relaOffset, relaSize, 8, 0, 8, 24)],
+            [".dynamic", ElfSection(0, 6, 2, ctx.layout.base + dynOffset, dynOffset, dynamicSize, 7, 0, 8, 16)]
+        ]};
+}
+
+fun elf_layout(ctx: Any) -> Any {
+    let base: Any = 4194304;
+    let offset: Any = ctx.target.alignment;
+    return ImageLayout(base, offset, base + offset, offset + ctx.code.length, base + offset + ctx.code.length, ctx.target.alignment);
+}

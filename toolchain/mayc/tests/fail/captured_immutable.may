@@ -1,0 +1,4 @@
+fun outer() -> Any {
+    let value: Any = 1;
+    fun() -> Any { value = 2;  return value; }
+ return nil; }

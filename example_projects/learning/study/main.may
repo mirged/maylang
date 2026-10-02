@@ -1,0 +1,47 @@
+fun add(a: Int, b: Int) -> Int {
+    return a + b;
+}
+
+fun int_to_bytes(num: Int, buf: Int) -> Int {
+    mut value: Int = num;
+    mut negative: Bool = false;
+    if (value < 0) {
+        negative = true;
+        value = 0 - value;
+    }
+
+    mut count: Int = 0;
+    if (value == 0) {
+        store8(buf, 48);
+        count = 1;
+    }
+    while (value > 0) {
+        let digit: Int = value % 10;
+        store8(buf + count, 48 + digit);
+        count = count + 1;
+        value = value / 10;
+    }
+    if (negative) {
+        store8(buf + count, 45);
+        count = count + 1;
+    }
+
+    mut left: Int = 0;
+    mut right: Int = count - 1;
+    while (left < right) {
+        let first: Int = load8(buf + left);
+        let last: Int = load8(buf + right);
+        store8(buf + left, last);
+        store8(buf + right, first);
+        left = left + 1;
+        right = right - 1;
+    }
+    store8(buf + count, 10);
+    return count + 1;
+}
+
+let result: Int = add(20, 22);
+let buffer: Int = syscall(9, 0, 64, 3, 34, 0 - 1, 0);
+syscall(1, 1, addr("The result of adding 20 and 22 is: "), 35);
+let byte_count: Int = int_to_bytes(result, buffer);
+syscall(1, 1, buffer, byte_count);

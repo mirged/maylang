@@ -1,0 +1,2 @@
+let value: Any = 1;
+value = 2;

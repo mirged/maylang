@@ -1,0 +1,86 @@
+// examples/mayc_conformance.may — exercises exactly the subset mayc supports:
+// integers, arithmetic, comparisons, and/or/not, if/else, while,
+// break/continue, recursion, globals, raw pointers and syscalls.
+//
+// It prints its results with a hand-rolled int-to-decimal writer, so the same
+// text must come out of `maylang run` (host) and of a mayc-compiled binary.
+
+mut ACC: Any = 0;
+
+fun addacc(x: Any) -> Any { ACC = ACC + x; return ACC; }
+
+fun fact(n: Any) -> Any {
+    if (n <= 1) { return 1; }
+    return n * fact(n - 1);
+}
+
+fun fib(n: Any) -> Any {
+    if (n < 2) { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fun gcd(a: Any, b: Any) -> Any {
+    mut x: Any = a;
+    mut y: Any = b;
+    while (y != 0) {
+        let t: Any = y;
+        y = x % y;
+        x = t;
+    }
+    return x;
+}
+
+fun sumto(n: Any) -> Any {
+    mut s: Any = 0;
+    mut i: Any = 1;
+    while (i <= n) {
+        if (i == 4) { i = i + 1; continue; }
+        if (i > 9) { break; }
+        s = s + i;
+        i = i + 1;
+    }
+    return s;
+}
+
+fun putn(n: Any) -> Any {
+    let tmp: Any = syscall(9, 0, 64, 3, 34, 0 - 1, 0);
+    if (n == 0) {
+        store8(tmp, 48);
+        syscall(1, 1, tmp, 1);
+        return 0;
+    }
+    mut v: Any = n;
+    mut i: Any = 0;
+    while (v > 0) {
+        store8(tmp + i, (v % 10) + 48);
+        v = v / 10;
+        i = i + 1;
+    }
+    let out: Any = syscall(9, 0, 64, 3, 34, 0 - 1, 0);
+    mut j: Any = 0;
+    while (j < i) {
+        store8(out + j, load8(tmp + (i - 1 - j)));
+        j = j + 1;
+    }
+    syscall(1, 1, out, i);
+    return 0;
+}
+
+addacc(3);
+addacc(4);
+syscall(1, 1, addr("acc="), 4);
+putn(ACC);
+
+syscall(1, 1, addr(" fact="), 6);
+putn(fact(6));
+syscall(1, 1, addr(" fib="), 5);
+putn(fib(12));
+syscall(1, 1, addr(" gcd="), 5);
+putn(gcd(1071, 462));
+syscall(1, 1, addr(" sum="), 5);
+putn(sumto(20));
+syscall(1, 1, addr(" logic="), 7);
+if ((1 < 2) and (not (3 > 4))) { putn(1); } else { putn(0); }
+
+syscall(1, 1, addr("\n"), 1);
+syscall(60, 0);

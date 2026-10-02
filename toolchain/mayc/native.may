@@ -1,0 +1,968 @@
+// native_prelude.may — the native standard library.
+//
+// Compiled into every native build. It is written in Maylang on top of a small
+// set of runtime primitives:
+//   str_of, int_to_str, char_at, char_from, str_cmp, cmp, value_eq, value_tag,
+//   map_get, map_set, map_keys, map_values, map_has, to_map, read_stdin,
+//   raise, clock, time, input, exit, read_file, write_file, file_exists,
+//   sin, cos, tan, asin, acos, atan, atan2, ln, log2, log10, exp, pow, powf
+// plus the core built-ins len, push, pop and `print`.
+
+// ----------------------------------------------------- results and options
+//
+// `Result` and `Option` are ordinary `{ok, value, error}` maps so the `?`
+// operator can propagate failures structurally. `None` is simply `nil`.
+
+fun Ok(value: Any) -> Any { return {"ok": true, "value": value, "error": nil}; }
+fun Err(error: Any) -> Any { return {"ok": false, "value": nil, "error": error}; }
+fun Some(value: Any) -> Any { return {"ok": true, "value": value, "error": nil}; }
+fun None() -> Any { return nil; }
+
+// ------------------------------------------------- operator overloading
+//
+// Binary arithmetic consults a method named after the operator on the left
+// operand (when it is a map/struct). The method receives `(self, other)`.
+// Returning `nil` means "not handled" and falls back to numeric semantics.
+
+fun __op_add(a: Any, b: Any) -> Any { if (value_tag(a) != 7) { return nil; } let m: Any = a["+"]; if (m == nil) { return nil; } return m(a, b); }
+fun __op_sub(a: Any, b: Any) -> Any { if (value_tag(a) != 7) { return nil; } let m: Any = a["-"]; if (m == nil) { return nil; } return m(a, b); }
+fun __op_mul(a: Any, b: Any) -> Any { if (value_tag(a) != 7) { return nil; } let m: Any = a["*"]; if (m == nil) { return nil; } return m(a, b); }
+fun __op_div(a: Any, b: Any) -> Any { if (value_tag(a) != 7) { return nil; } let m: Any = a["/"]; if (m == nil) { return nil; } return m(a, b); }
+
+// ------------------------------------------------------------------ strings
+
+fun str_concat(a: Any, b: Any) -> Any { return a + b; }
+
+fun substring(s: Any, start: Any, count: Any) -> Any {
+    mut out: Any = "";
+    mut i: Any = start;
+    let stop: Any = start + count;
+    while (i < stop) {
+        out = out + char_from(char_at(s, i));
+        i = i + 1;
+    }
+    return out;
+}
+
+fun is_space_code(c: Any) -> Any { return c == 32 || c == 9 || c == 10 || c == 13; }
+fun is_upper_code(c: Any) -> Any { return c >= 65 && c <= 90; }
+fun is_lower_code(c: Any) -> Any { return c >= 97 && c <= 122; }
+
+fun trim(s: Any) -> Any {
+    let n: Any = len(s);
+    mut a: Any = 0;
+    while (a < n && is_space_code(char_at(s, a))) { a = a + 1; }
+    mut b: Any = n;
+    while (b > a && is_space_code(char_at(s, b - 1))) { b = b - 1; }
+    return substring(s, a, b - a);
+}
+
+fun to_lower(s: Any) -> Any {
+    mut out: Any = "";
+    for i: Any in 0..len(s) {
+        mut c: Any = char_at(s, i);
+        if (is_upper_code(c)) { c = c + 32; }
+        out = out + char_from(c);
+    }
+    return out;
+}
+
+fun to_upper(s: Any) -> Any {
+    mut out: Any = "";
+    for i: Any in 0..len(s) {
+        mut c: Any = char_at(s, i);
+        if (is_lower_code(c)) { c = c - 32; }
+        out = out + char_from(c);
+    }
+    return out;
+}
+
+fun index_of(s: Any, sub: Any) -> Any {
+    let n: Any = len(s);
+    let m: Any = len(sub);
+    if (m == 0) { return 0; }
+    mut i: Any = 0;
+    while (i + m <= n) {
+        if (substring(s, i, m) == sub) { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fun contains(s: Any, sub: Any) -> Any { return index_of(s, sub) >= 0; }
+
+fun starts_with(s: Any, prefix: Any) -> Any {
+    let n: Any = len(prefix);
+    if (n > len(s)) { return false; }
+    return substring(s, 0, n) == prefix;
+}
+
+fun ends_with(s: Any, suffix: Any) -> Any {
+    let n: Any = len(suffix);
+    if (n > len(s)) { return false; }
+    return substring(s, len(s) - n, n) == suffix;
+}
+
+fun split(s: Any, delim: Any) -> Any {
+    mut out: Any = [];
+    let m: Any = len(delim);
+    if (m == 0) { push(out, s); return out; }
+    mut start: Any = 0;
+    mut i: Any = 0;
+    while (i + m <= len(s)) {
+        if (substring(s, i, m) == delim) {
+            push(out, substring(s, start, i - start));
+            start = i + m;
+            i = start;
+        } else {
+            i = i + 1;
+        }
+    }
+    push(out, substring(s, start, len(s) - start));
+    return out;
+}
+
+fun replace(s: Any, needle: Any, replacement: Any) -> Any {
+    let m: Any = len(needle);
+    if (m == 0) { return s; }
+    mut out: Any = "";
+    mut start: Any = 0;
+    mut i: Any = 0;
+    while (i + m <= len(s)) {
+        if (substring(s, i, m) == needle) {
+            out = out + substring(s, start, i - start) + replacement;
+            start = i + m;
+            i = start;
+        } else {
+            i = i + 1;
+        }
+    }
+    return out + substring(s, start, len(s) - start);
+}
+
+fun chars(s: Any) -> Any { return [char_from(char_at(s, i)) for i: Any in 0..len(s)]; }
+fun repeat(s: Any, n: Any) -> Any {
+    mut out: Any = ""; mut part: Any = s; mut left: Any = n;
+    while (left > 0) {
+        if (left % 2 == 1) { out = out + part; }
+        left = left / 2;
+        if (left > 0) { part = part + part; }
+    }
+    return out;
+}
+
+fun join(xs: Any, sep: Any) -> Any {
+    mut out: Any = "";
+    let n: Any = len(xs);
+    for i: Any in 0..n {
+        if (i > 0) { out = out + sep; }
+        out = out + str(xs[i]);
+    }
+    return out;
+}
+
+fun int(x: Any) -> Any {
+    let t: Any = value_tag(x);
+    if (t == 0) { return x; }
+    if (t == 6) { return trunc(x); }
+    if (t != 1) { return raise_error("runtime", "cannot convert to Int"); }
+    let s: Any = trim(x);
+    let n: Any = len(s);
+    mut i: Any = 0;
+    if (n > 0 && (char_at(s, 0) == 45 || char_at(s, 0) == 43)) { i = 1; }
+    if (i >= n) { return raise_error("runtime", "cannot convert to Int"); }
+    let start: Any = i;
+    while (i < n) {
+        let c: Any = char_at(s, i);
+        if (c < 48 || c > 57) { return raise_error("runtime", "cannot convert to Int"); }
+        i = i + 1;
+    }
+    mut sign: Any = 1;
+    if (char_at(s, 0) == 45) { sign = -1; }
+    mut v: Any = 0;
+    mut k: Any = start;
+    while (k < n) {
+        // Accumulate negative input directly so the minimum Int is representable.
+        v = v * 10 + (char_at(s, k) - 48) * sign;
+        k = k + 1;
+    }
+    return v;
+}
+
+fun float(x: Any) -> Any {
+    let t: Any = value_tag(x);
+    if (t == 6) { return x; }
+    if (t == 0) { return to_float(x); }
+    if (t != 1) { return raise_error("runtime", "cannot convert to Float"); }
+    let s: Any = trim(x);
+    let n: Any = len(s);
+    mut i: Any = 0;
+    mut sign: Any = 1.0;
+    if (n > 0 && char_at(s, 0) == 45) { sign = 0.0 - 1.0; i = 1; }
+    else if (n > 0 && char_at(s, 0) == 43) { i = 1; }
+    mut val: Any = 0.0;
+    mut fd: Any = 0;
+    mut seen: Any = false;
+    while (i < n) {
+        let c: Any = char_at(s, i);
+        if (c >= 48 && c <= 57) { val = val * 10.0 + to_float(c - 48); seen = true; i = i + 1; }
+        else { break; }
+    }
+    if (i < n && char_at(s, i) == 46) {
+        i = i + 1;
+        while (i < n) {
+            let c: Any = char_at(s, i);
+            if (c >= 48 && c <= 57) {
+                val = val * 10.0 + to_float(c - 48);
+                fd = fd + 1;
+                seen = true;
+                i = i + 1;
+            } else { break; }
+        }
+    }
+    if (!seen) { return raise_error("runtime", "cannot convert to Float"); }
+    mut ex: Any = 0;
+    mut esign: Any = 1;
+    if (i < n && (char_at(s, i) == 101 || char_at(s, i) == 69)) {
+        i = i + 1;
+        if (i < n && char_at(s, i) == 45) { esign = -1; i = i + 1; }
+        else if (i < n && char_at(s, i) == 43) { i = i + 1; }
+        while (i < n) {
+            let c: Any = char_at(s, i);
+            if (c >= 48 && c <= 57) { ex = ex * 10 + (c - 48); i = i + 1; }
+            else { break; }
+        }
+    }
+    if (i != n) { return raise_error("runtime", "cannot convert to Float"); }
+    let e: Any = esign * ex - fd;
+    if (e > 0) {
+        mut p: Any = 1.0;
+        mut k: Any = 0;
+        while (k < e) { p = p * 10.0; k = k + 1; }
+        val = val * p;
+    } else if (e < 0) {
+        mut p: Any = 1.0;
+        mut k: Any = 0;
+        let ne: Any = 0 - e;
+        while (k < ne) { p = p * 10.0; k = k + 1; }
+        val = val / p;
+    }
+    return sign * val;
+}
+
+/// Increment a decimal digit string; returns `[carry, result]` where `carry`
+/// is `1` when the whole part must be bumped (all nines).
+fun bump(s: Any) -> Any {
+    mut out: Any = s;
+    mut i: Any = len(out) - 1;
+    mut carry: Any = 1;
+    while (i >= 0 && carry == 1) {
+        let c: Any = char_at(out, i);
+        if (c == 57) {
+            out = substring(out, 0, i) + "0" + substring(out, i + 1, len(out) - i - 1);
+        } else {
+            out = substring(out, 0, i) + char_from(c + 1) + substring(out, i + 1, len(out) - i - 1);
+            carry = 0;
+        }
+        i = i - 1;
+    }
+    return [carry, out];
+}
+
+/// Decompose a positive finite float into `[leading_digit, digits, exponent]`
+/// so the value is `leading.digits * 10^exponent`. A single scaling division
+/// keeps the mantissa close to exact (repeated division accumulates error).
+fun float_norm(v: Any) -> Any {
+    mut e: Any = floor(log10(v));
+    let p: Any = pow(10.0, to_float(e));
+    mut m: Any = v / p;
+    if (cmp(m, 10.0) >= 0) { m = m / 10.0; e = e + 1; }
+    while (cmp(m, 1.0) < 0) { m = m * 10.0; e = e - 1; }
+    let whole: Any = floor(m);
+    mut digits: Any = "";
+    mut fr: Any = m - to_float(whole);
+    mut i: Any = 0;
+    while (i < 18 && cmp(fr, 0.000000000000000001) > 0) {
+        fr = fr * 10.0;
+        let d: Any = floor(fr);
+        digits = digits + str(d);
+        fr = fr - to_float(d);
+        i = i + 1;
+    }
+    return [str(whole), digits, e];
+}
+
+/// Format a magnitude outside the safe plain-decimal range in scientific
+/// notation; the mantissa is rounded to 16 significant digits and trimmed.
+fun float_sci(value: Any) -> Any {
+    let n: Any = float_norm(value);
+    let whole: Any = n[0];
+    mut digits: Any = n[1];
+    mut e: Any = n[2];
+    // Whole digit plus at most 14 fractional digits = 15 significant digits.
+    let extra: Any = if (len(digits) > 14) { 14 } else { len(digits) };
+    mut mant: Any = whole + substring(digits, 0, extra);
+    if (len(digits) > 14 && char_at(digits, 14) >= 53) {
+        let r: Any = bump(mant);
+        mant = r[1];
+        if (r[0] == 1) { mant = "1" + mant; e = e + 1; }
+    }
+    // Trim trailing zeros, keeping at least the leading digit.
+    mut end: Any = len(mant);
+    while (end > 1 && char_at(mant, end - 1) == 48) { end = end - 1; }
+    mant = substring(mant, 0, end);
+    let lead: Any = substring(mant, 0, 1);
+    let rest: Any = substring(mant, 1, len(mant) - 1);
+    if (len(rest) == 0) { return lead + "e" + str(e); }
+    return lead + "." + rest + "e" + str(e);
+}
+
+/// Format a boxed float, choosing the shortest rounded decimal that round-trips.
+fun float_str(f: Any) -> Any {
+    mut sign: Any = "";
+    mut value: Any = f;
+    if (cmp(value, 0.0) < 0) {
+        sign = "-";
+        value = 0.0 - value;
+    }
+    if (cmp(value, 0.0) == 0) { return sign + "0.0"; }
+    if (cmp(value, 10000000000000000.0) >= 0 || cmp(value, 0.0001) < 0) {
+        return sign + float_sci(value);
+    }
+    let whole: Any = floor(value);
+    let frac: Any = value - to_float(whole);
+    mut digits: Any = "";
+    mut fr: Any = frac;
+    mut i: Any = 0;
+    while (i < 18 && fr > 0.000000000000001) {
+        fr = fr * 10.0;
+        mut d: Any = floor(fr);
+        digits = digits + str(d);
+        fr = fr - to_float(d);
+        i = i + 1;
+    }
+    let nd: Any = len(digits);
+    mut d: Any = 0;
+    mut fb: Any = str(whole) + ".0";
+    while (d <= nd) {
+        mut prefix: Any = substring(digits, 0, d);
+        mut carry: Any = 0;
+        if (d < nd && char_at(digits, d) >= 53) {
+            let r: Any = bump(prefix);
+            carry = r[0];
+            prefix = r[1];
+        }
+        let w: Any = whole + carry;
+        mut end: Any = len(prefix);
+        while (end > 0 && char_at(prefix, end - 1) == 48) { end = end - 1; }
+        let kept: Any = substring(prefix, 0, end);
+        mut cand: Any = str(w);
+        if (len(kept) > 0) { cand = cand + "." + kept; }
+        if (d <= 15) { fb = cand; }
+        if (cmp(float(cand), value) == 0) {
+            if (len(kept) == 0) { return sign + str(w) + ".0"; }
+            return sign + str(w) + "." + kept;
+        }
+        d = d + 1;
+    }
+    return sign + fb;
+}
+
+// ------------------------------------------------------------------ lists
+
+fun reverse(x: Any) -> Any {
+    let n: Any = len(x);
+    if (value_tag(x) == 1) {
+        mut out: Any = "";
+        for i: Any in 0..n { out = out + char_from(char_at(x, n - 1 - i)); }
+        return out;
+    }
+    return [x[n - 1 - i] for i: Any in 0..n];
+}
+
+fun range(a: Any, b: Any) -> Any { return [i for i: Any in a..b]; }
+
+fun sum(xs: Any) -> Any {
+    mut total: Any = 0;
+    for x: Any in xs { total = total + x; }
+    return total;
+}
+
+fun min(a: Any, b: Any) -> Any { return if (cmp(a, b) <= 0) { a } else { b }; }
+fun max(a: Any, b: Any) -> Any { return if (cmp(a, b) >= 0) { a } else { b }; }
+fun abs(x: Any) -> Any { return if (cmp(x, 0) < 0) { 0 - x } else { x }; }
+
+fun sort(xs: Any) -> Any {
+    let a: Any = [];
+    for x: Any in xs { push(a, x); }
+    let n: Any = len(a);
+    for i: Any in 1..n {
+        let key: Any = a[i];
+        mut j: Any = i - 1;
+        while (j >= 0 && cmp(a[j], key) > 0) {
+            a[j + 1] = a[j];
+            j = j - 1;
+        }
+        a[j + 1] = key;
+    }
+    return a;
+}
+
+// ------------------------------------------------------------------ maps
+
+fun keys(m: Any) -> Any { return map_keys(m); }
+fun values(m: Any) -> Any { return map_values(m); }
+
+/// Membership: maps use key lookup, lists scan by value, strings scan for a
+/// substring (matching the language's `has`).
+fun has(x: Any, key: Any) -> Any {
+    let t: Any = value_tag(x);
+    if (t == 7) { return map_has(x, key); }
+    if (t == 1) { return index_of(x, str(key)) >= 0; }
+    if (t == 5) {
+        let n: Any = len(x);
+        for i: Any in 0..n {
+            if (value_eq(x[i], key)) { return true; }
+        }
+        return false;
+    }
+    return false;
+}
+
+fun merge(a: Any, b: Any) -> Any {
+    let out: Any = to_map([]);
+    for key: Any in map_keys(a) { map_set(out, key, map_get(a, key)); }
+    for key: Any in map_keys(b) { map_set(out, key, map_get(b, key)); }
+    return out;
+}
+
+fun remove(m: Any, key: Any) -> Any {
+    let out: Any = to_map([]);
+    for kk: Any in map_keys(m) {
+        if (!value_eq(kk, key)) { map_set(out, kk, map_get(m, kk)); }
+    }
+    return out;
+}
+
+fun str(x: Any) -> Any {
+    if (value_tag(x) == 6) { return float_str(x); }
+    return str_of(x);
+}
+
+// ------------------------------------------------------------------ errors
+
+/// Build the structured error object exposed to `otherwise` as `err`.
+fun make_error(kind: Any, message: Any) -> Any {
+    let e: Any = to_map([]);
+    map_set(e, "kind", kind);
+    map_set(e, "message", message);
+    map_set(e, "stack", "");
+    map_set(e, "__error__", true);
+    return e;
+}
+
+fun raise_error(kind: Any, message: Any) -> Any {
+    rt_raise(make_error(kind, message));
+    return nil;
+}
+
+fun fail_list(items: Any) -> Any {
+    mut msg: Any = "";
+    let n: Any = len(items);
+    for i: Any in 0..n {
+        if (i > 0) { msg = msg + " "; }
+        msg = msg + str(items[i]);
+    }
+    return raise_error("fail", msg);
+}
+
+fun type_name(x: Any) -> Any {
+    let t: Any = value_tag(x);
+    if (t == 0) { return "Int"; }
+    if (t == 1) { return "Str"; }
+    if (t == 2) { return "Nil"; }
+    if (t == 3) { return "Bool"; }
+    if (t == 4) { return "Bool"; }
+    if (t == 6) { return "Float"; }
+    if (t == 7) { return "Map"; }
+    return "List";
+}
+
+fun raise_binop_error(a: Any, b: Any, sym: Any) -> Any {
+    return raise_error("type", "cannot apply `" + sym + "` to " + type_name(a) + " and " + type_name(b));
+}
+
+fun raise_add_error(a: Any, b: Any) -> Any {
+    return raise_error("runtime", "cannot add " + type_name(a) + " and " + type_name(b));
+}
+
+fun raise_exp_error(a: Any, b: Any) -> Any {
+    return raise_error("type", "cannot exponentiate " + type_name(a) + " and " + type_name(b));
+}
+
+fun raise_div_zero() -> Any {
+    return raise_error("arithmetic", "division by zero");
+}
+
+fun raise_overflow() -> Any {
+    return raise_error("arithmetic", "integer overflow");
+}
+
+fun raise_io_error(message: Any) -> Any {
+    return raise_error("io", message);
+}
+
+/// A raw pointer is just an integer holding a machine address.
+fun ptr(n: Any) -> Any { return n; }
+
+fun print_error(e: Any) -> Any {
+    let k: Any = e.kind;
+    if (k == nil) { return print(str(e)); }
+    mut m: Any = e.message;
+    if (m == nil) { m = ""; }
+    return print(str(k) + ": " + str(m));
+}
+
+fun concat_lists(a: Any, b: Any) -> Any {
+    let out: Any = [];
+    for x: Any in a { push(out, x); }
+    for x: Any in b { push(out, x); }
+    return out;
+}
+
+/// The VM's `repr` as a string: strings are quoted when nested.
+fun string_repr(v: Any) -> Any {
+    let t: Any = value_tag(v);
+    if (t == 1 || t == 0 || t == 6) { return str(v); }
+    if (t == 2) { return "nil"; }
+    if (t == 3) { return "false"; }
+    if (t == 4) { return "true"; }
+    if (t == 5) {
+        mut out: Any = "[";
+        let n: Any = len(v);
+        for i: Any in 0..n {
+            if (i > 0) { out = out + ", "; }
+            out = out + string_repr(v[i]);
+        }
+        return out + "]";
+    }
+    if (t == 7) {
+        if (map_has(v, "__error__")) { return str(map_get(v, "message")); }
+        mut out: Any = "{";
+        let ks: Any = sort(map_keys(v));
+        let n: Any = len(ks);
+        for i: Any in 0..n {
+            if (i > 0) { out = out + ", "; }
+            out = out + "\"" + ks[i] + "\": " + string_repr(map_get(v, ks[i]));
+        }
+        return out + "}";
+    }
+    return "<fun>";
+}
+
+// ------------------------------------------------------------------ values
+
+fun bool(x: Any) -> Any { return if (x) { true } else { false }; }
+
+fun type(x: Any) -> Any { return type_name(x); }
+
+fun sign(x: Any) -> Any {
+    if (cmp(x, 0) > 0) { return 1; }
+    if (cmp(x, 0) < 0) { return -1; }
+    return 0;
+}
+
+fun parse_int(x: Any) -> Any {
+    if (value_tag(x) == 0) { return x; }
+    if (value_tag(x) == 6) { return trunc(x); }
+    let s: Any = trim(x);
+    let n: Any = len(s);
+    if (n == 0) { return raise_error("parse", "cannot parse as Int"); }
+    mut i: Any = 0;
+    if (char_at(s, 0) == 45 || char_at(s, 0) == 43) { i = 1; }
+    if (i >= n) { return raise_error("parse", "cannot parse as Int"); }
+    while (i < n) {
+        let c: Any = char_at(s, i);
+        if (c < 48 || c > 57) { return raise_error("parse", "cannot parse as Int"); }
+        i = i + 1;
+    }
+    return int(s);
+}
+
+fun parse_float(x: Any) -> Any {
+    if (value_tag(x) == 6) { return x; }
+    if (value_tag(x) == 0) { return float(x); }
+    return float(trim(x));
+}
+
+/// Read an environment variable (Linux: via `/proc/self/environ`).
+fun env(name: Any) -> Any {
+    let blob: Any = may { read_file("/proc/self/environ") } otherwise { nil };
+    if (blob == nil) { return nil; }
+    let n: Any = len(blob);
+    let target: Any = name + "=";
+    let m: Any = len(target);
+    mut i: Any = 0;
+    while (i + m <= n) {
+        // Only match at the start of an entry (`VARN=...`), never inside
+        // another variable's name such as `CARGO_HOME=`.
+        if (i == 0 || char_at(blob, i - 1) == 0) {
+            mut k: Any = 0;
+            mut ok: Any = true;
+            while (k < m) {
+                if (char_at(blob, i + k) != char_at(target, k)) { ok = false; break; }
+                k = k + 1;
+            }
+            if (ok) {
+                let start: Any = i + m;
+                mut j: Any = start;
+                while (j < n && char_at(blob, j) != 0) { j = j + 1; }
+                return substring(blob, start, j - start);
+            }
+        }
+        i = i + 1;
+    }
+    return nil;
+}
+
+// ------------------------------------------------------------------ math
+
+fun pi() -> Any { return 3.141592653589793; }
+fun e() -> Any { return 2.718281828459045; }
+
+fun round(x: Any) -> Any { return floor(x + 0.5); }
+
+fun sinh(x: Any) -> Any { return (exp(x) - exp(0.0 - x)) / 2.0; }
+fun cosh(x: Any) -> Any { return (exp(x) + exp(0.0 - x)) / 2.0; }
+fun tanh(x: Any) -> Any { let e2: Any = exp(2.0 * x); return (e2 - 1.0) / (e2 + 1.0); }
+fun hypot(x: Any, y: Any) -> Any { return sqrt(x * x + y * y); }
+fun cbrt(x: Any) -> Any {
+    if (cmp(x, 0) == 0) { return 0.0; }
+    if (cmp(x, 0) < 0) { return 0.0 - exp(ln(0.0 - x) / 3.0); }
+    return exp(ln(x) / 3.0);
+}
+
+// ------------------------------------------------------------------ json
+
+fun jd_is_space(c: Any) -> Any { return c == 32 || c == 9 || c == 10 || c == 13; }
+fun jd_skip(s: Any, i: Any) -> Any {
+    mut j: Any = i;
+    while (j < len(s) && jd_is_space(char_at(s, j))) { j = j + 1; }
+    return j;
+}
+
+fun jd_hex(c: Any) -> Any {
+    if (c >= 48 && c <= 57) { return c - 48; }
+    if (c >= 97 && c <= 102) { return c - 87; }
+    if (c >= 65 && c <= 70) { return c - 55; }
+    return raise_error("parse", "invalid JSON Unicode escape");
+}
+
+fun jd_string(s: Any, i: Any) -> Any {
+    mut out: Any = "";
+    mut j: Any = i;
+    while (j < len(s)) {
+        let c: Any = char_at(s, j);
+        if (c == 34) { return [out, j + 1]; }
+        if (c == 92) {
+            j = j + 1;
+            let e: Any = char_at(s, j);
+            if (e == 110) { out = out + char_from(10); }
+            else if (e == 116) { out = out + char_from(9); }
+            else if (e == 114) { out = out + char_from(13); }
+            else if (e == 98) { out = out + char_from(8); }
+            else if (e == 102) { out = out + char_from(12); }
+            else if (e == 117) {
+                if (j + 4 >= len(s)) { return raise_error("parse", "incomplete JSON Unicode escape"); }
+                mut code: Any = 0;
+                for k: Any in 1..=4 { code = code * 16 + jd_hex(char_at(s, j + k)); }
+                j = j + 4;
+                if (code >= 55296 && code <= 56319) {
+                    if (j + 6 >= len(s) || char_at(s, j + 1) != 92 || char_at(s, j + 2) != 117) {
+                        return raise_error("parse", "missing low surrogate");
+                    }
+                    mut low: Any = 0;
+                    for k: Any in 3..=6 { low = low * 16 + jd_hex(char_at(s, j + k)); }
+                    if (low < 56320 || low > 57343) { return raise_error("parse", "invalid low surrogate"); }
+                    code = 65536 + (code - 55296) * 1024 + low - 56320;
+                    j = j + 6;
+                } else if (code >= 56320 && code <= 57343) { return raise_error("parse", "unexpected low surrogate"); }
+                out = out + char_from(code);
+            } else { out = out + char_from(e); }
+        } else {
+            out = out + char_from(c);
+        }
+        j = j + 1;
+    }
+    return [out, j];
+}
+
+fun jd_number(s: Any, i: Any) -> Any {
+    mut j: Any = i;
+    if (j < len(s) && char_at(s, j) == 45) { j = j + 1; }
+    mut is_float: Any = false;
+    while (j < len(s)) {
+        let c: Any = char_at(s, j);
+        if (c >= 48 && c <= 57) { j = j + 1; }
+        else if (c == 46) { is_float = true; j = j + 1; }
+        else if (c == 101 || c == 69) { is_float = true; j = j + 1; }
+        else if (c == 43 || c == 45) { j = j + 1; }
+        else { break; }
+    }
+    let text: Any = substring(s, i, j - i);
+    if (is_float) { return [float(text), j]; }
+    return [int(text), j];
+}
+
+fun jd_array(s: Any, i: Any) -> Any {
+    mut out: Any = [];
+    mut j: Any = jd_skip(s, i);
+    if (j < len(s) && char_at(s, j) == 93) { return [out, j + 1]; }
+    while (true) {
+        let r: Any = jd_value(s, jd_skip(s, j));
+        push(out, r[0]);
+        j = jd_skip(s, r[1]);
+        if (j < len(s) && char_at(s, j) == 44) { j = j + 1; }
+        else { break; }
+    }
+    return [out, j + 1];
+}
+
+fun jd_object(s: Any, i: Any) -> Any {
+    let out: Any = to_map([]);
+    mut j: Any = jd_skip(s, i);
+    if (j < len(s) && char_at(s, j) == 125) { return [out, j + 1]; }
+    while (true) {
+        j = jd_skip(s, j);
+        let kr: Any = jd_string(s, j + 1);
+        j = jd_skip(s, kr[1]);
+        j = j + 1; // ':'
+        let vr: Any = jd_value(s, jd_skip(s, j));
+        map_set(out, kr[0], vr[0]);
+        j = jd_skip(s, vr[1]);
+        if (j < len(s) && char_at(s, j) == 44) { j = j + 1; }
+        else { break; }
+    }
+    return [out, j + 1];
+}
+
+fun jd_value(s: Any, i: Any) -> Any {
+    let j: Any = jd_skip(s, i);
+    if (j >= len(s)) { return raise_error("parse", "unexpected end of JSON"); }
+    let c: Any = char_at(s, j);
+    if (c == 123) { return jd_object(s, j + 1); }
+    if (c == 91) { return jd_array(s, j + 1); }
+    if (c == 34) { return jd_string(s, j + 1); }
+    if (c == 116) {
+        if (j + 4 <= len(s) && substring(s, j, 4) == "true") { return [true, j + 4]; }
+        return raise_error("parse", "invalid JSON literal");
+    }
+    if (c == 102) {
+        if (j + 5 <= len(s) && substring(s, j, 5) == "false") { return [false, j + 5]; }
+        return raise_error("parse", "invalid JSON literal");
+    }
+    if (c == 110) {
+        if (j + 4 <= len(s) && substring(s, j, 4) == "null") { return [nil, j + 4]; }
+        return raise_error("parse", "invalid JSON literal");
+    }
+    if (c == 45 || (c >= 48 && c <= 57)) { return jd_number(s, j); }
+    return raise_error("parse", "invalid JSON");
+}
+
+fun json_parse(s: Any) -> Any {
+    let r: Any = jd_value(s, 0);
+    let end: Any = jd_skip(s, r[1]);
+    if (end != len(s)) { return raise_error("parse", "trailing characters after JSON"); }
+    return r[0];
+}
+
+fun jq_escape(s: Any) -> Any {
+    mut out: Any = "\"";
+    for i: Any in 0..len(s) {
+        let c: Any = char_at(s, i);
+        if (c == 34) { out = out + "\\\""; }
+        else if (c == 92) { out = out + "\\\\"; }
+        else if (c == 10) { out = out + "\\n"; }
+        else if (c == 9) { out = out + "\\t"; }
+        else if (c == 13) { out = out + "\\r"; }
+        else { out = out + char_from(c); }
+    }
+    return out + "\"";
+}
+
+fun json_stringify(v: Any) -> Any {
+    let t: Any = value_tag(v);
+    if (t == 2) { return "null"; }
+    if (t == 3) { return "false"; }
+    if (t == 4) { return "true"; }
+    if (t == 0) { return str(v); }
+    if (t == 6) { return str(v); }
+    if (t == 1) { return jq_escape(v); }
+    if (t == 5) {
+        mut out: Any = "[";
+        let n: Any = len(v);
+        for i: Any in 0..n {
+            if (i > 0) { out = out + ","; }
+            out = out + json_stringify(v[i]);
+        }
+        return out + "]";
+    }
+    if (t == 7) {
+        mut out: Any = "{";
+        let ks: Any = sort(map_keys(v));
+        let n: Any = len(ks);
+        for i: Any in 0..n {
+            if (i > 0) { out = out + ","; }
+            out = out + jq_escape(ks[i]) + ":" + json_stringify(map_get(v, ks[i]));
+        }
+        return out + "}";
+    }
+    return "null";
+}
+
+
+// ------------------------------------------------------------------ extras
+
+fun clamp(x: Any, lo: Any, hi: Any) -> Any {
+    if (cmp(x, lo) < 0) { return lo; }
+    if (cmp(x, hi) > 0) { return hi; }
+    return x;
+}
+
+fun chr(n: Any) -> Any { return char_from(n); }
+fun ord(s: Any) -> Any { return char_at(s, 0); }
+fun even(n: Any) -> Any { return n % 2 == 0; }
+fun odd(n: Any) -> Any { return n % 2 != 0; }
+
+fun product(xs: Any) -> Any {
+    mut p: Any = 1;
+    for x: Any in xs { p = p * x; }
+    return p;
+}
+
+fun count(xs: Any, x: Any) -> Any {
+    mut c: Any = 0;
+    for e: Any in xs { if (e == x) { c = c + 1; } }
+    return c;
+}
+
+fun find(xs: Any, x: Any) -> Any {
+    let n: Any = len(xs);
+    mut i: Any = 0;
+    while (i < n) {
+        if (xs[i] == x) { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fun slice(xs: Any, start: Any, stop: Any) -> Any {
+    let n: Any = len(xs);
+    let a: Any = clamp(start, 0, n);
+    let b: Any = clamp(stop, 0, n);
+    let out: Any = [];
+    mut i: Any = a;
+    while (i < b) {
+        push(out, xs[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fun enumerate(xs: Any) -> Any {
+    let out: Any = [];
+    let n: Any = len(xs);
+    for i: Any in 0..n { push(out, [i, xs[i]]); }
+    return out;
+}
+
+fun zip(a: Any, b: Any) -> Any {
+    let out: Any = [];
+    let n: Any = min(len(a), len(b));
+    for i: Any in 0..n { push(out, [a[i], b[i]]); }
+    return out;
+}
+
+fun flatten(xss: Any) -> Any {
+    let out: Any = [];
+    for xs: Any in xss { for x: Any in xs { push(out, x); } }
+    return out;
+}
+
+fun unique(xs: Any) -> Any {
+    let out: Any = [];
+    for x: Any in xs { if (!has(out, x)) { push(out, x); } }
+    return out;
+}
+
+fun range_step(a: Any, b: Any, step: Any) -> Any {
+    let out: Any = [];
+    if (step == 0) { return out; }
+    if (step > 0) {
+        mut i: Any = a;
+        while (i < b) { push(out, i); i = i + step; }
+    } else {
+        mut i: Any = a;
+        while (i > b) { push(out, i); i = i + step; }
+    }
+    return out;
+}
+
+fun pad_left(s: Any, width: Any, ch: Any) -> Any {
+    mut out: Any = s;
+    while (len(out) < width) { out = ch + out; }
+    return out;
+}
+
+fun pad_right(s: Any, width: Any, ch: Any) -> Any {
+    mut out: Any = s;
+    while (len(out) < width) { out = out + ch; }
+    return out;
+}
+
+fun split_lines(s: Any) -> Any { return split(s, "\n"); }
+
+/// Map lookup with a default for missing keys.
+fun get(m: Any, key: Any, fallback: Any) -> Any {
+    let v: Any = map_get(m, key);
+    return if (v == nil) { fallback } else { v };
+}
+
+fun times(n: Any, f: Any) -> Any {
+    for i: Any in 0..n { f(i); }
+    return nil;
+}
+
+fun each(xs: Any, f: Any) -> Any {
+    for x: Any in xs { f(x); }
+    return nil;
+}
+
+fun assert_eq(a: Any, b: Any) -> Any {
+    if (value_eq(a, b)) { return nil; }
+    raise_error("assert", "assertion failed: " + str(a) + " != " + str(b));
+    return nil;
+}
+
+// -------------------------------------------------------------- C ABI
+//
+// `ccall(fn, args)` invokes machine code at a raw address with up to six
+// integer arguments; `extern_c(fn)` wraps such an address as a callable value.
+
+fun ccall(fn: Any, args: Any) -> Any {
+    let n: Any = len(args);
+    let a0: Any = if (n > 0) { args[0] } else { 0 };
+    let a1: Any = if (n > 1) { args[1] } else { 0 };
+    let a2: Any = if (n > 2) { args[2] } else { 0 };
+    let a3: Any = if (n > 3) { args[3] } else { 0 };
+    let a4: Any = if (n > 4) { args[4] } else { 0 };
+    let a5: Any = if (n > 5) { args[5] } else { 0 };
+    return __ccall6(fn, a0, a1, a2, a3, a4, a5);
+}
+
+fun extern_c(fn: Any) -> Any {
+    fun tramp(a0: Any, a1: Any, a2: Any, a3: Any, a4: Any, a5: Any) -> Any {
+        return __ccall6(fn, a0, a1, a2, a3, a4, a5);
+    }
+    return tramp;
+}

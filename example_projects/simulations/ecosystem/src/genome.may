@@ -1,0 +1,58 @@
+import "model.may";
+import "../../../../stdlib/random.may";
+import "../../../../stdlib/ml/fixed.may";
+
+let SENSOR_COUNT: Int = 8;
+let HIDDEN_COUNT: Int = 3;
+let ACTION_COUNT: Int = 4;
+let WEIGHT_COUNT: Int = 43;
+
+// Traits: mass, metabolic pace, mobility, diet, armor, reproduction reserve.
+// All founders favor plants; mutation can change every trait and neural weight.
+fun founder_genome(rng: Any) -> Genome {
+    let traits: List<Float> = [];
+    for i: Int in 0..6 { push(traits, 0.25 + 0.5 * random_float(rng)); }
+    traits[0] = 0.10 + 0.20 * random_float(rng);
+    traits[1] = 0.70 + 0.20 * random_float(rng);
+    traits[4] = 0.25 * random_float(rng);
+    traits[5] = 0.25 * random_float(rng);
+    traits[3] = 0.05 * random_float(rng);
+    let weights: List<Int> = [];
+    for i: Int in 0..WEIGHT_COUNT { push(weights, int((random_float(rng) * 2.0 - 1.0) * 700.0)); }
+    weights[WEIGHT_COUNT - 4] = if (random_float(rng) < 0.5) { -1000 } else { 1000 };
+    weights[WEIGHT_COUNT - 3] = if (random_float(rng) < 0.5) { -1000 } else { 1000 };
+    weights[WEIGHT_COUNT - 2] = -2600; // mouth: negative = plants, positive = animals
+    weights[WEIGHT_COUNT - 1] = 1200;  // reproduction can subsequently evolve
+    return Genome(traits, weights);
+}
+// Geometric gaps sample exactly the independent Bernoulli mutation process,
+// visiting only changed loci. Copies preserve isolation even at zero mutation.
+fun mutation_gap(rng: Any, rate: Float, log_survival: Float) -> Int {
+    if (rate >= 1.0) { return 0; }
+    return int(ln(random_float(rng)) / log_survival);
+}
+fun mutate_genome(parent: Genome, rng: Any, config: Config) -> Genome {
+    let traits: List<Float> = slice(parent.traits, 0, len(parent.traits));
+    let weights: List<Int> = slice(parent.weights, 0, len(parent.weights));
+    if (config.mutation_rate <= 0.0) { return Genome(traits, weights); }
+    let log_survival: Float = if (config.mutation_rate >= 1.0) { -1.0 } else { ln(1.0 - config.mutation_rate) };
+    mut index: Int = mutation_gap(rng, config.mutation_rate, log_survival);
+    while (index < 6) {
+        traits[index] = bounded(traits[index] + (random_float(rng) * 2.0 - 1.0) * config.mutation_step * 0.4, 0.0, 1.0);
+        index += 1 + mutation_gap(rng, config.mutation_rate, log_survival);
+    }
+    index = mutation_gap(rng, config.mutation_rate, log_survival);
+    while (index < WEIGHT_COUNT) {
+        let value: Int = weights[index] + int((random_float(rng) * 2.0 - 1.0) * config.mutation_step * 1024.0);
+        weights[index] = if (value < -4096) { -4096 } else if (value > 4096) { 4096 } else { value };
+        index += 1 + mutation_gap(rng, config.mutation_rate, log_survival);
+    }
+    return Genome(traits, weights);
+}
+fun build_brain(genome: Genome) -> FixedNetwork {
+    return nn_fixed_model([SENSOR_COUNT, HIDDEN_COUNT, ACTION_COUNT], genome.weights, 1024);
+}
+fun hatch(egg: Egg) -> Creature {
+    return Creature(egg.id, egg.parent, egg.lineage, egg.genome, build_brain(egg.genome),
+                    egg.x, egg.y, egg.energy, egg.body, full_health(egg.genome), 0.0, 0.0, 0.0, 0, 0, 0, 1.0);
+}

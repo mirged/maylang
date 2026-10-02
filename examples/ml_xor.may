@@ -1,0 +1,28 @@
+// A complete tiny neural-network training example using the Maylang ML kit.
+import "../stdlib/random.may";
+import "../stdlib/ml/nn.may";
+import "../stdlib/ml/optim.may";
+import "../stdlib/ml/model.may";
+import "../stdlib/ml/tensor.may";
+
+let features: Any = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
+let labels: Any = [[0.0], [1.0], [1.0], [0.0]];
+let rng: Any = random_new(42);
+let model: Any = nn_model();
+nn_add_dense(model, 2, 6, "tanh", rng);
+nn_add_dense(model, 6, 1, "sigmoid", rng);
+print("training XOR network...");
+let fit: Any = ml_fit(model, features, labels, 1600, 4,
+                 ml_adam_default(0.03), rng, "binary_cross_entropy");
+let result: Any = ml_evaluate(model, features, labels, "binary_cross_entropy");
+print("XOR loss:", fit.history[len(fit.history) - 1]);
+print("XOR accuracy:", result.accuracy);
+for i: Any in 0..len(features) { print(features[i], "=>", result.predictions[i][0]); }
+if (result.accuracy < 1.0) { fail("XOR training did not converge"); }
+let tensor_predictions: Any = nn_predict_tensor(model, tensor_matrix(features));
+if (abs(tensor_predictions.data[0] - result.predictions[0][0]) > 0.000001) { fail("tensor/network adapter mismatch"); }
+let restored: Any = nn_model();
+nn_add_dense(restored, 2, 6, "tanh", rng);
+nn_add_dense(restored, 6, 1, "sigmoid", rng);
+nn_load_state(restored, nn_state_dict(model));
+if (abs(nn_predict(restored, features)[0][0] - result.predictions[0][0]) > 0.000001) { fail("network state snapshot mismatch"); }

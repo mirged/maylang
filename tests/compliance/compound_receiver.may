@@ -1,0 +1,1 @@
+let xs=[10]; mut n=0; fun getxs() { n+=1; xs } getxs()[0]+=5; print(xs,n);

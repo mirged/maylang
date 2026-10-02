@@ -1,0 +1,48 @@
+// checksum.may — a dependency-free content digest for lockfiles.
+//
+// FNV-1a (32-bit) is tiny, deterministic and cheap to compute in pure
+// Maylang, which is all a lockfile needs to detect source changes.
+
+let OFFSET: Any = 2166136261;
+let PRIME: Any = 16777619;
+let MOD: Any = 4294967296;
+
+fun bxor(a: Any, b: Any) -> Any {
+    mut x: Any = a;
+    mut y: Any = b;
+    mut result: Any = 0;
+    mut bit: Any = 1;
+    mut i: Any = 0;
+    while (i < 32) {
+        if (x % 2 != y % 2) { result = result + bit; }
+        x = x / 2;
+        y = y / 2;
+        bit = bit * 2;
+        i = i + 1;
+    }
+    return result;
+}
+
+pub fun fnv1a(text: Any) -> Any {
+    mut h: Any = OFFSET;
+    for c: Any in chars(text) {
+        h = bxor(h, ord(c));
+        h = (h * PRIME) % MOD;
+    }
+    return h;
+}
+
+pub fun hex32(n: Any) -> Any {
+    let digits: Any = "0123456789abcdef";
+    mut x: Any = n;
+    mut out: Any = "";
+    if (x == 0) { return "00000000"; }
+    while (x > 0) {
+        out = digits[x % 16] + out;
+        x = x / 16;
+    }
+    while (len(out) < 8) { out = "0" + out; }
+    return out;
+}
+
+pub fun digest(text: Any) -> Any { return hex32(fnv1a(text)); }

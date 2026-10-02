@@ -1,0 +1,10 @@
+let s: Any = "hello";
+let a: Any = addr(s);
+print(load64(a - 8));
+print(chr(load8(a)), chr(load8(a + 1)));
+let page: Any = syscall(9, 0, 4096, 7, 34, 0 - 1, 0);
+let p: Any = ptr(page);
+store64(p, 12345);
+store8(p + 8, 77);
+print(load64(p), load8(p + 8));
+print(cstr("abc") > 0);

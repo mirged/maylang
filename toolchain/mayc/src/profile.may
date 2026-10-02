@@ -1,0 +1,22 @@
+import "state.may";
+// Host-side monotonic stage timings. Profiling never enters emitted programs.
+mut PROFILE_ENABLED: Any = false;
+mut PROFILE_CLOCK: Any = 0;
+mut PROFILE_LAST: Any = 0;
+fun profile_now() -> Any {
+    syscall(228, 1, PROFILE_CLOCK);
+    return load64(PROFILE_CLOCK) * 1000 + load64(PROFILE_CLOCK + 8) / 1000000;
+}
+fun profile_begin() -> Any {
+    if (PROFILE_ENABLED) { PROFILE_CLOCK = irt_alloc(16); PROFILE_LAST = profile_now(); }
+    return 0;
+}
+fun profile_mark(stage: Any) -> Any {
+    if (PROFILE_ENABLED) {
+        let now: Any = profile_now();
+        let line: Any = "mayc-time ${stage} ${now - PROFILE_LAST} ms\n";
+        syscall(1, 2, addr(line), len(line));
+        PROFILE_LAST = now;
+    }
+    return 0;
+}

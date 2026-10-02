@@ -1,0 +1,446 @@
+[
+  {
+    "name": "unicode",
+    "expected": "3 é 🙂 中\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "3 é 🙂 中\n",
+      "stdout_hex": "3320c3a920f09f998220e4b8ad0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "tail_swap",
+    "expected": "[2, 1]\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[2, 1]\n",
+      "stdout_hex": "5b322c20315d0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "tail_capture",
+    "expected": "10000\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "10000\n",
+      "stdout_hex": "31303030300a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "loop_closures",
+    "expected": "0 1 2\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "0 1 2\n",
+      "stdout_hex": "30203120320a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "handler_break",
+    "expected": "caught\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "caught\n",
+      "stdout_hex": "6361756768740a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "handler_continue",
+    "expected": "caught\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "caught\n",
+      "stdout_hex": "6361756768740a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "handler_return",
+    "expected": "7\ncaught\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "7\ncaught\n",
+      "stdout_hex": "370a6361756768740a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "handler_result",
+    "expected": "bad\ncaught\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "bad\ncaught\n",
+      "stdout_hex": "6261640a6361756768740a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "nested_rethrow",
+    "expected": "two\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "two\n",
+      "stdout_hex": "74776f0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "safe_side_effect",
+    "expected": "nil 0\ntrue false 0\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "nil 0\ntrue false 0\n",
+      "stdout_hex": "6e696c20300a747275652066616c736520300a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "coalesce_side_effect",
+    "expected": "0 false \n0\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "0 false \n0\n",
+      "stdout_hex": "302066616c7365200a300a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "min_div",
+    "expected": "arithmetic\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "arithmetic\n",
+      "stdout_hex": "61726974686d657469630a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "min_negate",
+    "expected": "arithmetic\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "arithmetic\n",
+      "stdout_hex": "61726974686d657469630a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "max_add",
+    "expected": "arithmetic\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "arithmetic\n",
+      "stdout_hex": "61726974686d657469630a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "huge_literal",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/huge_literal.may:1:7: integer literal out of range\nprint(999999999999999999999999999999999999999999999999999999);\n      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "cycle_list",
+    "expected": "[<cycle>]\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[<cycle>]\n",
+      "stdout_hex": "5b3c6379636c653e5d0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "cycle_map",
+    "expected": "{\"self\": <cycle>}\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "{\"self\": <cycle>}\n",
+      "stdout_hex": "7b2273656c66223a203c6379636c653e7d0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "cycle_equal",
+    "expected": "false\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "false\n",
+      "stdout_hex": "66616c73650a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "bad_call",
+    "expected": "caught\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "caught\n",
+      "stdout_hex": "6361756768740a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "bad_index",
+    "expected": "nil\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "nil\n",
+      "stdout_hex": "6e696c0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "negative_index",
+    "expected": "nil\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "nil\n",
+      "stdout_hex": "6e696c0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "empty_pop",
+    "expected": "nil\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "nil\n",
+      "stdout_hex": "6e696c0a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "div_zero_float",
+    "expected": "caught\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "caught\n",
+      "stdout_hex": "6361756768740a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "return_top",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/return_top.may:1:1: return outside a function\nreturn 42;\n^^^^^^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "duplicate_params",
+    "expected": "compile error",
+    "compile": {
+      "exit": 1,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": "/home/mirged/Projects/maylang/tests/compliance/duplicate_params.may:1:12: duplicate parameter `x`\nfun f(x,x) { x } print(f(1,2));\n           ^\n"
+    },
+    "run": null,
+    "passed": true
+  },
+  {
+    "name": "json_unicode",
+    "expected": "u00e9uD83DuDE42\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "u00e9uD83DuDE42\n",
+      "stdout_hex": "7530306539754438334475444534320a",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  {
+    "name": "eval_order",
+    "expected": "[1, 2, 3, 4, 5, 6, 7, 8]\n",
+    "compile": {
+      "exit": 0,
+      "stdout": "",
+      "stdout_hex": "",
+      "stderr": ""
+    },
+    "run": {
+      "exit": 0,
+      "stdout": "[1, 2, 3, 4, 5, 6, 7, 8]\n",
+      "stdout_hex": "5b312c20322c20332c20342c20352c20362c20372c20385d0a",
+      "stderr": ""
+    },
+    "passed": true
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "authors": [],
+  "dependencies": {},
+  "description": "A seeded canal-city flood simulator with pump-policy comparison and interactive replays",
+  "entry": "main.may",
+  "modules": [
+    "src/model.may",
+    "src/hydrology.may",
+    "src/view.may",
+    "main.may"
+  ],
+  "name": "kaindsim",
+  "output": "build/kaindsim",
+  "target": "host",
+  "version": "0.1.0"
+}

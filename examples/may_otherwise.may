@@ -1,0 +1,26 @@
+// Speculative execution: `may { risky } otherwise { safe }`.
+fun divide(a: Any, b: Any) -> Float {
+    return may {
+        a / b
+    } otherwise {
+        print("  problem:", err);
+        0
+    };
+}
+
+print("10 / 2 =", divide(10.0, 2.0));
+print("10 / 0 =", divide(10.0, 0.0));
+
+// `may` catches explicit `fail(...)` too.
+let config: Any = may {
+    fail("config file missing")
+} otherwise {
+    // Parenthesise a map that begins a block so it is not read as a block.
+    ({"mode": "default", "retries": 3})
+};
+
+print("mode:", config.mode);
+print("retries:", config.retries);
+
+// Otherwise blocks can themselves fault; a fault with no handler is fatal
+// and reported with its source location.

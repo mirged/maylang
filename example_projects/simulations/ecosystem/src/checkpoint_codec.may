@@ -1,0 +1,42 @@
+// Lossless binary64 words inside JSON. Decimal JSON snapshots can perturb
+// chaotic simulations after a resume even when their printed values look equal.
+fun checkpoint_pack(value: Any) -> Any {
+    let tag: Int = value_tag(value);
+    if (tag == 6) {
+        let pointer: Ptr = addr(value);
+        return {"$float64": [load32(pointer), load32(pointer + 4)]};
+    }
+    if (tag == 5) {
+        let packed: List<Any> = [];
+        for item: Any in value { push(packed, checkpoint_pack(item)); }
+        return packed;
+    }
+    if (tag == 7) {
+        let packed: Any = {};
+        for key: Any in keys(value) { packed[key] = checkpoint_pack(value[key]); }
+        return packed;
+    }
+    return value;
+}
+fun checkpoint_unpack(value: Any) -> Any {
+    let tag: Int = value_tag(value);
+    if (tag == 5) {
+        let unpacked: List<Any> = [];
+        for item: Any in value { push(unpacked, checkpoint_unpack(item)); }
+        return unpacked;
+    }
+    if (tag == 7) {
+        if (has(value, "$float64") and len(value) == 1) {
+            let words: Any = value["$float64"];
+            if (len(words) != 2 or words[0] < 0 or words[0] > 4294967295 or words[1] < 0 or words[1] > 4294967295) { fail("invalid checkpoint floating-point words"); }
+            let decoded: Any = 0.0;
+            let pointer: Ptr = addr(decoded);
+            store32(pointer, words[0]); store32(pointer + 4, words[1]);
+            return decoded;
+        }
+        let unpacked: Any = {};
+        for key: Any in keys(value) { unpacked[key] = checkpoint_unpack(value[key]); }
+        return unpacked;
+    }
+    return value;
+}

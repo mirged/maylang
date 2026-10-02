@@ -1,0 +1,53 @@
+/target
+*.mayc
+
+# Local compiler/debug outputs
+/my_app
+/selfhost_test_bin
+/mayc_expanded.may
+/stdout
+
+# Generated files and project build outputs
+**/__pycache__/
+**/node_modules/
+**/.tools/
+**/build/
+/guide/dist/
+
+# Local assistant configuration and secrets
+/.agents/
+/.aws/
+/.codex/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Scratch binaries, Python caches, editor and operating-system files
+/mayc_benchmark
+/mayc_bencmark1
+/example_projects/learning/study/test
+*.pyc
+.DS_Store
+*~
+
+# Generated OS disk and editor packages
+/toolchain/mayos/data/*.img
+*.vsix
+
+# The self-hosted compiler needs one deliberately versioned bootstrap binary.
+# Keep other builds ignored; a fresh clone must be able to compile itself.
+!/toolchain/mayc/build/
+/toolchain/mayc/build/*
+!/toolchain/mayc/build/bin/
+/toolchain/mayc/build/bin/*
+!/toolchain/mayc/build/bin/mayc_new
+
+# Ephemeral verification logs and simulation checkpoints
+/tests/compliance/*.log
+/tests/compliance/verification.json
+/toolchain/mayc/tests/verification.json
+/example_projects/simulations/ecosystem/results/*.log
+/example_projects/simulations/ecosystem/results/*.progress
+/example_projects/simulations/ecosystem/results/*.checkpoint.json

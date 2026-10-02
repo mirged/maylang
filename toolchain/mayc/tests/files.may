@@ -1,0 +1,6 @@
+let path: Any = "/tmp/mayc_feat_file.txt";
+write_file(path, "hello\nworld");
+print(file_exists(path));
+print(read_file(path));
+print(len(read_file(path)));
+print(file_exists("/tmp/definitely_not_here_12345"));

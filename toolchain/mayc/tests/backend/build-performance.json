@@ -1,0 +1,81 @@
+{
+  "timing": "whole compiler process including startup and writing; no cache; sequential runs; identical runtime/library sidecars",
+  "compiler_rebuild_samples": 1,
+  "results": {
+    "before": {
+      "compiler_sha256": "3b23dd1b6b199833d12f5bfeb1759b589d3629f9fc12bd4e02d623954e866be3",
+      "hello": {
+        "median_ms": 1087.566,
+        "samples_ms": [
+          1061.633,
+          1087.566,
+          1092.314
+        ],
+        "image_bytes": 355984
+      },
+      "features": {
+        "median_ms": 1133.526,
+        "samples_ms": [
+          1101.382,
+          1133.526,
+          1179.588
+        ],
+        "image_bytes": 370464
+      },
+      "compiler_rebuild": {
+        "median_ms": 75857.248,
+        "samples_ms": [
+          75857.248
+        ],
+        "image_bytes": 1740768
+      }
+    },
+    "after": {
+      "compiler_sha256": "095dea89e0b40339e94217fb03d19afa2ad8d518548c5cf0d21032edc15ec3bd",
+      "hello": {
+        "median_ms": 607.682,
+        "samples_ms": [
+          592.121,
+          608.626,
+          607.682
+        ],
+        "image_bytes": 243768
+      },
+      "features": {
+        "median_ms": 732.094,
+        "samples_ms": [
+          649.626,
+          732.094,
+          763.015
+        ],
+        "image_bytes": 304976
+      },
+      "compiler_rebuild": {
+        "median_ms": 5954.383,
+        "samples_ms": [
+          5954.383
+        ],
+        "image_bytes": 1636280
+      }
+    },
+    "core_hello": {
+      "median_ms": 131.25,
+      "samples_ms": [
+        135.111,
+        131.25,
+        124.835
+      ],
+      "image_bytes": 74056
+    }
+  },
+  "sidecars_sha256": {
+    "runtime.may": "7ff2702c1a1af7d62d289582455b5c6b5f5a2f18b280d7c5971a703dbb0871f3",
+    "native.may": "e78a21e7dad61ea18a90b56c1938bda0d930c7a9912f2a59aaeea6578f8f8031",
+    "prelude.may": "7b6ef9e2d60984601eef8c165441409abcc529fde7db32381ce23f611c90650e"
+  },
+  "speedups": {
+    "hello": 1.79,
+    "features": 1.55,
+    "compiler_rebuild": 12.74
+  }
+}

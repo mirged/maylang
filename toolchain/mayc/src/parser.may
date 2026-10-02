@@ -1,0 +1,1404 @@
+import "emitter.may";
+import "ffi.may";
+import "state.may";
+import "ast.may";
+import "diagnostics.may";
+import "lexer.may";
+import "sema.may";
+import "modules.may";
+// parser.may — recursive-descent parser turning tokens into an AST.
+//
+// Syntax variants have named fields (ast.may). No machine bytes are emitted.
+
+
+mut POS: Any = 0;
+mut PARC: Any = 0;
+mut MAINBODY: Any = 0;
+mut STRUCT_DECLS: Any = [];
+mut ENUM_DECLS: Any = [];
+mut DECLARATIONS: Any = [];
+mut PROGRAM_AST: Any = 0;
+mut MODULE_PUBLIC: Any = {};
+mut MODULE_EXPLICIT: Any = {};
+
+fun ptok() -> Any { return TOKS[POS].kind; }
+fun pstart() -> Any { return TOKS[POS].start; }
+fun plen() -> Any { return TOKS[POS].len; }
+fun pval() -> Any { return TOKS[POS].val; }
+fun peek(k: Any) -> Any { return TOKS[POS + k].kind; }
+fun adv() -> Any { POS = POS + 1; return 0; }
+
+fun perr() -> Any {
+    diagnostic(parser_span(), "unexpected token");
+    return 0;
+}
+
+fun expect(k: Any) -> Any {
+    if (ptok() != k) {
+        perr();
+    }
+    adv();
+    return 0;
+}
+
+fun skip_semi() -> Any {
+    if (ptok() == TK_SEMI) { adv(); }
+    return 0;
+}
+
+fun parse_program(ctx: Any) -> Any {
+    POS = 0;
+    DECLARATIONS = [];
+    STRUCT_DECLS = [];
+    ENUM_DECLS = [];
+    mut mh: Any = 0;
+    while (ptok() != TK_EOF) {
+        let public: Any = ptok() == TK_PUB;
+        if (public) { adv(); }
+        let declarationSpan: Any = parser_span();
+        let owner: Any = source_module(declarationSpan);
+        let firstFunction: Any = len(FUNC_HEAD);
+        if (public) { MODULE_EXPLICIT[owner] = true; }
+        let k: Any = ptok();
+        if (k == TK_EXTERN) {
+            parse_extern(ctx);
+        } else if (k == TK_STRUCT) {
+            parse_struct(ctx);
+            push(DECLARATIONS, STRUCT_DECLS[len(STRUCT_DECLS) - 1]);
+        } else if (k == TK_ENUM) {
+            parse_enum(ctx);
+            push(DECLARATIONS, ENUM_DECLS[len(ENUM_DECLS) - 1]);
+        } else if (k == TK_FUN) {
+            parse_fun(ctx);
+            push(DECLARATIONS, FUNC_HEAD[len(FUNC_HEAD) - 1]);
+        } else if (k == TK_LET) {
+            let s: Any = parse_let(ctx, 1);
+            push(DECLARATIONS, s);
+            s.next = mh;
+            mh = s;
+        } else if (k == TK_MUT) {
+            let s: Any = parse_let(ctx, 1);
+            push(DECLARATIONS, s);
+            s.next = mh;
+            mh = s;
+        } else {
+            let s: Any = parse_stmt(ctx);
+            push(DECLARATIONS, s);
+            s.next = mh;
+            mh = s;
+        }
+        for index: Any in firstFunction..len(FUNC_HEAD) {
+            if (FUNC_HEAD[index].nested == 0) { FUNC_HEAD[index].moduleSpan = declarationSpan; }
+        }
+        if (k == TK_LET or k == TK_MUT) { mh.span = declarationSpan; }
+        if (public) {
+            for index: Any in firstFunction..len(FUNC_HEAD) {
+                let rec: Any = FUNC_HEAD[index];
+                if (rec.nested == 0) { MODULE_PUBLIC[owner + "::" + symbol_name(rec.p, rec.l)] = true; }
+            }
+            if ((k == TK_LET or k == TK_MUT) and mh.kind == S_LET) {
+                MODULE_PUBLIC[owner + "::" + symbol_name(mh.name, mh.length)] = true;
+            }
+        }
+    }
+    MAINBODY = rev_list(mh);
+    PROGRAM_AST = Program(DECLARATIONS, FUNC_HEAD, MAINBODY);
+    return 0;
+}
+
+fun parse_type() -> Any {
+    let span: Any = parser_span();
+    // C-style function pointer spelling: Fn(A, B) -> R.
+    if (ptok() == TK_IDENT and slice_src(pstart(), plen()) == "Fn") {
+        adv(); expect(TK_LP);
+        mut parameters: Any = [];
+        while (ptok() != TK_RP) {
+            push(parameters, parse_type());
+            if (ptok() != TK_COMMA) { break; }
+            adv();
+        }
+        expect(TK_RP); expect(TK_ARROW);
+        return TypeRef("Function", parameters, parse_type(), span);
+    }
+    // Fixed arrays use [Element; length]. Store length separately from the
+    // element type so it remains part of the static type identity.
+    if (ptok() == TK_LBR) {
+        adv(); let element: Any = parse_type(); expect(TK_SEMI);
+        let length: Any = parse_integer_type_length(); expect(TK_RBR);
+        let array: Any = TypeRef("Array", [element], 0, span);
+        array.arrayLength = length; return array;
+    }
+    if (ptok() == TK_LP) {
+        adv();
+        mut parameters: Any = [];
+        while (ptok() != TK_RP) {
+            push(parameters, parse_type());
+            if (ptok() != TK_COMMA) { break; }
+            adv();
+        }
+        expect(TK_RP); expect(TK_ARROW);
+        return TypeRef("Function", parameters, parse_type(), span);
+    }
+    mut name: Any = slice_src(pstart(), plen());
+    expect(TK_IDENT);
+    while (ptok() == TK_DOT) {
+        adv(); name = name + "." + slice_src(pstart(), plen()); expect(TK_IDENT);
+    }
+    mut arguments: Any = [];
+    if (ptok() == TK_LT) {
+        adv();
+        if (name == "Array") {
+            push(arguments, parse_type()); expect(TK_COMMA);
+            if (ptok() != TK_INT) { diagnostic(parser_span(), "array length must be an integer literal"); }
+            let fixedLength: Any = pval(); adv(); expect(TK_GT);
+            let arrayType: Any = TypeRef(name, arguments, 0, span);
+            arrayType.arrayLength = fixedLength; return arrayType;
+        } else {
+            while (ptok() != TK_GT) {
+                push(arguments, parse_type());
+                if (ptok() != TK_COMMA) { break; }
+                adv();
+            }
+        }
+        expect(TK_GT);
+    }
+    return TypeRef(name, arguments, 0, span);
+}
+
+fun parse_integer_type_length() -> Any {
+    if (ptok() != TK_INT) { diagnostic(parser_span(), "array length must be an integer literal"); }
+    let length: Any = pval(); adv(); return length;
+}
+
+fun parse_annotation() -> Any {
+    if (ptok() != TK_COLON) { return 0; }
+    adv();
+    return parse_type();
+}
+
+fun parse_generic_params() -> Any {
+    mut parameters: Any = [];
+    if (ptok() != TK_LT) { return parameters; }
+    adv();
+    while (ptok() != TK_GT) {
+        let parameter: Any = slice_src(pstart(), plen());
+        push(parameters, TypeParameter(parameter, parser_span()));
+        expect(TK_IDENT);
+        if (ptok() != TK_COMMA) { break; }
+        adv();
+    }
+    expect(TK_GT);
+    return parameters;
+}
+
+fun make_func(ctx: Any, np: Any, nl: Any, parr: Any, pc: Any, body: Any, cc: Any, caparr: Any, boxed: Any) -> Any {
+    let lab: Any = newlab(ctx);
+    let rec: Any = FuncDecl(np, nl, pc, parr, body, lab, 0, cc, caparr, boxed);
+    rec.nested = 0;
+    rec.analyzed = 0;
+    rec.returnType = 0;
+    push(FUNC_HEAD, rec);
+    return lab;
+}
+
+fun parse_params() -> Any {
+    mut parr: Any = [];
+    if (ptok() != TK_RP) {
+        while (true) {
+            let a: Any = pstart() + SRC;
+            let b: Any = plen();
+            expect(TK_IDENT);
+            let annotation: Any = parse_annotation();
+            push(parr, Parameter(a, b, annotation, parser_span()));
+            if (ptok() == TK_COMMA) { adv(); } else { break; }
+        }
+    }
+    PARC = len(parr);
+    return parr;
+}
+
+fun parse_struct(ctx: Any) -> Any {
+    let span: Any = parser_span();
+    expect(TK_STRUCT);
+    let np: Any = pstart() + SRC;
+    let nl: Any = plen();
+    expect(TK_IDENT);
+    expect(TK_LB);
+    mut parr: Any = [];
+    mut entries: Any = 0;
+    while (ptok() != TK_RB) {
+        if (ptok() == TK_IDENT) {
+            let fs: Any = pstart();
+            let fl: Any = plen();
+            adv();
+            let annotation: Any = parse_annotation();
+            push(parr, Parameter(fs + SRC, fl, annotation, parser_span()));
+            let key: Any = mknode(E_STR);
+            key.start = fs;
+            key.length = fl;
+            let val: Any = mknode(E_VAR);
+            val.name = fs + SRC;
+            val.length = fl;
+            let ent: Any = mknode(E_ENTRY);
+            ent.key = key;
+            ent.value = val;
+            ent.next = entries;
+            entries = ent;
+        } else if (ptok() == TK_STR) {
+            let ks: Any = pstart();
+            let kl: Any = plen();
+            adv();
+            expect(TK_COLON);
+            let v: Any = parse_expr(ctx);
+            let key: Any = mknode(E_STR);
+            key.start = ks;
+            key.length = kl;
+            let ent: Any = mknode(E_ENTRY);
+            ent.key = key;
+            ent.value = v;
+            ent.next = entries;
+            entries = ent;
+        } else {
+            break;
+        }
+        if (ptok() == TK_COMMA) { adv(); }
+    }
+    expect(TK_RB);
+    entries = rev_list(entries);
+    let mapn: Any = mknode(E_MAP);
+    mapn.entries = entries;
+    let body: Any = mknode(S_BLOCK);
+    body.statements = 0;
+    body.tail = mapn;
+    make_func(ctx, np, nl, parr, len(parr), body, 0, [], []);
+    let constructor: Any = FUNC_HEAD[len(FUNC_HEAD) - 1];
+    push(STRUCT_DECLS, StructDecl(symbol_name(np, nl), parr, constructor, span));
+    return 0;
+}
+
+fun parse_enum(ctx: Any) -> Any {
+    let span: Any = parser_span();
+    expect(TK_ENUM);
+    let enp: Any = pstart() + SRC;
+    let enl: Any = plen();
+    expect(TK_IDENT);
+    expect(TK_LB);
+    mut variants: Any = [];
+    while (ptok() != TK_RB) {
+        let vs: Any = pstart();
+        let vl: Any = plen();
+        expect(TK_IDENT);
+        mut parr: Any = [];
+        mut entries: Any = 0;
+        let tk: Any = mknode(E_STRB);
+        tk.address = addr("tag");
+        tk.length = 3;
+        let tv: Any = mknode(E_STRB);
+        tv.address = vs + SRC;
+        tv.length = vl;
+        let te: Any = mknode(E_ENTRY);
+        te.key = tk;
+        te.value = tv;
+        te.next = entries;
+        entries = te;
+        if (ptok() == TK_LP) {
+            adv();
+            if (ptok() != TK_RP) {
+                while (true) {
+                    let fs: Any = pstart();
+                    let fl: Any = plen();
+                    expect(TK_IDENT);
+                    let annotation: Any = parse_annotation();
+                    push(parr, Parameter(fs + SRC, fl, annotation, parser_span()));
+                    let key: Any = mknode(E_STR);
+                    key.start = fs;
+                    key.length = fl;
+                    let val: Any = mknode(E_VAR);
+                    val.name = fs + SRC;
+                    val.length = fl;
+                    let ent: Any = mknode(E_ENTRY);
+                    ent.key = key;
+                    ent.value = val;
+                    ent.next = entries;
+                    entries = ent;
+                    if (ptok() == TK_COMMA) { adv(); } else { break; }
+                }
+            }
+            expect(TK_RP);
+        }
+        entries = rev_list(entries);
+        let mapn: Any = mknode(E_MAP);
+        mapn.entries = entries;
+        let body: Any = mknode(S_BLOCK);
+        body.statements = 0;
+        body.tail = mapn;
+        make_func(ctx, vs + SRC, vl, parr, len(parr), body, 0, [], []);
+        push(variants, EnumVariant(symbol_name(vs + SRC, vl), parr, FUNC_HEAD[len(FUNC_HEAD) - 1]));
+        if (ptok() == TK_COMMA) { adv(); }
+    }
+    expect(TK_RB);
+    push(ENUM_DECLS, EnumDecl(symbol_name(enp, enl), variants, span));
+    return 0;
+}
+
+fun parse_fun(ctx: Any) -> Any {
+    expect(TK_FUN);
+    let np: Any = pstart() + SRC;
+    let nl: Any = plen();
+    expect(TK_IDENT);
+    let typeParameters: Any = parse_generic_params();
+    expect(TK_LP);
+    let parr: Any = parse_params();
+    let pc: Any = PARC;
+    expect(TK_RP);
+    mut returnType: Any = 0;
+    if (ptok() == TK_ARROW) { adv(); returnType = parse_type(); }
+    IN_FUN = 1;
+    let body: Any = parse_block(ctx);
+    IN_FUN = 0;
+    let cc: Any = 0;
+    let caparr: Any = [];
+    let boxed: Any = [];
+    make_func(ctx, np, nl, parr, pc, body, cc, caparr, boxed);
+    FUNC_HEAD[len(FUNC_HEAD) - 1].returnType = returnType;
+    FUNC_HEAD[len(FUNC_HEAD) - 1].typeParameters = typeParameters;
+    return 0;
+}
+
+fun parse_block(ctx: Any) -> Any {
+    let span: Any = parser_span();
+    expect(TK_LB);
+    mut h: Any = 0;
+    while (ptok() != TK_RB) {
+        let s: Any = parse_stmt(ctx);
+        s.next = h;
+        h = s;
+    }
+    expect(TK_RB);
+    mut tail: Any = 0;
+    if (h != 0) {
+        if (h.kind == S_EXPR) {
+            if (h.terminated == 0) {
+                tail = h.expression;
+                h = h.next;
+            }
+        }
+    }
+    h = rev_list(h);
+    let b: Any = mknode(S_BLOCK);
+    b.statements = h;
+    b.tail = tail;
+    b.span = span;
+    return b;
+}
+
+fun parse_let(ctx: Any, g: Any) -> Any {
+    let span: Any = parser_span();
+    let writable: Any = ptok() == TK_MUT;
+    adv();
+    if (ptok() == TK_LBR  or  ptok() == TK_LB) {
+        let pat: Any = parse_pattern();
+        expect(TK_ASSIGN);
+        let e: Any = parse_expr(ctx);
+        skip_semi();
+        let s: Any = mknode(S_DESTRUCT);
+        s.span = span;
+        s.mutable = writable;
+        s.pattern = pat;
+        s.initializer = e;
+        s.global = g;
+        return s;
+    }
+    let np: Any = pstart() + SRC;
+    let nl: Any = plen();
+    expect(TK_IDENT);
+    let annotation: Any = parse_annotation();
+    expect(TK_ASSIGN);
+    let e: Any = parse_expr(ctx);
+    skip_semi();
+    let s: Any = mknode(S_LET);
+    s.span = span;
+    s.mutable = writable;
+    s.annotation = annotation;
+    s.name = np;
+    s.length = nl;
+    s.initializer = e;
+    s.global = g;
+    return s;
+}
+
+// Pattern entries distinguish list indices from map keys and nested patterns.
+fun pat_entry(kind: Any) -> Any {
+    let ent: Any = mknode(E_PATTERN);
+    ent.patternKind = kind;
+    ent.name = 0;
+    ent.length = 0;
+    ent.key = 0;
+    ent.keyLength = 0;
+    ent.nested = 0;
+    return ent;
+}
+
+fun parse_pattern_entry(kind: Any, idx: Any) -> Any {
+    let ent: Any = pat_entry(kind);
+    ent.key = idx;
+    if (ptok() == TK_LBR  or  ptok() == TK_LB) {
+        ent.nested = parse_pattern();
+    } else {
+        let tp: Any = pstart() + SRC;
+        let tl: Any = plen();
+        expect(TK_IDENT);
+        ent.name = tp;
+        ent.length = tl;
+    }
+    return ent;
+}
+
+fun parse_pattern() -> Any {
+    if (ptok() == TK_LBR) {
+        adv();
+        mut h: Any = 0;
+        mut idx: Any = 0;
+        while (ptok() != TK_RBR) {
+            let ent: Any = parse_pattern_entry(0, idx);
+            ent.next = h;
+            h = ent;
+            idx = idx + 1;
+            if (ptok() == TK_COMMA) { adv(); } else { break; }
+        }
+        expect(TK_RBR);
+        return rev_list(h);
+    }
+    if (ptok() == TK_LB) {
+        adv();
+        mut h: Any = 0;
+        while (ptok() != TK_RB) {
+            let ks: Any = pstart();
+            let kl: Any = plen();
+            expect(TK_IDENT);
+            let ent: Any = pat_entry(1);
+            ent.key = ks;
+            ent.keyLength = kl;
+            if (ptok() == TK_COLON) {
+                adv();
+                if (ptok() == TK_LBR  or  ptok() == TK_LB) {
+                    ent.nested = parse_pattern();
+                } else {
+                    ent.name = pstart() + SRC;
+                    ent.length = plen();
+                    expect(TK_IDENT);
+                }
+            } else {
+                ent.name = ks + SRC;
+                ent.length = kl;
+            }
+            ent.next = h;
+            h = ent;
+            if (ptok() == TK_COMMA) { adv(); } else { break; }
+        }
+        expect(TK_RB);
+        return rev_list(h);
+    }
+    perr();
+    return 0;
+}
+
+
+mut FORN: Any = 0;
+mut FORTL: Any = 0;
+
+fun for_tmp() -> Any {
+    FORN = FORN + 1;
+    let p: Any = irt_alloc(24);
+    store8(p, 48);
+    store8(p + 1, 102);
+    store8(p + 2, 111);
+    store8(p + 3, 114);
+    let tmp: Any = irt_alloc(16);
+    mut v: Any = FORN;
+    mut d: Any = 0;
+    while (v > 0) {
+        store8(tmp + d, (v % 10) + 48);
+        v = v / 10;
+        d = d + 1;
+    }
+    if (d == 0) { store8(tmp, 48); d = 1; }
+    mut i: Any = 0;
+    while (i < d) {
+        store8(p + 4 + i, load8(tmp + (d - 1 - i)));
+        i = i + 1;
+    }
+    FORTL = 4 + d;
+    return p;
+}
+
+fun parse_if(ctx: Any) -> Any {
+    expect(TK_IF);
+    let c: Any = parse_expr(ctx);
+    let t: Any = parse_stmt(ctx);
+    let b: Any = mknode(S_IF);
+    b.condition = c;
+    b.thenBranch = t;
+    b.elseBranch = 0;
+    if (ptok() == TK_ELSE) {
+        adv();
+        b.elseBranch = parse_stmt(ctx);
+    }
+    return b;
+}
+
+fun parse_while(ctx: Any) -> Any {
+    expect(TK_WHILE);
+    let c: Any = parse_expr(ctx);
+    let body: Any = parse_stmt(ctx);
+    let b: Any = mknode(S_WHILE);
+    b.condition = c;
+    b.body = body;
+    return b;
+}
+
+fun parse_return(ctx: Any) -> Any {
+    expect(TK_RETURN);
+    if (ptok() == TK_SEMI) {
+        adv();
+        let s: Any = mknode(S_RETURN);
+        s.value = 0;
+        return s;
+    }
+    let e: Any = parse_expr(ctx);
+    skip_semi();
+    let s: Any = mknode(S_RETURN);
+    s.value = e;
+    return s;
+}
+
+fun is_map_ahead() -> Any {
+    let t1: Any = peek(1);
+    if (t1 == TK_RB) { return 1; }
+    let t2: Any = peek(2);
+    if (t1 == TK_STR) {
+        if (t2 == TK_COLON) { return 1; }
+    }
+    if (t1 == TK_IDENT) {
+        if (t2 == TK_COLON) { return 1; }
+    }
+    return 0;
+}
+
+fun parser_span() -> Any {
+    let tokenSpan: Any = TOKS[POS];
+    return SourceSpan(SRC, tokenSpan.start, tokenSpan.len, tokenSpan.line, tokenSpan.col);
+}
+
+fun parse_stmt(ctx: Any) -> Any {
+    let span: Any = parser_span();
+    let statement: Any = parse_statement(ctx);
+    statement.span = span;
+    return statement;
+}
+
+fun parse_statement(ctx: Any) -> Any {
+    let k: Any = ptok();
+    if (k == TK_LB) {
+        if (is_map_ahead() == 1) {
+            mut e: Any = parse_expr(ctx);
+            skip_semi();
+            let s: Any = mknode(S_EXPR);
+            s.expression = e;
+            s.terminated = 0;
+            return s;
+        }
+        return parse_block(ctx);
+    }
+    if (k == TK_IF) { return parse_if(ctx); }
+    if (k == TK_WHILE) { return parse_while(ctx); }
+    if (k == TK_RETURN) { return parse_return(ctx); }
+    if (k == TK_BREAK) {
+        adv();
+        skip_semi();
+        return mknode(S_BREAK);
+    }
+    if (k == TK_CONTINUE) {
+        adv();
+        skip_semi();
+        return mknode(S_CONT);
+    }
+    if (k == TK_LET) { return parse_let(ctx, 0); }
+    if (k == TK_MUT) { return parse_let(ctx, 0); }
+    if (k == TK_FOR) { return parse_for(ctx); }
+    if (k == TK_UNLESS) { return parse_unless(ctx); }
+    if (k == TK_FUN) {
+        if (peek(1) == TK_IDENT) { return parse_nested_fun(ctx); }
+    }
+    if (k == TK_IDENT) {
+        let nt: Any = peek(1);
+        if (nt == TK_ASSIGN  or  nt == TK_PLUSEQ  or  nt == TK_MINUSEQ  or  nt == TK_STAREQ  or  nt == TK_SLASHEQ) {
+            let np: Any = pstart() + SRC;
+            let nl: Any = plen();
+            adv();
+            adv();
+            mut e: Any = parse_expr(ctx);
+            if (nt != TK_ASSIGN) {
+                let lhs: Any = mknode(E_VAR);
+                lhs.name = np;
+                lhs.length = nl;
+                mut op: Any = TK_PLUS;
+                if (nt == TK_MINUSEQ) { op = TK_MINUS; }
+                else if (nt == TK_STAREQ) { op = TK_STAR; }
+                else if (nt == TK_SLASHEQ) { op = TK_SLASH; }
+                let b: Any = mknode(E_BIN);
+                b.op = op;
+                b.left = lhs;
+                b.right = e;
+                e = b;
+            }
+            skip_semi();
+            let s: Any = mknode(S_ASSIGN);
+            s.name = np;
+            s.length = nl;
+            s.value = e;
+            return s;
+        }
+    }
+    mut e: Any = parse_expr(ctx);
+    let assignment: Any = ptok();
+    if (assignment == TK_ASSIGN or assignment == TK_PLUSEQ or assignment == TK_MINUSEQ or assignment == TK_STAREQ or assignment == TK_SLASHEQ) {
+        mut compound: Any = 0;
+        if (assignment == TK_PLUSEQ) { compound = TK_PLUS; }
+        if (assignment == TK_MINUSEQ) { compound = TK_MINUS; }
+        if (assignment == TK_STAREQ) { compound = TK_STAR; }
+        if (assignment == TK_SLASHEQ) { compound = TK_SLASH; }
+        if (e.kind == E_GET) {
+            adv();
+            let v: Any = parse_expr(ctx);
+            skip_semi();
+            let s: Any = mknode(S_SETPROP);
+            s.compound = compound;
+            s.object = e.object;
+            s.start = e.start;
+            s.length = e.length;
+            s.value = v;
+            return s;
+        }
+        if (e.kind == E_INDEX) {
+            adv();
+            let v: Any = parse_expr(ctx);
+            skip_semi();
+            let s: Any = mknode(S_SETIDX);
+            s.compound = compound;
+            s.object = e.object;
+            s.index = e.index;
+            s.value = v;
+            return s;
+        }
+    }
+    mut semi: Any = 0;
+    if (ptok() == TK_SEMI) { adv(); semi = 1; }
+    let s: Any = mknode(S_EXPR);
+    s.expression = e;
+    s.terminated = semi;
+    return s;
+}
+
+fun parse_unless(ctx: Any) -> Any {
+    expect(TK_UNLESS);
+    let c: Any = parse_expr(ctx);
+    let t: Any = parse_stmt(ctx);
+    let b: Any = mknode(S_IF);
+    let neg: Any = mknode(E_UN);
+    neg.op = TK_NOT;
+    neg.operand = c;
+    b.condition = neg;
+    b.thenBranch = t;
+    b.elseBranch = 0;
+    if (ptok() == TK_ELSE) {
+        adv();
+        b.elseBranch = parse_stmt(ctx);
+    }
+    return b;
+}
+
+fun parse_for(ctx: Any) -> Any {
+    expect(TK_FOR);
+    if (ptok() == TK_LBR  or  ptok() == TK_LB) {
+        let pat: Any = parse_pattern();
+        expect(TK_IN);
+        let e: Any = parse_expr(ctx);
+        let tmp: Any = for_tmp();
+        let tl: Any = FORTL;
+        mut body: Any = parse_stmt(ctx);
+        let ds: Any = mknode(S_DESTRUCT);
+        ds.pattern = pat;
+        let vr: Any = mknode(E_VAR);
+        vr.name = tmp;
+        vr.length = tl;
+        ds.initializer = vr;
+        ds.global = 0;
+        if (body.kind == S_BLOCK) {
+            ds.next = body.statements;
+            body.statements = ds;
+        } else {
+            let blk: Any = mknode(S_BLOCK);
+            ds.next = body;
+            blk.statements = ds;
+            blk.tail = 0;
+            body = blk;
+        }
+        let s: Any = mknode(S_FOR);
+        s.name = tmp;
+        s.length = tl;
+        s.iterable = e;
+        s.body = body;
+        return s;
+    }
+    let np: Any = pstart() + SRC;
+    let nl: Any = plen();
+    expect(TK_IDENT);
+    let annotation: Any = parse_annotation();
+    expect(TK_IN);
+    let e: Any = parse_expr(ctx);
+    mut body: Any = parse_stmt(ctx);
+    let s: Any = mknode(S_FOR);
+    s.name = np;
+    s.length = nl;
+    s.annotation = annotation;
+    s.iterable = e;
+    s.body = body;
+    return s;
+}
+
+fun parse_expr(ctx: Any) -> Any {
+    let span: Any = parser_span();
+    let expression: Any = parse_pratt(ctx, 0);
+    expression.span = span;
+    return expression;
+}
+
+fun pipe_into(x: Any, rhs: Any) -> Any {
+    if (rhs.kind == E_CALL) {
+        x.next = rhs.args;
+        rhs.args = x;
+        return rhs;
+    }
+    if (rhs.kind == E_VAR) {
+        let n: Any = mknode(E_CALL);
+        n.name = rhs.name;
+        n.length = rhs.length;
+        x.next = 0;
+        n.args = x;
+        return n;
+    }
+    perr();
+    return 0;
+}
+
+// Binding powers preserve Maylang's range, pipe and unary precedence.
+fun binding_power(kind: Any) -> Any {
+    if (kind == TK_QUEST and peek(1) == TK_QUEST) { return 10; }
+    if (kind == TK_PIPEOP) { return 20; }
+    if (kind == TK_OR) { return 30; }
+    if (kind == TK_AND) { return 40; }
+    if (kind == TK_EQ or kind == TK_NE) { return 50; }
+    if (kind == TK_LT or kind == TK_LE or kind == TK_GT or kind == TK_GE) { return 60; }
+    if (kind == TK_DOTDOT or kind == TK_DOTDOTEQ) { return 70; }
+    if (kind == TK_PLUS or kind == TK_MINUS) { return 80; }
+    if (kind == TK_STAR or kind == TK_SLASH or kind == TK_PCT) { return 90; }
+    if (kind == TK_POW) { return 110; }
+    return 0 - 1;
+}
+
+fun parse_pratt(ctx: Any, minimum: Any) -> Any {
+    let span: Any = parser_span();
+    mut left: Any = 0;
+    if (ptok() == TK_MINUS or ptok() == TK_NOT) {
+        let op: Any = ptok();
+        adv();
+        if (op == TK_MINUS and ptok() == TK_INT and pval() < 0) {
+            left = IntLit(E_INT, span, 0, pval()); adv();
+        } else { left = Unary(E_UN, span, 0, op, parse_pratt(ctx, 100)); }
+    } else { left = parse_postfix(ctx); }
+    while (true) {
+        let op: Any = ptok();
+        let power: Any = binding_power(op);
+        if (power < minimum) { break; }
+        adv();
+        if (op == TK_QUEST) { expect(TK_QUEST); }
+        mut rightPower: Any = power + 1;
+        if (op == TK_POW) { rightPower = power; }
+        let right: Any = parse_pratt(ctx, rightPower);
+        if (op == TK_PIPEOP) { left = pipe_into(left, right); }
+        else if (op == TK_AND) { left = LogicalAnd(E_AND, span, 0, left, right); }
+        else if (op == TK_OR) { left = LogicalOr(E_OR, span, 0, left, right); }
+        else if (op == TK_QUEST) { left = Coalesce(E_COALESCE, span, 0, left, right); }
+        else if (op == TK_POW) { left = Power(E_POW, span, 0, left, right); }
+        else if (op == TK_DOTDOT or op == TK_DOTDOTEQ) {
+            mut inclusive: Any = 0;
+            if (op == TK_DOTDOTEQ) { inclusive = 1; }
+            left = RangeExpr(E_RANGE, span, 0, left, right, inclusive);
+        } else { left = Binary(E_BIN, span, 0, op, left, right); }
+    }
+    return left;
+}
+
+fun parse_postfix(ctx: Any) -> Any {
+    mut e: Any = parse_primary(ctx);
+    while (true) {
+        if (ptok() == TK_LBR) {
+            adv();
+            let idx: Any = parse_expr(ctx);
+            expect(TK_RBR);
+            let n: Any = mknode(E_INDEX);
+            n.object = e;
+            n.index = idx;
+            e = n;
+        } else if (ptok() == TK_DOT) {
+            adv();
+            let np: Any = pstart();
+            let nl: Any = plen();
+            expect(TK_IDENT);
+            let owner: Any = source_module(e.span);
+            mut qualified: Any = false;
+            if (e.kind == E_VAR and has(MODULE_IMPORTS, owner)) {
+                let alias: Any = symbol_name(e.name, e.length);
+                for imported: Any in MODULE_IMPORTS[owner] {
+                    if (imported.alias == alias) { qualified = true; }
+                }
+                if (qualified) {
+                    let name: Any = alias + "::" + symbol_name(np + SRC, nl);
+                    let variable: Any = mknode(E_VAR);
+                    let pointer: Any = irt_alloc(len(name) + 1);
+                    for index: Any in 0..len(name) { store8(pointer + index, load8(addr(name) + index)); }
+                    variable.name = pointer; variable.length = len(name);
+                    variable.moduleObject = e;
+                    variable.memberStart = np; variable.memberLength = nl;
+                    e = variable;
+                }
+            }
+            if (qualified) { continue; }
+            if (ptok() == TK_LP) {
+                adv();
+                mut argl: Any = 0;
+                if (ptok() != TK_RP) {
+                    while (true) {
+                        let a: Any = parse_expr(ctx);
+                        a.next = argl;
+                        argl = a;
+                        if (ptok() == TK_COMMA) { adv(); } else { break; }
+                    }
+                }
+                expect(TK_RP);
+                argl = rev_list(argl);
+                e.next = argl;
+                let c: Any = mknode(E_CALL);
+                c.name = np + SRC;
+                c.length = nl;
+                c.args = e;
+                e = c;
+            } else {
+                let n: Any = mknode(E_GET);
+                n.object = e;
+                n.start = np;
+                n.length = nl;
+                e = n;
+            }
+        } else if (ptok() == TK_LP) {
+            adv();
+            mut argl: Any = 0;
+            if (ptok() != TK_RP) {
+                while (true) {
+                    let a: Any = parse_expr(ctx);
+                    a.next = argl;
+                    argl = a;
+                    if (ptok() == TK_COMMA) { adv(); } else { break; }
+                }
+            }
+            expect(TK_RP);
+            argl = rev_list(argl);
+            let c: Any = mknode(E_ICALL);
+            c.callee = e;
+            c.args = argl;
+            e = c;
+        } else if (ptok() == TK_QUEST) {
+            if (peek(1) == TK_DOT) {
+                adv();
+                adv();
+                let np: Any = pstart();
+                let nl: Any = plen();
+                expect(TK_IDENT);
+                let n: Any = mknode(E_SAFEGET);
+                n.object = e;
+                n.start = np;
+                n.length = nl;
+                e = n;
+            } else if (peek(1) == TK_QUEST) {
+                break;
+            } else {
+                adv();
+                let n: Any = mknode(E_TRY);
+                n.operand = e;
+                e = n;
+            }
+        } else {
+            break;
+        }
+    }
+    return e;
+}
+
+fun parse_item(ctx: Any) -> Any {
+    if (ptok() == TK_SPREAD) {
+        adv();
+        let e: Any = parse_expr(ctx);
+        let sp: Any = mknode(E_SPREAD);
+        sp.operand = e;
+        return sp;
+    }
+    return parse_expr(ctx);
+}
+
+fun parse_lambda_body(ctx: Any) -> Any {
+    if (ptok() == TK_LB) { return parse_block(ctx); }
+    let e: Any = parse_expr(ctx);
+    let b: Any = mknode(S_BLOCK);
+    b.statements = 0;
+    b.tail = e;
+    return b;
+}
+
+
+fun finish_lambda(ctx: Any, parr: Any, pc: Any, body: Any) -> Any {
+    let cc: Any = 0;
+    let caparr: Any = [];
+    let caph: Any = 0;
+    let boxed: Any = [];
+    let lab: Any = make_func(ctx, addr("0lambda"), 7, parr, pc, body, cc, caparr, boxed);
+    FUNC_HEAD[len(FUNC_HEAD) - 1].nested = 1;
+    let n: Any = mknode(E_CLOSURE);
+    n.label = lab;
+    n.captures = caph;
+    n.arity = pc;
+    return n;
+}
+
+fun parse_match(ctx: Any) -> Any {
+    expect(TK_MATCH);
+    if (ptok() == TK_LP) { adv(); }
+    let scr: Any = parse_expr(ctx);
+    if (ptok() == TK_RP) { adv(); }
+    expect(TK_LB);
+    mut h: Any = 0;
+    while (ptok() != TK_RB) {
+        mut pk: Any = 0;
+        mut pv: Any = 0;
+        mut pn: Any = 0;
+        if (ptok() == TK_IDENT) {
+            let s: Any = pstart() + SRC;
+            let l: Any = plen();
+            adv();
+            let name: Any = symbol_name(s, l);
+            if (name == "_") {
+                pk = 0;
+            } else if (name == "true" or name == "false" or name == "nil") {
+                pk = 1;
+                let literal: Any = mknode(E_VAR);
+                literal.name = s;
+                literal.length = l;
+                pv = literal;
+            } else {
+                pk = 2;
+                pv = s;
+                pn = l;
+            }
+        } else {
+            let lit: Any = parse_primary(ctx);
+            pk = 1;
+            pv = lit;
+        }
+        mut guard: Any = 0;
+        if (ptok() == TK_IF) {
+            adv();
+            guard = parse_expr(ctx);
+        }
+        expect(TK_ARROW);
+        let body: Any = parse_lambda_body(ctx);
+        let arm: Any = mknode(E_ARM);
+        arm.patternKind = pk;
+        arm.pattern = pv;
+        arm.length = pn;
+        arm.guard = guard;
+        arm.body = body;
+        arm.next = h;
+        h = arm;
+        if (ptok() == TK_COMMA) { adv(); }
+    }
+    expect(TK_RB);
+    h = rev_list(h);
+    let n: Any = mknode(E_MATCH);
+    n.subject = scr;
+    n.arms = h;
+    return n;
+}
+
+fun parse_nested_fun(ctx: Any) -> Any {
+    expect(TK_FUN);
+    let np: Any = pstart() + SRC;
+    let nl: Any = plen();
+    expect(TK_IDENT);
+    let typeParameters: Any = parse_generic_params();
+    expect(TK_LP);
+    let parr: Any = parse_params();
+    let pc: Any = PARC;
+    expect(TK_RP);
+    mut returnType: Any = 0;
+    if (ptok() == TK_ARROW) { adv(); returnType = parse_type(); }
+    let body: Any = parse_block(ctx);
+    let cc: Any = 0;
+    let caparr: Any = [];
+    let caph: Any = 0;
+    let boxed: Any = [];
+    let lab: Any = make_func(ctx, np, nl, parr, pc, body, cc, caparr, boxed);
+    FUNC_HEAD[len(FUNC_HEAD) - 1].returnType = returnType;
+    FUNC_HEAD[len(FUNC_HEAD) - 1].typeParameters = typeParameters;
+    FUNC_HEAD[len(FUNC_HEAD) - 1].nested = 1;
+    let cl: Any = mknode(E_CLOSURE);
+    cl.label = lab;
+    cl.captures = caph;
+    cl.arity = pc;
+    let s: Any = mknode(S_LET);
+    s.name = np;
+    s.length = nl;
+    s.initializer = cl;
+    s.global = 0;
+    return s;
+}
+
+fun parse_may(ctx: Any) -> Any {
+    expect(TK_MAY);
+    let body: Any = parse_block(ctx);
+    mut fb: Any = 0;
+    if (ptok() == TK_OTHERWISE) {
+        adv();
+        fb = parse_block(ctx);
+    }
+    let n: Any = mknode(E_MAY);
+    n.body = body;
+    n.fallback = fb;
+    return n;
+}
+
+fun has_interp(s: Any, l: Any) -> Any {
+    mut i: Any = 0;
+    while (i + 1 < l) {
+        if (load8(SRC + s + i) == 36) {
+            if (load8(SRC + s + i + 1) == 123) { return 1; }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fun cat_expr(a: Any, b: Any) -> Any {
+    if (a == 0) { return b; }
+    let n: Any = mknode(E_BIN);
+    n.op = TK_PLUS;
+    n.left = a;
+    n.right = b;
+    return n;
+}
+
+fun str_seg(s: Any, start: Any, len: Any) -> Any {
+    let n: Any = mknode(E_STR);
+    n.start = s + start;
+    n.length = len;
+    return n;
+}
+
+// Stringify an interpolation hole via the `str` builtin so floats use the
+// same shortest round-trip formatting as the host.
+fun call_str(ex: Any) -> Any {
+    ex.next = 0;
+    let c: Any = mknode(E_CALL);
+    c.name = addr("str");
+    c.length = 3;
+    c.args = ex;
+    return c;
+}
+
+fun parse_embedded(ctx: Any, start: Any, len: Any) -> Any {
+    let save_toks: Any = TOKS;
+    let save_pos: Any = POS;
+    let save_n: Any = NTOKS;
+    TOKS = lex_span(start, start + len);
+    POS = 0;
+    let e: Any = parse_expr(ctx);
+    TOKS = save_toks;
+    POS = save_pos;
+    NTOKS = save_n;
+    return e;
+}
+
+fun build_interp(ctx: Any, s: Any, l: Any) -> Any {
+    mut acc: Any = str_seg(s, 0, 0);
+    mut segstart: Any = 0;
+    mut i: Any = 0;
+    while (i < l) {
+        if (load8(SRC + s + i) == 36) {
+            if (load8(SRC + s + i + 1) == 123) {
+                if (i > segstart) { acc = cat_expr(acc, str_seg(s, segstart, i - segstart)); }
+                mut j: Any = i + 2;
+                mut depth: Any = 1;
+                while (j < l) {
+                    let c: Any = load8(SRC + s + j);
+                    if (c == 34) {
+                        j = j + 1;
+                        while (j < l) {
+                            let e2: Any = load8(SRC + s + j);
+                            if (e2 == 92) { j = j + 2; }
+                            else if (e2 == 34) { j = j + 1; break; }
+                            else { j = j + 1; }
+                        }
+                    }
+                    else if (c == 123) { depth = depth + 1; j = j + 1; }
+                    else if (c == 125) {
+                        depth = depth - 1;
+                        if (depth == 0) { break; }
+                        j = j + 1;
+                    }
+                    else { j = j + 1; }
+                }
+                let ex: Any = parse_embedded(ctx, s + i + 2, j - (i + 2));
+                acc = cat_expr(acc, call_str(ex));
+                i = j + 1;
+                segstart = i;
+            } else {
+                i = i + 1;
+            }
+        } else if (load8(SRC + s + i) == 92) {
+            i = i + 2;
+        } else {
+            i = i + 1;
+        }
+    }
+    if (l > segstart) { acc = cat_expr(acc, str_seg(s, segstart, l - segstart)); }
+    return acc;
+}
+
+fun parse_primary(ctx: Any) -> Any {
+    let k: Any = ptok();
+    if (k == TK_IF) { return parse_if(ctx); }
+    if (k == TK_UNLESS) { return parse_unless(ctx); }
+    if (k == TK_MATCH) { return parse_match(ctx); }
+    if (k == TK_MAY) { return parse_may(ctx); }
+    if (k == TK_FUN) {
+        adv();
+        expect(TK_LP);
+        mut parr: Any = [];
+        if (ptok() != TK_RP) {
+            while (true) {
+                let a: Any = pstart() + SRC;
+                let b: Any = plen();
+                expect(TK_IDENT);
+                let annotation: Any = parse_annotation();
+                push(parr, Parameter(a, b, annotation, parser_span()));
+                if (ptok() == TK_COMMA) { adv(); } else { break; }
+            }
+        }
+        expect(TK_RP);
+        mut resultType: Any = 0;
+        if (ptok() == TK_ARROW) { adv(); resultType = parse_type(); }
+        let body: Any = parse_lambda_body(ctx);
+        let lambda: Any = finish_lambda(ctx, parr, len(parr), body);
+        FUNC_HEAD[len(FUNC_HEAD) - 1].returnType = resultType;
+        return lambda;
+    }
+    if (k == TK_PIPE) {
+        adv();
+        mut parr: Any = [];
+        if (ptok() != TK_PIPE) {
+            while (true) {
+                let a: Any = pstart() + SRC;
+                let b: Any = plen();
+                expect(TK_IDENT);
+                let annotation: Any = parse_annotation();
+                push(parr, Parameter(a, b, annotation, parser_span()));
+                if (ptok() == TK_COMMA) { adv(); } else { break; }
+            }
+        }
+        expect(TK_PIPE);
+        mut resultType: Any = 0;
+        if (ptok() == TK_ARROW) { adv(); resultType = parse_type(); }
+        let body: Any = parse_lambda_body(ctx);
+        let lambda: Any = finish_lambda(ctx, parr, len(parr), body);
+        FUNC_HEAD[len(FUNC_HEAD) - 1].returnType = resultType;
+        return lambda;
+    }
+    if (k == TK_INT) {
+        let v: Any = pval();
+        if (v < 0) { diagnostic(parser_span(), "integer literal out of range"); }
+        adv();
+        let n: Any = mknode(E_INT);
+        n.value = v;
+        return n;
+    }
+    if (k == TK_FLOAT) {
+        let s: Any = pstart();
+        let l: Any = plen();
+        adv();
+        let n: Any = mknode(E_FLOAT);
+        n.start = s;
+        n.length = l;
+        return n;
+    }
+    if (k == TK_STR) {
+        let s: Any = pstart();
+        let l: Any = plen();
+        adv();
+        if (has_interp(s, l) == 1) { return build_interp(ctx, s, l); }
+        let n: Any = mknode(E_STR);
+        n.start = s;
+        n.length = l;
+        return n;
+    }
+    if (k == TK_LP) {
+        adv();
+        let e: Any = parse_expr(ctx);
+        expect(TK_RP);
+        return e;
+    }
+    if (k == TK_LBR) {
+        adv();
+        if (ptok() == TK_RBR) {
+            adv();
+            let n: Any = mknode(E_LIST);
+            n.items = 0;
+            return n;
+        }
+        let first: Any = parse_item(ctx);
+        if (ptok() == TK_FOR) {
+            adv();
+            let np: Any = pstart() + SRC;
+            let nl: Any = plen();
+            expect(TK_IDENT);
+            let annotation: Any = parse_annotation();
+            expect(TK_IN);
+            let it: Any = parse_expr(ctx);
+            mut cond: Any = 0;
+            if (ptok() == TK_IF) {
+                adv();
+                cond = parse_expr(ctx);
+            }
+            expect(TK_RBR);
+            let c: Any = mknode(E_COMP);
+            c.element = first;
+            c.name = np;
+            c.length = nl;
+            c.iterable = it;
+            c.condition = cond;
+            c.annotation = annotation;
+            return c;
+        }
+        mut h: Any = first;
+        while (ptok() == TK_COMMA) {
+            adv();
+            if (ptok() == TK_RBR) { break; }
+            let e: Any = parse_item(ctx);
+            e.next = h;
+            h = e;
+        }
+        expect(TK_RBR);
+        h = rev_list(h);
+        let n: Any = mknode(E_LIST);
+        n.items = h;
+        return n;
+    }
+    if (k == TK_LB) {
+        adv();
+        mut h: Any = 0;
+        if (ptok() != TK_RB) {
+            while (true) {
+                if (ptok() == TK_RB) { break; }
+                if (ptok() == TK_SPREAD) {
+                    adv();
+                    let v: Any = parse_expr(ctx);
+                    let ent: Any = mknode(E_ENTRY);
+                    ent.key = 0;
+                    ent.value = v;
+                    ent.next = h;
+                    h = ent;
+                    if (ptok() == TK_COMMA) { adv(); continue; }
+                    break;
+                }
+                mut key: Any = 0;
+                if (peek(1) == TK_COLON) {
+                    if (ptok() == TK_IDENT) {
+                        let ks: Any = pstart();
+                        let kl: Any = plen();
+                        adv();
+                        let kn: Any = mknode(E_STR);
+                        kn.start = ks;
+                        kn.length = kl;
+                        key = kn;
+                    } else if (ptok() == TK_STR) {
+                        let ks: Any = pstart();
+                        let kl: Any = plen();
+                        adv();
+                        let kn: Any = mknode(E_STR);
+                        kn.start = ks;
+                        kn.length = kl;
+                        key = kn;
+                    }
+                }
+                if (key == 0) { key = parse_expr(ctx); }
+                expect(TK_COLON);
+                let val: Any = parse_expr(ctx);
+                let ent: Any = mknode(E_ENTRY);
+                ent.key = key;
+                ent.value = val;
+                ent.next = h;
+                h = ent;
+                if (ptok() == TK_COMMA) { adv(); } else { break; }
+            }
+        }
+        expect(TK_RB);
+        h = rev_list(h);
+        let n: Any = mknode(E_MAP);
+        n.entries = h;
+        return n;
+    }
+    if (k == TK_IDENT) {
+        let np: Any = pstart() + SRC;
+        let nl: Any = plen();
+        adv();
+        if (ptok() == TK_ARROW) {
+            adv();
+            let parr: Any = [Parameter(np, nl, 0, parser_span())];
+            let body: Any = parse_lambda_body(ctx);
+            return finish_lambda(ctx, parr, 1, body);
+        }
+        if (ptok() == TK_LP) {
+            adv();
+            mut args: Any = 0;
+            if (ptok() != TK_RP) {
+                while (true) {
+                    let a: Any = parse_expr(ctx);
+                    a.next = args;
+                    args = a;
+                    if (ptok() == TK_COMMA) { adv(); } else { break; }
+                }
+            }
+            expect(TK_RP);
+            args = rev_list(args);
+            let c: Any = mknode(E_CALL);
+            c.name = np;
+            c.length = nl;
+            c.args = args;
+            return c;
+        }
+        let v: Any = mknode(E_VAR);
+        v.name = np;
+        v.length = nl;
+        return v;
+    }
+    perr();
+    return 0;
+}

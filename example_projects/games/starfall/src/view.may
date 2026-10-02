@@ -1,0 +1,16 @@
+fun show_status(state: Any) -> Any {
+    print("");
+    print("  S.V. WAYFARER  ·  SECTOR " + str(state.sector) + "  ·  SHIFT " + str(state.day));
+    print("  Hull     " + repeat("█", max(0, state.hull)) + repeat("░", max(0, 8 - state.hull)) + "  " + str(state.hull) + "/8");
+    print("  Fuel     " + str(state.fuel) + " units");
+    print("  Credits  " + str(state.credits) + " cr");
+    print("  Cargo    " + str(state.cargo) + " crate(s)");
+    if (state.hull <= 0) { print("  FLIGHT LOST — reset to begin a new run."); }
+    if (state.rescued) { print("  RESCUE CONFIRMED — the crew made it home."); }
+    return print("");
+}
+
+fun show_log(state: Any) -> Any {
+    print("FLIGHT RECORDER");
+    for line: Any in state.log { print("  · " + line); }
+ return nil; }

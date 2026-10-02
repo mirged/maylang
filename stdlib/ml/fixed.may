@@ -1,0 +1,44 @@
+// Fixed-point dense neural inference for small evolutionary controllers.
+// Parameters are output-major weights followed by biases for each layer.
+// Softsign z/(1+abs(z)) keeps all intermediate calculations as tagged integers.
+// Dimensions/scale are validated once; inference checks each input row.
+struct FixedLayer { inputs: Int, outputs: Int, offset: Int }
+struct FixedNetwork { layers: List<FixedLayer>, parameters: List<Int>, scale: Int }
+fun nn_fixed_model(dimensions: List<Int>, parameters: List<Int>, scale: Int) -> FixedNetwork {
+    if (len(dimensions) < 2 or scale < 1 or scale > 32768) { fail("invalid fixed neural dimensions or scale"); }
+    let layers: List<FixedLayer> = [];
+    mut offset: Int = 0;
+    for i: Int in 0..len(dimensions) - 1 {
+        let inputs: Int = dimensions[i]; let outputs: Int = dimensions[i + 1];
+        if (inputs < 1 or outputs < 1 or inputs > 1024 or outputs > 1024) { fail("invalid fixed neural layer width"); }
+        push(layers, FixedLayer(inputs, outputs, offset));
+        offset += inputs * outputs + outputs;
+    }
+    if (len(parameters) != offset) { fail("fixed neural parameter count mismatch"); }
+    for parameter: Int in parameters { if (abs(parameter) > scale * 16) { fail("fixed neural weight exceeds safe range"); } }
+    return FixedNetwork(layers, parameters, scale);
+}
+fun nn_fixed_predict(network: FixedNetwork, row: List<Int>) -> List<Int> {
+    if (len(row) != network.layers[0].inputs) { fail("fixed neural input width mismatch"); }
+    for value: Int in row { if (abs(value) > network.scale * 16) { fail("fixed neural input exceeds safe range"); } }
+    mut current: List<Int> = row;
+    let parameters: List<Int> = network.parameters;
+    let scale: Int = network.scale;
+    for layer: FixedLayer in network.layers {
+        let outputs: List<Int> = [];
+        let inputs: Int = layer.inputs;
+        let bias_offset: Int = layer.offset + inputs * layer.outputs;
+        mut k: Int = 0;
+        while (k < layer.outputs) {
+            mut value: Int = parameters[bias_offset + k] * scale;
+            let weight_offset: Int = layer.offset + k * inputs;
+            mut j: Int = 0;
+            while (j < inputs) { value += current[j] * parameters[weight_offset + j]; j += 1; }
+            let z: Int = value / scale;
+            push(outputs, z * scale / (scale + int(abs(z))));
+            k += 1;
+        }
+        current = outputs;
+    }
+    return current;
+}
