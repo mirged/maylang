@@ -141,6 +141,12 @@ Build outputs, dependencies, scratch binaries, and local assistant configuration
 are ignored. One Linux x86-64 bootstrap compiler is deliberately versioned at
 `toolchain/mayc/build/bin/mayc_new` so a fresh clone can build itself.
 
+## Roadmap
+
+See the [community roadmap](ROADMAP.md) for planned milestones, linked issues,
+and how to propose changes to priorities and scope. The plan evolves with
+community needs and implementation evidence.
+
 ## Contributing
 
 Small reproductions and focused changes are welcome. Include the source that
