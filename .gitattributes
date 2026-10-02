@@ -1,1 +1,3 @@
 *.svg -whitespace
+*.html linguist-detectable=false
+*.may linguist-language=May
