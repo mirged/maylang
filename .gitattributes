@@ -1,3 +1,3 @@
 *.svg -whitespace
 *.html linguist-detectable=false
-*.may linguist-language=Metal // lets wait for github to support may eventually
+*.may linguist-language=Metal # lets wait for github to support may eventually
