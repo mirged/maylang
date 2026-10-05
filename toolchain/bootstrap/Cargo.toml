@@ -1,0 +1,13 @@
+[package]
+name = "may_bootstrap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "may-bootstrap"
+path = "src/main.rs"
+
+[dependencies]
+may_ast.workspace = true
+may_parser.workspace = true

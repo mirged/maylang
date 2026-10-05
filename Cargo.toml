@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "toolchain/bootstrap",
     "toolchain/legacy-rust/crates/may_ast",
     "toolchain/legacy-rust/crates/may_lexer",
     "toolchain/legacy-rust/crates/may_parser",

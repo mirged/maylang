@@ -4,6 +4,12 @@
 `src/`; runtime sidecars stay beside the entry point. Compiler tests and
 bootstrap binaries are kept in `tests/` and `build/` respectively.
 
+No compiler binary is checked in. Run `sh toolchain/bootstrap/build.sh` from
+the repository root to build from Rust and C source, or invoke `mayc_new` to
+build automatically on first use. Rust and GCC or Clang are required for this
+first build. Later invocations use the generated native compiler in
+`build/bin/`. See the [bootstrap guide](../bootstrap/README.md).
+
 ## Command line
 
 ```sh
@@ -235,11 +241,11 @@ example/project entry points, and ELF validation with:
 toolchain/mayc/tests/run.sh
 ```
 
-The first build from the installed strict-capable `mayc_new` is
-`build/bootstrap/mayc_v2_seed`.
-The original compiler cannot parse the migrated syntax. The next two
-compiler generations and final fixed-point check are stored in
-`build/bootstrap/`; the verifier checks that all stages are byte-identical.
+The launcher obtains its initial native compiler from the Rust → C bootstrap.
+The verifier rebuilds it as `build/bootstrap/mayc_v2_seed`, then checks three
+successive native generations in `build/bootstrap/` for byte-identical output.
+`python3 toolchain/bootstrap/test.py` separately verifies the complete
+source-only chain, including C stage 1 and convergence of native stages 2 and 3.
 
 Additional runtime and language compliance regressions live in
 [`tests/compliance`](../../tests/compliance/README.md). Run them with

@@ -26,6 +26,7 @@
 
 # Scratch binaries, Python caches, editor and operating-system files
 /mayc_benchmark
+/mayc_bench
 /mayc_bencmark1
 /example_projects/learning/study/test
 *.pyc
@@ -35,14 +36,6 @@
 # Generated OS disk and editor packages
 /toolchain/mayos/data/*.img
 *.vsix
-
-# The self-hosted compiler needs one deliberately versioned bootstrap binary.
-# Keep other builds ignored; a fresh clone must be able to compile itself.
-!/toolchain/mayc/build/
-/toolchain/mayc/build/*
-!/toolchain/mayc/build/bin/
-/toolchain/mayc/build/bin/*
-!/toolchain/mayc/build/bin/mayc_new
 
 # Ephemeral verification logs and simulation checkpoints
 /tests/compliance/*.log

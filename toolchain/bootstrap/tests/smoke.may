@@ -1,0 +1,21 @@
+struct Pair { left: Any, right: Any }
+fun counter(start: Int) -> Any {
+    mut n: Int = start;
+    return fun() -> Int { n += 1; return n; };
+}
+let next: Any = counter(40);
+let pair: Any = Pair(next(), next());
+let doubled: Any = [x * 2 for x: Int in 1..=3];
+mut total: Int = 0;
+for value: Int in doubled { total += value; }
+print(pair.left, pair.right, total, "${pair.left + 1}");
+print(may { 1 / 0 } otherwise { err.kind });
+mut order: Int = 0;
+fun step() -> Int { order += 1; return order; }
+print(step() * 10 + step());
+fun recovery() -> Any {
+    mut n: Int = 0;
+    return may { n = 7; fail("test"); } otherwise { fun() -> Int { return n; } };
+}
+print(recovery()());
+print(9007199254740993 > 9007199254740992);

@@ -6,7 +6,7 @@ This is a living plan. Community needs, reproducible failures, contributor avail
 
 ## Starting point
 
-The current project has a self-hosted compiler running on Linux x86-64, several native output targets, a Maylang language server, a package manager, a standard library and example projects. The documented gaps include reliance on a checked-in bootstrap compiler, full-runtime GC corruption under sustained allocation, and native macOS/Windows execution that still needs verification. The linked issues capture the starting assumptions; verify them against current code before implementation.
+The current project has a self-hosted compiler running on Linux x86-64, several native output targets, a Maylang language server, a package manager, a standard library and example projects. A minimal Rust → C bootstrap builds the compiler entirely from source. The documented gaps include full-runtime GC corruption under sustained allocation and native macOS/Windows execution that still needs verification. The linked issues capture the starting assumptions; verify them against current code before implementation.
 
 ## Milestones at a glance
 
@@ -44,20 +44,20 @@ The initial priorities are P0 for foundational reliability and bootstrapping, P1
 
 Make source builds and runtime correctness trustworthy before broadening adoption.
 
-### Initiative 1. Keep legacy-rust up to date and bootstrap Maylang entirely from Rust source
+### Initiative 1. Bootstrap Maylang entirely from source
 
-**Status:** planned  
+**Status:** implemented
 **Initial priority:** P0  
 **GitHub:** [Issue #1](https://github.com/mirged/maylang/issues/1)  
-**Relevant paths:** `Cargo.toml`, `toolchain/legacy-rust/crates/`, `toolchain/mayc/main.may`, `README.md`
+**Relevant paths:** `toolchain/bootstrap/`, `toolchain/legacy-rust/crates/`, `.github/workflows/bootstrap.yml`, `toolchain/mayc/main.may`, `README.md`
 
-Rust is currently archived, while fresh clones depend on a tracked bootstrap binary. Maintain Rust as a supported source-only bootstrap path.
+The supported stage-zero compiler reuses Rust frontend components and emits GNU C. It intentionally replaces the originally proposed `may_cli`/Rust native backend route with a smaller bootstrap. Native stages 2 and 3 converge to identical executables; fresh clones require Rust and GCC or Clang rather than a tracked compiler binary.
 
-- [ ] Define the bootstrap language/runtime subset required by the current Maylang compiler.
-- [ ] Maintain Rust lexer/parser/checker/backend compatibility with that subset and document intentional differences.
-- [ ] Document cargo build --locked --release -p may_cli followed by compilation of successive self-hosted compiler stages.
-- [ ] Add clean-clone CI that excludes all precompiled compiler binaries, builds Rust from source and verifies stage convergence and hello/strict cases.
-- [ ] After the source-only path is reliable, remove the tracked bootstrap binary and provide optional release downloads.
+- [x] Document the bootstrap language/runtime subset and intentional differences (annotations are ignored; generated mayc performs strict checking).
+- [x] Support current compiler syntax in the shared Rust frontend and minimal C emitter/runtime.
+- [x] Document `cargo build --offline --locked --release -p may_bootstrap`, successive stages and the source-building launcher.
+- [x] Add clean-checkout CI for source-only stage convergence and hello/strict cases.
+- [x] Remove the tracked bootstrap binary and ignore all generated build directories. Optional downloadable binaries belong to release packaging (initiative 4).
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 

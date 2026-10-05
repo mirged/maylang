@@ -7,6 +7,14 @@ name = "may_ast"
 version = "0.1.0"
 
 [[package]]
+name = "may_bootstrap"
+version = "0.1.0"
+dependencies = [
+ "may_ast",
+ "may_parser",
+]
+
+[[package]]
 name = "may_check"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,28 @@
+name: Source-only bootstrap
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc binutils python3
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Check parser compatibility
+        run: cargo test --offline --locked -p may_parser
+      - name: Build and verify three compiler generations from source
+        run: |
+          test ! -e toolchain/mayc/build/bin/mayc_new
+          python3 toolchain/bootstrap/test.py

@@ -35,14 +35,18 @@ print(answer); // 42. The compiler has read the same books you have.
 
 ## From clone to native code
 
-**Host requirement: Linux x86-64.** The repository includes one bootstrap
-compiler binary so you can start without the archived Rust toolchain.
+**Host requirement: Linux x86-64, Rust and GCC or Clang.** The compiler builds
+entirely from source; no compiler binaries are stored in the repository.
 Python 3 and `readelf` (from binutils) are needed for the verification suite.
+
+For a source-only build with Rust and a C compiler, see the
+[minimal Rust bootstrap](toolchain/bootstrap/README.md).
 
 ```sh
 git clone https://github.com/mirged/maylang.git
 cd maylang
 
+sh toolchain/bootstrap/build.sh
 toolchain/mayc/mayc_new --version
 toolchain/mayc/mayc_new examples/hello.may -o /tmp/maylang-hello
 /tmp/maylang-hello
@@ -84,7 +88,8 @@ runtime selection, benchmarks, and detailed verification commands.
 Start with the [strict language guide](docs/STRICT.md). The
 [historical tour](docs/LEGACY_TOUR.md) preserves older syntax for reference;
 use `--legacy` only when intentionally compiling older untyped programs.
-The Rust implementation is archived and is not the active toolchain.
+The self-hosted compiler is the active toolchain. Shared Rust frontend
+components support the minimal source-only bootstrap.
 
 ## One compiler, several destinations
 
@@ -138,8 +143,8 @@ Performance reports describe particular local workloads, not universal speed
 promises. The badges above describe the project; they do not claim passing CI.
 
 Build outputs, dependencies, scratch binaries, and local assistant configuration
-are ignored. One Linux x86-64 bootstrap compiler is deliberately versioned at
-`toolchain/mayc/build/bin/mayc_new` so a fresh clone can build itself.
+are ignored. The `mayc_new` launcher builds from Rust and C source on first use
+and caches the native compiler in `toolchain/mayc/build/bin/`.
 
 ## Roadmap
 
@@ -157,8 +162,8 @@ as any other contribution.
 
 The compiler version lives in `MAYC_VERSION` near the top of
 [main.may](toolchain/mayc/main.may). Maylang uses immutable `let` bindings for
-constants. Update the bootstrap executable and version badge when making a
-versioned release.
+constants. Rebuild from source and update the version badge when making a
+versioned release; distribute executables as release assets.
 
 <details>
 <summary>You found the emergency otherwise clause.</summary>

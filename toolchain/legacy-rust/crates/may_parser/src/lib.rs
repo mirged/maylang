@@ -664,6 +664,8 @@ impl Parser {
             } else {
                 BindPat::Ident(self.ident("expected loop variable after `for`")?)
             };
+            // The bootstrap runtime ignores annotations, including loop bindings.
+            let _ = self.optional_type_hint()?;
             self.consume(&TokenKind::In, "expected `in` in for-loop")?;
             let iterable = self.expression()?;
             let mut body = self.body()?;
@@ -1301,6 +1303,7 @@ impl Parser {
     /// `map(filter(iterable, fun(name) { cond }), fun(name) { body })`.
     fn list_comprehension(&mut self, body: Expr) -> Result<Expr, ParseError> {
         let name = self.ident("expected loop variable in comprehension")?;
+        let _ = self.optional_type_hint()?;
         self.consume(&TokenKind::In, "expected `in` in comprehension")?;
         let iterable = self.expression()?;
         let cond = if self.matches(&TokenKind::If) {
@@ -1402,6 +1405,9 @@ impl Parser {
     fn lambda(&mut self) -> Result<Expr, ParseError> {
         self.consume(&TokenKind::Fun, "expected `fun`")?;
         let params = self.parameters()?;
+        if self.matches(&TokenKind::Arrow) {
+            let _ = self.parse_type()?;
+        }
         let body = self.block()?;
         Ok(Expr::Lambda {
             params,
@@ -1591,6 +1597,22 @@ mod tests {
     #[test]
     fn parses_unless_and_for() {
         parse("fun g() { unless (ready) { return nil; } for x in 0..10 { print(x); } }").unwrap();
+    }
+
+    #[test]
+    fn bootstrap_annotations_do_not_change_runtime_syntax() {
+        assert_eq!(
+            parse("for x: Any in [1, 2] { print(x); }").unwrap(),
+            parse("for x in [1, 2] { print(x); }").unwrap()
+        );
+        assert_eq!(
+            parse("[x + 1 for x: Int in 0..3];").unwrap(),
+            parse("[x + 1 for x in 0..3];").unwrap()
+        );
+        assert_eq!(
+            parse("fun(x: Int) -> Int { return x; };").unwrap(),
+            parse("fun(x: Int) { return x; };").unwrap()
+        );
     }
 
     #[test]

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Bootstrap, differential regressions, diagnostics, ELF, and current entrypoints.
 
-The installed strict compiler first builds a seed. Following generations
+The source-built compiler launcher first builds a seed. Following generations
 must converge to identical binaries.
-The immutable original mayc_stage1 is never overwritten.
 """
 import argparse
 import base64
@@ -50,7 +49,7 @@ def bootstrap():
     first = BOOTSTRAP / "mayc_v2_stage1"
     second = BOOTSTRAP / "mayc_v2_stage2"
     third = BOOTSTRAP / "mayc_v2_stage3"
-    # Typed loops/lambdas require a seed that understands the strict syntax.
+    # The launcher builds a strict-capable compiler from Rust/C on first use.
     # The full self-hosted compiler can collect several times while building;
     # allow longer than the small regression programs, including under load.
     compile_source(COMPILER / "mayc_new", COMPILER / "main.may", seed, timeout=600)
