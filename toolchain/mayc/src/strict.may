@@ -385,8 +385,9 @@ fun st_expr(ctx: Any, node: Any) -> Any {
     if (k == E_COMP) {
         let list: Any = st_expr(ctx, node.iterable);
         if (not has(["List", "Array", "Slice", "Any"], list.name)) { diagnostic(node.span, "comprehension requires an iterable collection"); }
-        let declared: Any = st_annotation(node.annotation ?? 0, source_module(node.span), ST_VARS, node.span);
-        st_require(declared, if (has(["List", "Array", "Slice"], list.name)) { list.arguments[0] } else { st_any() }, node.span);
+        let item: Any = if (has(["List", "Array", "Slice"], list.name)) { list.arguments[0] } else { st_any() };
+        let declared: Any = if (node.annotation == nil or node.annotation == 0) { item } else { st_annotation(node.annotation, source_module(node.span), ST_VARS, node.span) };
+        st_require(declared, item, node.span);
         st_scope(); st_bind(symbol_name(node.name, node.length), declared, node.span);
         if (node.condition != 0) { st_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span); }
         let element: Any = st_expr(ctx, node.element); pop(ST_SCOPES); return st_type("List", [element]);

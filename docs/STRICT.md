@@ -24,11 +24,12 @@ toolchain/mayc/mayc_new examples/strict.may -o /tmp/strict-example
 /tmp/strict-example
 ```
 
-Function parameters, struct fields, enum payload parameters, loop bindings and
-comprehension bindings need types. Local `let` and `mut` bindings infer their
-type from the initializer; add an annotation when you want to state a public
-contract or resolve an ambiguous/dynamic value. Function parameters always
-need annotations. A function may declare its result type, or mayc can infer it
+Function parameters, struct fields and enum payload parameters need types.
+Loop and comprehension bindings infer their type from the iterable's element
+type. Local `let` and `mut` bindings infer their type from the initializer;
+add an annotation when you want to state a public contract or resolve an
+ambiguous/dynamic value. Function parameters always need annotations.
+A function may declare its result type, or mayc can infer it
 from explicit returns. Every path must still use `return`; a final expression
 does not implicitly return from a strict function. Use `return;` for a function
 returning `Nil`. Conditions must have type `Bool`.
@@ -46,7 +47,7 @@ value:
 ```may
 let counts: Map<Str, Int> = {"apple": 2};
 let count: Int = counts["pear"] ?? 0;
-let doubled: List<Int> = [x * 2 for x: Int in [1, 2, 3]];
+let doubled: List<Int> = [x * 2 for x in [1, 2, 3]];
 let transform: (Int) -> Int = fun(x: Int) -> Int { return x * 2; };
 ```
 
