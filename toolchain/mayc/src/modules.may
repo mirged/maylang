@@ -33,7 +33,18 @@ fun module_path(path: Any) -> Any {
 
 fun module_file(path: Any) -> Any {
     if (starts_with(path, "stdlib/") and file_ok(addr(path)) == 0) {
-        path = "/home/mirged/Projects/maylang/" + path;
+        // Find an installed sidecar or the checkout containing this compiler.
+        let buffer: Any = irt_alloc(4096);
+        let size: Any = syscall(89, addr("/proc/self/exe"), buffer, 4096);
+        if (size > 0 and size < 4096) {
+            let parts: Any = split(symbol_name(buffer, size), "/");
+            pop(parts);
+            while (len(parts) > 0) {
+                let candidate: Any = join(parts, "/") + "/" + path;
+                if (file_ok(addr(candidate)) == 1) { return module_path(candidate); }
+                pop(parts);
+            }
+        }
     }
     return module_path(path);
 }

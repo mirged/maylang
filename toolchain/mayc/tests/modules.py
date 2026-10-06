@@ -2,8 +2,11 @@
 """Exercise module identities, visibility and import parsing in both modes."""
 import argparse
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
+
+from backends import compiler_binary
 
 ROOT = Path(__file__).resolve().parents[3]
 LIBRARY = '''pub struct Point { x: Int }
@@ -111,6 +114,27 @@ def main():
         assert result.returncode == 0 and result.stdout.count(b'pub fun value()') == 1, result
         count += 1
         print('PASS modules deduplicate source origins', flush=True)
+        # Resolve the installed stdlib without depending on the checkout or cwd.
+        install = work / 'install'
+        install.mkdir()
+        relocated = install / 'mayc'
+        shutil.copy2(compiler_binary(compiler), relocated)
+        for name, origin in {'runtime.may': ROOT / 'toolchain/mayc/runtime.may',
+                             'native.may': ROOT / 'toolchain/mayc/native.may',
+                             'prelude.may': ROOT / 'stdlib/prelude.may'}.items():
+            (install / name).symlink_to(origin)
+        (install / 'stdlib').mkdir()
+        (install / 'stdlib/string.may').write_text('pub fun marker() -> Int { return 42; }\n')
+        source = work / 'relocated.may'
+        source.write_text('import "string" as strings;\nprint(strings.marker());\n')
+        binary = work / 'relocated'
+        result = subprocess.run([str(relocated), str(source), '-o', str(binary)],
+                                cwd=work, capture_output=True, timeout=60)
+        assert result.returncode == 0, result.stderr
+        result = subprocess.run([str(binary)], capture_output=True, timeout=10)
+        assert result.returncode == 0 and result.stdout == b'42\n', result
+        count += 1
+        print('PASS modules relocated compiler standard library', flush=True)
     assert not failures, failures
     print(f'{count} module checks passed', flush=True)
 
