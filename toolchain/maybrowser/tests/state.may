@@ -1,0 +1,78 @@
+import "../src/ui.may";
+import "../src/dom.may";
+import "../src/layout.may";
+import "../src/css.may";
+import "../src/net.may";
+import "../src/render.may";
+import "../src/js.may";
+
+fun check(condition: Bool, label: Str) -> Nil {
+    if (not condition) { fail("browser state: " + label); } return;
+}
+fun find(state: Any, id: Str) -> Int {
+    for node: Int in dom_descendants(state.root) { if (dom_id(node) == id) { return node; } }
+    fail("missing DOM id: " + id); return -1;
+}
+
+let argv: List<Str> = args();
+let state: Any = ui_state(1024, 768, true, argv[1]);
+check(ui_address("examples/hello.html#section") == "examples/hello.html#section", "local address with fragment");
+ui_navigate(state, "about:home", true);
+check(state.at == 0 and len(state.history) == 1, "initial history");
+ui_click(state, ui_home_x(state) + 40, UI_TOP + 310);
+check(state.url == "about:demo" and state.title == "The playground", "home button and title");
+check(len(CSS_RULES) > 0, "styles survive JavaScript serialization");
+let counter: Int = find(state, "counter");
+mut button_box: Int = -1;
+for i: Int in 0..len(BOXES) { if (BOXES[i].node == counter) { button_box = i; } }
+check(button_box >= 0, "button layout");
+let box: Box = BOXES[button_box];
+let click_x: Int = box.x + box.w / 2;
+let click_y: Int = UI_TOP + box.y + box.h / 2;
+print("META " + json_stringify({"x":click_x,"y":click_y}));
+check(ui_is_ancestor(ui_hit(state, click_x, click_y), counter), "button hit testing");
+ui_event(state, 5, click_x, click_y, 1, "");
+check(ui_node_text(find(state, "count")) == "You clicked 1 times.", "mouse click dispatch");
+ui_activate(state, find(state, "counter"));
+check(ui_node_text(find(state, "count")) == "You clicked 2 times.", "persistent script state");
+ui_scroll(state, 1000000); check(state.scroll > 0 and state.scroll < 1000000, "bounded scrolling");
+ui_scroll(state, -1000000); check(state.scroll == 0, "scroll to top");
+ui_key(state, 108, 4, ""); check(state.focused and state.selected, "Ctrl+L");
+ui_insert(state, "λ"); check(state.edit == "λ" and state.cursor == 1, "Unicode editing");
+ui_key(state, 65288, 0, ""); check(state.edit == "" and state.cursor == 0, "Unicode backspace");
+ui_key(state, 65307, 0, ""); check(state.edit == state.url and not state.focused, "escape editing");
+ui_key(state, 65361, 8, ""); check(state.url == "about:home", "Alt+Left");
+ui_key(state, 65363, 8, ""); check(state.url == "about:demo", "Alt+Right");
+ui_key(state, 114, 4, ""); check(ui_node_text(find(state, "count")) == "You've clicked 0 times.", "reload");
+ui_history(state, -1);
+ui_navigate(state, "missing-page.html", true);
+check(state.error != "" and state.url == "missing-page.html", "recoverable load error");
+check(state.at == 1 and len(state.history) == 2, "new navigation discards forward history");
+ui_key(state, 104, 4, ""); check(state.url == "about:home" and state.error == "", "home recovery");
+
+state.inline = "<html><head><title>Handlers</title><style>html{background:#123456}</style></head><body><p id=\"value\">0</p><button id=\"listener\">Change</button><a id=\"blocked\" href=\"about:demo\" onclick=\"event.preventDefault();this.textContent='Stayed';\">Stay</a><script>var value=0;document.addEventListener('DOMContentLoaded',function(){document.title='Loaded';});document.getElementById('listener').addEventListener('click',function(){document.getElementById('value').textContent=String(++value);});</script></body></html>";
+ui_navigate(state, "about:inline", true);
+check(state.title == "Loaded", "DOMContentLoaded");
+ui_activate(state, find(state, "listener")); ui_activate(state, find(state, "listener"));
+check(ui_node_text(find(state, "value")) == "2", "addEventListener and persistent globals");
+ui_activate(state, find(state, "blocked"));
+check(state.url == "about:inline" and ui_node_text(find(state, "blocked")) == "Stayed", "preventDefault");
+ui_event(state, 3, 640, 480, 0, "");
+check(state.width == 640 and state.height == 480, "window resize");
+ui_draw(state);
+check(fb_get(639, 115) == 1193046, "page background and clipping");
+ui_event(state, 7, 115, 0, 4, "");
+check(file_exists(argv[1]), "Ctrl+S screenshot");
+
+net_set_document("https://example.com/a/b/index.html?old=1");
+check(net_reference("../next.html") == "https://example.com/a/next.html", "relative URL");
+check(net_reference("/next.html") == "https://example.com/next.html", "root URL");
+check(net_reference("//cdn.example.com/a.css") == "https://cdn.example.com/a.css", "scheme relative URL");
+check(net_reference("?new=2") == "https://example.com/a/b/index.html?new=2", "query URL");
+check(net_reference("#part") == "https://example.com/a/b/index.html?old=1#part", "fragment URL");
+net_set_document("https://example.com");
+check(net_reference("styles.css") == "https://example.com/styles.css", "origin without path");
+for i: Int in 0..110 { ui_navigate(state, "about:home", true); }
+check(len(state.history) == 100 and state.at == 99, "bounded history");
+ui_cleanup();
+print("PASS browser navigation, JavaScript, input, scrolling, clipping, resources, and cleanup");

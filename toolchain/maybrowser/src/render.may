@@ -11,11 +11,25 @@ import "layout.may";
 mut FB: Ptr = ptr(0);
 mut FB_W: Int = 0;
 mut FB_H: Int = 0;
+mut FB_DY: Int = 0;
+mut FB_CX: Int = 0;
+mut FB_CY: Int = 0;
+mut FB_CR: Int = 0;
+mut FB_CB: Int = 0;
+
+fun fb_clip(x: Int, y: Int, w: Int, h: Int, offset: Int) -> Nil {
+    FB_CX = max(0, x); FB_CY = max(0, y);
+    FB_CR = min(FB_W, x + w); FB_CB = min(FB_H, y + h); FB_DY = offset;
+    return;
+}
 
 fun fb_init(w: Int, h: Int, bg: Int) -> Nil {
+    fb_release();
     FB = mb_alloc(w * h * 3);
+    if (FB == 0) { fail("could not allocate the framebuffer"); }
     FB_W = w;
     FB_H = h;
+    fb_clip(0, 0, w, h, 0);
     fb_fill(bg);
     return;
 }
@@ -43,8 +57,9 @@ fun fb_fill(c: Int) -> Nil {
 }
 
 fun fb_set(x: Int, y: Int, c: Int) -> Nil {
-    if (x < 0 or y < 0 or x >= FB_W or y >= FB_H) { return; }
-    let o: Int = (y * FB_W + x) * 3;
+    let row: Int = y + FB_DY;
+    if (x < FB_CX or row < FB_CY or x >= FB_CR or row >= FB_CB) { return; }
+    let o: Int = (row * FB_W + x) * 3;
     store8(FB + o, (c / 65536) % 256);
     store8(FB + o + 1, (c / 256) % 256);
     store8(FB + o + 2, c % 256);
@@ -59,9 +74,10 @@ fun fb_get(x: Int, y: Int) -> Int {
 
 fun fb_blend(x: Int, y: Int, c: Int, a: Int) -> Nil {
     if (a <= 0) { return; }
-    if (x < 0 or y < 0 or x >= FB_W or y >= FB_H) { return; }
+    let row: Int = y + FB_DY;
+    if (x < FB_CX or row < FB_CY or x >= FB_CR or row >= FB_CB) { return; }
     if (a >= 250) { fb_set(x, y, c); return; }
-    let o: Int = (y * FB_W + x) * 3;
+    let o: Int = (row * FB_W + x) * 3;
     let dr: Int = load8(FB + o);
     let dg: Int = load8(FB + o + 1);
     let db: Int = load8(FB + o + 2);
@@ -76,11 +92,13 @@ fun fb_blend(x: Int, y: Int, c: Int, a: Int) -> Nil {
 
 fun fb_rect(x: Int, y: Int, w: Int, h: Int, c: Int) -> Nil {
     if (w <= 0 or h <= 0) { return; }
-    mut row: Int = 0;
-    while (row < h) {
-        mut col: Int = 0;
-        while (col < w) {
-            fb_set(x + col, y + row, c);
+    mut row: Int = max(y, FB_CY - FB_DY);
+    let bottom: Int = min(y + h, FB_CB - FB_DY);
+    while (row < bottom) {
+        mut col: Int = max(x, FB_CX);
+        let right: Int = min(x + w, FB_CR);
+        while (col < right) {
+            fb_set(col, row, c);
             col += 1;
         }
         row += 1;
@@ -100,6 +118,7 @@ fun paint_borders(b: Box) -> Nil {
 }
 
 fun paint_text(x: Int, baseline: Int, s: Str, style: Style) -> Nil {
+    if (baseline + FB_DY + style.font_size < FB_CY or baseline + FB_DY - style.font_size >= FB_CB) { return; }
     let font: Int = sup_font_id(style.font_family, style.font_weight);
     let px: Float = float(style.font_size);
     let color: Int = style.color;
@@ -193,6 +212,6 @@ fun paint_image(b: Box) -> Nil {
 // Render the laid-out tree to a PNG file.
 fun render_tree(root_box: Int, viewport_w: Int, viewport_h: Int, out_path: Str) -> Nil {
     paint_box(root_box);
-    mb_png_write(out_path, FB, FB_W, FB_H, 3);
+    if (mb_png_write(out_path, FB, FB_W, FB_H, 3) == 0) { fail("could not write PNG: " + out_path); }
     return;
 }

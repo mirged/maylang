@@ -7,8 +7,12 @@ import "support.may";
 
 mut DOC_BASE: Str = "";
 mut DOC_URL: Str = "";
-mut NET_TMP: Int = 0;
 mut NET_ASSETS: Map<Str, Str> = {};
+
+fun net_release() -> Nil {
+    for path: Str in values(NET_ASSETS) { if (path != "") { syscall(87, cstr(path)); } }
+    NET_ASSETS = {}; return;
+}
 
 fun net_is_url(s: Str) -> Bool {
     return starts_with(s, "http://") or starts_with(s, "https://");
@@ -19,16 +23,26 @@ fun net_is_remote(s: Str) -> Bool {
 }
 
 fun net_set_document(path_or_url: Str) -> Nil {
+    net_release();
     DOC_URL = path_or_url;
     if (net_is_url(path_or_url)) {
         let last: Int = last_index(path_or_url, "/");
         DOC_BASE = if (last >= 0) { substring(path_or_url, 0, last + 1) } else { path_or_url };
     } else {
-        let clean: Str = if (starts_with(path_or_url, "file://")) { substring(path_or_url, 7, len(path_or_url) - 7) } else { path_or_url };
+        let path: Str = if (starts_with(path_or_url, "file://")) { substring(path_or_url, 7, len(path_or_url) - 7) } else { path_or_url };
+        let clean: Str = split(path, "#")[0];
         let last: Int = last_index(clean, "/");
         DOC_BASE = if (last >= 0) { substring(clean, 0, last + 1) } else { "" };
     }
     return;
+}
+
+fun net_reference(src: Str) -> Str {
+    if (net_is_remote(src) or starts_with(src, "about:")) { return src; }
+    if (starts_with(src, "file://")) { return substring(src, 7, len(src) - 7); }
+    if (net_is_url(DOC_URL)) { return mb_url_resolve(DOC_URL, src); }
+    if (starts_with(src, "#")) { return split(DOC_URL, "#")[0] + src; }
+    return net_join(DOC_BASE, src);
 }
 
 fun last_index(s: Str, needle: Str) -> Int {
@@ -69,13 +83,13 @@ fun net_ext(src: Str) -> Str {
 fun net_resolve_src(src: Str) -> Str {
     if (len(src) == 0) { return ""; }
     if (starts_with(src, "data:")) { return src; }
-    let url: Str = if (net_is_url(src)) { src } else { net_join(DOC_BASE, src) };
+    let url: Str = net_reference(src);
     if (net_is_url(url)) {
         if (has(NET_ASSETS, url)) { return NET_ASSETS[url] ?? ""; }
-        NET_TMP += 1;
-        let tmp: Str = "/tmp/maybrowser-asset-" + str(time()) + "-" + str(NET_TMP) + net_ext(url);
+        let tmp: Str = mb_temp_file();
+        if (tmp == "") { return ""; }
         let rc: Int = mb_fetch_file(url, tmp);
-        if (rc != 0) { NET_ASSETS[url] = ""; return ""; }
+        if (rc != 0) { syscall(87, cstr(tmp)); NET_ASSETS[url] = ""; return ""; }
         NET_ASSETS[url] = tmp;
         return tmp;
     }

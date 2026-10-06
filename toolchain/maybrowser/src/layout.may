@@ -108,7 +108,7 @@ fun lay_flow(node: Int, box: Int, parent_style: Style, fs: Any, content_x: Int) 
     for child: Int in dom_children(node) {
         if (dom_is_text(child)) {
             let s: Style = parent_style;
-            lay_text(fs, dom_text(child), s, content_x);
+            lay_text(fs, dom_text(child), s, content_x, child);
             continue;
         }
         let cstyle: Style = css_style(child, parent_style);
@@ -141,7 +141,7 @@ fun lay_flow(node: Int, box: Int, parent_style: Style, fs: Any, content_x: Int) 
     return;
 }
 
-fun lay_text(fs: Any, text: Str, style: Style, content_x: Int) -> Nil {
+fun lay_text(fs: Any, text: Str, style: Style, content_x: Int, node: Int) -> Nil {
     let preserve: Bool = style.white_space == "pre" or style.white_space == "pre-wrap";
     let font: Int = sup_font_id(style.font_family, style.font_weight);
     let size: Float = float(style.font_size);
@@ -156,7 +156,7 @@ fun lay_text(fs: Any, text: Str, style: Style, content_x: Int) -> Nil {
             if (len(word) > 0) {
                 let w: Int = sup_measure(font, size, join(word, ""));
                 lay_add_word(fs, {"kind": "text", "text": join(word, ""), "style": style, "font": font,
-                    "size": style.font_size, "w": w, "asc": asc, "desc": desc, "lh": style.line_height}, content_x);
+                    "size": style.font_size, "w": w, "asc": asc, "desc": desc, "lh": style.line_height, "node": node}, content_x);
                 word = [];
             }
             if (preserve) {
@@ -176,7 +176,7 @@ fun lay_text(fs: Any, text: Str, style: Style, content_x: Int) -> Nil {
     if (len(word) > 0) {
         let w: Int = sup_measure(font, size, join(word, ""));
         lay_add_word(fs, {"kind": "text", "text": join(word, ""), "style": style, "font": font,
-            "size": style.font_size, "w": w, "asc": asc, "desc": desc, "lh": style.line_height}, content_x);
+            "size": style.font_size, "w": w, "asc": asc, "desc": desc, "lh": style.line_height, "node": node}, content_x);
     }
     return;
 }

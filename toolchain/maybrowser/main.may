@@ -1,16 +1,4 @@
-// MayBrowser — a small web browser with a native HTML/CSS engine written in
-// Maylang and a Duktape JavaScript engine reached through FFI.
-//
-//   maybrowser <file|url|data:...> [options]
-//
-// Options:
-//   -o, --out PATH     output PNG (default out.png)
-//   --width N          viewport width  (default 1024)
-//   --height N         viewport height (default 768)
-//   --no-js            do not execute <script> elements
-//   --html             treat the argument as an inline HTML document
-//   -h, --help         show this help
-
+// MayBrowser: a windowed browser with a Maylang HTML/CSS engine.
 import "src/support.may";
 import "src/dom.may";
 import "src/html.may";
@@ -20,75 +8,85 @@ import "src/render.may";
 import "src/net.may";
 import "src/js.may";
 import "src/browser.may";
+import "src/ui.may";
 
 fun mb_usage() -> Nil {
-    print("MayBrowser — an HTML/CSS browser with a native engine and Duktape JS");
-    print("usage: maybrowser <file|url|data:...|- > [options]");
-    print("  -o, --out PATH   output PNG (default out.png)");
-    print("  --width N        viewport width (default 1024)");
-    print("  --height N       viewport height (default 768)");
-    print("  --no-js          do not execute <script> elements");
-    print("  --html           treat the argument as inline HTML");
-    print("  -h, --help       show this help");
+    print("MayBrowser — a quiet place to explore");
+    print("usage: maybrowser [file|url|data:...|-] [options]");
+    print("  No input opens the graphical start page.");
+    print("  --gui           open a desktop window (default)");
+    print("  -o, --out PATH  export a page as PNG; with --gui, sets Save PNG's path");
+    print("  --snapshot      save the browser interface as PNG without a display");
+    print("  --headless      export a page without opening a window");
+    print("  --width N       viewport width (default 1024, max 4096)");
+    print("  --height N      viewport height (default 768, max 4096)");
+    print("  --no-js         do not execute page scripts");
+    print("  --html          treat the input as inline HTML");
+    print("  -h, --help      show this help");
+    print("  Ctrl+L address | Alt+Left/Right history | Ctrl+R reload | Ctrl+S save | Ctrl+Q quit");
     return;
 }
 
 fun mb_main(argv: List<Str>) -> Int {
-    if (len(argv) < 2) { mb_usage(); return 1; }
-    if (argv[1] == "-h" or argv[1] == "--help") { mb_usage(); return 0; }
-
-    let input: Str = argv[1];
-    mut out: Str = "out.png";
+    mut input: Str = "about:home";
+    mut input_set: Bool = false;
+    mut out: Str = "maybrowser.png";
+    mut output_set: Bool = false;
     mut width: Int = 1024;
     mut height: Int = 768;
     mut run_js: Bool = true;
     mut inline_html: Bool = false;
-
-    mut i: Int = 2;
+    mut mode: Str = "auto";
+    mut i: Int = 1;
     while (i < len(argv)) {
         let flag: Str = argv[i];
-        if (flag == "-o" or flag == "--out") {
+        if (flag == "-h" or flag == "--help") { mb_usage(); return 0; }
+        if (flag == "-o" or flag == "--out" or flag == "--width" or flag == "--height") {
             if (i + 1 >= len(argv)) { print("missing value for " + flag); return 2; }
-            out = argv[i + 1]; i += 2;
-        } else if (flag == "--width") {
-            width = may { int(argv[i + 1]) } otherwise { width }; i += 2;
-        } else if (flag == "--height") {
-            height = may { int(argv[i + 1]) } otherwise { height }; i += 2;
-        } else if (flag == "--no-js") {
-            run_js = false; i += 1;
-        } else if (flag == "--html") {
-            inline_html = true; i += 1;
-        } else {
-            print("unknown option: " + flag);
-            return 2;
+            let value: Str = argv[i + 1];
+            if (flag == "-o" or flag == "--out") { out = value; output_set = true; }
+            else {
+                let number: Int = may { int(value) } otherwise { -1 };
+                if (number < 1 or number > 4096) { print(flag + " must be an integer in 1..4096"); return 2; }
+                if (flag == "--width") { width = number; } else { height = number; }
+            }
+            i += 2;
+        } else if (flag == "--no-js") { run_js = false; i += 1; }
+        else if (flag == "--html") { inline_html = true; i += 1; }
+        else if (flag == "--gui") { mode = "gui"; i += 1; }
+        else if (flag == "--snapshot") { mode = "snapshot"; i += 1; }
+        else if (flag == "--headless") { mode = "png"; i += 1; }
+        else if (flag == "-" or not starts_with(flag, "-")) {
+            if (input_set) { print("unexpected input: " + flag); return 2; }
+            input = flag; input_set = true; i += 1;
+        } else { print("unknown option: " + flag); return 2; }
+    }
+    if (mode == "auto") { mode = if (output_set) { "png" } else { "gui" }; }
+    if (mode != "png") {
+        if (width < 640 or height < 400) { print("the browser interface needs at least 640x400"); return 2; }
+        let state: Any = ui_state(width, height, run_js, out);
+        if (inline_html or input == "-") {
+            state.inline = if (input == "-") { read_stdin() } else { input };
+            input = "about:inline";
         }
+        return if (mode == "snapshot") { ui_snapshot(state, input) } else { ui_run(state, input) };
     }
-
-    if (width < 1 or height < 1) { print("viewport must be positive"); return 2; }
-
-    mut src: Str = "";
-    if (inline_html) {
-        src = input;
-        net_set_document("");
-    } else if (input == "-") {
-        src = read_stdin();
-        net_set_document("");
-    } else {
-        net_set_document(input);
-        src = net_load_document(input);
+    if (input == "about:home") {
+        if (width < 640 or height < 400) { print("the browser interface needs at least 640x400"); return 2; }
+        return ui_snapshot(ui_state(width, height, run_js, out), input);
     }
-
-    if (len(src) == 0) {
-        print("maybrowser: could not read document: " + input);
-        return 1;
-    }
-
+    let src: Str = if (inline_html) { net_set_document(""); input }
+        else if (input == "-") { net_set_document(""); read_stdin() }
+        else if (input == "about:demo") { net_set_document(input); ui_demo_html() }
+        else { net_set_document(input); net_load_document(input) };
+    if (src == "") { print("maybrowser: could not read document: " + input); return 1; }
     browser_render(src, out, width, height, run_js);
     print("MayBrowser rendered " + str(width) + "x" + str(height) + " to " + out);
     return 0;
 }
 
 may { exit(mb_main(args())); } otherwise {
+    ui_cleanup();
     print("maybrowser: " + err.message);
     exit(2);
 };

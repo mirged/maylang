@@ -1,0 +1,508 @@
+// Window state, navigation and browser chrome are implemented in Maylang.
+import "browser.may";
+import "support.may";
+import "dom.may";
+import "html.may";
+import "css.may";
+import "layout.may";
+import "render.may";
+import "net.may";
+import "js.may";
+
+let UI_TOP: Int = 112;
+let UI_BOTTOM: Int = 26;
+let UI_INK: Int = 1120559;
+let UI_MUTED: Int = 6583416;
+let UI_ACCENT: Int = 875633;
+
+fun ui_text(x: Int, baseline: Int, text: Str, size: Int, color: Int, weight: Int) -> Nil {
+    let style: Style = style_new();
+    style.font_family = "sans-serif"; style.font_size = size;
+    style.color = color; style.font_weight = weight;
+    paint_text(x, baseline, text, style); return;
+}
+
+fun ui_round(x: Int, y: Int, w: Int, h: Int, radius: Int, color: Int) -> Nil {
+    let r: Int = min(radius, min(w, h) / 2);
+    fb_rect(x + r, y, w - 2 * r, h, color);
+    fb_rect(x, y + r, w, h - 2 * r, color);
+    for row: Int in 0..r {
+        let dy: Float = float(r - row) - 0.5;
+        let inset: Int = r - int(sqrt(float(r * r) - dy * dy) + 0.5);
+        fb_rect(x + inset, y + row, w - 2 * inset, 1, color);
+        fb_rect(x + inset, y + h - 1 - row, w - 2 * inset, 1, color);
+    }
+    return;
+}
+
+fun ui_line(x: Int, y: Int, dx: Int, dy: Int, color: Int) -> Nil {
+    let length: Int = max(abs(dx), abs(dy));
+    if (length == 0) { fb_set(x, y, color); return; }
+    for i: Int in 0..=length { fb_rect(x + dx * i / length, y + dy * i / length, 2, 2, color); }
+    return;
+}
+
+fun ui_icon(index: Int, x: Int, y: Int, color: Int) -> Nil {
+    if (index == 0 or index == 1) {
+        let direction: Int = if (index == 0) { -1 } else { 1 };
+        ui_line(x - 7, y, 14, 0, color);
+        ui_line(x + direction * 7, y, -direction * 6, -6, color);
+        ui_line(x + direction * 7, y, -direction * 6, 6, color);
+    } else if (index == 2) {
+        ui_line(x - 5, y - 6, 9, 0, color); ui_line(x - 7, y - 4, 0, 9, color);
+        ui_line(x - 5, y + 7, 10, 0, color); ui_line(x + 7, y + 5, 0, -9, color);
+        ui_line(x + 5, y - 6, 3, 3, color); ui_line(x + 8, y - 3, -5, 0, color);
+    } else {
+        ui_line(x - 8, y, 8, -7, color); ui_line(x, y - 7, 8, 7, color);
+        ui_line(x - 6, y, 0, 8, color); ui_line(x + 6, y, 0, 8, color);
+        ui_line(x - 6, y + 8, 12, 0, color);
+    }
+    return;
+}
+
+fun ui_demo_html() -> Str {
+    return "<!doctype html><html><head><title>The playground</title><style>html{background:#f3f7fa}body{margin:40px;color:#11212f;font-family:sans-serif}h1{font-size:36px;margin:0 0 12px}p{line-height:1.6;margin:0 0 18px}.card{background:white;padding:28px;margin:0 0 24px;border:1px solid #dce5ec}.label{color:#0d5c71;font-weight:bold}button{display:inline-block;background:#0d5c71;color:white;padding:12px 20px;border:1px solid #0d5c71}a{color:#0d5c71}</style></head><body><p class=\"label\">WELCOME TO THE PLAYGROUND</p><h1>A small browser. Real interactions.</h1><p>Try the button, follow a link, and scroll to explore.</p><div class=\"card\"><h2>Make something happen</h2><p id=\"count\">You've clicked 0 times.</p><button id=\"counter\" onclick=\"count++;document.getElementById('count').textContent='You clicked '+count+' times.';console.log('Playground clicks',count);\">Click me +</button></div><div class=\"card\"><h2>Go somewhere new</h2><p><a href=\"about:home\">Back to your start page →</a></p><p><a href=\"#next\">Jump to the reading corner ↓</a></p></div><div class=\"card\"><h2>Your next little adventure</h2><p>Open a local HTML file or enter a web address in the bar above. Use Alt + Left and Alt + Right to revisit pages.</p></div><div id=\"next\" class=\"card\"><h2>The reading corner</h2><p>Every page has room to breathe. Scroll with the mouse wheel or Page Down; Home brings you back to the top.</p><p>Simple documents, readable typography, and a quiet place to explore.</p><p><a href=\"about:home\">Take me home →</a></p></div><script>var count=0;console.log('The playground is ready');</script></body></html>";
+}
+
+fun ui_state(w: Int, h: Int, run_js: Bool, output: Str) -> Any {
+    return {"width":w,"height":h,"run_js":run_js,"out":output,"url":"","edit":"",
+        "cursor":0,"selected":false,"focused":false,"history":[],"at":-1,
+        "root":-1,"box":-1,"scroll":0,"content":0,"title":"Start page",
+        "error":"","status":"Ready","hover":"","hover_button":-1,"loading":false,
+        "open":false,"running":true,"inline":""};
+}
+
+fun ui_node_text(node: Int) -> Str {
+    mut text: Str = dom_text(node);
+    for child: Int in dom_children(node) { text = text + ui_node_text(child); }
+    return text;
+}
+
+fun ui_layout(state: Any) -> Nil {
+    if (state.root < 0) { return; }
+    state.box = lay_layout_document(state.root, state.width - 12, state.height - UI_TOP - UI_BOTTOM);
+    state.content = BOXES[state.box].h;
+    state.scroll = clamp(state.scroll, 0, max(0, state.content - state.height + UI_TOP + UI_BOTTOM));
+    state.title = state.url;
+    for node: Int in dom_descendants(state.root) {
+        if (dom_tag(node) == "title") { state.title = ui_node_text(node); break; }
+    }
+    return;
+}
+
+fun ui_is_ancestor(node: Int, ancestor: Int) -> Bool {
+    mut current: Int = node;
+    while (current >= 0) {
+        if (current == ancestor) { return true; }
+        current = dom_parent(current);
+    }
+    return false;
+}
+
+fun ui_scroll_anchor(state: Any, address: Str) -> Nil {
+    let hash: Int = index_of(address, "#");
+    if (hash < 0) { state.scroll = 0; return; }
+    let id: Str = substring(address, hash + 1, len(address) - hash - 1);
+    for node: Int in dom_descendants(state.root) {
+        if (dom_id(node) != id) { continue; }
+        for box: Box in BOXES {
+            if (box.node == node) { state.scroll = box.y; return; }
+            for line: Any in box.lines {
+                for item: Any in line.items {
+                    if (item.kind == "text" and ui_is_ancestor(item.node, node)) { state.scroll = line.y; return; }
+                }
+            }
+        }
+    }
+    return;
+}
+
+fun ui_address(raw: Str) -> Str {
+    let value: Str = trim(raw);
+    let path: Str = split(value, "#")[0];
+    if (value == "") { return "about:home"; }
+    if (starts_with(value, "about:") or net_is_remote(value) or starts_with(value, "file://")) { return value; }
+    if (file_exists(path) or starts_with(value, "/") or starts_with(value, "./") or starts_with(value, "../") or ends_with(path, ".html") or ends_with(path, ".htm")) { return value; }
+    if (starts_with(value, "localhost") or starts_with(value, "127.0.0.1")) { return "http://" + value; }
+    return "https://" + value;
+}
+
+fun ui_navigate(state: Any, raw: Str, record: Bool) -> Nil {
+    let address: Str = ui_address(raw);
+    if (record) {
+        state.history = slice(state.history, 0, state.at + 1);
+        push(state.history, address);
+        if (len(state.history) > 100) { state.history = slice(state.history, 1, len(state.history)); }
+        state.at = len(state.history) - 1;
+    }
+    let same: Bool = state.root >= 0 and split(state.url, "#")[0] == split(address, "#")[0];
+    state.url = address; state.edit = address; state.cursor = len(address);
+    state.focused = false; state.selected = false; state.hover = "";
+    if (same) { ui_scroll_anchor(state, address); return; }
+    state.loading = true; state.status = "Opening " + address;
+    if (state.open) { ui_draw(state); mb_window_present(FB, FB_W, FB_H); }
+    state.error = ""; state.root = -1; state.box = -1; state.scroll = 0;
+    js_close(); sup_images_release(); BOXES = []; dom_reset(); CSS_RULES = [];
+    net_set_document(address);
+    may {
+        if (address == "about:home") { state.title = "Start page"; }
+        else {
+            let source: Str = if (address == "about:demo") { ui_demo_html() }
+                else if (address == "about:inline") { state.inline }
+                else { net_load_document(split(address, "#")[0]); };
+            if (source == "") { fail("The document could not be loaded. Check the address or your connection and try again."); }
+            state.root = browser_prepare(source, state.run_js); ui_layout(state);
+            ui_scroll_anchor(state, address);
+        }
+        nil
+    } otherwise { state.error = err.message; state.title = "Unable to open page"; nil };
+    state.loading = false;
+    state.status = if (state.error == "") { "Ready" } else { "Couldn't open this page" };
+    if (state.open) { mb_window_title(state.title + " — MayBrowser"); }
+    return;
+}
+
+fun ui_history(state: Any, direction: Int) -> Nil {
+    let next: Int = state.at + direction;
+    if (next >= 0 and next < len(state.history)) {
+        state.at = next; ui_navigate(state, state.history[next], false);
+    }
+    return;
+}
+
+fun ui_reload(state: Any) -> Nil { state.root = -1; ui_navigate(state, state.url, false); return; }
+
+fun ui_focus(state: Any) -> Nil {
+    state.focused = true; state.selected = true; state.cursor = len(state.edit); return;
+}
+
+fun ui_scroll(state: Any, change: Int) -> Nil {
+    state.scroll = clamp(state.scroll + change, 0, max(0, state.content - state.height + UI_TOP + UI_BOTTOM));
+    return;
+}
+
+fun ui_hit(state: Any, x: Int, y: Int) -> Int {
+    if (state.root < 0 or y < UI_TOP or y >= state.height - UI_BOTTOM) { return -1; }
+    let page_y: Int = y - UI_TOP + state.scroll;
+    for box: Box in BOXES {
+        for line: Any in box.lines {
+            if (page_y < line.y or page_y >= line.y + line.height) { continue; }
+            for item: Any in line.items {
+                if (item.kind == "text" and x >= item.x and x < item.x + item.w) { return item.node; }
+            }
+        }
+    }
+    mut i: Int = len(BOXES) - 1;
+    while (i >= 0) {
+        let box: Box = BOXES[i];
+        if (x >= box.x and x < box.x + box.w and page_y >= box.y and page_y < box.y + box.h) { return box.node; }
+        i -= 1;
+    }
+    return -1;
+}
+
+fun ui_link(node: Int) -> Str {
+    mut current: Int = node;
+    while (current >= 0) {
+        if (dom_tag(current) == "a") { return dom_attr(current, "href"); }
+        current = dom_parent(current);
+    }
+    return "";
+}
+
+fun ui_activate(state: Any, node: Int) -> Nil {
+    if (node < 0) { return; }
+    let href: Str = ui_link(node);
+    let destination: Str = if (href == "") { "" } else { net_reference(href) };
+    let element: Int = if (dom_is_text(node)) { dom_parent(node) } else { node };
+    let index: Int = may { int(dom_attr(element, "data-mb-node")) } otherwise { -1 };
+    let result: Any = if (index < 0 or not state.run_js) { nil } else { js_click(index) };
+    if (result != nil and result.html != "") {
+        state.root = html_parse(result.html); CSS_RULES = []; browser_collect_styles(state.root); ui_layout(state);
+        if (state.open) { mb_window_title(state.title + " — MayBrowser"); }
+    }
+    if (destination != "" and (result == nil or not result.prevented)) { ui_navigate(state, destination, true); }
+    return;
+}
+
+fun ui_home_x(state: Any) -> Int { return max(40, (state.width - 720) / 2); }
+
+fun ui_home(state: Any) -> Nil {
+    let x: Int = ui_home_x(state);
+    let width: Int = min(720, state.width - 2 * x);
+    let heading: Int = if (state.width >= 800) { 56 } else { 43 };
+    ui_round(x, 60, 8, 8, 4, UI_ACCENT);
+    ui_text(x + 20, 69, "ROOM FOR A LITTLE CURIOSITY", 11, UI_ACCENT, 700);
+    ui_text(x, 151, "Less noise.", heading, UI_INK, 700);
+    ui_text(x, 214, "More discovery.", heading, UI_ACCENT, 700);
+    ui_text(x + 2, 259, "A quiet place to open a page and follow a thought.", 17, UI_MUTED, 400);
+    ui_round(x, 295, 278, 48, 12, UI_ACCENT);
+    ui_text(x + 22, 325, "Explore the playground  →", 16, 16777215, 700);
+    ui_round(x + 292, 295, 208, 48, 12, 13949670);
+    ui_round(x + 293, 296, 206, 46, 11, 16777215);
+    ui_text(x + 314, 325, "Enter an address", 15, UI_INK, 600);
+    let card_w: Int = (width - 28) / 3;
+    let titles: List<Str> = ["Local pages", "The open web", "Something to try"];
+    let first: List<Str> = ["Your files, reimagined.", "Follow a new link.", "A button. A little magic."];
+    let second: List<Str> = ["Use a local file path.", "Enter a web address.", "Open the playground."];
+    for i: Int in 0..3 {
+        let cx: Int = x + i * (card_w + 14);
+        ui_round(cx, 393, card_w, 146, 14, 14410986);
+        ui_round(cx + 1, 394, card_w - 2, 144, 13, 16777215);
+        ui_round(cx + 18, 411, 28, 28, 8, 15137005);
+        ui_icon(if (i == 0) { 3 } else { 1 }, cx + 31, 424, UI_ACCENT);
+        ui_text(cx + 18, 467, titles[i], 15, UI_INK, 700);
+        ui_text(cx + 18, 490, first[i], 12, UI_MUTED, 400);
+        ui_text(cx + 18, 513, second[i], 12, UI_MUTED, 400);
+    }
+    ui_text(x + 2, 578, "Ctrl + L  address       Alt + ← / →  history       Ctrl + S  save", 12, UI_MUTED, 400);
+    return;
+}
+
+fun ui_draw(state: Any) -> Nil {
+    if (FB == 0 or FB_W != state.width or FB_H != state.height) { fb_init(state.width, state.height, 16777215); }
+    else { fb_fill(16777215); }
+    let page_h: Int = state.height - UI_TOP - UI_BOTTOM;
+    if (state.url == "about:home") { state.content = 620; }
+    state.scroll = clamp(state.scroll, 0, max(0, state.content - page_h));
+    fb_clip(0, UI_TOP, state.width, page_h, UI_TOP - state.scroll);
+    if (state.error != "") {
+        fb_rect(0, 0, state.width, page_h + state.scroll, 15923450);
+        ui_text(64, 110, "This page took a wrong turn.", 32, UI_INK, 700);
+        ui_text(66, 155, "Check the address or your connection, then try again.", 16, UI_MUTED, 400);
+        ui_round(64, 196, 142, 44, 11, UI_ACCENT);
+        ui_text(87, 224, "Try again  ↻", 15, 16777215, 700);
+        ui_text(228, 224, "Back to start →", 15, UI_ACCENT, 600);
+    } else if (state.url == "about:home") {
+        fb_rect(0, 0, state.width, 620, 15924470);
+        ui_home(state);
+    } else if (state.box >= 0) {
+        fb_rect(0, 0, state.width, max(page_h, state.content), browser_background(state.root));
+        paint_box(state.box);
+    }
+    fb_clip(0, 0, state.width, state.height, 0);
+    if (state.content > page_h) {
+        let track: Int = page_h - 16;
+        let thumb: Int = max(28, track * page_h / state.content);
+        let position: Int = state.scroll * (track - thumb) / (state.content - page_h);
+        ui_round(state.width - 8, UI_TOP + 8, 5, track, 2, 15133417);
+        ui_round(state.width - 8, UI_TOP + 8 + position, 5, thumb, 2, 10334645);
+    }
+    fb_rect(0, 0, state.width, 44, 1120559);
+    ui_round(18, 10, 26, 26, 7, UI_ACCENT);
+    ui_text(23, 29, "M", 18, 16777215, 700);
+    ui_text(54, 29, "MayBrowser", 17, 16777215, 700);
+    ui_round(210, 8, min(300, state.width - 430), 36, 9, 2373184);
+    ui_round(225, 21, 7, 7, 3, 7199661);
+    fb_clip(240, 8, min(260, state.width - 465), 36, 0);
+    ui_text(242, 29, state.title, 12, 14543085, 400);
+    fb_clip(0, 0, state.width, state.height, 0);
+    ui_text(state.width - 167, 28, "Ctrl + L  to navigate", 11, 10529464, 400);
+    fb_rect(0, 44, state.width, 68, 15923450);
+    for i: Int in 0..4 {
+        let disabled: Bool = (i == 0 and state.at <= 0) or (i == 1 and state.at >= len(state.history) - 1);
+        if (state.hover_button == i and not disabled) { ui_round(16 + i * 40, 60, 36, 36, 9, 14673392); }
+        ui_icon(i, 33 + i * 40, 78, if (disabled) { 12437456 } else { 4148824 });
+    }
+    let field_w: Int = state.width - 342;
+    ui_round(186, 57, field_w, 44, 12, if (state.focused) { UI_ACCENT } else { 14345961 });
+    ui_round(188, 59, field_w - 4, 40, 10, 16777215);
+    ui_text(199, 85, "↗", 17, UI_ACCENT, 600);
+    let text: Str = if (state.focused) { state.edit } else if (state.url == "about:home") { "Start page" } else { state.url };
+    let font: Int = sup_font_id("sans-serif", 400);
+    let before: Int = sup_measure(font, 14.0, substring(text, 0, state.cursor));
+    let offset: Int = if (state.focused) { max(0, before - field_w + 75) } else { 0 };
+    fb_clip(220, 62, field_w - 46, 34, 0);
+    if (state.focused and state.selected) { ui_round(219 - offset, 67, sup_measure(font, 14.0, text) + 4, 23, 4, UI_ACCENT); }
+    ui_text(221 - offset, 84, if (text == "") { "Enter a URL or file path" } else { text }, 14,
+        if (state.selected and state.focused) { 16777215 } else if (text == "") { UI_MUTED } else { UI_INK }, 400);
+    if (state.focused and not state.selected) { fb_rect(221 + before - offset, 68, 1, 20, UI_ACCENT); }
+    fb_clip(0, 0, state.width, state.height, 0);
+    ui_round(state.width - 138, 60, 120, 38, 10, 14543851);
+    ui_text(state.width - 117, 84, "Save PNG", 14, UI_ACCENT, 600);
+    fb_rect(0, UI_TOP - 1, state.width, 1, 14345961);
+    fb_rect(0, state.height - UI_BOTTOM, state.width, UI_BOTTOM, 15923450);
+    fb_rect(0, state.height - UI_BOTTOM, state.width, 1, 14345961);
+    fb_clip(16, state.height - UI_BOTTOM, state.width - 115, UI_BOTTOM, 0);
+    ui_text(18, state.height - 8, if (state.hover != "") { state.hover } else { state.status }, 11, UI_MUTED, 400);
+    fb_clip(0, 0, state.width, state.height, 0);
+    let progress: Int = if (state.content <= page_h) { 100 } else { state.scroll * 100 / (state.content - page_h) };
+    ui_text(state.width - 74, state.height - 8, str(progress) + "%", 11, UI_MUTED, 400);
+    if (state.loading) {
+        ui_round(state.width / 2 - 134, state.height / 2 - 24, 268, 52, 12, 16777215);
+        ui_text(state.width / 2 - 106, state.height / 2 + 7, "Opening your next page…", 16, UI_ACCENT, 600);
+    }
+    return;
+}
+
+fun ui_save(state: Any) -> Nil {
+    let result: Int = mb_png_write(state.out, FB, FB_W, FB_H, 3);
+    state.status = if (result == 0) { "Couldn't write " + state.out } else { "Saved " + state.out };
+    if (result != 0) { print("Saved " + state.out); }
+    return;
+}
+
+fun ui_click(state: Any, x: Int, y: Int) -> Nil {
+    if (y >= 58 and y <= 101) {
+        if (x >= 186 and x < state.width - 156) { ui_focus(state); return; }
+        state.focused = false;
+        if (x >= 16 and x < 176) {
+            let index: Int = (x - 16) / 40;
+            if (index == 0) { ui_history(state, -1); }
+            else if (index == 1) { ui_history(state, 1); }
+            else if (index == 2) { ui_reload(state); }
+            else { ui_navigate(state, "about:home", true); }
+            return;
+        }
+        if (x >= state.width - 138) { ui_save(state); return; }
+    }
+    state.focused = false; state.selected = false;
+    let page_y: Int = y - UI_TOP + state.scroll;
+    if (state.error != "" and page_y >= 196 and page_y <= 240) {
+        if (x >= 64 and x <= 206) { ui_reload(state); }
+        else if (x >= 228 and x <= 370) { ui_navigate(state, "about:home", true); }
+        return;
+    }
+    if (state.url == "about:home") {
+        let left: Int = ui_home_x(state);
+        if (page_y >= 295 and page_y <= 343) {
+            if (x >= left and x <= left + 278) { ui_navigate(state, "about:demo", true); }
+            else if (x >= left + 292 and x <= left + 500) { ui_focus(state); }
+        } else if (page_y >= 393 and page_y <= 539) {
+            let width: Int = min(720, state.width - 2 * left);
+            if (x >= left and x < left + width) {
+                if ((x - left) / ((width - 28) / 3 + 14) == 2) { ui_navigate(state, "about:demo", true); }
+                else { ui_focus(state); }
+            }
+        }
+        return;
+    }
+    ui_activate(state, ui_hit(state, x, y)); return;
+}
+
+fun ui_insert(state: Any, text: Str) -> Nil {
+    let clean: Str = replace(replace(text, "\n", ""), "\r", "");
+    if (clean == "") { return; }
+    if (state.selected) { state.edit = ""; state.cursor = 0; state.selected = false; }
+    if (len(state.edit) + len(clean) > 8192) { return; }
+    state.edit = substring(state.edit, 0, state.cursor) + clean +
+        substring(state.edit, state.cursor, len(state.edit) - state.cursor);
+    state.cursor += len(clean); return;
+}
+
+fun ui_key(state: Any, key: Int, modifiers: Int, text: Str) -> Nil {
+    let control: Bool = modifiers / 4 % 2 == 1;
+    let alt: Bool = modifiers / 8 % 2 == 1;
+    let lower: Int = if (key >= 65 and key <= 90) { key + 32 } else { key };
+    if (control and lower == 113) { state.running = false; }
+    else if (control and lower == 108) { ui_focus(state); }
+    else if ((control and lower == 114) or key == 65474) { ui_reload(state); }
+    else if (control and lower == 104) { ui_navigate(state, "about:home", true); }
+    else if (control and lower == 115) { ui_save(state); }
+    else if (alt and key == 65361) { ui_history(state, -1); }
+    else if (alt and key == 65363) { ui_history(state, 1); }
+    else if (state.focused) {
+        if (control and lower == 97) { state.selected = true; state.cursor = len(state.edit); }
+        else if (control and (lower == 99 or lower == 120) and state.selected) {
+            mb_window_copy(state.edit);
+            if (lower == 120) { state.edit = ""; state.cursor = 0; state.selected = false; }
+        } else if (control and lower == 118) { ui_insert(state, mb_window_paste()); }
+        else if (key == 65293) { ui_navigate(state, state.edit, true); }
+        else if (key == 65307) { state.edit = state.url; state.cursor = len(state.edit); state.focused = false; state.selected = false; }
+        else if (key == 65288 or key == 65535) {
+            if (state.selected) { state.edit = ""; state.cursor = 0; state.selected = false; }
+            else if (key == 65288 and state.cursor > 0) {
+                state.edit = substring(state.edit, 0, state.cursor - 1) + substring(state.edit, state.cursor, len(state.edit) - state.cursor);
+                state.cursor -= 1;
+            } else if (key == 65535 and state.cursor < len(state.edit)) {
+                state.edit = substring(state.edit, 0, state.cursor) + substring(state.edit, state.cursor + 1, len(state.edit) - state.cursor - 1);
+            }
+        } else if (key == 65360) { state.cursor = 0; state.selected = false; }
+        else if (key == 65367) { state.cursor = len(state.edit); state.selected = false; }
+        else if (key == 65361 or key == 65363) {
+            state.cursor = if (state.selected) { if (key == 65361) { 0 } else { len(state.edit) } }
+                else { clamp(state.cursor + if (key == 65361) { -1 } else { 1 }, 0, len(state.edit)) };
+            state.selected = false;
+        } else if (not control and not alt and text != "" and ord(text[0]) >= 32) { ui_insert(state, text); }
+    } else {
+        if (key == 65364) { ui_scroll(state, 48); }
+        else if (key == 65362) { ui_scroll(state, -48); }
+        else if (key == 65366 or key == 32) { ui_scroll(state, state.height - UI_TOP - 70); }
+        else if (key == 65365) { ui_scroll(state, -state.height + UI_TOP + 70); }
+        else if (key == 65360) { state.scroll = 0; }
+        else if (key == 65367) { ui_scroll(state, state.content); }
+    }
+    return;
+}
+
+fun ui_motion(state: Any, x: Int, y: Int) -> Bool {
+    let button: Int = if (y >= 60 and y <= 96 and x >= 16 and x < 176) { (x - 16) / 40 } else { -1 };
+    let node: Int = ui_hit(state, x, y);
+    let href: Str = if (node < 0) { "" } else { ui_link(node) };
+    let hover: Str = if (href == "") { "" } else { net_reference(href) };
+    let dirty: Bool = button != state.hover_button or hover != state.hover;
+    state.hover_button = button; state.hover = hover;
+    if (state.open) {
+        mut kind: Int = if (href != "" or button >= 0 or (x >= state.width - 138 and y >= 60 and y <= 98)) { 1 } else { 0 };
+        if (x >= 186 and x < state.width - 156 and y >= 58 and y <= 101) { kind = 2; }
+        if (node >= 0) {
+            mut element: Int = node;
+            while (element >= 0) {
+                if (dom_tag(element) == "button" or dom_has_attr(element, "onclick")) { kind = 1; break; }
+                element = dom_parent(element);
+            }
+        }
+        if (state.url == "about:home" and y - UI_TOP + state.scroll >= 295 and y - UI_TOP + state.scroll <= 539) { kind = 1; }
+        mb_window_cursor(kind);
+    }
+    return dirty;
+}
+
+fun ui_event(state: Any, kind: Int, a: Int, b: Int, modifiers: Int, text: Str) -> Bool {
+    if (kind == 1) { state.running = false; return false; }
+    if (kind == 2) { return true; }
+    if (kind == 3) {
+        state.width = clamp(a, 640, 4096); state.height = clamp(b, 400, 4096);
+        ui_layout(state); return true;
+    }
+    if (kind == 4) { return ui_motion(state, a, b); }
+    if (kind == 5) {
+        if (modifiers == 8) { ui_history(state, -1); }
+        else if (modifiers == 9) { ui_history(state, 1); }
+        else if (modifiers == 1) {
+            if (a >= state.width - 12 and b >= UI_TOP and b < state.height - UI_BOTTOM) {
+                state.scroll = (b - UI_TOP) * max(0, state.content - state.height + UI_TOP + UI_BOTTOM) / (state.height - UI_TOP - UI_BOTTOM);
+            } else { ui_click(state, a, b); }
+        }
+        return true;
+    }
+    if (kind == 6) { ui_scroll(state, a * 72); return true; }
+    if (kind == 7) { ui_key(state, a, modifiers, text); return true; }
+    return false;
+}
+
+fun ui_cleanup() -> Nil {
+    mb_window_close(); fb_release(); js_close(); sup_images_release(); net_release(); return;
+}
+
+fun ui_snapshot(state: Any, input: Str) -> Int {
+    ui_navigate(state, input, true); ui_draw(state);
+    if (mb_png_write(state.out, FB, FB_W, FB_H, 3) == 0) { fail("could not write PNG: " + state.out); }
+    print("MayBrowser saved its interface to " + state.out);
+    ui_cleanup(); return 0;
+}
+
+fun ui_run(state: Any, input: Str) -> Int {
+    if (mb_window_open(state.width, state.height, "MayBrowser") == 0) {
+        fail("Cannot open a graphical display. Run on an X11/XWayland desktop, or use --snapshot / -o for PNG output.");
+    }
+    state.open = true;
+    ui_navigate(state, input, true); ui_draw(state); mb_window_present(FB, FB_W, FB_H);
+    while (state.running) {
+        let event: Ptr = mb_window_event();
+        if (ui_event(state, load64(event), load64(event + 8), load64(event + 16), load64(event + 24), mb_window_text())) {
+            ui_draw(state); mb_window_present(FB, FB_W, FB_H);
+        }
+    }
+    ui_cleanup(); return 0;
+}

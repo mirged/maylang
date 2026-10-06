@@ -1,8 +1,10 @@
 MAYC ?= ../mayc/mayc_new
 CC ?= cc
 PYTHON ?= python3
+TESTFLAGS ?=
 CFLAGS ?= -O2 -Wall -Wextra
 CURL_LIBS ?= -l:libcurl.so.4
+WINDOW_LIBS ?= -lX11
 
 SOURCES := main.may $(wildcard src/*.may)
 VENDOR := $(wildcard native/vendor/*.h)
@@ -11,8 +13,9 @@ VENDOR := $(wildcard native/vendor/*.h)
 all: build
 build: build/maybrowser build/libmaybrowser.so
 
-build:
-	mkdir -p $@
+build/.dir:
+	mkdir -p build
+	touch $@
 
 src/js_prelude.may: native/dom_bridge.js tools/embed_js.py
 	$(PYTHON) tools/embed_js.py
@@ -20,12 +23,12 @@ src/js_prelude.may: native/dom_bridge.js tools/embed_js.py
 embed:
 	$(PYTHON) tools/embed_js.py
 
-build/maybrowser: $(SOURCES) $(MAYC) ../mayc/runtime.may ../mayc/native.may ../../stdlib/prelude.may | build
+build/maybrowser: $(SOURCES) $(MAYC) ../mayc/runtime.may ../mayc/native.may ../../stdlib/prelude.may | build/.dir
 	$(MAYC) main.may -o $@.next
 	mv $@.next $@
 
-build/libmaybrowser.so: native/maybrowser.c $(VENDOR) | build
-	$(CC) $(CFLAGS) -fPIC -shared native/maybrowser.c -o $@.next $(CURL_LIBS) -lm
+build/libmaybrowser.so: native/maybrowser.c native/window.c $(VENDOR) | build/.dir
+	$(CC) $(CFLAGS) -fPIC -shared native/maybrowser.c native/window.c -o $@.next $(CURL_LIBS) $(WINDOW_LIBS) -lm
 	mv $@.next $@
 
 check: src/js_prelude.may
@@ -33,7 +36,7 @@ check: src/js_prelude.may
 	$(MAYC) --check main.may
 
 test: build
-	$(PYTHON) tests/run.py --compiler $(MAYC)
+	$(PYTHON) tests/run.py --compiler $(MAYC) $(TESTFLAGS)
 
 examples: build
 	./maybrowser examples/hello.html --width 800 --height 900 -o build/hello.png

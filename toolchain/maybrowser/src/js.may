@@ -14,10 +14,34 @@ extern "libduktape.so.207" {
     fun duk_eval_raw(ctx: Ptr, src: Str, length: Int, flags: Int) -> Int32 = "duk_eval_raw";
     fun duk_safe_to_lstring(ctx: Ptr, idx: Int, out_len: Ptr) -> Str = "duk_safe_to_lstring";
     fun duk_destroy_heap(ctx: Ptr) -> Void = "duk_destroy_heap";
+    fun duk_pop(ctx: Ptr) -> Void = "duk_pop";
 }
 
 // 0 args | EVAL | SAFE | NOSOURCE | STRLEN | NOFILENAME
 let JS_EVAL_FLAGS: Int = 3720;
+mut JS_CTX: Ptr = ptr(0);
+
+fun js_close() -> Nil {
+    if (JS_CTX != 0) { duk_destroy_heap(JS_CTX); JS_CTX = ptr(0); }
+    return;
+}
+
+fun js_eval(src: Str) -> Any {
+    if (JS_CTX == 0) { return nil; }
+    let rc: Int32 = duk_eval_raw(JS_CTX, src, 0, JS_EVAL_FLAGS);
+    let payload: Str = duk_safe_to_lstring(JS_CTX, -1, ptr(0));
+    duk_pop(JS_CTX);
+    if (rc != 0) { print("maybrowser: javascript error: " + payload); return nil; }
+    let parsed: Any = may { json_parse(payload) } otherwise { nil };
+    if (parsed != nil) {
+        for line: Any in (parsed.logs ?? []) { print("[js] " + str(line)); }
+    }
+    return parsed;
+}
+
+fun js_click(index: Int) -> Any {
+    return js_eval("var __prevented = __click(" + str(index) + ");JSON.stringify({html:__serialize(),prevented:__prevented,logs:__logdump()});");
+}
 
 // Serialise the DOM into the snapshot shape consumed by dom_bridge.js.
 fun js_snapshot(i: Int) -> Any {
@@ -33,6 +57,9 @@ fun js_snapshot(i: Int) -> Any {
     n["attrs"] = clean;
     let kids: List<Any> = [];
     for c: Int in dom_children(i) { push(kids, js_snapshot(c)); }
+    if (dom_text(i) != "") {
+        push(kids, {"tag":"#text","text":dom_text(i),"attrs":{},"children":[]});
+    }
     n["children"] = kids;
     return n;
 }
@@ -56,14 +83,13 @@ fun js_collect_scripts(root: Int) -> List<Str> {
     return out;
 }
 
-// Run the document's scripts.  Returns the serialised HTML, or "" if there is
-// nothing to do (or execution failed).
+// Initialize the live DOM and run the document's scripts. Return serialized
+// HTML, or "" if initialization failed.
 fun js_run_page(root: Int) -> Str {
+    js_close();
     let scripts: List<Str> = js_collect_scripts(root);
-    if (len(scripts) == 0) { return ""; }
-
-    let ctx: Ptr = duk_create_heap(ptr(0), ptr(0), ptr(0), ptr(0), ptr(0));
-    if (ctx == 0) {
+    JS_CTX = duk_create_heap(ptr(0), ptr(0), ptr(0), ptr(0), ptr(0));
+    if (JS_CTX == 0) {
         print("maybrowser: could not create JavaScript heap");
         return "";
     }
@@ -74,24 +100,7 @@ fun js_run_page(root: Int) -> Str {
     for code: Str in scripts {
         src = src + "__run(" + json_stringify(code) + ");\n";
     }
-    src = src + "JSON.stringify({html: __serialize(), logs: __logdump()});\n";
-
-    let rc: Int32 = duk_eval_raw(ctx, src, 0, JS_EVAL_FLAGS);
-    if (rc != 0) {
-        let message: Str = duk_safe_to_lstring(ctx, 0 - 1, ptr(0));
-        print("maybrowser: javascript error: " + message);
-        duk_destroy_heap(ctx);
-        return "";
-    }
-
-    let payload: Str = duk_safe_to_lstring(ctx, 0 - 1, ptr(0));
-    duk_destroy_heap(ctx);
-
-    mut html: Str = "";
-    let parsed: Any = may { json_parse(payload) } otherwise { return ""; };
-    for line: Any in (parsed.logs ?? []) {
-        print("[js] " + str(line));
-    }
-    html = str(parsed.html ?? "");
-    return html;
+    src = src + "__ready();JSON.stringify({html: __serialize(), logs: __logdump()});\n";
+    let parsed: Any = js_eval(src);
+    return if (parsed == nil) { "" } else { str(parsed.html ?? "") };
 }

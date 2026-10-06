@@ -41,8 +41,9 @@ fun browser_background(root: Int) -> Int {
     return sup_rgb(255, 255, 255);
 }
 
-// Render `src` (already fetched) to `out_path`.  Returns 0 on success.
-fun browser_render(src: Str, out_path: Str, width: Int, height: Int, run_js: Bool) -> Int {
+// Prepare a document and keep its JavaScript context alive for interactions.
+fun browser_prepare(src: Str, run_js: Bool) -> Int {
+    js_close(); sup_images_release();
     mut root: Int = html_parse(src);
     CSS_RULES = [];
     browser_collect_styles(root);
@@ -56,10 +57,16 @@ fun browser_render(src: Str, out_path: Str, width: Int, height: Int, run_js: Boo
         }
     }
 
+    return root;
+}
+
+fun browser_render(src: Str, out_path: Str, width: Int, height: Int, run_js: Bool) -> Int {
+    let root: Int = browser_prepare(src, run_js);
     let bg: Int = browser_background(root);
     fb_init(width, height, bg);
     let root_box: Int = lay_layout_document(root, width, height);
     render_tree(root_box, width, height, out_path);
     fb_release();
+    js_close(); sup_images_release(); net_release();
     return 0;
 }

@@ -19,6 +19,22 @@ extern "libmaybrowser.so" {
     fun mb_fetch_file(url: Str, path: Str) -> Int = "mb_fetch_file";
     fun mb_free(p: Ptr) -> Void = "mb_free";
     fun mb_alloc(n: Int) -> Ptr = "mb_alloc";
+    fun mb_url_resolve(base: Str, reference: Str) -> Str = "mb_url_resolve";
+    fun mb_temp_file() -> Str = "mb_temp_file";
+    fun mb_window_open(w: Int, h: Int, title: Str) -> Int = "mb_window_open";
+    fun mb_window_close() -> Void = "mb_window_close";
+    fun mb_window_title(title: Str) -> Void = "mb_window_title";
+    fun mb_window_cursor(kind: Int) -> Void = "mb_window_cursor";
+    fun mb_window_present(rgb: Ptr, w: Int, h: Int) -> Void = "mb_window_present";
+    fun mb_window_event() -> Ptr = "mb_window_event";
+    fun mb_window_text() -> Str = "mb_window_text";
+    fun mb_window_copy(text: Str) -> Void = "mb_window_copy";
+    fun mb_window_paste() -> Str = "mb_window_paste";
+}
+
+fun sup_images_release() -> Nil {
+    for image: Any in values(SUP_IMAGES) { if (image != nil) { mb_free(image.ptr); } }
+    SUP_IMAGES = {}; return;
 }
 
 // ------------------------------------------------------------------ fonts

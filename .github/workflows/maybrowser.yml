@@ -1,0 +1,38 @@
+name: MayBrowser
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser and virtual display requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc binutils libx11-dev libcurl4-openssl-dev libduktape207 fonts-dejavu-core python3 xvfb xauth xdotool
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Build the compiler from source
+        run: sh toolchain/rust/build.sh
+      - name: Check and build MayBrowser
+        run: make -C toolchain/maybrowser check build
+      - name: Test browser rendering, HTTP, and live window input
+        run: xvfb-run -a make -C toolchain/maybrowser test TESTFLAGS='--require-network --gui'
+      - name: Upload browser reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maybrowser-verification
+          path: |
+            toolchain/maybrowser/build/test-report.json
+            toolchain/maybrowser/build/*.png
+            toolchain/maybrowser/build/window.log
+          if-no-files-found: ignore

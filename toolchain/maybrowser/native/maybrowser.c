@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "vendor/stb_truetype.h"
@@ -178,6 +179,34 @@ extern CURLcode curl_easy_setopt(CURL *, CURLoption, ...);
 extern CURLcode curl_easy_perform(CURL *);
 extern void curl_easy_cleanup(CURL *);
 extern CURLcode curl_global_init(long);
+typedef void CURLU;
+extern CURLU *curl_url(void);
+extern int curl_url_set(CURLU *, int, const char *, unsigned);
+extern int curl_url_get(CURLU *, int, char **, unsigned);
+extern void curl_url_cleanup(CURLU *);
+extern void curl_free(void *);
+
+const char *mb_temp_file(void) {
+    static char path[64];
+    strcpy(path, "/tmp/maybrowser-XXXXXX");
+    int fd = mkstemp(path);
+    if (fd < 0) return "";
+    close(fd);
+    return path;
+}
+
+const char *mb_url_resolve(const char *base, const char *reference) {
+    static char *result;
+    free(result); result = NULL;
+    CURLU *url = curl_url();
+    char *resolved = NULL;
+    if (url && !curl_url_set(url, 0, base, 0) &&
+        !curl_url_set(url, 0, reference, 0) && !curl_url_get(url, 0, &resolved, 0))
+        result = strdup(resolved);
+    curl_free(resolved);
+    if (url) curl_url_cleanup(url);
+    return result ? result : "";
+}
 
 #define CURL_GLOBAL_DEFAULT 3L
 #define CURLOPT_WRITEDATA 10001
@@ -188,6 +217,8 @@ extern CURLcode curl_global_init(long);
 #define CURLOPT_MAXREDIRS 68
 #define CURLOPT_ACCEPT_ENCODING 10102
 #define CURLOPT_NOSIGNAL 99
+#define CURLOPT_FAILONERROR 45
+#define CURLOPT_CONNECTTIMEOUT 78
 
 /* Returns a buffer: uint64 length, then the response bytes. NULL on failure. */
 static void *mb_fetch_mem(const char *url, size_t *out_len) {
@@ -204,6 +235,8 @@ static void *mb_fetch_mem(const char *url, size_t *out_len) {
     curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(h, CURLOPT_MAXREDIRS, 8L);
     curl_easy_setopt(h, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT, 8L);
+    curl_easy_setopt(h, CURLOPT_FAILONERROR, 1L);
     curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(h, CURLOPT_USERAGENT, "MayBrowser/0.1");
     curl_easy_setopt(h, CURLOPT_ACCEPT_ENCODING, "");

@@ -8,6 +8,7 @@
  */
 (function (global) {
   'use strict';
+  var __logs = [], documentEvents = {}, windowEvents = {};
 
   var VOID = { area: 1, base: 1, br: 1, col: 1, embed: 1, hr: 1, img: 1,
                input: 1, link: 1, meta: 1, param: 1, source: 1, track: 1, wbr: 1 };
@@ -311,7 +312,10 @@
     if (styleStr) { out += ' style="' + escAttr(styleStr) + '"'; }
     if (VOID[tag]) { return out + '>'; }
     out += '>';
-    for (var i = 0; i < node.childNodes.length; i++) { out += serialize(node.childNodes[i]); }
+    for (var i = 0; i < node.childNodes.length; i++) {
+      var child = node.childNodes[i];
+      out += (tag === 'style' || tag === 'script') && child.nodeType === 3 ? child.data : serialize(child);
+    }
     return out + '</' + tag + '>';
   }
 
@@ -375,8 +379,11 @@
     getElementsByClassName: function (cls) { return documentElement.getElementsByClassName(cls); },
     querySelector: function (sel) { return documentElement.querySelector(sel); },
     querySelectorAll: function (sel) { return documentElement.querySelectorAll(sel); },
-    addEventListener: function () {},
-    removeEventListener: function () {},
+    addEventListener: function (type, fn) { (documentEvents[type] = documentEvents[type] || []).push(fn); },
+    removeEventListener: function (type, fn) {
+      var list = documentEvents[type] || [], i = list.indexOf(fn);
+      if (i >= 0) { list.splice(i, 1); }
+    },
     write: function (s) {
       var frag = parseFragment(String(s));
       for (var i = 0; i < frag.length; i++) { bodyEl.appendChild(frag[i]); }
@@ -424,15 +431,55 @@
     catch (e) { __logs.push('JS error: ' + (e && e.message ? e.message : String(e))); }
   };
 
+  global.__ready = function () {
+    document.readyState = 'complete';
+    var callbacks = (documentEvents.DOMContentLoaded || []).concat(windowEvents.load || []);
+    for (var i = 0; i < callbacks.length; i++) {
+      try { callbacks[i].call(global); } catch (error) { __logs.push('JS error: ' + error.message); }
+    }
+    if (typeof global.onload === 'function') {
+      try { global.onload(); } catch (error) { __logs.push('JS error: ' + error.message); }
+    }
+  };
+
+  var clickNodes = [];
   global.__serialize = function () {
+    clickNodes = [documentElement].concat(descendants(documentElement));
+    for (var i = 0; i < clickNodes.length; i++) {
+      clickNodes[i]._attrs['data-mb-node'] = String(i);
+    }
     return '<!doctype html>\n' + documentElement.outerHTML;
   };
 
-  global.__logdump = function () { return __logs; };
+  global.__click = function (index) {
+    var node = clickNodes[index];
+    if (!node) { return false; }
+    var event = { type: 'click', target: node, defaultPrevented: false,
+      preventDefault: function () { this.defaultPrevented = true; },
+      stopPropagation: function () { this.stopped = true; } };
+    while (node) {
+      event.currentTarget = node;
+      try {
+        if (typeof node.onclick === 'function') {
+          if (node.onclick.call(node, event) === false) { event.preventDefault(); }
+        } else if (node._attrs && node._attrs.onclick) {
+          if (Function('event', node._attrs.onclick).call(node, event) === false) { event.preventDefault(); }
+        }
+        var listeners = node._events && node._events.click || [];
+        for (var i = 0; i < listeners.length; i++) { listeners[i].call(node, event); }
+      } catch (error) { __logs.push('JS error: ' + error.message); }
+      if (event.stopped) { break; }
+      node = node.parentNode;
+    }
+    return event.defaultPrevented;
+  };
+
+  global.__logdump = function () { var logs = __logs; __logs = []; return logs; };
 
   global.document = document;
   global.window = global;
   global.self = global;
+  global.addEventListener = function (type, fn) { (windowEvents[type] = windowEvents[type] || []).push(fn); };
   global.console = {
     log: function () { __logs.push(mapArgs(arguments)); },
     info: function () { __logs.push(mapArgs(arguments)); },
@@ -453,4 +500,4 @@
     if (typeof v === 'object') { try { return JSON.stringify(v); } catch (e) { return String(v); } }
     return String(v);
   }
-})();
+})(this);
