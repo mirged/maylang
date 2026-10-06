@@ -40,8 +40,9 @@ fun net_set_document(path_or_url: Str) -> Nil {
 fun net_reference(src: Str) -> Str {
     if (net_is_remote(src) or starts_with(src, "about:")) { return src; }
     if (starts_with(src, "file://")) { return substring(src, 7, len(src) - 7); }
-    if (net_is_url(DOC_URL)) { return mb_url_resolve(DOC_URL, src); }
+    // Preserve the query for fragment-only links on all libcurl versions.
     if (starts_with(src, "#")) { return split(DOC_URL, "#")[0] + src; }
+    if (net_is_url(DOC_URL)) { return mb_url_resolve(DOC_URL, src); }
     return net_join(DOC_BASE, src);
 }
 

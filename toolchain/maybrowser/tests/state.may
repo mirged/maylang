@@ -70,6 +70,8 @@ check(net_reference("/next.html") == "https://example.com/next.html", "root URL"
 check(net_reference("//cdn.example.com/a.css") == "https://cdn.example.com/a.css", "scheme relative URL");
 check(net_reference("?new=2") == "https://example.com/a/b/index.html?new=2", "query URL");
 check(net_reference("#part") == "https://example.com/a/b/index.html?old=1#part", "fragment URL");
+net_set_document("https://example.com/page?value=1#old");
+check(net_reference("#new") == "https://example.com/page?value=1#new", "replace fragment and preserve query");
 net_set_document("https://example.com");
 check(net_reference("styles.css") == "https://example.com/styles.css", "origin without path");
 for i: Int in 0..110 { ui_navigate(state, "about:home", true); }
