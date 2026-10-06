@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 
-from backends import compile_source, emulate
+from backends import compiler_binary, compile_source, emulate
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
@@ -22,7 +22,7 @@ def main():
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--require-emulation', action='store_true')
     args = parser.parse_args()
-    compiler = args.compiler.resolve()
+    compiler = compiler_binary(args.compiler)
     try:
         import unicorn
         have_emulation = True

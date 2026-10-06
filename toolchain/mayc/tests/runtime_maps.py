@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 
-from backends import compile_source
+from backends import compiler_binary, compile_source
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, required=True)
     args = parser.parse_args()
-    compiler = args.compiler.resolve()
+    compiler = compiler_binary(args.compiler)
     with tempfile.TemporaryDirectory(prefix='mayc-runtime-maps-') as directory:
         work = Path(directory)
         helpers = work / 'helpers'

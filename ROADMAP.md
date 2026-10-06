@@ -49,7 +49,7 @@ Make source builds and runtime correctness trustworthy before broadening adoptio
 **Status:** implemented
 **Initial priority:** P0  
 **GitHub:** [Issue #1](https://github.com/mirged/maylang/issues/1)  
-**Relevant paths:** `toolchain/bootstrap/`, `toolchain/legacy-rust/crates/`, `.github/workflows/bootstrap.yml`, `toolchain/mayc/main.may`, `README.md`
+**Relevant paths:** `toolchain/rust/`, `toolchain/rust/crates/`, `.github/workflows/bootstrap.yml`, `toolchain/mayc/main.may`, `README.md`
 
 The supported stage-zero compiler reuses Rust frontend components and emits GNU C. It intentionally replaces the originally proposed `may_cli`/Rust native backend route with a smaller bootstrap. Native stages 2 and 3 converge to identical executables; fresh clones require Rust and GCC or Clang rather than a tracked compiler binary.
 
@@ -79,16 +79,20 @@ The compiler guide documents collector corruption under sustained workloads.
 
 ### Initiative 3. Add CI for compiler, compliance and self-hosting verification
 
-**Status:** planned  
+**Status:** in progress
+
 **Initial priority:** P0  
 **GitHub:** [Issue #3](https://github.com/mirged/maylang/issues/3)  
 **Relevant paths:** `toolchain/mayc/tests/run.sh`, `tests/compliance/run.py`, `.github/workflows/`
 
-Verification scripts exist, but this checkout has no GitHub workflow directory.
+The Linux workflow verifies source-only bootstrap convergence, the Rust workspace,
+direct LLVM lowering, native compiler entrypoints and language compliance. It
+uploads reports and failure logs. Optional emulator/performance jobs remain to
+be separated and automated; the complete initiative stays open.
 
-- [ ] Add Linux x86-64 CI with explicit Python/binutils requirements.
-- [ ] Run compiler stage convergence and compliance checks on pull requests.
-- [ ] Upload reports and failure logs and fail on verification errors.
+- [x] Add Linux x86-64 CI with explicit Python/binutils requirements.
+- [x] Run compiler stage convergence and compliance checks on pull requests.
+- [x] Upload reports and failure logs and fail on verification errors.
 - [ ] Separate required checks from optional emulator/performance jobs.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.

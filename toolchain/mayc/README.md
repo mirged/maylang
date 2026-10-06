@@ -4,11 +4,11 @@
 `src/`; runtime sidecars stay beside the entry point. Compiler tests and
 bootstrap binaries are kept in `tests/` and `build/` respectively.
 
-No compiler binary is checked in. Run `sh toolchain/bootstrap/build.sh` from
+No compiler binary is checked in. Run `sh toolchain/rust/build.sh` from
 the repository root to build from Rust and C source, or invoke `mayc_new` to
 build automatically on first use. Rust and GCC or Clang are required for this
 first build. Later invocations use the generated native compiler in
-`build/bin/`. See the [bootstrap guide](../bootstrap/README.md).
+`build/bin/`. See the [bootstrap guide](../rust/README.md).
 
 ## Command line
 
@@ -29,7 +29,8 @@ dynamic legacy checking; `--strict` restores strict checking (the default).
 source after textual imports have been expanded and exits. `--version` reports
 the self-hosted compiler identity. `--runtime full|core|none` selects the library
 set; `none` is equivalent to `--raw`. The default is `full` on x86-64 Linux and
-`core` on the other targets. `--time` reports elapsed stage times to stderr.
+`core` on the other native targets. The experimental `clang-llvm` target defaults
+to the full Maylang runtime. `--time` reports elapsed stage times to stderr.
 
 `main.may` expands imports and drives a staged compiler:
 
@@ -64,6 +65,36 @@ this change does **not** make the entire compiler or its GC runtime thread-safe.
 Each sink is released after output is written. Capacity checks precede writes;
 code, data and image limits are currently 16 MiB, 4 MiB and 32 MiB.
 
+## Experimental Clang/LLVM target
+
+`--target clang-llvm` lowers Maylang's linear `Quad` IR directly to textual
+LLVM IR in `src/backend/llvm.may`. The backend also lowers the Maylang runtime,
+using its tagged values and conservative garbage collector. Clang compiles the
+`.ll` through its LLVM backend and links an x86-64 Linux executable. This path
+requires no Rust compiler or generated C. `--emit-llvm` writes IR directly and
+does not require Clang.
+
+```sh
+sh toolchain/rust/build.sh
+toolchain/mayc/mayc_new --target clang-llvm examples/hello.may -o /tmp/hello-llvm
+/tmp/hello-llvm
+toolchain/mayc/mayc_new --target clang-llvm --emit-llvm examples/hello.may -o /tmp/hello.ll
+python3 toolchain/mayc/tests/llvm.py
+```
+
+Executable compilation requires Clang, a linker (`ld`), and libc development
+files. Set `CLANG` to an executable path or name to override PATH discovery.
+Subprocesses inherit the compiler's environment. Paths may contain spaces.
+Without `-o`, IR output replaces the final `.may` with `.ll`. Compilation and
+link failures preserve existing executable outputs.
+
+The experimental backend supports integer/float arithmetic, strings, lists/maps,
+functions, shared captures, pipelines, loops, interpolation, imports, and
+`may`/`otherwise`. It currently requires the full runtime on x86-64 Linux;
+`--raw`, core/none runtimes, extern functions, and fibers are rejected.
+`--check` does not require Clang. The regression script validates direct emission,
+compiler invocation, and observable behavior against the native backend.
+
 ## Cross compilation
 
 The compiler executable itself currently runs on x86-64 Linux. Target selection
@@ -76,6 +107,7 @@ is explicit and does not depend on the host:
 | `riscv64-linux` | ELF64 | Core runtime and `--raw` (RV64IM) |
 | `arm64-macos` | Mach-O ARM64 | Core runtime and `--raw`; sign on macOS |
 | `x86_64-windows` | PE32+ | Core runtime with kernel32 imports and `--raw` |
+| `clang-llvm` (experimental) | LLVM IR / ELF64 | Full runtime on x86-64 Linux; excludes FFI and fibers |
 
 ```sh
 toolchain/mayc/mayc_new --target arm64-linux examples/hello.may -o hello-arm64
@@ -224,6 +256,17 @@ python3 toolchain/mayc/tests/backends.py --compiler toolchain/mayc/mayc_new --re
 Strict typing is enabled by default. Use `--legacy` for untyped source and
 `Any` for explicit dynamic boundaries. See the [strict language guide](../../docs/STRICT.md)
 for signatures, typed loops, collections, migration and current limitations.
+Import metadata, source origins and visibility checks share normalized absolute
+module paths, including standard-library fallback paths. Relative and absolute
+imports of the same path expand once. Public enum types and their variant
+constructors are exported together; selective imports still require each name.
+`tests/modules.py` checks these rules in strict and legacy modes, including
+imports from outside the repository, private members and ambiguous names:
+
+```sh
+python3 toolchain/mayc/tests/modules.py --compiler toolchain/mayc/mayc_new
+```
+
 `diagnostics.may` formats source excerpts and caret spans.
 Float literals are decoded once during compilation and emitted as binary64
 bits with a fresh runtime box, avoiding repeated decimal parsing in hot loops.
@@ -244,7 +287,7 @@ toolchain/mayc/tests/run.sh
 The launcher obtains its initial native compiler from the Rust → C bootstrap.
 The verifier rebuilds it as `build/bootstrap/mayc_v2_seed`, then checks three
 successive native generations in `build/bootstrap/` for byte-identical output.
-`python3 toolchain/bootstrap/test.py` separately verifies the complete
+`python3 toolchain/rust/test.py` separately verifies the complete
 source-only chain, including C stage 1 and convergence of native stages 2 and 3.
 
 Additional runtime and language compliance regressions live in

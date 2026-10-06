@@ -1,6 +1,7 @@
 import "text.may";
 import "index.may";
 import "protocol.may";
+import "../../mayc/src/emitter.may";
 import "../../mayc/src/state.may";
 import "../../mayc/src/ast.may";
 import "../../mayc/src/lexer.may";
@@ -59,12 +60,13 @@ fun ls_diagnostics(doc: Any) -> Any {
         return nil;
     }
     if (not LS_COMPILER_READY) { irt_init(); LS_ARENA_BASE = ARENAP; LS_COMPILER_READY = true; }
-    ARENAP = LS_ARENA_BASE; DATALEN = 0;
-    FUNC_HEAD = []; LABOFF = [0, 0]; GLOBALS = []; LOCALS = []; FOREIGN_DECLS = [];
+    ARENAP = LS_ARENA_BASE;
+    FUNC_HEAD = []; FOREIGN_DECLS = [];
     IN_FUN = 0; RUNTIME_BODY = 0; MAINBODY = 0; PARSE_RAW = 0; DYNMODE = 1;
     DIAGNOSTIC_SPAN = 0; SOURCE_FILES = {}; MODULE_PUBLIC = {}; MODULE_EXPLICIT = {}; MODULE_IMPORTS = {};
     SEM_LOOPS = 0;
     LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_LENGTH = 0; LS_CHECK_ORIGINS = []; LS_CHECK_SEEN = {}; LS_CHECK_ERRORS = {};
+    let ctx: Any = emitter_new(0);
     may {
         for name: Any in ["prelude.may", "native.may"] {
             let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
@@ -75,7 +77,7 @@ fun ls_diagnostics(doc: Any) -> Any {
             LS_CHECK_TEXT = ls_join(LS_CHECK_PARTS, "");
             SRC = addr(LS_CHECK_TEXT); SRCLEN = ls_bytes(LS_CHECK_TEXT);
             SOURCE_FILES[SRC] = SourceFile(doc.path, LS_CHECK_ORIGINS);
-            lex_all(); parse_program(); strict_program(); sem_program();
+            lex_all(); parse_program(ctx); strict_program(ctx); sem_program();
         }
     } otherwise {
         let span: Any = DIAGNOSTIC_SPAN;
@@ -88,6 +90,7 @@ fun ls_diagnostics(doc: Any) -> Any {
             LS_CHECK_ERRORS[bad.uri] = [ls_diag(bad, offset, min(ls_bytes(bad.text), offset + max(1, span.length)), err.message)];
         } else { LS_CHECK_ERRORS[doc.uri] = [ls_diag(doc, 0, 0, err.message)]; }
     }
+    emitter_release(ctx);
     // Every open buffer in this dependency closure gets a fresh result.
     for uri: Any in keys(LS_CHECK_SEEN) {
         let checked: Any = LS_DOCS[uri];

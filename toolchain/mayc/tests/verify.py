@@ -155,6 +155,8 @@ def main():
         architecture(compiler)
         strict = run(["python3", COMPILER / "tests/strict_types.py", "--compiler", compiler], timeout=180)
         record("strict type contracts", strict.returncode == 0, (strict.stdout + strict.stderr).decode())
+        modules = run(["python3", COMPILER / "tests/modules.py", "--compiler", compiler], timeout=180)
+        record("module identities and visibility", modules.returncode == 0, (modules.stdout + modules.stderr).decode())
         backends = run(["python3", COMPILER / "tests/backends.py", "--compiler", compiler], timeout=180)
         record("backend contexts and cross-target formats", backends.returncode == 0, (backends.stdout + backends.stderr).decode())
         allocator = run(["python3", COMPILER / "tests/regalloc.py", "--compiler", compiler], timeout=180)

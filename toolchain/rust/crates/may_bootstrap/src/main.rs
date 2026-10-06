@@ -2,7 +2,7 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -10,7 +10,7 @@ use may_ast::{Block, Program, Stmt, StmtKind};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 mod c;
-#[path = "../../legacy-rust/crates/may_cli/src/resolve.rs"]
+#[path = "../../may_cli/src/resolve.rs"]
 mod resolve;
 
 fn load(
@@ -31,6 +31,17 @@ fn load(
             if target.extension().is_none() {
                 target.set_extension("may");
             }
+            if !target.exists() {
+                let mut library = Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../../../stdlib")
+                    .join(import);
+                if library.extension().is_none() {
+                    library.set_extension("may");
+                }
+                if library.is_file() {
+                    target = library;
+                }
+            }
             import_targets.insert(import.clone(), fs::canonicalize(&target)?);
             load(&target, seen, modules)?;
         }
@@ -41,6 +52,30 @@ fn load(
         import_targets,
     });
     Ok(())
+}
+
+fn create_scratch() -> std::io::Result<PathBuf> {
+    // Separate build sandboxes can share /tmp while reusing process IDs.
+    // Atomic directory creation plus a time/counter suffix avoids collisions.
+    for attempt in 0..128 {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "may-bootstrap-{}-{stamp}-{attempt}",
+            std::process::id()
+        ));
+        match fs::DirBuilder::new().mode(0o700).create(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "cannot create bootstrap scratch directory",
+    ))
 }
 
 fn run() -> Result<()> {
@@ -106,8 +141,8 @@ fn run() -> Result<()> {
         })
         .collect();
     for source in [
-        include_str!("../../mayc/native.may"),
-        include_str!("../../../stdlib/prelude.may"),
+        include_str!("../../../../mayc/native.may"),
+        include_str!("../../../../../stdlib/prelude.may"),
     ] {
         for stmt in may_parser::parse(source)?.body.stmts {
             if let StmtKind::Fun { name, .. } = &stmt.kind {
@@ -123,8 +158,7 @@ fn run() -> Result<()> {
         fs::write(&output, code)?;
     } else {
         // A private scratch directory prevents parallel builds from colliding.
-        let scratch = std::env::temp_dir().join(format!("may-bootstrap-{}", std::process::id()));
-        fs::create_dir(&scratch)?;
+        let scratch = create_scratch()?;
         let c_source = scratch.join("main.c");
         fs::write(&c_source, code)?;
         let compiled = Command::new(std::env::var_os("CC").unwrap_or_else(|| "cc".into()))
@@ -152,5 +186,17 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("may-bootstrap: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn scratch_directories_do_not_collide_when_process_ids_match() {
+        let first = super::create_scratch().unwrap();
+        let second = super::create_scratch().unwrap();
+        assert_ne!(first, second);
+        std::fs::remove_dir_all(first).unwrap();
+        std::fs::remove_dir_all(second).unwrap();
     }
 }

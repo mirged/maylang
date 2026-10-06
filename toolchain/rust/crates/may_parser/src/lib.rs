@@ -1142,6 +1142,9 @@ impl Parser {
             &TokenKind::Bar,
             "expected `|` to close lambda parameters",
         )?;
+        if self.matches(&TokenKind::Arrow) {
+            let _ = self.parse_type()?;
+        }
         let body = self.lambda_body()?;
         Ok(Expr::Lambda {
             params,
@@ -1612,6 +1615,10 @@ mod tests {
         assert_eq!(
             parse("fun(x: Int) -> Int { return x; };").unwrap(),
             parse("fun(x: Int) { return x; };").unwrap()
+        );
+        assert_eq!(
+            parse("|x: Int| -> Int { return x; };").unwrap(),
+            parse("|x: Int| { return x; };").unwrap()
         );
     }
 

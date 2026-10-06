@@ -14,6 +14,18 @@ ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 
 
+def compiler_binary(compiler):
+    """Resolve the repository launcher before copying a compiler with sidecars."""
+    compiler = compiler.resolve()
+    directory = ROOT / 'toolchain/mayc'
+    if compiler in (directory / 'mayc', directory / 'mayc_new'):
+        result = subprocess.run([str(compiler), '--version'], cwd=ROOT,
+                                capture_output=True, timeout=300)
+        assert result.returncode == 0, result.stderr.decode()
+        return directory / 'build/bin/mayc_new'
+    return compiler
+
+
 def compile_source(compiler, source, binary, *options):
     result = subprocess.run([str(compiler), *options, str(source), '-o', str(binary)],
                             cwd=ROOT, capture_output=True, timeout=120)

@@ -27,6 +27,8 @@ mut GBASE: Any = 0;
 mut GROOTS: Any = 0;
 mut GCOUNT: Any = 0;
 mut STACKTOP: Any = 0;
+// LLVM libc entry supplies envp directly; native _start leaves this zero.
+mut INITIAL_ENVP: Any = 0;
 mut CSTOP: Any = 0;
 mut GCFLAG: Any = 0;
 mut GCCOUNT: Any = 0;
@@ -1914,7 +1916,7 @@ fun rt_system(cmd: Any) -> Any {
     return ((status / 256) % 256) * 8;
 }
 
-// Fork + execve a list of strings; returns the child pid.
+// Fork + execve a list of strings with the inherited environment; returns the child pid.
 fun rt_exec(lst: Any) -> Any {
     let n: Any = rt_list_len(lst);
     let d: Any = load64(lst - 5 + 16);
@@ -1928,7 +1930,11 @@ fun rt_exec(lst: Any) -> Any {
     let pid: Any = syscall(57);
     if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
     if (pid == 0) {
-        syscall(59, load64(argv), argv, 0);
+        // Linux's initial stack is argc, argv[argc], NULL, envp[], NULL.
+        // _start saves that original stack pointer before creating any frames.
+        mut envp: Any = INITIAL_ENVP;
+        if (envp == 0) { envp = STACKTOP + (load64(STACKTOP) + 2) * 8; }
+        syscall(59, load64(argv), argv, envp);
         syscall(60, 127);
     }
     return pid * 8;

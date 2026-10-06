@@ -11,6 +11,6 @@ if [ ! -e "$mayc_dir/build/bin/runtime" ]; then
     ln -s "$mayc_dir/runtime" "$mayc_dir/build/bin/runtime"
 fi
 if [ ! -x "$mayc_dir/build/bin/mayc_new" ]; then
-    sh "$repo_dir/toolchain/bootstrap/build.sh"
+    sh "$repo_dir/toolchain/rust/build.sh"
 fi
 exec "$mayc_dir/build/bin/mayc_new" "$@"

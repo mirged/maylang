@@ -8,6 +8,7 @@ import "src/sema.may";
 import "src/strict.may";
 import "src/ir.may";
 import "src/backend.may";
+import "src/backend/llvm.may";
 import "src/formats.may";
 import "src/modules.may";
 import "src/profile.may";
@@ -21,7 +22,7 @@ import "src/profile.may";
 
 // ---------------------------------------------------------------- Constants
 // Immutable let is Maylang's constant declaration. Update the version here.
-let MAYC_VERSION: Str = "0.8.1-2026-09-30-nightly";
+let MAYC_VERSION: Str = "0.8.2-2026-10-05-nightly";
 let RUNTIME_FILE_NAME: Any  = "runtime.may";
 let PRELUDE_FILE_NAME: Any  = "prelude.may";
 let NATIVE_FILE_NAME: Any   = "native.may";
@@ -139,7 +140,7 @@ fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
 // ------------------------------------------------------------- Driver Entry
 
 fun cli_usage() -> Any {
-    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --strict            Enable strict type checking (default)\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --strict            Enable strict type checking (default)\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
     syscall(1, 1, addr(message), len(message));
     syscall(60, 0);
     return 0;
@@ -190,6 +191,7 @@ fun main2() -> Any {
     mut rawflag: Any = 0;
     mut dumpflag: Any = 0;
     mut checkflag: Any = 0;
+    mut llvmflag: Any = 0;
     mut expandedflag: Any = 0;
     mut k: Any = 1;
     while (k < len(argv)) {
@@ -216,6 +218,8 @@ fun main2() -> Any {
             if (k >= len(argv)) { die_str("mayc: --runtime requires full, core, or none\n"); }
             runtimeName = symbol_name(argv[k][0], argv[k][1]);
             if (runtimeName != "full" and runtimeName != "core" and runtimeName != "none") { die_str("mayc: unknown runtime `${runtimeName}`\n"); }
+        } else if (name_eq(ap, al, addr("--emit-llvm"), 11) == 1) {
+            llvmflag = 1;
         } else if (name_eq(ap, al, addr("--time"), 6) == 1) {
             PROFILE_ENABLED = true;
         } else if (name_eq(ap, al, addr("--dump"), 6) == 1) {
@@ -239,19 +243,26 @@ fun main2() -> Any {
         }
         k = k + 1;
     }
+    if (llvmflag == 1 and targetName != "clang-llvm") {
+        die_str("mayc: --emit-llvm requires --target clang-llvm\n");
+    }
     if (sl == 0) {
         die_str("mayc: missing source file (use --help)\n");
     }
     if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
         let default: Any = cli_default_output(sp, sl);
         op = default[0]; ol = default[1];
+        if (llvmflag == 1) {
+            let llvmOutput: Any = symbol_name(op, ol) + ".ll";
+            op = cstr(llvmOutput); ol = len(llvmOutput);
+        }
     }
     if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
         die_str("mayc: missing -o <binary>\n");
     }
 
     let ctx: Any = emitter_new(target_select(targetName));
-    if (runtimeName == "auto") { runtimeName = if (targetName == "x86_64-linux") { "full" } else { "core" }; }
+    if (runtimeName == "auto") { runtimeName = if (targetName == "x86_64-linux" or targetName == "clang-llvm") { "full" } else { "core" }; }
     if (runtimeName == "none") { rawflag = 1; }
     ctx.runtime = if (rawflag == 1) { "none" } else { runtimeName };
     profile_begin();
@@ -347,6 +358,12 @@ fun main2() -> Any {
 
     }
     profile_mark("ir");
+    if (targetName == "clang-llvm") {
+        llvm_compile(ctx, symbol_name(op, ol), llvmflag);
+        emitter_release(ctx);
+        profile_mark("clang-llvm");
+        return 0;
+    }
     backend_emit(ctx);
     profile_mark("emit");
     pad_code(ctx);

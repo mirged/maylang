@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "toolchain/bootstrap",
-    "toolchain/legacy-rust/crates/may_ast",
-    "toolchain/legacy-rust/crates/may_lexer",
-    "toolchain/legacy-rust/crates/may_parser",
-    "toolchain/legacy-rust/crates/may_check",
-    "toolchain/legacy-rust/crates/may_native",
-    "toolchain/legacy-rust/crates/may_cli",
-    "toolchain/legacy-rust/crates/may_lsp",
+    "toolchain/rust/crates/may_bootstrap",
+    "toolchain/rust/crates/may_ast",
+    "toolchain/rust/crates/may_lexer",
+    "toolchain/rust/crates/may_parser",
+    "toolchain/rust/crates/may_check",
+    "toolchain/rust/crates/may_native",
+    "toolchain/rust/crates/may_cli",
+    "toolchain/rust/crates/may_lsp",
 ]
 
 [workspace.package]
@@ -23,8 +23,8 @@ opt-level = 3
 lto = true
 
 [workspace.dependencies]
-may_ast = { path = "toolchain/legacy-rust/crates/may_ast" }
-may_lexer = { path = "toolchain/legacy-rust/crates/may_lexer" }
-may_parser = { path = "toolchain/legacy-rust/crates/may_parser" }
-may_check = { path = "toolchain/legacy-rust/crates/may_check" }
-may_native = { path = "toolchain/legacy-rust/crates/may_native" }
+may_ast = { path = "toolchain/rust/crates/may_ast" }
+may_lexer = { path = "toolchain/rust/crates/may_lexer" }
+may_parser = { path = "toolchain/rust/crates/may_parser" }
+may_check = { path = "toolchain/rust/crates/may_check" }
+may_native = { path = "toolchain/rust/crates/may_native" }

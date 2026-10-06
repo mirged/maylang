@@ -83,6 +83,7 @@ fun st_export_name(module: Any, name: Any, span: Any, registry: Any) -> Any {
                 found = key;
             }
         }
+
     }
     if (found != nil) { return found; }
     if (has(registry, name)) { return name; }

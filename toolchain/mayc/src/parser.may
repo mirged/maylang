@@ -51,6 +51,8 @@ fun parse_program(ctx: Any) -> Any {
     DECLARATIONS = [];
     STRUCT_DECLS = [];
     ENUM_DECLS = [];
+    MODULE_PUBLIC = {};
+    MODULE_EXPLICIT = {};
     mut mh: Any = 0;
     while (ptok() != TK_EOF) {
         let public: Any = ptok() == TK_PUB;
@@ -92,6 +94,9 @@ fun parse_program(ctx: Any) -> Any {
         }
         if (k == TK_LET or k == TK_MUT) { mh.span = declarationSpan; }
         if (public) {
+            // Enum type names differ from their generated variant constructors.
+            if (k == TK_STRUCT) { MODULE_PUBLIC[owner + "::" + STRUCT_DECLS[len(STRUCT_DECLS) - 1].name] = true; }
+            if (k == TK_ENUM) { MODULE_PUBLIC[owner + "::" + ENUM_DECLS[len(ENUM_DECLS) - 1].name] = true; }
             for index: Any in firstFunction..len(FUNC_HEAD) {
                 let rec: Any = FUNC_HEAD[index];
                 if (rec.nested == 0) { MODULE_PUBLIC[owner + "::" + symbol_name(rec.p, rec.l)] = true; }

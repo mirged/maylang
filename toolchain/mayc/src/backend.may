@@ -9,6 +9,7 @@ import "backend/x86_64.may";
 import "backend/arm64.may";
 import "backend/riscv.may";
 import "backend/raw.may";
+import "backend/llvm.may";
 
 // Target selection is independent of the host running mayc.
 struct Target { name: Any, arch: Any, os: Any, format: Any, machine: Any, alignment: Any, runtime: Any }
@@ -16,6 +17,7 @@ struct TargetBackend { emit: Any, patch: Any }
 struct CodeEmitter { immediate: Any, move: Any, load: Any, store: Any, binary: Any, unary: Any, jump: Any, branch: Any, prologue: Any, epilogue: Any, trap: Any }
 
 fun target_select(name: Any) -> Any {
+    if (name == "clang-llvm") { return Target(name, "llvm", "linux", "llvm", 0, 1, true); }
     if (name == "x86_64-linux") { return Target(name, "x86_64", "linux", "elf", 62, 4096, true); }
     if (name == "arm64-linux") { return Target(name, "arm64", "linux", "elf", 183, 4096, false); }
     if (name == "riscv64-linux") { return Target(name, "riscv64", "linux", "elf", 243, 4096, false); }
@@ -26,6 +28,9 @@ fun target_select(name: Any) -> Any {
 }
 
 fun backend_validate(ctx: Any, raw: Any) -> Any {
+    if (ctx.target.arch == "llvm" and ctx.runtime != "full") {
+        die_str("mayc: experimental clang-llvm supports only the full Maylang runtime; --raw and --runtime core/none are unsupported\n");
+    }
     if (raw == 0 and ctx.runtime == "full" and not ctx.target.runtime) {
         die_str("mayc: `${ctx.target.name}` supports the core runtime; --runtime full requires x86_64-linux\n");
     }
@@ -34,6 +39,7 @@ fun backend_validate(ctx: Any, raw: Any) -> Any {
 
 // Each backend implements the same IR-to-code and relocation entry points.
 fun backend_for(ctx: Any) -> Any {
+    if (ctx.target.arch == "llvm") { die_str("mayc: clang-llvm uses direct LLVM IR emission and linking\n"); }
     if (ctx.target.arch == "x86_64") { return TargetBackend(x86_emit, patch_all); }
     if (ctx.target.arch == "arm64") { return TargetBackend(arm64_emit, arm64_patch); }
     return TargetBackend(riscv_emit, riscv_patch);

@@ -2,7 +2,7 @@
 use may_ast::*;
 use std::collections::{HashMap, HashSet};
 
-#[path = "../../legacy-rust/crates/may_native/src/capture.rs"]
+#[path = "../../may_native/src/capture.rs"]
 mod capture;
 
 pub fn quote(s: &str) -> String {
@@ -299,6 +299,36 @@ impl C {
                 format!("({{ V {id}={a}; {id}.tag==2 ? {b} : {id}; }})")
             }
             Expr::Call { callee, args } => {
+                // Maylang's built-in and free-function methods receive the receiver
+                // as their first argument. Preserve indirect map-field calls otherwise.
+                if let Expr::Get { target, name } = &**callee {
+                    if self.pointer(name).is_some()
+                        || matches!(
+                            name.as_str(),
+                            "len"
+                                | "push"
+                                | "pop"
+                                | "map"
+                                | "filter"
+                                | "reduce"
+                                | "char_at"
+                                | "char_from"
+                                | "map_get"
+                                | "map_set"
+                                | "map_has"
+                                | "map_keys"
+                                | "map_values"
+                                | "to_map"
+                        )
+                    {
+                        let mut operands = vec![(**target).clone()];
+                        operands.extend(args.iter().cloned());
+                        return self.expr(&Expr::Call {
+                            callee: Box::new(Expr::Variable(name.clone())),
+                            args: operands,
+                        });
+                    }
+                }
                 let callee = self.expr(callee);
                 let id = self.id();
                 let call = self.array(args, &format!("call({id}"));

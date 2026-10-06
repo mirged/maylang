@@ -40,13 +40,13 @@ entirely from source; no compiler binaries are stored in the repository.
 Python 3 and `readelf` (from binutils) are needed for the verification suite.
 
 For a source-only build with Rust and a C compiler, see the
-[minimal Rust bootstrap](toolchain/bootstrap/README.md).
+[minimal Rust bootstrap](toolchain/rust/README.md).
 
 ```sh
 git clone https://github.com/mirged/maylang.git
 cd maylang
 
-sh toolchain/bootstrap/build.sh
+sh toolchain/rust/build.sh
 toolchain/mayc/mayc_new --version
 toolchain/mayc/mayc_new examples/hello.may -o /tmp/maylang-hello
 /tmp/maylang-hello
@@ -124,7 +124,7 @@ launches are not yet verified here. See [target details](toolchain/mayc/README.m
 | [editors/vscode/](editors/vscode/README.md) | VS Code integration |
 | [guide/](guide/README.md) | Interactive React/Vite language reference |
 | [tests/compliance/](tests/compliance/README.md) | Additional runtime and language regressions |
-| [toolchain/legacy-rust/](toolchain/legacy-rust/) | The archaeological department |
+| [toolchain/rust/](toolchain/rust/) | Unified Rust compiler crates and source-only bootstrap |
 
 Try the terminal game:
 

@@ -17,12 +17,34 @@ jobs:
       - name: Install build requirements
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc binutils python3
+          sudo apt-get install -y gcc binutils clang llvm python3
           rustup toolchain install stable --profile minimal
           rustup default stable
-      - name: Check parser compatibility
-        run: cargo test --offline --locked -p may_parser
+      - name: Check the unified Rust workspace
+        run: cargo test --offline --locked --workspace
       - name: Build and verify three compiler generations from source
         run: |
           test ! -e toolchain/mayc/build/bin/mayc_new
-          python3 toolchain/bootstrap/test.py
+          python3 toolchain/rust/test.py
+      - name: Verify direct Maylang LLVM backend
+        run: |
+          sh toolchain/rust/build.sh
+          python3 toolchain/mayc/tests/llvm.py
+      - name: Verify native compiler and current entrypoints
+        run: python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
+      - name: Run language compliance checks
+        run: python3 tests/compliance/run.py
+      - name: Upload verification reports and failure logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiler-verification
+          path: |
+            tests/compliance/verification.json
+            tests/compliance/report.json
+            tests/compliance/results.json
+            tests/compliance/round2.json
+            tests/compliance/followup.json
+            tests/compliance/build/verify-*/**/*.stdout
+            tests/compliance/build/verify-*/**/*.stderr
+          if-no-files-found: ignore

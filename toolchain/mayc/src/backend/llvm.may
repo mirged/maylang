@@ -1,0 +1,449 @@
+import "../state.may";
+import "../ir.may";
+import "../ast.may";
+import "../lexer.may";
+import "../symbols.may";
+import "../sema.may";
+// LLVM lowering owns its state and consumes the same linear IR as native targets.
+// Values retain Maylang's tagged representation. Runtime functions are lowered
+// as raw i64 operations; no source-to-C bridge or Rust compiler is involved.
+fun llvm_line(s: Any, line: Any) -> Any { push(s.lines, line); return 0; }
+fun llvm_ssa(s: Any, expression: Any, ty: Any) -> Any {
+    mut name: Any = "%s${s.serial}"; s.serial += 1;
+    llvm_line(s, "  ${name} = ${expression}");
+    // Conservative GC scans the stack. Volatile roots also survive longjmp.
+    if (ty == "i64") {
+        mut root: Any = "%r${s.roots}"; s.roots += 1;
+        llvm_line(s, "  store volatile i64 ${name}, ptr ${root}, align 8");
+    }
+    return name;
+}
+fun llvm_load(s: Any, pointer: Any) -> Any { return llvm_ssa(s, "load volatile i64, ptr ${pointer}, align 8", "i64"); }
+fun llvm_store(s: Any, pointer: Any, value: Any) -> Any { llvm_line(s, "  store volatile i64 ${value}, ptr ${pointer}, align 8"); return 0; }
+fun llvm_op(s: Any, op: Any, a: Any, b: Any) -> Any { return llvm_ssa(s, "${op} i64 ${a}, ${b}", "i64"); }
+fun llvm_cmp(s: Any, predicate: Any, a: Any, b: Any) -> Any { return llvm_ssa(s, "icmp ${predicate} i64 ${a}, ${b}", "i1"); }
+fun llvm_select(s: Any, test: Any, a: Any, b: Any) -> Any { return llvm_ssa(s, "select i1 ${test}, i64 ${a}, i64 ${b}", "i64"); }
+fun llvm_pointer(s: Any, address: Any) -> Any { return llvm_ssa(s, "inttoptr i64 ${address} to ptr", "ptr"); }
+fun llvm_memory(s: Any, address: Any) -> Any { return llvm_load(s, llvm_pointer(s, address)); }
+fun llvm_value(s: Any, value: Any) -> Any { return llvm_load(s, "%t${value.slot}"); }
+fun llvm_args(s: Any, head: Any) -> Any {
+    mut result: Any = []; mut node: Any = head;
+    while (node != 0) { push(result, llvm_value(s, node)); node = node.next; }
+    return result;
+}
+fun llvm_slot(s: Any, name: Any) -> Any {
+    if (has(s.locals, name)) { return s.locals[name]; }
+    if (has(s.unit.globals, name)) { return s.unit.globals[name]; }
+    die_str("mayc: LLVM unknown variable `${name}`\n"); return "";
+}
+fun llvm_local(s: Any, name: Any) -> Any {
+    if (not has(s.locals, name)) { s.locals[name] = "%v${len(s.locals)}"; }
+    return s.locals[name];
+}
+fun llvm_boxed(s: Any, name: Any) -> Any { return has(s.boxed, name) and has(s.locals, name); }
+fun llvm_name(s: Any, name: Any) -> Any {
+    if (name == "true") { if (s.raw) { return "1"; } return "4"; }
+    if (name == "false") { if (s.raw) { return "0"; } return "3"; }
+    if (name == "nil") { if (s.raw) { return "0"; } return "2"; }
+    if (name == "err") { name = "ERRVAL"; }
+    if (has(s.locals, name) or has(s.unit.globals, name)) {
+        mut value: Any = llvm_load(s, llvm_slot(s, name));
+        if (llvm_boxed(s, name)) { return llvm_memory(s, value); }
+        return value;
+    }
+    if (has(s.unit.ctx.functionIndex, name)) {
+        mut rec: Any = s.unit.ctx.functionIndex[name];
+        return llvm_call(s, "rt_closure3", ["ptrtoint (ptr @f${rec.lab} to i64)", "0", str(rec.pc)]);
+    }
+    die_str("mayc: LLVM unknown name `${name}`\n"); return "0";
+}
+fun llvm_call(s: Any, name: Any, values: Any) -> Any {
+    if (not has(s.unit.ctx.functionIndex, name)) { die_str("mayc: LLVM missing function `${name}`\n"); }
+    mut rec: Any = s.unit.ctx.functionIndex[name];
+    if (rec.pc > s.unit.argCount) { die_str("mayc: LLVM argument capacity exceeded\n"); }
+    for i: Any in 0..rec.pc {
+        mut value: Any = "2"; if (s.raw) { value = "0"; }
+        if (i < len(values)) { value = values[i]; }
+        mut p: Any = llvm_ssa(s, "getelementptr i64, ptr %argv, i64 ${i}", "ptr");
+        llvm_store(s, p, value);
+    }
+    return llvm_ssa(s, "call i64 @f${rec.lab}(i64 0, ptr %argv)", "i64");
+}
+fun llvm_apply(s: Any, closure: Any, values: Any) -> Any {
+    mut fn: Any = llvm_call(s, "rt_require_callable", [closure]);
+    mut code: Any = llvm_pointer(s, llvm_memory(s, fn));
+    mut env: Any = llvm_memory(s, llvm_op(s, "add", fn, "8"));
+    // All possible declared arities fit this module-wide argument array.
+    for i: Any in 0..s.unit.argCount {
+        mut value: Any = "2"; if (i < len(values)) { value = values[i]; }
+        mut p: Any = llvm_ssa(s, "getelementptr i64, ptr %argv, i64 ${i}", "ptr");
+        llvm_store(s, p, value);
+    }
+    return llvm_ssa(s, "call i64 ${code}(i64 ${env}, ptr %argv)", "i64");
+}
+fun llvm_string(s: Any, source: Any, start: Any, length: Any, decode: Any, raw: Any) -> Any {
+    mut p: Any = source + start; mut n: Any = length;
+    if (decode) { n = declen(source, start, length); p = irt_alloc(n + 1); decopy(p, source, start, length); }
+    mut pieces: Any = []; mut hex: Any = "0123456789ABCDEF";
+    for i: Any in 0..n {
+        mut b: Any = load8(p + i);
+        push(pieces, "\\" + chr(char_at(hex, b / 16)) + chr(char_at(hex, b % 16)));
+    }
+    mut name: Any = "@str${len(s.unit.strings)}";
+    push(s.unit.strings, "${name} = private constant { i64, [${n+1} x i8] } { i64 ${n}, [${n+1} x i8] c\"${join(pieces, "")}\\00\" }, align 8");
+    if (raw) { return "ptrtoint (ptr getelementptr ({ i64, [${n+1} x i8] }, ptr ${name}, i32 0, i32 1) to i64)"; }
+    return llvm_op(s, "add", "ptrtoint (ptr ${name} to i64)", "1");
+}
+fun llvm_truth(s: Any, value: Any) -> Any {
+    if (s.raw) { return llvm_cmp(s, "ne", value, "0"); }
+    mut a: Any = llvm_cmp(s, "ne", value, "2"); mut b: Any = llvm_cmp(s, "ne", value, "3");
+    return llvm_ssa(s, "and i1 ${a}, ${b}", "i1");
+}
+fun llvm_double(s: Any, box: Any) -> Any {
+    mut bits: Any = llvm_memory(s, llvm_op(s, "sub", box, "6"));
+    return llvm_ssa(s, "bitcast i64 ${bits} to double", "double");
+}
+// Match x86 CVTTSD2SI for NaNs and values outside the signed i64 range.
+// Guard fptosi so invalid inputs never introduce LLVM poison.
+fun llvm_trunc(s: Any, d: Any) -> Any {
+    let lo: Any = llvm_ssa(s,"fcmp oge double ${d}, 0xC3E0000000000000","i1");
+    let hi: Any = llvm_ssa(s,"fcmp olt double ${d}, 0x43E0000000000000","i1");
+    let valid: Any = llvm_ssa(s,"and i1 ${lo}, ${hi}","i1");
+    let safe: Any = llvm_ssa(s,"select i1 ${valid}, double ${d}, double 0.0","double");
+    let value: Any = llvm_ssa(s,"fptosi double ${safe} to i64","i64");
+    return llvm_select(s,valid,value,"-9223372036854775808");
+}
+fun llvm_float_box(s: Any, value: Any) -> Any {
+    mut bits: Any = llvm_ssa(s, "bitcast double ${value} to i64", "i64");
+    return llvm_call(s, "rt_box", [bits]);
+}
+fun llvm_syscall(s: Any, values: Any, dynamic: Any) -> Any {
+    mut args: Any = [];
+    for i: Any in 0..7 {
+        mut value: Any = "0"; if (i < len(values)) { value = values[i]; if (dynamic) { value = llvm_op(s, "ashr", value, "3"); } }
+        push(args, "i64 ${value}");
+    }
+    mut result: Any = llvm_ssa(s, "call i64 @may_syscall(${join(args, ", ")})", "i64");
+    if (dynamic) { return llvm_op(s, "shl", result, "3"); } return result;
+}
+fun llvm_builtin(s: Any, name: Any, values: Any, nodes: Any) -> Any {
+    mut a: Any = "0"; if (len(values) > 0) { a = values[0]; }
+    if (name == "__sp") {
+        mut p: Any = llvm_ssa(s, "call ptr @llvm.stacksave.p0()", "ptr");
+        return llvm_ssa(s, "ptrtoint ptr ${p} to i64", "i64");
+    }
+    if (name == "__longjmp") { llvm_line(s, "  call void @may_throw()"); return "0"; }
+    if (name == "__fib_switch" or name == "__fiber_entry") {
+        // These raw runtime paths are unreachable unless their unsupported
+        // public operation is requested, which is rejected during lowering.
+        llvm_line(s, "  call void @llvm.trap()"); return "0";
+    }
+    if (name == "spawn" or name == "yield" or name == "run" or name == "__ccall6") { die_str("mayc: LLVM does not yet support fibers or foreign calls\n"); }
+    if (name == "syscall") { return llvm_syscall(s, values, not s.raw); }
+    if (name == "exit") {
+        if (not s.raw) { a = llvm_op(s, "ashr", a, "3"); }
+        llvm_syscall(s, ["60", a], false);
+        return "0";
+    }
+    if (name == "ptr") { return a; }
+    if (starts_with(name, "load") or starts_with(name, "store")) {
+        mut store: Any = starts_with(name, "store");
+        mut width: Any = 0;
+        if (ends_with(name,"8")) { width = 8; }
+        if (ends_with(name,"16")) { width = 16; }
+        if (ends_with(name,"32")) { width = 32; }
+        if (ends_with(name,"64")) { width = 64; }
+        if (width != 8 and width != 16 and width != 32 and width != 64) { die_str("mayc: LLVM invalid memory intrinsic\n"); }
+        if (not s.raw) { a = llvm_op(s, "ashr", a, "3"); }
+        mut pointer: Any = llvm_pointer(s, a);
+        if (store) {
+            mut b: Any = values[1]; if (not s.raw) { b = llvm_op(s, "ashr", b, "3"); }
+            if (width != 64) { b = llvm_ssa(s, "trunc i64 ${b} to i${width}", "small"); }
+            llvm_line(s, "  store volatile i${width} ${b}, ptr ${pointer}, align 1"); return "0";
+        }
+        mut value: Any = llvm_ssa(s, "load volatile i${width}, ptr ${pointer}, align 1", "small");
+        if (width != 64) { value = llvm_ssa(s, "zext i${width} ${value} to i64", "i64"); }
+        if (not s.raw) { value = llvm_op(s, "shl", value, "3"); } return value;
+    }
+    if (s.raw and (name == "addr" or name == "cstr" or name == "len")) {
+        if (nodes == 0 or nodes.kind != E_STR) { die_str("mayc: raw LLVM string intrinsic requires a literal\n"); }
+        if (name == "len") { return str(declen(nodes.span.source, nodes.start, nodes.length)); }
+        return a;
+    }
+    if (name == "__fsign") { return llvm_op(s, "lshr", a, "63"); }
+    if (name == "__ftrunc" or name == "__ffrac") {
+        mut d: Any = llvm_ssa(s, "bitcast i64 ${a} to double", "double");
+        mut whole: Any = llvm_trunc(s,d);
+        if (name == "__ftrunc") { return whole; }
+        mut back: Any = llvm_ssa(s, "sitofp i64 ${whole} to double", "double");
+        mut fraction: Any = llvm_ssa(s, "fsub double ${d}, ${back}", "double");
+        mut scale: Any = llvm_ssa(s, "sitofp i64 ${values[1]} to double", "double");
+        mut result: Any = llvm_ssa(s, "fmul double ${fraction}, ${scale}", "double");
+        return llvm_trunc(s,result);
+    }
+    if (name == "__fbin" or name == "__fcmp") {
+        mut left: Any = llvm_double(s, values[1]); mut right: Any = llvm_double(s, values[2]);
+        // Runtime calls use a literal operation selector.
+        mut op: Any = nodes.value;
+        if (name == "__fbin") {
+            mut operation: Any = ["fadd", "fsub", "fmul", "fdiv"][op];
+            mut d: Any = llvm_ssa(s, "${operation} double ${left}, ${right}", "double"); return llvm_float_box(s, d);
+        }
+        // Preserve the native COMISD condition flags, including unordered inputs.
+        mut predicate: Any = ["ueq", "one", "ult", "ule", "ogt", "oge"][op];
+        mut test: Any = llvm_ssa(s, "fcmp ${predicate} double ${left}, ${right}", "i1"); return llvm_select(s, test, "4", "3");
+    }
+    if (name == "__fpow2" or name == "pow") {
+        mut l: Any = a; mut r: Any = values[1];
+        if (name == "pow") { l = llvm_call(s, "rt_to_f", [l]); r = llvm_call(s, "rt_to_f", [r]); }
+        mut ld: Any = llvm_double(s, l); mut rd: Any = llvm_double(s, r);
+        mut result: Any = llvm_ssa(s, "call double @pow(double ${ld}, double ${rd})", "double"); return llvm_float_box(s, result);
+    }
+    if (name == "__fabs" or has(["sqrt", "floor", "ceil", "round", "trunc", "sin", "cos", "tan", "ln", "log2", "log10", "exp"], name)) {
+        mut box: Any = a; if (name != "__fabs") { box = llvm_call(s, "rt_to_f", [a]); }
+        mut d: Any = llvm_double(s, box); mut fn: Any = name;
+        if (fn == "__fabs") { fn = "fabs"; } if (fn == "ln") { fn = "log"; } if (fn == "round") { fn = "nearbyint"; }
+        mut result: Any = llvm_ssa(s, "call double @${fn}(double ${d})", "double");
+        if (name == "floor" or name == "ceil" or name == "trunc") { return llvm_op(s, "shl", llvm_trunc(s,result), "3"); }
+        return llvm_float_box(s, result);
+    }
+    if (name == "print") {
+        for i: Any in 0..len(values) {
+            if (i > 0) { llvm_call(s, "rt_space", []); }
+            mut string: Any = llvm_call(s, "str", [values[i]]); llvm_call(s, "rt_print_str", [string]);
+        }
+        llvm_call(s, "rt_newline", []); return "2";
+    }
+    if (name == "value_tag") { return llvm_op(s, "shl", llvm_op(s, "and", a, "7"), "3"); }
+    mut aliases: Any = {"str":"to_str", "str_of":"to_str", "map":"mapf", "to_lower":"lower", "to_upper":"upper", "value_eq":"eq", "map_keys":"keys", "map_values":"values", "map_has":"has", "int_to_str":"int_str", "to_float":"to_f"};
+    mut mapped: Any = aliases[name] ?? name;
+    mut runtime: Any = "rt_" + mapped;
+    if (has(s.unit.ctx.functionIndex, runtime)) { return llvm_call(s, runtime, values); }
+    die_str("mayc: LLVM unsupported intrinsic `${name}`\n"); return "0";
+}
+fun llvm_capture(s: Any, index: Any) -> Any { return llvm_memory(s, llvm_op(s, "add", "%env", str(index * 8))); }
+fun llvm_operation(s: Any, op: Any, n: Any) -> Any {
+    if (op == E_INT) { mut value: Any = str(n.value); if (not s.raw) { value = llvm_op(s, "shl", value, "3"); } return value; }
+    if (op == E_STR) { return llvm_string(s, n.span.source, n.start, n.length, true, s.raw); }
+    if (op == E_STRB) { return llvm_string(s, n.address, 0, n.length, false, s.raw); }
+    if (op == E_VAR) { return llvm_name(s, symbol_name(n.name, n.length)); }
+    if (op == E_FLOAT) {
+        mut number: Any = float(symbol_name(n.span.source + n.start, n.length)); mut p: Any = addr(number);
+        mut lo: Any = str(load32(p)); mut hi: Any = str(load32(p + 4));
+        mut bits: Any = llvm_op(s, "or", llvm_op(s, "shl", hi, "32"), lo); return llvm_call(s, "rt_box", [bits]);
+    }
+    if (op == E_BIN) {
+        mut a: Any = llvm_value(s, n.left); mut b: Any = llvm_value(s, n.right);
+        mut operators: Any = ["add", "sub", "mul", "sdiv", "srem", "eq", "ne", "slt", "sle", "sgt", "sge"];
+        mut runtimes: Any = ["add", "sub", "mul", "div", "mod", "eq", "ne", "lt", "le", "gt", "ge"];
+        mut index: Any = n.op - TK_PLUS;
+        if (index < 0 or index >= len(operators)) { die_str("mayc: LLVM unsupported binary operation\n"); }
+        if (not s.raw) { return llvm_call(s, "rt_" + runtimes[index], [a,b]); }
+        if (index < 5) { return llvm_op(s, operators[index], a,b); }
+        mut cmp: Any = llvm_cmp(s, operators[index], a,b); return llvm_ssa(s, "zext i1 ${cmp} to i64", "i64");
+    }
+    if (op == E_UN) {
+        mut a: Any = llvm_value(s, n.operand);
+        if (not s.raw) { if (n.op == TK_MINUS) { return llvm_call(s,"rt_neg",[a]); } return llvm_call(s,"rt_not",[a]); }
+        if (n.op == TK_MINUS) { return llvm_op(s,"sub","0",a); }
+        mut cmp: Any = llvm_cmp(s,"eq",a,"0"); return llvm_ssa(s,"zext i1 ${cmp} to i64","i64");
+    }
+    if (op == E_CALL) {
+        mut name: Any = symbol_name(n.name, n.length); mut values: Any = llvm_args(s,n.args);
+        if (has(s.locals,name) or has(s.unit.globals,name)) { return llvm_apply(s,llvm_name(s,name),values); }
+        if (has(s.unit.ctx.functionIndex,name)) { return llvm_call(s,name,values); }
+        return llvm_builtin(s,name,values,n.args);
+    }
+    if (op == E_ICALL) { return llvm_apply(s,llvm_value(s,n.callee),llvm_args(s,n.args)); }
+    if (op == E_CAPVAR) { return llvm_memory(s,llvm_capture(s,n.index)); }
+    if (op == E_CLOSURE) {
+        mut caps: Any = []; mut cap: Any = n.captures;
+        while (cap != 0) {
+            mut name: Any = symbol_name(cap.name,cap.length); mut value: Any = "0";
+            if (has(s.locals,name)) { value = llvm_load(s,llvm_slot(s,name)); }
+            else {
+                mut found: Any = false;
+                for i: Any in 0..len(s.rec.caparr) {
+                    mut c: Any = s.rec.caparr[i];
+                    if (symbol_name(c[0],c[1]) == name) { value = llvm_capture(s,i); found = true; }
+                }
+                if (not found) { die_str("mayc: LLVM unresolved capture\n"); }
+            }
+            push(caps,value); cap = cap.next;
+        }
+        mut env: Any = "0";
+        if (len(caps) > 0) {
+            env = llvm_call(s,"rt_env_new",[str(len(caps))]);
+            for i: Any in 0..len(caps) { llvm_store(s,llvm_pointer(s,llvm_op(s,"add",env,str(i*8))),caps[i]); }
+        }
+        return llvm_call(s,"rt_closure3",["ptrtoint (ptr @f${n.label} to i64)",env,str(n.arity)]);
+    }
+    if (op == E_INDEX) { return llvm_call(s,"rt_index_get",[llvm_value(s,n.object),llvm_value(s,n.index)]); }
+    if (op == E_GET) {
+        mut key: Any = llvm_string(s,n.span.source,n.start,n.length,true,false);
+        return llvm_call(s,"rt_map_get",[llvm_value(s,n.object),key]);
+    }
+    if (op == E_RANGE) { mut incl: Any = "3"; if (n.inclusive == 1) { incl = "4"; } return llvm_call(s,"rt_range",[llvm_value(s,n.start),llvm_value(s,n.end),incl]); }
+    if (op == E_POW) { return llvm_call(s,"rt_pow",[llvm_value(s,n.left),llvm_value(s,n.right)]); }
+    die_str("mayc: LLVM unsupported IR operation ${op}\n"); return "0";
+}
+fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
+    mut block: Any = rec.ir;
+    mut s: Any = {"unit":unit,"rec":rec,"raw":rec.mode == 1,"locals":{},"boxed":{},"lines":[],"serial":0,"roots":0};
+    for b: Any in rec.boxed { s.boxed[symbol_name(b[0],b[1])] = true; }
+    for p: Any in rec.parr { llvm_local(s,symbol_name(p.name,p.length)); }
+    mut labels: Any = {};
+    for i: Any in 0..len(block.code) {
+        mut q: Any = block.code[i];
+        if (q.op == IR_LABEL) { labels[str(q.extra)] = i; }
+        if (q.op == S_LET and q.extra.global == 0) { llvm_local(s,symbol_name(q.extra.name,q.extra.length)); }
+    }
+    if (main) {
+        mut stack: Any = llvm_ssa(s,"call ptr @llvm.frameaddress.p0(i32 0)","ptr");
+        llvm_store(s,llvm_slot(s,"STACKTOP"),llvm_ssa(s,"ptrtoint ptr ${stack} to i64","i64"));
+        llvm_store(s,llvm_slot(s,"INITIAL_ENVP"),llvm_ssa(s,"ptrtoint ptr %envp to i64","i64"));
+        llvm_call(s,"rt_init",[]);
+        for pointer: Any in values(unit.globals) { llvm_call(s,"rt_gc_root",["ptrtoint (ptr ${pointer} to i64)"]); }
+    } else {
+        for i: Any in 0..rec.pc {
+            mut p: Any = llvm_ssa(s,"getelementptr i64, ptr %incoming, i64 ${i}","ptr");
+            mut value: Any = llvm_load(s,p); mut name: Any = symbol_name(rec.parr[i].name,rec.parr[i].length);
+            if (llvm_boxed(s,name)) { value = llvm_call(s,"rt_box_val",[value]); }
+            llvm_store(s,llvm_slot(s,name),value);
+        }
+    }
+    llvm_line(s,"  br label %b0");
+    for i: Any in 0..len(block.code) {
+        mut q: Any = block.code[i]; mut op: Any = q.op; mut n: Any = q.extra; mut next: Any = "b${i+1}";
+        llvm_line(s,"b${i}:"); mut value: Any = "0"; mut terminates: Any = false;
+        if (op == IR_LABEL) { }
+        else if (op == IR_JUMP) { llvm_line(s,"  br label %b${labels[str(n)]}"); terminates = true; }
+        else if (op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL) {
+            mut test: Any = ""; mut v: Any = llvm_value(s,q.arg1);
+            if (op == IR_ISNIL or op == IR_NONNULL) { test = llvm_cmp(s,"eq",v,"2"); } else { test = llvm_truth(s,v); }
+            mut yes: Any = "b${labels[str(n)]}"; mut no: Any = next;
+            if (op == IR_FALSE or op == IR_NONNULL) { mut swap: Any = yes; yes = no; no = swap; }
+            llvm_line(s,"  br i1 ${test}, label %${yes}, label %${no}"); terminates = true;
+        }
+        else if (op == IR_RETURN) {
+            value = llvm_value(s,q.arg1);
+            if (main) { llvm_line(s,"  ret i32 0"); } else { llvm_line(s,"  ret i64 ${value}"); } terminates = true;
+        }
+        else if (op == IR_TAILCALL) {
+            mut args: Any = llvm_args(s,q.arg1);
+            for j: Any in 0..len(args) { llvm_store(s,llvm_slot(s,symbol_name(rec.parr[j].name,rec.parr[j].length)),args[j]); }
+            llvm_line(s,"  br label %b0"); terminates = true;
+        }
+        else if (op == IR_COPY) { value = llvm_value(s,q.arg1); }
+        else if (op == IR_NIL) { value = "2"; if (s.raw) { value = "0"; } }
+        else if (op == IR_BOOL) {
+            mut test: Any = llvm_truth(s,llvm_value(s,q.arg1)); value = llvm_select(s,test,"4","3"); if (s.raw) { value = llvm_select(s,test,"1","0"); }
+        }
+        else if (op == IR_RUNTIME) { value = llvm_call(s,n,llvm_args(s,q.arg1)); }
+        else if (op == IR_TRY_BEGIN) {
+            mut hd: Any = llvm_slot(s,"HDEPTH"); mut depth: Any = llvm_load(s,hd);
+            mut ok: Any = llvm_cmp(s,"ult",depth,"64");
+            llvm_line(s,"  br i1 ${ok}, label %try${i}, label %overflow${i}");
+            llvm_line(s,"overflow${i}:"); llvm_line(s,"  call void @llvm.trap()"); llvm_line(s,"  unreachable");
+            llvm_line(s,"try${i}:");
+            mut handler: Any = llvm_ssa(s,"getelementptr [64 x [256 x i8]], ptr @may_handlers, i64 0, i64 ${depth}","ptr");
+            llvm_store(s,hd,llvm_op(s,"add",depth,"1"));
+            mut result: Any = llvm_ssa(s,"call i32 @_setjmp(ptr ${handler})","i32");
+            mut test: Any = llvm_ssa(s,"icmp ne i32 ${result}, 0","i1");
+            llvm_line(s,"  br i1 ${test}, label %b${labels[str(n)]}, label %${next}"); terminates = true;
+        }
+        else if (op == IR_TRY_END) { mut hd: Any = llvm_slot(s,"HDEPTH"); llvm_store(s,hd,llvm_op(s,"sub",llvm_load(s,hd),"1")); }
+        else if (op == S_LET or op == S_ASSIGN) {
+            mut name: Any = symbol_name(n.name,n.length);
+            if (op == S_LET) { value = llvm_value(s,n.initializer); } else { value = llvm_value(s,n.value); }
+            mut p: Any = llvm_slot(s,name);
+            if (llvm_boxed(s,name)) {
+                if (op == S_LET) { value = llvm_call(s,"rt_box_val",[value]); } else { p = llvm_pointer(s,llvm_load(s,p)); }
+            }
+            llvm_store(s,p,value);
+        }
+        else if (op == S_CASSIGN) { llvm_store(s,llvm_pointer(s,llvm_capture(s,n.index)),llvm_value(s,n.value)); }
+        else if (op == S_SETIDX) { llvm_call(s,"rt_index_set",[llvm_value(s,n.object),llvm_value(s,n.index),llvm_value(s,n.value)]); }
+        else if (op == S_SETPROP) {
+            mut key: Any = llvm_string(s,n.span.source,n.start,n.length,true,false);
+            llvm_call(s,"rt_map_set",[llvm_value(s,n.object),key,llvm_value(s,n.value)]);
+        }
+        else { value = llvm_operation(s,op,n); }
+        if (q.result != 0) { llvm_store(s,"%t${q.result.slot}",value); }
+        if (not terminates) { llvm_line(s,"  br label %${next}"); }
+    }
+    llvm_line(s,"b${len(block.code)}:");
+    if (main) { llvm_line(s,"  ret i32 0"); } else { llvm_line(s,"  ret i64 0"); }
+    mut out: Any = [];
+    if (main) { push(out,"define i32 @main(i32 %argc, ptr %argv0, ptr %envp) noinline {\nentry:"); }
+    else { push(out,"define i64 @f${rec.lab}(i64 %env, ptr %incoming) noinline {\nentry:"); }
+    push(out,"  %argv = alloca [${unit.argCount} x i64], align 8");
+    for p: Any in values(s.locals) { push(out,"  ${p} = alloca i64, align 8\n  store volatile i64 0, ptr ${p}, align 8"); }
+    for j: Any in 0..block.temporaries { push(out,"  %t${j} = alloca i64, align 8\n  store volatile i64 0, ptr %t${j}, align 8"); }
+    for j: Any in 0..s.roots { push(out,"  %r${j} = alloca i64, align 8\n  store volatile i64 0, ptr %r${j}, align 8"); }
+    push(out,join(s.lines,"\n")); push(out,"}\n"); return join(out,"\n");
+}
+fun llvm_emit(ctx: Any) -> Any {
+    if (len(ctx.foreign) > 0) { die_str("mayc: LLVM does not yet support extern functions\n"); }
+    mut unit: Any = {"ctx":ctx,"globals":{},"strings":[],"argCount":8};
+    for g: Any in ctx.globals { unit.globals[symbol_name(g.p,g.l)] = "@g${len(unit.globals)}"; }
+    for rec: Any in ctx.functions {
+        if (rec.pc > unit.argCount) { unit.argCount = rec.pc; }
+        for q: Any in rec.ir.code {
+            if (q.op == E_CALL or q.op == E_ICALL) {
+                mut args: Any = q.extra.args; mut count: Any = 0;
+                while (args != 0) { count += 1; args = args.next; }
+                if (count > unit.argCount) { unit.argCount = count; }
+            }
+        }
+    }
+    mut bodies: Any = [];
+    for rec: Any in ctx.functions { push(bodies,llvm_function(unit,rec,false)); }
+    mut main: Any = {"ir":ctx.mainIR,"mode":0,"boxed":ctx.mainBoxed,"parr":[],"pc":0,"caparr":[]};
+    push(bodies,llvm_function(unit,main,true));
+    mut header: Any = ["; Maylang direct LLVM backend\ntarget triple = \"x86_64-unknown-linux-gnu\"\n@may_handlers = internal global [64 x [256 x i8]] zeroinitializer, align 16\ndeclare ptr @llvm.stacksave.p0()\ndeclare ptr @llvm.frameaddress.p0(i32 immarg)\ndeclare void @llvm.trap() cold noreturn nounwind\ndeclare i32 @_setjmp(ptr) returns_twice\ndeclare void @longjmp(ptr, i32) noreturn"];
+    for fn: Any in ["sqrt","floor","ceil","nearbyint","trunc","sin","cos","tan","log","log2","log10","exp","fabs"] { push(header,"declare double @${fn}(double)"); }
+    push(header,"declare double @pow(double, double)");
+    for p: Any in values(unit.globals) { push(header,"${p} = internal global i64 0, align 8"); }
+    push(header,"define internal i64 @may_syscall(i64 %nr, i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f) noinline {\n  %r = call i64 asm sideeffect \"syscall\", \"={rax},{rax},{rdi},{rsi},{rdx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}\"(i64 %nr, i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f)\n  ret i64 %r\n}");
+    mut hd: Any = unit.globals["HDEPTH"]; mut uncaught: Any = ctx.functionIndex["rt_die_uncaught"];
+    push(header,"define internal void @may_throw() noreturn noinline {\n  %d = load volatile i64, ptr ${hd}\n  %empty = icmp eq i64 %d, 0\n  br i1 %empty, label %uncaught, label %caught\nuncaught:\n  %a = alloca [${unit.argCount} x i64]\n  %v = call i64 @f${uncaught.lab}(i64 0, ptr %a)\n  unreachable\ncaught:\n  %i = sub i64 %d, 1\n  %p = getelementptr [64 x [256 x i8]], ptr @may_handlers, i64 0, i64 %i\n  call void @longjmp(ptr %p, i32 1)\n  unreachable\n}");
+    return join(header,"\n") + "\n" + join(unit.strings,"\n") + "\n" + join(bodies,"\n");
+}
+fun llvm_write(path: Any, content: Any) -> Any {
+    mut fd: Any = syscall(2,cstr(path),577,420);
+    if (fd < 0) { die_str("mayc: cannot write LLVM output `${path}`\n"); }
+    mut offset: Any = 0;
+    while (offset < len(content)) {
+        mut n: Any = syscall(1,fd,addr(content)+offset,len(content)-offset);
+        if (n <= 0) { syscall(3,fd); die_str("mayc: cannot finish LLVM output\n"); }
+        offset += n;
+    }
+    if (syscall(3,fd) < 0) { die_str("mayc: cannot close LLVM output\n"); }
+    return 0;
+}
+fun llvm_clang() -> Any {
+    mut name: Any = env("CLANG") ?? "clang";
+    if (contains(name,"/")) { return name; }
+    for directory: Any in split(env("PATH") ?? "/usr/bin:/bin",":") {
+        mut path: Any = directory + "/" + name;
+        if (syscall(21,cstr(path),1) == 0) { return path; }
+    }
+    die_str("mayc: clang-llvm requires Clang in PATH or CLANG\n"); return "";
+}
+fun llvm_compile(ctx: Any, output: Any, emitIR: Any) -> Any {
+    mut ir: Any = llvm_emit(ctx);
+    if (emitIR == 1) { llvm_write(output,ir); return 0; }
+    mut clang: Any = llvm_clang(); mut scratch: Any = output + ".llvm-${syscall(39)}";
+    if (syscall(83,cstr(scratch),448) < 0) { die_str("mayc: cannot create LLVM scratch directory\n"); }
+    mut source: Any = scratch + "/program.ll"; mut binary: Any = scratch + "/program";
+    llvm_write(source,ir);
+    mut status: Any = wait(exec([clang,"-x","ir","-O1",source,"-no-pie","-lm","-o",binary]));
+    syscall(87,cstr(source));
+    mut installError: Any = 0;
+    if (status == 0) { installError = syscall(82,cstr(binary),cstr(output)); }
+    syscall(87,cstr(binary)); syscall(84,cstr(scratch));
+    if (installError < 0) { die_str("mayc: cannot install LLVM executable `${output}` (error ${installError})\n"); }
+    if (status != 0) { die_str("mayc: clang-llvm compilation or link failed (exit status: ${status})\n"); }
+    return 0;
+}

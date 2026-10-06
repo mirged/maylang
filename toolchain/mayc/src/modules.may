@@ -15,26 +15,40 @@ fun emit_line(t: Any, ls: Any, le: Any, buf: Any, off: Any) -> Any {
 }
 
 fun module_path(path: Any) -> Any {
+    // Relative and absolute spellings must share one module identity.
+    if (not starts_with(path, "/")) {
+        let cwd: Any = irt_alloc(4096);
+        let size: Any = syscall(79, cwd, 4096);
+        if (size <= 0) { die_str("mayc: cannot resolve current directory\n"); }
+        path = symbol_name(cwd, size - 1) + "/" + path;
+    }
     let parts: Any = split(path, "/");
     let clean: Any = [];
     for part: Any in parts {
-        if (part == ".." and len(clean) > 0 and clean[len(clean) - 1] != "..") { pop(clean); }
+        if (part == "..") { if (len(clean) > 0) { pop(clean); } }
         else if (part != "." and part != "") { push(clean, part); }
     }
-    let prefix: Any = if (starts_with(path, "/")) { "/" } else { "" };
-    return prefix + join(clean, "/");
+    return "/" + join(clean, "/");
+}
+
+fun module_file(path: Any) -> Any {
+    if (starts_with(path, "stdlib/") and file_ok(addr(path)) == 0) {
+        path = "/home/mirged/Projects/maylang/" + path;
+    }
+    return module_path(path);
 }
 
 fun register_import(owner: Any, target: Any, text: Any, start: Any, end: Any, quote: Any) -> Any {
-    let tail: Any = trim(symbol_name(text + quote + 1, end - quote - 1));
-    let line: Any = trim(symbol_name(text + start, end - start));
+    // Comments are outside the import grammar, including quoted comments.
+    let tail: Any = trim(replace(split(symbol_name(text + quote + 1, end - quote - 1), "//")[0], "\t", " "));
+    let line: Any = trim(replace(symbol_name(text + start, end - start), "\t", " "));
     mut alias: Any = "";
     mut selected: Any = [];
     mut plain: Any = true;
     if (starts_with(tail, "as ")) {
         alias = trim(replace(substring(tail, 3, len(tail) - 3), ";", ""));
         plain = false;
-    } else if (starts_with(line, "from ")) {
+    } else if (starts_with(line, "from ") or starts_with(line, "from\"")) {
         let names: Any = trim(replace(substring(tail, 7, len(tail) - 7), ";", ""));
         for name: Any in split(names, ",") { push(selected, trim(name)); }
     } else {
@@ -61,9 +75,8 @@ fun import_line(t: Any, ls: Any, le: Any) -> Any {
         let b: Any = load8(t + i);
         if (b == 32  or  b == 9) { i = i + 1; } else { break; }
     }
-    if (le - i < 4) { return 0; }
-    if (name_eq(t + i, 6, addr("import"), len("import")) == 1) { return 1; }
-    if (name_eq(t + i, 4, addr("from"), len("from")) == 1) { return 1; }
+    if (le - i >= 6 and name_eq(t + i, 6, addr("import"), 6) == 1 and (le - i == 6 or has([32, 9, 34], load8(t + i + 6)))) { return 1; }
+    if (le - i >= 4 and name_eq(t + i, 4, addr("from"), 4) == 1 and (le - i == 4 or has([32, 9, 34], load8(t + i + 4)))) { return 1; }
     return 0;
 }
 
@@ -75,12 +88,14 @@ fun findq(t: Any, ls: Any, le: Any, which: Any) -> Any {
             i = i + 1;
         }
     } else {
-        mut last: Any = 0 - 1;
+        mut first: Any = false;
         while (i < le) {
-            if (load8(t + i) == 34) { last = i; }
+            if (load8(t + i) == 34) {
+                if (first) { return i; }
+                first = true;
+            }
             i = i + 1;
         }
-        return last;
     }
     return 0 - 1;
 }
@@ -93,14 +108,8 @@ fun file_ok(p: Any) -> Any {
 }
 
 fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
-    mut canonical: Any = module_path(symbol_name(pp, pl));
-
-    // 1. If it's a stdlib module that doesn't exist in local CWD, make it absolute FIRST!
-    if (starts_with(canonical, "stdlib/") and file_ok(addr(canonical)) == 0) {
-        canonical = "/home/mirged/Projects/maylang/" + canonical;
-    }
-
-    // 2. Now register it under the final, correct canonical path!
+    let canonical: Any = module_file(symbol_name(pp, pl));
+    // Imports, source origins and visibility maps use this same final path.
     if (has(EXPAND_SEEN, canonical)) { return off; }
     EXPAND_SEEN[canonical] = true;
     MODULE_IMPORTS[canonical] = [];
@@ -131,53 +140,14 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
         if (import_line(text, ls, le) == 1) {
             let q1: Any = findq(text, ls, le, 0);
             let q2: Any = findq(text, ls, le, 1);
-            let nl: Any = q2 - q1 - 1;
-            let fp: Any = irt_alloc(pl + nl + 8);
-            mut j: Any = 0;
-            while (j < dl) {
-                store8(fp + j, load8(pp + j));
-                j = j + 1;
-            }
-            j = 0;
-            while (j < nl) {
-                store8(fp + dl + j, load8(text + q1 + 1 + j));
-                j = j + 1;
-            }
-            mut fileLength: Any = dl + nl;
-            mut hasExtension: Any = 0;
-            j = 0;
-            while (j < nl) {
-                if (load8(text + q1 + 1 + j) == 46) { hasExtension = 1; } // '.'
-                j = j + 1;
-            }
-            if (hasExtension == 0) {
-                store8(fp + fileLength, 46); store8(fp + fileLength + 1, 109);
-                store8(fp + fileLength + 2, 97); store8(fp + fileLength + 3, 121); // ".may"
-                fileLength = fileLength + 4;
-            }
-            store8(fp + fileLength, 0);
-            if (file_ok(fp) == 0) {
-                let sp: Any = irt_alloc(nl + 16);
-                store8(sp + 0, 115);
-                store8(sp + 1, 116);
-                store8(sp + 2, 100);
-                store8(sp + 3, 108);
-                store8(sp + 4, 105);
-                store8(sp + 5, 98);
-                store8(sp + 6, 47); // "stdlib/"
-                mut q: Any = 0;
-                while (q < nl) {
-                    store8(sp + 7 + q, load8(text + q1 + 1 + q));
-                    q = q + 1;
-                }
-                store8(sp + 7 + nl, 0);
-                let fallback: Any = "stdlib/" + symbol_name(text + q1 + 1, nl) + if (hasExtension == 0) { ".may" } else { "" };
-                register_import(sourcePath, module_path(fallback), text, ls, le, q2);
-                off = append_file(addr(fallback), len(fallback), buf, off);
-            } else {
-                register_import(sourcePath, module_path(symbol_name(fp, fileLength)), text, ls, le, q2);
-                off = append_file(fp, fileLength, buf, off);
-            }
+            if (q1 < 0 or q2 <= q1 + 1) { die_str("${sourcePath}:${sourceLine}: invalid import path\n"); }
+            mut imported: Any = symbol_name(text + q1 + 1, q2 - q1 - 1);
+            let parts: Any = split(imported, "/");
+            if (not contains(parts[len(parts) - 1], ".")) { imported = imported + ".may"; }
+            let candidate: Any = if (starts_with(imported, "/")) { imported } else { symbol_name(pp, dl) + imported };
+            let target: Any = if (file_ok(addr(candidate)) == 1) { module_file(candidate) } else { module_file("stdlib/" + imported) };
+            register_import(sourcePath, target, text, ls, le, q2);
+            off = append_file(addr(target), len(target), buf, off);
         } else {
             push(EXPAND_ORIGINS, SourceOrigin(off, sourcePath, sourceLine));
             off = emit_line(text, ls, le, buf, off);
