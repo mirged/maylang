@@ -8,6 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 PASS = {
     'basics': ('fun add(a: Int, b: Int) { return a + b; }\nlet n = add(2,3);\nprint(n);', '5\n'),
+    'inferred_builtin_return': ('fun size() { return len("hello"); }\nlet n: Int = size();\nprint(n);', '5\n'),
+    'inferred_handler_builtin': ('fun test_may() {\nlet result = may {\nlet bad = 10 / 0\nbad\n} otherwise {\nprint("Caught an error: ${err}");\n}\nprint(result)\nreturn nil;\n}\ntest_may()', 'Caught an error: division by zero\n0\n'),
     'branches': ('fun f(flag: Bool) -> Int { if(flag) { return 1; } else { return 2; } }\nprint(f(false));', '2\n'),
     'generics': ('fun identity<T>(x: T) -> T { return x; }\nlet n: Int = identity(7);\nprint(n);', '7\n'),
     'closures': ('fun factory(start: Int) -> () -> Int { mut n: Int = start; return fun() -> Int { n += 1; return n; }; }\nlet f: () -> Int = factory(4);\nprint(f(), f());', '5 6\n'),
@@ -28,6 +30,7 @@ FAIL = {
     'fallthrough': ('fun f(flag: Bool) -> Int { if(flag) { return 1; } }', 'not every path returns'),
     'wrong_initializer': ('let n: Int = "wrong";', 'expected Int, found Str'),
     'wrong_inferred_assignment': ('mut n = 1;\nn = "wrong";', 'expected Int, found Str'),
+    'wrong_inferred_builtin_result': ('fun size() { return len("hello"); }\nlet n: Str = size();', 'expected Str, found Int'),
     'wrong_return': ('fun f() -> Int { return "wrong"; }', 'expected Int, found Str'),
     'wrong_argument': ('fun f(x: Int) -> Int { return x; }\nlet n: Int = f("wrong");', 'expected Int, found Str'),
     'wrong_arity': ('fun f(x: Int) -> Int { return x; }\nf();', 'argument count mismatch'),

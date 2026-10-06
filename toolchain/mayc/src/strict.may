@@ -533,6 +533,8 @@ fun strict_program(ctx: Any) -> Any {
         }
     }
     let builtins: Any = ["print", "syscall", "str", "int", "float", "to_float", "bool", "type", "type_name", "json_stringify", "len", "clock", "time", "pi", "e", "args", "read_stdin", "exit", "sleep", "yield", "run", "fail", "sqrt", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "floor", "ceil", "round", "trunc", "abs", "read_file", "read_dir", "file_exists", "env", "input", "json_parse", "write_file", "addr", "cstr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "push", "pop", "sort", "reverse", "slice", "sum", "map", "filter", "any", "all", "reduce", "__ccall6", "__longjmp", "__sp", "__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__fabs", "__fpow2", "__fiber_entry", "__fib_switch", "ptr", "chr", "ord", "count", "each", "times", "char_at", "char_from", "to_lower", "to_upper", "trim", "split", "repeat", "join", "contains", "starts_with", "ends_with", "index_of", "cmp", "min", "max", "to_map", "map_get", "map_set", "keys", "values", "has", "pow", "chars", "mkdir", "system", "exec", "wait", "remove", "merge", "unique", "pad_left", "pad_right", "str_of", "int_to_str", "str_cmp", "value_eq", "map_keys", "map_values", "map_has", "rt_raise", "spawn", "value_tag"];
+    // Inferred signatures can call builtins while checking local initializers.
+    for name: Any in builtins { let t: Any = st_type("Function", []); t.result = st_any(); t.builtin = name; ST_GLOBALS[name] = t; }
     for rec: Any in FUNC_HEAD {
         rec.strictChecked = false; ST_FUNCTIONS[rec.lab] = rec;
         if (rec.nested == 0 and rec.mode != 1) {
@@ -540,10 +542,9 @@ fun strict_program(ctx: Any) -> Any {
             let key: Any = if (module == "") { name } else { module + "::" + name };
             // Native/prelude internals have explicit Any contracts; only user
             // modules are checked here. Synthetic constructors own nominal types.
-            ST_GLOBALS[key] = rec.strictSignature ?? st_complete_signature(ctx, rec);
+            if (module != "" or not has(builtins, name)) { ST_GLOBALS[key] = rec.strictSignature ?? st_complete_signature(ctx, rec); }
         }
     }
-    for name: Any in builtins { let t: Any = st_type("Function", []); t.result = st_any(); t.builtin = name; ST_GLOBALS[name] = t; }
     mut statement: Any = MAINBODY;
     while (statement != 0) {
         if (statement.kind == S_LET and statement.global == 1) {

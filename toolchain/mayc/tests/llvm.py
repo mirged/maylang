@@ -98,6 +98,10 @@ def main():
                               'let g=c()();print(g(),g());',
             'handler': 'print(may {fail("caught");} otherwise {"ok"});'
                        'print(may {print(may {fail("inner");} otherwise {"in"});fail("out");} otherwise {"outer"});',
+            'inferred-handler': 'fun test_may(){let result=may{let bad=10/0;bad}'
+                                'otherwise{print("Caught an error: ${err}");};'
+                                'print(result);return nil;}test_may();',
+            'print-result': 'print(print("hello"));',
             'float': 'print(1.25+2.5,3.5*2,9.0/2,2.5<3.0,floor(-2.5),ceil(2.5),sqrt(9.0));',
             'unicode': 'print("a\\nλ",chr(9731),len("λ☃"),to_upper("abc"));',
             'map-list': 'let m:Any={"x":[1,2]};m.x[0]=4;push(m.x,3);print(m.x,m.x[0],m?.x);',

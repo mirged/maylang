@@ -212,7 +212,7 @@ fun llvm_builtin(s: Any, name: Any, values: Any, nodes: Any) -> Any {
             if (i > 0) { llvm_call(s, "rt_space", []); }
             mut string: Any = llvm_call(s, "str", [values[i]]); llvm_call(s, "rt_print_str", [string]);
         }
-        llvm_call(s, "rt_newline", []); return "2";
+        return llvm_call(s, "rt_newline", []);
     }
     if (name == "value_tag") { return llvm_op(s, "shl", llvm_op(s, "and", a, "7"), "3"); }
     mut aliases: Any = {"str":"to_str", "str_of":"to_str", "map":"mapf", "to_lower":"lower", "to_upper":"upper", "value_eq":"eq", "map_keys":"keys", "map_values":"values", "map_has":"has", "int_to_str":"int_str", "to_float":"to_f"};
