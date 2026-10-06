@@ -1,0 +1,17 @@
+import "net" as net;
+
+let arguments: List<Str> = args();
+let s: net.Socket = net.tcp_connect_timeout("127.0.0.1", int(arguments[1]), 5000);
+net.socket_set_timeout(s, 5000);
+let option: Str = net.from_bytes([0, 32, 0, 0]);
+// SO_SNDBUF=8192 forces send() to handle partial writes on a large payload.
+if (syscall(54, s.fd, 1, 7, addr(option), 4) < 0) { fail("setsockopt failed"); }
+let header: Str = net.tcp_receive_exact(s, 6);
+if (header != "λ\0☃") { fail("fragmented receive failed"); }
+mut data: Str = "abcd";
+for i: Int in 0..18 { data = data + data; }
+if (net.tcp_send(s, data) != 1048576) { fail("partial send failed"); }
+net.tcp_shutdown(s, "write");
+if (net.tcp_receive_exact(s, 2) != "OK" or net.tcp_receive(s, 1) != "") { fail("reply or EOF failed"); }
+net.socket_close(s);
+print("PASS network fragmented reads and complete large sends");

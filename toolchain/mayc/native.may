@@ -152,13 +152,23 @@ fun repeat(s: Any, n: Any) -> Any {
 }
 
 fun join(xs: Any, sep: Any) -> Any {
-    mut out: Any = "";
     let n: Any = len(xs);
-    for i: Any in 0..n {
-        if (i > 0) { out = out + sep; }
-        out = out + str(xs[i]);
+    if (n == 0) { return ""; }
+    mut parts: Any = [];
+    for i: Any in 0..n { push(parts, str(xs[i])); }
+    // Pairwise concatenation bounds copying without assuming a string layout,
+    // so this also works in the source bootstrap's different runtime.
+    while (len(parts) > 1) {
+        let next: Any = [];
+        mut i: Any = 0;
+        while (i < len(parts)) {
+            if (i + 1 < len(parts)) { push(next, parts[i] + sep + parts[i + 1]); }
+            else { push(next, parts[i]); }
+            i += 2;
+        }
+        parts = next;
     }
-    return out;
+    return parts[0];
 }
 
 fun int(x: Any) -> Any {

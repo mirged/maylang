@@ -1,0 +1,91 @@
+import "net" as net;
+
+mut checks: Int = 0;
+fun check(ok: Bool) -> Nil { checks += 1; if (not ok) { fail("network assertion failed " + str(checks)); } return; }
+fun rejects(action: () -> Any, code: Int) -> Nil {
+    let caught: Any = may { action(); nil } otherwise { err };
+    check(caught != nil and caught.kind == "network" and caught.errno == code);
+    return;
+}
+fun flags(s: net.Socket) -> Nil {
+    check(syscall(72, s.fd, 1) % 2 == 1);
+    check(syscall(72, s.fd, 3) / 2048 % 2 == 1);
+    return;
+}
+
+let listener: net.Socket = net.tcp_listen("127.0.0.1", 0);
+net.socket_set_timeout(listener, 1000); flags(listener);
+let endpoint: net.Address = net.socket_local_address(listener);
+check(endpoint.host == "127.0.0.1" and endpoint.port > 0);
+check(not net.socket_wait(listener, false, 0));
+let client: net.Socket = net.tcp_connect("localhost", endpoint.port); flags(client);
+check(net.socket_wait(listener, false, 1000));
+let peer: net.Socket = net.tcp_accept(listener); flags(peer);
+check(peer.timeout_ms == 1000);
+check(net.socket_peer_address(client).port == endpoint.port);
+check(net.socket_peer_address(peer).port == net.socket_local_address(client).port);
+net.socket_set_timeout(client, 1000);
+check(net.tcp_send(client, "λ\0☃") == 6);
+check(net.byte_length(net.tcp_receive_exact(peer, 6)) == 6);
+check(net.tcp_send(client, net.from_bytes([0, 128, 255])) == 3);
+check(str(net.bytes(net.tcp_receive_exact(peer, 3))) == "[0, 128, 255]");
+check(net.tcp_send(client, "") == 0);
+check(net.tcp_receive_exact(peer, 0) == "");
+rejects(fun() -> Any { return net.tcp_receive(peer, 0); }, 22);
+rejects(fun() -> Any { return net.tcp_receive_exact(peer, -1); }, 22);
+rejects(fun() -> Any { net.socket_set_timeout(peer, -2); return nil; }, 22);
+rejects(fun() -> Any { net.tcp_shutdown(peer, "wrong"); return nil; }, 22);
+net.socket_set_timeout(peer, 20);
+rejects(fun() -> Any { return net.tcp_receive(peer, 1); }, 110);
+net.tcp_shutdown(client, "write");
+check(net.tcp_receive(peer, 10) == "");
+rejects(fun() -> Any { return net.tcp_receive_exact(peer, 1); }, 0);
+check(net.tcp_send(peer, "reply") == 5);
+check(net.tcp_receive_exact(client, 5) == "reply");
+net.socket_close(peer);
+// After a peer closes, send must report an error without killing us with SIGPIPE.
+let write_error: Any = may {
+    for i: Int in 0..20 { net.tcp_send(client, "x"); }
+    nil
+} otherwise { err };
+check(write_error != nil and (write_error.errno == 32 or write_error.errno == 104));
+net.socket_close(client);
+
+let baseline: Int = len(read_dir("/proc/self/fd"));
+for i: Int in 0..10 { rejects(fun() -> Any { return net.tcp_listen("127.0.0.1", endpoint.port); }, 98); }
+check(len(read_dir("/proc/self/fd")) == baseline);
+net.socket_close(listener);
+for i: Int in 0..10 { rejects(fun() -> Any { return net.tcp_connect_timeout("127.0.0.1", endpoint.port, 1000); }, 111); }
+check(len(read_dir("/proc/self/fd")) == baseline - 1);
+
+let a: net.Socket = net.udp_bind("127.0.0.1", 0); flags(a);
+let b: net.Socket = net.udp_bind("127.0.0.1", 0);
+net.socket_set_timeout(a, 1000); net.socket_set_timeout(b, 1000);
+let destination: net.Address = net.socket_local_address(b);
+let source: net.Address = net.socket_local_address(a);
+check(net.udp_send_to(a, "λ\0☃", destination) == 6);
+let packet: net.Datagram = net.udp_receive_from(b, 32);
+check(packet.data == "λ\0☃" and packet.sender.port == source.port and packet.sender.host == "127.0.0.1");
+check(net.udp_send_to(b, packet.data, packet.sender) == 6);
+check(net.udp_receive_from(a, 32).data == packet.data);
+check(net.udp_send_to(a, "", destination) == 0);
+check(net.udp_receive_from(b, 32).data == "");
+net.udp_send_to(a, "too long", destination);
+rejects(fun() -> Any { return net.udp_receive_from(b, 2); }, 90);
+check(not net.socket_wait(b, false, 0));
+mut large: Str = "x";
+for i: Int in 0..16 { large = large + large; }
+rejects(fun() -> Any { return net.udp_send_to(a, large, destination); }, 90);
+rejects(fun() -> Any { return net.udp_send_to(a, "x", net.Address("127.0.0.1", 0)); }, 22);
+rejects(fun() -> Any { return net.tcp_send(a, "x"); }, 22);
+net.socket_set_timeout(b, 20);
+rejects(fun() -> Any { return net.udp_receive_from(b, 32); }, 110);
+net.socket_set_timeout(b, -1); check(not net.socket_wait(b, false, 0));
+check(net.with_socket(b, fun(s: net.Socket) -> Int { return net.socket_local_address(s).port; }) == destination.port);
+check(b.fd == -1);
+net.socket_close(b);
+let alias: net.Socket = a;
+let caught: Any = may { net.with_socket(a, fun(s: net.Socket) -> Any { fail("cleanup"); return nil; }); nil } otherwise { err };
+check(caught != nil and caught.message == "cleanup" and alias.fd == -1);
+check(len(read_dir("/proc/self/fd")) == baseline - 1);
+print("PASS network TCP/UDP, timeouts, EOF, SIGPIPE, and descriptor cleanup");

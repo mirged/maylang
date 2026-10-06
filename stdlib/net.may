@@ -1,0 +1,291 @@
+// net.may — synchronous IPv4 sockets for mayc's full Linux x86-64 runtime.
+// Socket operations use nonblocking descriptors and poll to bound waiting.
+
+pub struct Address { host: Str, port: Int }
+pub struct Socket { fd: Int, kind: Str, timeout_ms: Int }
+pub struct Datagram { data: Str, sender: Address }
+
+fun net_fault(operation: Str, code: Int, detail: Str) -> Any {
+    let e: Any = make_error("network", operation + ": " + detail);
+    e.operation = operation; e.errno = code;
+    return rt_raise(e);
+}
+fun net_check(operation: Str, status: Int) -> Int {
+    if (status < 0) { net_fault(operation, -status, "system error " + str(-status)); }
+    return status;
+}
+fun net_timeout(ms: Int) -> Nil {
+    if (ms < -1 or ms > 2147483647) { net_fault("timeout", 22, "expected -1 or 0..2147483647 milliseconds"); }
+    return;
+}
+fun net_deadline(ms: Int) -> Float {
+    net_timeout(ms);
+    return if (ms == -1) { -1.0 } else { net_now() + float(ms) / 1000.0 };
+}
+fun net_now() -> Float {
+    let ts: Str = net_buffer(16);
+    net_check("clock_gettime", syscall(228, 1, addr(ts)));
+    return float(load64(addr(ts))) + float(load64(addr(ts) + 8)) / 1000000000.0;
+}
+fun net_remaining(deadline: Float) -> Int {
+    if (deadline < 0.0) { return -1; }
+    let remaining: Float = (deadline - net_now()) * 1000.0;
+    if (remaining <= 0.0) { return 0; }
+    return min(2147483647, int(remaining) + 1);
+}
+fun net_open(s: Socket, kind: Str) -> Int {
+    if (s.fd < 0) { net_fault("socket", 9, "socket is closed"); }
+    if (kind != "" and s.kind != kind) { net_fault("socket", 22, "expected a " + kind + " socket"); }
+    return s.fd;
+}
+
+/// Number of bytes, including embedded NULs; len(Str) counts codepoints.
+pub fun byte_length(data: Str) -> Int { return load64(addr(data) - 8); }
+fun net_buffer(size: Int) -> Str {
+    if (size < 0 or size > 16777216) { net_fault("buffer", 22, "expected 0..16777216 bytes"); }
+    return repeat("\0", size);
+}
+fun net_trim(data: Str, size: Int) -> Str {
+    store64(addr(data) - 8, size); store8(addr(data) + size, 0);
+    return data;
+}
+/// Convert arbitrary network bytes to a list of 0..255 integers.
+pub fun bytes(data: Str) -> List<Int> {
+    let out: List<Int> = [];
+    for i: Int in 0..byte_length(data) { push(out, load8(addr(data) + i)); }
+    return out;
+}
+/// Build a byte string without UTF-8 re-encoding its bytes.
+pub fun from_bytes(values: List<Int>) -> Str {
+    let data: Str = net_buffer(len(values));
+    for i: Int in 0..len(values) {
+        if (values[i] < 0 or values[i] > 255) { net_fault("from_bytes", 22, "byte is outside 0..255"); }
+        store8(addr(data) + i, values[i]);
+    }
+    return data;
+}
+
+/// Validate/canonicalize a dotted-decimal IPv4 address; localhost is loopback.
+pub fun ipv4(host: Str) -> Str {
+    if (host == "localhost") { return "127.0.0.1"; }
+    let parts: List<Str> = split(host, ".");
+    if (len(parts) != 4) { net_fault("address", 22, "expected an IPv4 address or localhost"); }
+    let canonical: List<Str> = [];
+    for part: Str in parts {
+        if (len(part) == 0 or len(part) > 3) { net_fault("address", 22, "invalid IPv4 octet"); }
+        mut value: Int = 0;
+        for c: Str in chars(part) {
+            let digit: Int = ord(c) - 48;
+            if (digit < 0 or digit > 9) { net_fault("address", 22, "invalid IPv4 octet"); }
+            value = value * 10 + digit;
+        }
+        if (value > 255) { net_fault("address", 22, "IPv4 octet exceeds 255"); }
+        push(canonical, str(value));
+    }
+    return join(canonical, ".");
+}
+pub fun address(host: Str, port: Int) -> Address {
+    if (port < 0 or port > 65535) { net_fault("address", 22, "port is outside 0..65535"); }
+    return Address(ipv4(host), port);
+}
+fun net_sockaddr(a: Address) -> Str {
+    let valid: Address = address(a.host, a.port);
+    let data: Str = net_buffer(16);
+    store16(addr(data), 2);
+    store8(addr(data) + 2, valid.port / 256); store8(addr(data) + 3, valid.port % 256);
+    let octets: List<Str> = split(valid.host, ".");
+    for i: Int in 0..4 { store8(addr(data) + 4 + i, int(octets[i])); }
+    return data;
+}
+fun net_decode(data: Str) -> Address {
+    if (load16(addr(data)) != 2) { net_fault("address", 97, "expected an IPv4 socket address"); }
+    let octets: List<Str> = [];
+    for i: Int in 0..4 { push(octets, str(load8(addr(data) + 4 + i))); }
+    return Address(join(octets, "."), load8(addr(data) + 2) * 256 + load8(addr(data) + 3));
+}
+fun net_socket(kind: Str, type: Int) -> Socket {
+    // SOCK_CLOEXEC | SOCK_NONBLOCK; no descriptor leaks through exec().
+    let fd: Int = net_check("socket", syscall(41, 2, type + 524288 + 2048, 0));
+    return Socket(fd, kind, 30000);
+}
+fun net_discard(s: Socket) -> Nil {
+    if (s.fd >= 0) { let fd: Int = s.fd; s.fd = -1; syscall(3, fd); }
+    return;
+}
+/// Close once. Aliases to the same Socket observe that it is closed.
+pub fun socket_close(s: Socket) -> Nil {
+    if (s.fd >= 0) {
+        let fd: Int = s.fd; s.fd = -1;
+        // Linux close must not be retried, including after EINTR.
+        net_check("close", syscall(3, fd));
+    }
+    return;
+}
+/// Set waiting timeout: -1 waits forever, 0 checks readiness immediately.
+pub fun socket_set_timeout(s: Socket, ms: Int) -> Nil {
+    net_open(s, ""); net_timeout(ms); s.timeout_ms = ms; return;
+}
+fun net_poll(fd: Int, writing: Bool, deadline: Float) -> Bool {
+    let data: Str = net_buffer(8);
+    store32(addr(data), fd); store16(addr(data) + 4, if (writing) { 4 } else { 1 });
+    while (true) {
+        let status: Int = syscall(7, addr(data), 1, net_remaining(deadline));
+        if (status == -4) { continue; }
+        net_check("poll", status);
+        if (status == 0) { return false; }
+        if (load16(addr(data) + 6) / 32 % 2 == 1) { net_fault("poll", 9, "invalid socket descriptor"); }
+        // Error/hangup are ready too; the next I/O reports the error or EOF.
+        return true;
+    }
+    return false;
+}
+pub fun socket_wait(s: Socket, writing: Bool, ms: Int) -> Bool {
+    return net_poll(net_open(s, ""), writing, net_deadline(ms));
+}
+fun net_ready(s: Socket, writing: Bool, deadline: Float, operation: Str) -> Nil {
+    if (not net_poll(net_open(s, ""), writing, deadline)) { net_fault(operation, 110, "timed out"); }
+    return;
+}
+pub fun socket_local_address(s: Socket) -> Address {
+    let data: Str = net_buffer(16); let size: Str = net_buffer(4); store32(addr(size), 16);
+    net_check("getsockname", syscall(51, net_open(s, ""), addr(data), addr(size)));
+    return net_decode(data);
+}
+pub fun socket_peer_address(s: Socket) -> Address {
+    let data: Str = net_buffer(16); let size: Str = net_buffer(4); store32(addr(size), 16);
+    net_check("getpeername", syscall(52, net_open(s, ""), addr(data), addr(size)));
+    return net_decode(data);
+}
+/// Run an action and close the socket on success or a raised error.
+pub fun with_socket(s: Socket, action: (Socket) -> Any) -> Any {
+    let result: Any = may { action(s) } otherwise {
+        let caught: Any = err; net_discard(s); return rt_raise(caught);
+    };
+    socket_close(s); return result;
+}
+
+/// Connect with a 30-second timeout. host is IPv4 or localhost.
+pub fun tcp_connect(host: Str, port: Int) -> Socket { return tcp_connect_timeout(host, port, 30000); }
+pub fun tcp_connect_timeout(host: Str, port: Int, ms: Int) -> Socket {
+    if (port == 0) { net_fault("connect", 22, "remote port must be nonzero"); }
+    let target: Str = net_sockaddr(address(host, port)); let deadline: Float = net_deadline(ms);
+    let s: Socket = net_socket("tcp", 1); s.timeout_ms = ms;
+    return may {
+        let status: Int = syscall(42, s.fd, addr(target), 16);
+        if (status == -115 or status == -114 or status == -4) {
+            net_ready(s, true, deadline, "connect");
+            let error: Str = net_buffer(4); let size: Str = net_buffer(4); store32(addr(size), 4);
+            net_check("getsockopt", syscall(55, s.fd, 1, 4, addr(error), addr(size)));
+            net_check("connect", -load32(addr(error)));
+        } else { net_check("connect", status); }
+        s
+    } otherwise { let caught: Any = err; net_discard(s); rt_raise(caught) };
+}
+/// Listen with backlog 128. port 0 asks the OS for an unused local port.
+pub fun tcp_listen(host: Str, port: Int) -> Socket {
+    let target: Str = net_sockaddr(address(host, port)); let s: Socket = net_socket("listener", 1);
+    return may {
+        let option: Str = net_buffer(4); store32(addr(option), 1);
+        net_check("setsockopt", syscall(54, s.fd, 1, 2, addr(option), 4));
+        net_check("bind", syscall(49, s.fd, addr(target), 16));
+        net_check("listen", syscall(50, s.fd, 128));
+        s
+    } otherwise { let caught: Any = err; net_discard(s); rt_raise(caught) };
+}
+pub fun tcp_accept(listener: Socket) -> Socket {
+    net_open(listener, "listener"); let deadline: Float = net_deadline(listener.timeout_ms);
+    while (true) {
+        net_ready(listener, false, deadline, "accept");
+        let fd: Int = syscall(288, listener.fd, 0, 0, 524288 + 2048);
+        if (fd == -4 or fd == -11 or fd == -103) { continue; }
+        net_check("accept", fd);
+        return Socket(fd, "tcp", listener.timeout_ms);
+    }
+    return listener;
+}
+/// Send all bytes; retry partial writes and suppress SIGPIPE.
+pub fun tcp_send(s: Socket, data: Str) -> Int {
+    net_open(s, "tcp"); let deadline: Float = net_deadline(s.timeout_ms);
+    let size: Int = byte_length(data); mut offset: Int = 0;
+    while (offset < size) {
+        net_ready(s, true, deadline, "send");
+        let count: Int = syscall(44, s.fd, addr(data) + offset, size - offset, 16384, 0, 0);
+        if (count == -4 or count == -11) { continue; }
+        net_check("send", count);
+        if (count == 0) { net_fault("send", 0, "no progress"); }
+        offset += count;
+    }
+    return offset;
+}
+fun net_receive(s: Socket, data: Str, offset: Int, count: Int, deadline: Float) -> Int {
+    while (true) {
+        net_ready(s, false, deadline, "receive");
+        let size: Int = syscall(45, s.fd, addr(data) + offset, count, 0, 0, 0);
+        if (size == -4 or size == -11) { continue; }
+        return net_check("receive", size);
+    }
+    return 0;
+}
+/// Read up to max_bytes; empty means orderly TCP EOF.
+pub fun tcp_receive(s: Socket, max_bytes: Int) -> Str {
+    net_open(s, "tcp");
+    if (max_bytes < 1) { net_fault("receive", 22, "max_bytes must be positive"); }
+    let data: Str = net_buffer(max_bytes);
+    return net_trim(data, net_receive(s, data, 0, max_bytes, net_deadline(s.timeout_ms)));
+}
+/// Read exactly count bytes, or raise on premature EOF.
+pub fun tcp_receive_exact(s: Socket, count: Int) -> Str {
+    net_open(s, "tcp"); let data: Str = net_buffer(count);
+    let deadline: Float = net_deadline(s.timeout_ms); mut offset: Int = 0;
+    while (offset < count) {
+        let size: Int = net_receive(s, data, offset, count - offset, deadline);
+        if (size == 0) { net_fault("receive_exact", 0, "unexpected EOF"); }
+        offset += size;
+    }
+    return data;
+}
+/// Half-close read, write, or both sides of a TCP connection.
+pub fun tcp_shutdown(s: Socket, how: Str) -> Nil {
+    let fd: Int = net_open(s, "tcp");
+    if (not has(["read", "write", "both"], how)) { net_fault("shutdown", 22, "expected read, write, or both"); }
+    let direction: Int = if (how == "read") { 0 } else if (how == "write") { 1 } else { 2 };
+    net_check("shutdown", syscall(48, fd, direction)); return;
+}
+
+/// Bind a UDP socket; use host 0.0.0.0 for all interfaces and port 0 for any port.
+pub fun udp_bind(host: Str, port: Int) -> Socket {
+    let target: Str = net_sockaddr(address(host, port)); let s: Socket = net_socket("udp", 2);
+    return may {
+        net_check("bind", syscall(49, s.fd, addr(target), 16)); s
+    } otherwise { let caught: Any = err; net_discard(s); rt_raise(caught) };
+}
+pub fun udp_send_to(s: Socket, data: Str, destination: Address) -> Int {
+    net_open(s, "udp"); let target: Str = net_sockaddr(destination);
+    if (destination.port == 0) { net_fault("send_to", 22, "remote port must be nonzero"); }
+    let size: Int = byte_length(data);
+    if (size > 65507) { net_fault("send_to", 90, "IPv4 datagram exceeds 65507 bytes"); }
+    let deadline: Float = net_deadline(s.timeout_ms);
+    while (true) {
+        net_ready(s, true, deadline, "send_to");
+        let count: Int = syscall(44, s.fd, addr(data), size, 16384, addr(target), 16);
+        if (count == -4 or count == -11) { continue; }
+        return net_check("send_to", count);
+    }
+    return 0;
+}
+/// Receive one datagram and its sender. Oversized packets raise instead of truncating silently.
+pub fun udp_receive_from(s: Socket, max_bytes: Int) -> Datagram {
+    net_open(s, "udp");
+    if (max_bytes < 1 or max_bytes > 65535) { net_fault("receive_from", 22, "expected 1..65535 bytes"); }
+    let data: Str = net_buffer(max_bytes); let sender: Str = net_buffer(16); let size: Str = net_buffer(4);
+    let deadline: Float = net_deadline(s.timeout_ms);
+    while (true) {
+        net_ready(s, false, deadline, "receive_from"); store32(addr(size), 16);
+        let count: Int = syscall(45, s.fd, addr(data), max_bytes, 32, addr(sender), addr(size));
+        if (count == -4 or count == -11) { continue; }
+        net_check("receive_from", count);
+        if (count > max_bytes) { net_fault("receive_from", 90, "datagram exceeds receive buffer"); }
+        return Datagram(net_trim(data, count), net_decode(sender));
+    }
+    return Datagram("", Address("0.0.0.0", 0));
+}

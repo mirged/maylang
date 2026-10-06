@@ -408,16 +408,21 @@ fun llvm_emit(ctx: Any) -> Any {
     push(header,"define internal i64 @may_syscall(i64 %nr, i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f) noinline {\n  %r = call i64 asm sideeffect \"syscall\", \"={rax},{rax},{rdi},{rsi},{rdx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}\"(i64 %nr, i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f)\n  ret i64 %r\n}");
     mut hd: Any = unit.globals["HDEPTH"]; mut uncaught: Any = ctx.functionIndex["rt_die_uncaught"];
     push(header,"define internal void @may_throw() noreturn noinline {\n  %d = load volatile i64, ptr ${hd}\n  %empty = icmp eq i64 %d, 0\n  br i1 %empty, label %uncaught, label %caught\nuncaught:\n  %a = alloca [${unit.argCount} x i64]\n  %v = call i64 @f${uncaught.lab}(i64 0, ptr %a)\n  unreachable\ncaught:\n  %i = sub i64 %d, 1\n  %p = getelementptr [64 x [256 x i8]], ptr @may_handlers, i64 0, i64 %i\n  call void @longjmp(ptr %p, i32 1)\n  unreachable\n}");
-    return join(header,"\n") + "\n" + join(unit.strings,"\n") + "\n" + join(bodies,"\n");
+    // Keep sections separate instead of copying a multi-megabyte module into
+    // one allocation after lowering has fragmented the compiler's heap.
+    return header + unit.strings + bodies;
 }
 fun llvm_write(path: Any, content: Any) -> Any {
     mut fd: Any = syscall(2,cstr(path),577,420);
     if (fd < 0) { die_str("mayc: cannot write LLVM output `${path}`\n"); }
-    mut offset: Any = 0;
-    while (offset < len(content)) {
-        mut n: Any = syscall(1,fd,addr(content)+offset,len(content)-offset);
-        if (n <= 0) { syscall(3,fd); die_str("mayc: cannot finish LLVM output\n"); }
-        offset += n;
+    for section: Any in content {
+        mut offset: Any = 0;
+        while (offset < len(section)) {
+            mut n: Any = syscall(1,fd,addr(section)+offset,len(section)-offset);
+            if (n <= 0) { syscall(3,fd); die_str("mayc: cannot finish LLVM output\n"); }
+            offset += n;
+        }
+        if (syscall(1,fd,addr("\n"),1) != 1) { syscall(3,fd); die_str("mayc: cannot finish LLVM output\n"); }
     }
     if (syscall(3,fd) < 0) { die_str("mayc: cannot close LLVM output\n"); }
     return 0;

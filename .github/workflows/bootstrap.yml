@@ -26,9 +26,12 @@ jobs:
         run: |
           test ! -e toolchain/mayc/build/bin/mayc_new
           python3 toolchain/rust/test.py
-      - name: Verify direct Maylang LLVM backend
+      - name: Verify networking on native and LLVM backends
         run: |
           sh toolchain/rust/build.sh
+          python3 toolchain/mayc/tests/network.py --require-sockets --llvm
+      - name: Verify direct Maylang LLVM backend
+        run: |
           python3 toolchain/mayc/tests/llvm.py
       - name: Verify native compiler and current entrypoints
         run: python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new

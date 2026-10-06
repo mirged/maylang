@@ -106,6 +106,14 @@ def main():
                              'let xs:List<Int> = [x*x for x in nums if x%2==0];print(xs);return 0;}test_comprehension();',
             'float': 'print(1.25+2.5,3.5*2,9.0/2,2.5<3.0,floor(-2.5),ceil(2.5),sqrt(9.0));',
             'unicode': 'print("a\\nλ",chr(9731),len("λ☃"),to_upper("abc"));',
+            'join': 'print(join([],","),join(["λ"],","),join(["λ","☃"],"|"));'
+                    'print(join([1,true,nil],"|"));'
+                    'let binary:Str=join(["a\\0","b"],"\\0");'
+                    'if(load64(addr(binary)-8)!=4 or load8(addr(binary)+1)!=0 or '
+                    'load8(addr(binary)+2)!=0){fail("binary join");}'
+                    'let parts:List<Str> = [];for i:Int in 0..100000{push(parts,"ab");}'
+                    'let combined:Str=join(parts,".");if(len(combined)!=299999){fail("large join");}'
+                    'print(len(combined),binary=="a\\0\\0b");',
             'map-list': 'let m:Any={"x":[1,2]};m.x[0]=4;push(m.x,3);print(m.x,m.x[0],m?.x);',
             'tailcall': 'fun loop(n:Int,a:Int)->Int{if(n==0){return a;}return loop(n-1,a+n);}print(loop(10000,0));',
             'process': 'print(wait(exec(["/bin/sh","-c","test -n \\"$PATH\\" && exit 7"])));',
@@ -129,6 +137,8 @@ def main():
             result = run(target + [fixture, '-o', binary], env=environment)
             assert result.returncode == 0, (name, result.stderr)
             before, after = run([native]), run([binary])
+            if name == 'join':
+                assert before.returncode == 0 and before.stdout == ' λ λ|☃\n1|true|nil\n299999 true\n', before
             assert (before.stdout, before.stderr, before.returncode) == (
                 after.stdout, after.stderr, after.returncode), (name, before, after)
             print(f'PASS LLVM/native behavior: {name}', flush=True)

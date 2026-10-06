@@ -1,0 +1,33 @@
+import "net" as net;
+
+mut checks: Int = 0;
+fun check(ok: Bool) -> Nil { checks += 1; if (not ok) { fail("network assertion failed " + str(checks)); } return; }
+fun rejects(action: () -> Any, code: Int) -> Nil {
+    let caught: Any = may { action(); nil } otherwise { err };
+    check(caught != nil and caught.kind == "network" and caught.errno == code);
+    return;
+}
+
+check(net.ipv4("localhost") == "127.0.0.1");
+check(net.ipv4("001.002.003.004") == "1.2.3.4");
+check(net.address("0.0.0.0", 0).port == 0);
+check(net.address("255.255.255.255", 65535).host == "255.255.255.255");
+let raw: Str = net.from_bytes([0, 1, 127, 128, 255, 0]);
+check(net.byte_length(raw) == 6);
+check(str(net.bytes(raw)) == "[0, 1, 127, 128, 255, 0]");
+check(str(net.bytes(net.from_bytes(net.bytes("λ☃")))) == "[206, 187, 226, 152, 131]");
+check(net.byte_length("λ☃") == 5 and len("λ☃") == 2);
+check(net.from_bytes([]) == "");
+for host: Str in ["", "127.1", "1.2.3.4.5", "1..2.3", "256.1.2.3", "-1.2.3.4", "a.2.3.4", "1.2.3.４", "example.com", "::1"] {
+    rejects(fun() -> Any { return net.ipv4(host); }, 22);
+}
+rejects(fun() -> Any { return net.address("127.0.0.1", -1); }, 22);
+rejects(fun() -> Any { return net.address("127.0.0.1", 65536); }, 22);
+rejects(fun() -> Any { return net.tcp_connect("127.0.0.1", 0); }, 22);
+rejects(fun() -> Any { return net.tcp_connect_timeout("127.0.0.1", 1, -2); }, 22);
+rejects(fun() -> Any { return net.from_bytes([-1]); }, 22);
+rejects(fun() -> Any { return net.from_bytes([256]); }, 22);
+let closed: net.Socket = net.Socket(-1, "tcp", 1);
+net.socket_close(closed);
+rejects(fun() -> Any { return net.tcp_send(closed, "hi"); }, 9);
+print("PASS network addresses, binary data, and validation");

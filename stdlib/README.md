@@ -31,6 +31,7 @@ print(quick_sort([3, 1, 2]));  // [1, 2, 3]
 | `csv.may`         | Quoted CSV parse/stringify, records from headers |
 | `path.may`        | Lexical normalize/join/basename/dirname/extension/relative paths |
 | `io.may`          | Safe text, line, JSON, config and CSV file helpers |
+| `net.may`         | IPv4 TCP clients/listeners, UDP, timeouts, binary I/O and socket cleanup (Linux x86-64) |
 | `validate.may`    | Common predicates and structured field/rule validation |
 | `format.may`      | Tables, key-value blocks, durations, byte sizes, percentages, ANSI styling |
 | `result.may`      | `ok`, `error`, `is_ok`, `is_err`, `unwrap`, `unwrap_or`, `map_result`, `and_then`, `collect`, `attempt` |
@@ -55,6 +56,10 @@ These low-level operations are exposed by the native runtime in
   `contains`, `starts_with`, `ends_with`, `replace`, `index_of`, `chars`.
 
 Everything else is ordinary Maylang in this directory.
+
+The [`net` module](../docs/NETWORK.md) uses Linux syscalls directly in Maylang
+and supports `mayc`'s full native and `clang-llvm` runtimes. See
+[`examples/network`](../examples/network) for a TCP echo client and server.
 
 ## Search path
 

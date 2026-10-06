@@ -1,0 +1,10 @@
+import "net" as net;
+
+let arguments: List<Str> = args();
+let port: Int = if (len(arguments) > 1) { int(arguments[1]) } else { 9000 };
+let message: Str = if (len(arguments) > 2) { arguments[2] } else { "Hello, Maylang!" };
+net.with_socket(net.tcp_connect("localhost", port), fun(peer: net.Socket) -> Any {
+    net.tcp_send(peer, message);
+    net.tcp_shutdown(peer, "write");
+    return print(net.tcp_receive_exact(peer, net.byte_length(message)));
+});

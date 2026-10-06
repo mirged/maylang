@@ -1,0 +1,15 @@
+import "net" as net;
+
+let arguments: List<Str> = args();
+let port: Int = if (len(arguments) > 1) { int(arguments[1]) } else { 9000 };
+net.with_socket(net.tcp_listen("127.0.0.1", port), fun(listener: net.Socket) -> Any {
+    print("Listening on", net.socket_local_address(listener).port);
+    return net.with_socket(net.tcp_accept(listener), fun(peer: net.Socket) -> Any {
+        while (true) {
+            let data: Str = net.tcp_receive(peer, 4096);
+            if (net.byte_length(data) == 0) { break; }
+            net.tcp_send(peer, data);
+        }
+        return nil;
+    });
+});
