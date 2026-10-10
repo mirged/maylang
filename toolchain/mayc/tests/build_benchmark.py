@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 import time
 
+from backends import compiler_binary
+
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -33,7 +35,7 @@ def measure(compiler, source, output, samples, options=()):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, required=True)
-    parser.add_argument('--baseline', type=Path, required=True)
+    parser.add_argument('--baseline', type=Path, help='optional compiler for output and timing comparison')
     parser.add_argument('--samples', type=int, default=3)
     parser.add_argument('--report', type=Path, required=True)
     args = parser.parse_args()
@@ -48,7 +50,10 @@ def main():
                     'native.may': ROOT / 'toolchain/mayc/native.may',
                     'prelude.may': ROOT / 'stdlib/prelude.may'}
         report['sidecars_sha256'] = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sidecars.items()}
-        for name, original in [('before', args.baseline.resolve()), ('after', args.compiler.resolve())]:
+        versions = [('after', compiler_binary(args.compiler))]
+        if args.baseline is not None:
+            versions.insert(0, ('before', compiler_binary(args.baseline)))
+        for name, original in versions:
             home = work / name; home.mkdir()
             compiler = home / 'mayc'; shutil.copy2(original, compiler)
             compilers[name] = compiler
@@ -71,7 +76,7 @@ def main():
                                            b'running time is: <elapsed> seconds', run.stdout)
                     if name == 'before':
                         outputs[label] = stable_output
-                    else:
+                    elif args.baseline is not None:
                         assert stable_output == outputs[label], run.stdout
             # Ensure a timed rebuild produced a usable compiler.
             version = subprocess.run([str(work / 'compiler_rebuild'), '--version'], capture_output=True, timeout=10)
@@ -80,8 +85,9 @@ def main():
         expected = b'Hello, Maylang!\nHello, world!\n'
         run = subprocess.run([str(work / 'core')], capture_output=True, timeout=10)
         assert run.returncode == 0 and run.stdout == expected and not run.stderr, run
-    report['speedups'] = {label: round(report['results']['before'][label]['median_ms'] / report['results']['after'][label]['median_ms'], 2)
-                          for label in ['hello', 'features', 'compiler_rebuild']}
+    if args.baseline is not None:
+        report['speedups'] = {label: round(report['results']['before'][label]['median_ms'] / report['results']['after'][label]['median_ms'], 2)
+                              for label in ['hello', 'features', 'compiler_rebuild']}
     args.report.write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
 
