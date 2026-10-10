@@ -72,8 +72,8 @@ Packets use UTF-8 byte lengths.
 
 Standard library discovery checks `initializationOptions.stdlibPath`,
 `MAYLANG_STDLIB`, `stdlib` in the current directory and workspace folders,
-then `../../stdlib` relative to the executable. If you move the executable,
-set `MAYLANG_STDLIB` to the repository's `stdlib` directory. Imports resolve
+then `stdlib` beside or above the executable, including an extracted toolchain
+bundle. You can override discovery with `MAYLANG_STDLIB`. Imports resolve
 relative to their source file before the stdlib; `.may` is optional.
 
 ## Features
@@ -172,8 +172,10 @@ same.
 
 ## Current limits
 
-The compiler stops at the first syntax or semantic error in an import
-closure; the server preserves that behavior. Annotation checking follows
+The compiler recovers independent top-level syntax and type errors and reports
+up to 20 diagnostics per check, with original source ranges and stage codes.
+Lexing, module loading and name resolution can still stop at their first error.
+Annotation checking follows
 `mayc`, with no separate general type inference engine. Member navigation
 uses known declarations and simple binding types. Dynamically constructed
 map members and dynamically selected callees may have no static definition.

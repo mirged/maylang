@@ -11,7 +11,7 @@ permissions:
 jobs:
   bootstrap:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install build requirements
@@ -35,6 +35,33 @@ jobs:
           python3 toolchain/mayc/tests/llvm.py
       - name: Verify native compiler and current entrypoints
         run: python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
+      - name: Verify contracts and error traces through LLVM
+        run: |
+          python3 toolchain/mayc/tests/numeric_contracts.py --llvm
+          python3 toolchain/mayc/tests/stdlib_contracts.py --llvm
+          python3 toolchain/mayc/tests/file_io.py --llvm
+          python3 toolchain/mayc/tests/debug_traces.py --llvm
+      - name: Execute portable core on all targets
+        run: |
+          python3 -m venv /tmp/maylang-validation
+          /tmp/maylang-validation/bin/python -m pip install unicorn==2.1.4
+          /tmp/maylang-validation/bin/python toolchain/mayc/tests/core_runtime.py --compiler toolchain/mayc/mayc_new --require-emulation
+      - name: Verify project manager and language server
+        run: |
+          toolchain/mayc/mayc_new toolchain/maypkg/main.may -o /tmp/maypkg
+          python3 toolchain/maypkg/tests/test_workflows.py --binary /tmp/maypkg
+          python3 toolchain/maylsp/tests/test_lsp.py
+      - name: Build and test an extracted release
+        run: |
+          python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --output /tmp/maylang.tar.gz
+          python3 toolchain/tests/test_package.py /tmp/maylang.tar.gz
+      - name: Upload complete toolchain bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: maylang-linux-x86_64
+          path: |
+            /tmp/maylang.tar.gz
+            /tmp/maylang.tar.gz.sha256
       - name: Run language compliance checks
         run: python3 tests/compliance/run.py
       - name: Upload verification reports and failure logs
@@ -50,4 +77,24 @@ jobs:
             tests/compliance/followup.json
             tests/compliance/build/verify-*/**/*.stdout
             tests/compliance/build/verify-*/**/*.stderr
+            tests/compliance/build/fuzz/**
           if-no-files-found: ignore
+  editor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Compile and package the VS Code extension
+        working-directory: editors/vscode
+        run: |
+          npm ci
+          npm exec --yes --package @vscode/vsce@3 -- vsce package --out /tmp/maylang.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maylang-vscode
+          path: /tmp/maylang.vsix

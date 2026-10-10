@@ -1,19 +1,18 @@
 // text.may — tokenisation helpers.
 //
-// Pure Maylang on top of the prelude's char/string primitives, so it compiles
-// on the native target as well as the VM.
+// Pure Maylang on top of the native prelude's char/string primitives.
 
-fun is_letter_code(c: Any) -> Any {
+fun is_letter_code(c: Int) -> Bool {
     return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
 }
 
-fun is_digit_code(c: Any) -> Any { return c >= 48 && c <= 57; }
+fun is_digit_code(c: Int) -> Bool { return c >= 48 && c <= 57; }
 
 /// Turn every control/whitespace character into a single space.
-fun normalize_ws(text: Any) -> Any {
-    mut out: Any = "";
-    for i: Any in 0..len(text) {
-        let c: Any = char_at(text, i);
+fun normalize_ws(text: Str) -> Str {
+    mut out: Str = "";
+    for i: Int in 0..len(text) {
+        let c: Int = char_at(text, i);
         if (c == 10 || c == 9 || c == 13 || c == 12) {
             out = out + " ";
         } else {
@@ -24,10 +23,10 @@ fun normalize_ws(text: Any) -> Any {
 }
 
 /// Drop everything that is not a letter or digit (punctuation, symbols).
-fun strip_punct(word: Any) -> Any {
-    mut out: Any = "";
-    for i: Any in 0..len(word) {
-        let c: Any = char_at(word, i);
+fun strip_punct(word: Str) -> Str {
+    mut out: Str = "";
+    for i: Int in 0..len(word) {
+        let c: Int = char_at(word, i);
         if (is_letter_code(c) || is_digit_code(c)) {
             out = out + char_from(c);
         }
@@ -36,11 +35,11 @@ fun strip_punct(word: Any) -> Any {
 }
 
 /// Split normalised text into clean, lower-cased words.
-fun words(text: Any) -> Any {
-    let raw: Any = split(normalize_ws(text), " ");
-    mut out: Any = [];
-    for i: Any in 0..len(raw) {
-        let cleaned: Any = strip_punct(to_lower(raw[i]));
+fun words(text: Str) -> List<Str> {
+    let raw: List<Str> = split(normalize_ws(text), " ");
+    let out: List<Str> = [];
+    for i: Int in 0..len(raw) {
+        let cleaned: Str = strip_punct(to_lower(raw[i]));
         if (len(cleaned) > 0) {
             push(out, cleaned);
         }

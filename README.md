@@ -9,7 +9,7 @@
 
 ### A language that compiles itself. Because apparently one compiler wasn't enough.
 
-![Version](https://img.shields.io/badge/mayc-0.8.1%20nightly-8b5cf6)
+![Version](https://img.shields.io/badge/mayc-0.9.0%20nightly-8b5cf6)
 ![Self hosted](https://img.shields.io/badge/self--hosted-Maylang-06b6d4)
 ![Native output](https://img.shields.io/badge/output-native%20machine%20code-f97316)
 ![Status](https://img.shields.io/badge/status-experimental-facc15)
@@ -41,6 +41,8 @@ Python 3 and `readelf` (from binutils) are needed for the verification suite.
 
 For a source-only build with Rust and a C compiler, see the
 [minimal Rust bootstrap](toolchain/rust/README.md).
+For complete compiler, project-manager and editor installation, see the
+[installation guide](docs/INSTALL.md).
 
 ```sh
 git clone https://github.com/mirged/maylang.git

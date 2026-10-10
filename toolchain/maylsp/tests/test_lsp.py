@@ -624,8 +624,13 @@ def run_strict_checks(binary, work):
         client.send("workspace/didChangeConfiguration", {"settings": {"maylang": {"strict": True}}})
         result = client.result("textDocument/diagnostic", doc)
         assert result["items"] == [], result
+        multi = 'fun a() -> Int { return "bad"; }\nfun b() -> Bool { return 7; }\n'
+        client.send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 5}, "contentChanges": [{"text": multi}]})
+        errors = client.result("textDocument/diagnostic", doc)["items"]
+        assert len(errors) == 2 and {item["range"]["start"]["line"] for item in errors} == {0, 1}, errors
+        assert all(item["code"] == "E_TYPE" for item in errors), errors
         client.stop()
-        print("PASS strict defaults, concrete diagnostics, hover and configuration updates", flush=True)
+        print("PASS strict defaults, multiple diagnostics, hover and configuration updates", flush=True)
     finally:
         if client.process.poll() is None:
             client.process.kill()

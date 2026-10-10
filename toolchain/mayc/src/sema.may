@@ -382,6 +382,23 @@ fun sem_node(node: Any) -> Any {
                 let symbol: Any = sem_declare(arm.pattern, arm.length, false, "variable", arm.span, 0);
                 arm.pattern = symbol.pointer; arm.length = symbol.length;
             } else if (arm.patternKind == 1) { arm.pattern = sem_node(arm.pattern); }
+            else if (arm.patternKind == 3) {
+                let constructor: Any = sem_resolve(arm.pattern, arm.length, arm.span);
+                let rec: Any = constructor.declaration;
+                let resultPattern: Any = source_module(constructor.span) == "" and (constructor.name == "Ok" or constructor.name == "Err");
+                if (rec == 0 or (rec.enumTag == nil and not resultPattern)) { diagnostic(arm.span, "pattern requires an enum or result constructor"); }
+                if (len(arm.nested) != rec.pc) { diagnostic(arm.span, "argument count mismatch for variant pattern"); }
+                arm.variantTag = if (resultPattern) { constructor.name } else { rec.enumTag };
+                arm.resultPattern = resultPattern;
+                for i: Any in 0..len(arm.nested) {
+                    let binding: Any = arm.nested[i];
+                    binding.fieldName = if (resultPattern) { if (constructor.name == "Ok") { "value" } else { "error" } } else { rec.enumFields[i] };
+                    if (binding.name != 0) {
+                        let symbol: Any = sem_declare(binding.name, binding.length, false, "variable", binding.span, 0);
+                        binding.name = symbol.pointer; binding.length = symbol.length;
+                    }
+                }
+            }
             arm.guard = sem_node(arm.guard); arm.body = sem_node(arm.body);
             sem_pop();
             arm = arm.next;
@@ -509,7 +526,7 @@ fun sem_globals(body: Any) -> Any {
 
 fun sem_builtins() -> Any {
     for name: Any in ["__host_alloc", "__host_write", "__host_exit"] { sem_declare(addr(name), len(name), 0, "builtin", 0, 1); }
-    let names: Any = ["__ccall6", "__longjmp", "__sp", "__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__fabs", "__fpow2", "__fiber_entry", "__fib_switch", "syscall", "addr", "cstr", "len", "ptr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "exit", "print", "fail", "str", "chr", "ord", "push", "map", "filter", "sum", "reduce", "any", "all", "count", "each", "times", "char_at", "char_from", "to_lower", "to_upper", "trim", "split", "repeat", "join", "contains", "starts_with", "ends_with", "index_of", "cmp", "min", "max", "abs", "to_map", "map_get", "map_set", "keys", "values", "has", "read_stdin", "pi", "e", "sqrt", "floor", "ceil", "round", "trunc", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "pow", "chars", "reverse", "sort", "env", "file_exists", "read_file", "write_file", "time", "clock", "sleep", "mkdir", "read_dir", "system", "exec", "wait", "pop", "remove", "merge", "slice", "unique", "pad_left", "pad_right", "int", "str_of", "int_to_str", "str_cmp", "value_eq", "map_keys", "map_values", "map_has", "to_float", "rt_raise", "json_parse", "json_stringify", "args", "input", "spawn", "yield", "run", "bool", "value_tag", "nil", "true", "false", "err"];
+    let names: Any = ["__ccall6", "__longjmp", "__sp", "__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__f32", "__fabs", "__fpow2", "__fiber_entry", "__fib_switch", "syscall", "addr", "cstr", "len", "ptr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "exit", "print", "fail", "str", "chr", "ord", "push", "map", "filter", "sum", "reduce", "any", "all", "count", "each", "times", "char_at", "char_from", "to_lower", "to_upper", "trim", "split", "repeat", "join", "contains", "starts_with", "ends_with", "index_of", "cmp", "min", "max", "abs", "to_map", "map_get", "map_set", "keys", "values", "has", "read_stdin", "pi", "e", "sqrt", "floor", "ceil", "round", "trunc", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "pow", "chars", "reverse", "sort", "env", "file_exists", "read_file", "write_file", "time", "clock", "sleep", "mkdir", "read_dir", "system", "exec", "wait", "pop", "remove", "merge", "slice", "unique", "pad_left", "pad_right", "int", "str_of", "int_to_str", "str_cmp", "value_eq", "map_keys", "map_values", "map_has", "to_float", "rt_raise", "json_parse", "json_stringify", "args", "input", "spawn", "yield", "run", "bool", "value_tag", "nil", "true", "false", "err"];
     for name: Any in names { sem_declare(addr(name), len(name), false, "builtin", 0, 1); }
     return 0;
 }

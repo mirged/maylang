@@ -3,10 +3,11 @@
 import argparse
 from pathlib import Path
 import struct
+import shutil
 import subprocess
 import tempfile
 
-from backends import compile_source, elf_segments, macho_segments
+from backends import compile_source, compiler_binary, elf_segments, macho_segments
 
 HERE = Path(__file__).resolve().parent
 EXPECTED = (
@@ -180,6 +181,20 @@ def main():
                 if have_emulation:
                     emulate(image, target, message, 70)
         print('PASS core integer overflow and division errors on every target', flush=True)
+        small=work/'small';small.mkdir()
+        shutil.copy2(compiler_binary(options.compiler),small/'mayc')
+        shutil.copytree(HERE.parent/'runtime',small/'runtime')
+        core=small/'runtime/core.may'
+        core.write_text(core.read_text().replace('CORE_RETAINED + size > 268435456','CORE_RETAINED + size > 2097152'))
+        source=work/'limit.may';source.write_text('for i in 0..10 { alloc(700000); }')
+        for target in ['x86_64-linux','arm64-linux','riscv64-linux','arm64-macos','x86_64-windows']:
+            binary=work/'limited'
+            image=compile_source(small/'mayc',source,binary,'--runtime','core','--target',target)
+            if target=='x86_64-linux':
+                result=subprocess.run([str(binary)],capture_output=True,timeout=10)
+                assert result.returncode==70 and result.stdout==b'core heap limit exceeded\n',result
+            if have_emulation: emulate(image,target,b'core heap limit exceeded\n',70)
+        print('PASS bounded core retained heap on every target',flush=True)
 
 
 if __name__ == '__main__':

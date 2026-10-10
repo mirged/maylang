@@ -25,14 +25,17 @@ let rejected: Bool = may { wait(pid); false } otherwise { true };
 print(rejected);
 let inherited: Int = exec(["/bin/sh", "-c", "test \"$MAY_PROCESS_TEST\" = \"inherited value\" && test \"$PATH\" = \"$MAY_PROCESS_PATH\""]);
 print(wait(inherited));
+print(system("test \"$MAY_PROCESS_TEST\" = \"inherited value\""));
+print(system("exit 9"));
+print(system("kill -TERM $$"));
 ''')
         subprocess.run([str(args.compiler.resolve()), str(source), '-o', str(work/'processes')], cwd=ROOT, check=True, timeout=60)
         environment = dict(os.environ, MAY_PROCESS_TEST='inherited value',
                            MAY_PROCESS_PATH=os.environ.get('PATH', ''))
         result = subprocess.run([str(work/'processes'), 'extra', 'arguments'],
                                 env=environment, capture_output=True, timeout=10)
-        assert result.returncode == 0 and result.stdout == b'true 7\n143\ntrue\n0\n', result
-        print('PASS process PIDs, blocking wait, signal exits, reaped errors and inherited environment')
+        assert result.returncode == 0 and result.stdout == b'true 7\n143\ntrue\n0\n0\n9\n143\n', result
+        print('PASS exec/system inheritance, PIDs, blocking wait, signal exits and reaped errors')
 
 
 if __name__ == '__main__':

@@ -38,8 +38,8 @@ fun st_accept(expected: Any, actual: Any) -> Any {
         if (expected.name == "Array" and actual.name == "Array") { return expected.arrayLength == actual.arrayLength; }
         return true;
     }
-    if (has(["Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"], expected.name) and actual.name == "Int") { return true; }
-    if (has(["Float32", "Float64"], expected.name) and actual.name == "Float") { return true; }
+    if (has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"], expected.name) and has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"], actual.name)) { return true; }
+    if (has(["Float", "Float32", "Float64"], expected.name) and has(["Float", "Float32", "Float64"], actual.name)) { return true; }
     if (expected.name != actual.name or len(expected.arguments) != len(actual.arguments)) { return false; }
     for i: Any in 0..len(expected.arguments) { if (not st_accept(expected.arguments[i], actual.arguments[i])) { return false; } }
     if (expected.name == "Function") { return st_accept(expected.result, actual.result); }
@@ -50,11 +50,51 @@ fun st_require(expected: Any, actual: Any, span: Any) -> Any {
     if (not st_accept(expected, actual)) { diagnostic(span, "expected " + st_show(expected) + ", found " + st_show(actual)); }
     return 0;
 }
+fun st_has_contract(t: Any) -> Any {
+    if (has(["Int8", "Int16", "Int32", "UInt8", "UInt16", "UInt32", "UInt64", "Float32", "Array"], t.name)) { return true; }
+    for argument: Any in t.arguments { if (st_has_contract(argument)) { return true; } }
+    return false;
+}
+fun st_contract(node: Any, t: Any) -> Any {
+    if (node != 0 and has(["Int8", "Int16", "Int32", "UInt8", "UInt16", "UInt32", "UInt64"], t.name)) {
+        mut literal: Any = nil;
+        if (node.kind == E_INT) { literal = node.value; }
+        if (node.kind == E_UN and node.op == TK_MINUS and node.operand.kind == E_INT) { literal = 0 - node.operand.value; }
+        if (literal != nil) {
+            mut low: Any = 0; mut high: Any = 1152921504606846975;
+            if (t.name == "Int8") { low = -128; high = 127; }
+            if (t.name == "Int16") { low = -32768; high = 32767; }
+            if (t.name == "Int32") { low = -2147483648; high = 2147483647; }
+            if (t.name == "UInt8") { high = 255; }
+            if (t.name == "UInt16") { high = 65535; }
+            if (t.name == "UInt32") { high = 4294967295; }
+            if (literal < low or literal > high) { diagnostic(node.span, "integer literal outside " + t.name + " bounds"); }
+        }
+    }
+    if (node != 0 and t.name == "Array" and node.kind == E_LIST) {
+        mut count: Any = 0; mut known: Any = true; mut item: Any = node.items;
+        while (item != 0) { count += 1; if (item.kind == E_SPREAD) { known = false; } item = item.next; }
+        if (known and count != t.arrayLength) { diagnostic(node.span, "fixed array length mismatch"); }
+    }
+    if (node != 0 and st_has_contract(t)) { node.contract = t; }
+    return 0;
+}
+fun st_call_contracts(callee: Any, head: Any, types: Any) -> Any {
+    if (callee.name != "Function") { return 0; }
+    if (callee.builtin == "push" and types[0].name == "List") { st_contract(head.next, types[0].arguments[0]); return 0; }
+    if (callee.builtin != nil) { return 0; }
+    let bindings: Any = {};
+    for i: Any in 0..len(types) { st_unify(callee.arguments[i], types[i], bindings, head.span); }
+    mut argument: Any = head; mut i: Any = 0;
+    while (argument != 0) { st_contract(argument, st_substitute(callee.arguments[i], bindings)); argument = argument.next; i += 1; }
+    return 0;
+}
 fun st_join(a: Any, b: Any, span: Any) -> Any {
     if (a.name == "Never") { return b; }
     if (b.name == "Never") { return a; }
     if (a.name == "Any" or b.name == "Any") { return st_any(); }
     if (st_same(a, b)) { return a; }
+    if (a.name == "Result" and b.name == "Result") { return st_type("Result", [st_join(a.arguments[0], b.arguments[0], span), st_join(a.arguments[1], b.arguments[1], span)]); }
     if (a.name == "Nil") { return st_type("Optional", [b]); }
     if (b.name == "Nil") { return st_type("Optional", [a]); }
     if (a.name == "Optional" and st_accept(a, b)) { return a; }
@@ -154,11 +194,15 @@ fun st_substitute(t: Any, bindings: Any) -> Any {
     let args: Any = []; for arg: Any in t.arguments { push(args, st_substitute(arg, bindings)); }
     let result: Any = st_type(t.name, args);
     if (t.name == "Function") { result.result = st_substitute(t.result, bindings); }
+    if (t.name == "Array") { result.arrayLength = t.arrayLength; }
     return result;
 }
 fun st_unify(expected: Any, actual: Any, bindings: Any, span: Any) -> Any {
     if (starts_with(expected.name, "$")) {
-        if (has(bindings, expected.name)) { st_require(bindings[expected.name], actual, span); }
+        if (has(bindings, expected.name)) {
+            if (bindings[expected.name].name == "Never" and actual.name != "Never") { bindings[expected.name] = actual; }
+            else { st_require(bindings[expected.name], actual, span); }
+        }
         else { bindings[expected.name] = actual; }
         return 0;
     }
@@ -184,6 +228,10 @@ fun st_number(t: Any, span: Any) -> Any {
     return 0;
 }
 fun st_builtin(name: Any, args: Any, span: Any) -> Any {
+    if (name == "Ok" or name == "Err") {
+        st_arity(name, args, 1, 1, span);
+        return st_type("Result", if (name == "Ok") { [args[0], st_type("Never", [])] } else { [st_type("Never", []), args[0]] });
+    }
     if (name == "print") { return st_type("Int", []); }
     if (name == "exec") {
         st_arity(name, args, 1, 1, span);
@@ -279,6 +327,11 @@ fun st_invoke(callee: Any, args: Any, span: Any) -> Any {
 }
 fun st_member(object: Any, name: Any, span: Any) -> Any {
     if (object.name == "Any") { return st_any(); }
+    if (object.name == "Result") {
+        if (name == "ok") { return st_type("Bool", []); }
+        if (name == "value") { return st_type("Optional", [object.arguments[0]]); }
+        if (name == "error") { return st_type("Optional", [object.arguments[1]]); }
+    }
     if (object.name == "Map") { st_require(object.arguments[0], st_type("Str", []), span); return st_type("Optional", [object.arguments[1]]); }
     let record: Any = ST_RECORDS[object.name];
     if (record != nil and has(record.fields, name)) { return record.fields[name]; }
@@ -290,7 +343,28 @@ fun st_block(ctx: Any, node: Any) -> Any {
     let result: Any = if (node.tail != 0) { st_expr(ctx, node.tail) } else if (st_returns(node)) { st_type("Never", []) } else if (last != 0 and last.kind == S_IF) { st_expr(ctx, last) } else if (last != 0 and last.kind == S_EXPR) { st_expr(ctx, last.expression) } else { st_type("Nil", []) };
     pop(ST_SCOPES); return result;
 }
+fun st_variant_pattern(ctx: Any, arm: Any, subject: Any) -> Any {
+    let constructor: Any = st_resolve(ctx, symbol_name(arm.pattern, arm.length), arm.span);
+    mut fields: Any = []; mut tag: Any = "";
+    if (constructor.builtin == "Ok" or constructor.builtin == "Err") {
+        if (subject.name != "Result") { diagnostic(arm.span, "result pattern requires Result<T, E>"); }
+        tag = constructor.builtin;
+        fields = [subject.arguments[if (tag == "Ok") { 0 } else { 1 }]];
+    } else {
+        if (constructor.variantTag == nil or constructor.result.name != subject.name) { diagnostic(arm.span, "variant pattern does not belong to " + st_show(subject)); }
+        tag = constructor.variantTag; fields = constructor.arguments;
+    }
+    st_arity("variant pattern", arm.nested, len(fields), len(fields), arm.span);
+    for i: Any in 0..len(fields) {
+        let binding: Any = arm.nested[i];
+        if (binding.name != 0) { st_bind(symbol_name(binding.name, binding.length), fields[i], binding.span); }
+    }
+    return tag;
+}
 fun st_expr(ctx: Any, node: Any) -> Any {
+    let result: Any = st_expr_type(ctx, node); st_contract(node, result); return result;
+}
+fun st_expr_type(ctx: Any, node: Any) -> Any {
     if (node == 0) { return st_type("Nil", []); }
     let k: Any = node.kind;
     if (k == E_INT) { return st_type("Int", []); }
@@ -304,12 +378,16 @@ fun st_expr(ctx: Any, node: Any) -> Any {
         if (node.moduleObject != nil and st_local(ctx, symbol_name(node.moduleObject.name, node.moduleObject.length)) != nil) { return st_member(st_expr(ctx, node.moduleObject), symbol_name(node.span.source + node.memberStart, node.memberLength), node.span); }
         return st_resolve(ctx, name, node.span);
     }
-    if (k == E_CALL) { return st_invoke(st_resolve(ctx, symbol_name(node.name, node.length), node.span), st_arguments(ctx, node.args), node.span); }
+    if (k == E_CALL) {
+        let callee: Any = st_resolve(ctx, symbol_name(node.name, node.length), node.span);
+        let types: Any = st_arguments(ctx, node.args); let result: Any = st_invoke(callee, types, node.span);
+        st_call_contracts(callee, node.args, types); return result;
+    }
     if (k == E_ICALL) {
         let callee: Any = st_expr(ctx, node.callee); let args: Any = st_arguments(ctx, node.args);
         if (node.callee.kind == E_SAFEGET and callee.name == "Nil") { return callee; }
         if (node.callee.kind == E_SAFEGET and callee.name == "Optional") { return st_type("Optional", [st_invoke(callee.arguments[0], args, node.span)]); }
-        return st_invoke(callee, args, node.span);
+        let result: Any = st_invoke(callee, args, node.span); st_call_contracts(callee, node.args, args); return result;
     }
     if (k == E_CLOSURE) {
         let rec: Any = ST_FUNCTIONS[node.label]; let signature: Any = st_complete_signature(ctx, rec);
@@ -328,7 +406,7 @@ fun st_expr(ctx: Any, node: Any) -> Any {
         if (k == E_BIN and node.op == TK_PLUS and left.name == "List" and right.name == "List") { st_require(left, right, node.span); return left; }
         if (k == E_BIN and left.name == "Ptr" and right.name == "Int" and has([TK_PLUS, TK_MINUS], node.op)) { return left; }
         st_number(left, node.span); st_number(right, node.span);
-        return st_type(if (left.name == "Float" or right.name == "Float") { "Float" } else { "Int" }, []);
+        return st_type(if (has(["Float", "Float32", "Float64"], left.name) or has(["Float", "Float32", "Float64"], right.name)) { "Float" } else { "Int" }, []);
     }
     if (k == E_UN) {
         let value: Any = st_expr(ctx, node.operand);
@@ -388,6 +466,7 @@ fun st_expr(ctx: Any, node: Any) -> Any {
         let item: Any = if (has(["List", "Array", "Slice"], list.name)) { list.arguments[0] } else { st_any() };
         let declared: Any = if (node.annotation == nil or node.annotation == 0) { item } else { st_annotation(node.annotation, source_module(node.span), ST_VARS, node.span) };
         st_require(declared, item, node.span);
+        node.bindingContract = declared;
         st_scope(); st_bind(symbol_name(node.name, node.length), declared, node.span);
         if (node.condition != 0) { st_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span); }
         let element: Any = st_expr(ctx, node.element); pop(ST_SCOPES); return st_type("List", [element]);
@@ -395,10 +474,12 @@ fun st_expr(ctx: Any, node: Any) -> Any {
     if (k == E_MATCH) {
         let subject: Any = st_expr(ctx, node.subject); mut result: Any = st_type("Never", []); mut arm: Any = node.arms;
         mut coversAll: Any = false; mut coversTrue: Any = false; mut coversFalse: Any = false;
+        let covered: Any = {};
         while (arm != 0) {
             st_scope();
             if (arm.patternKind == 2) { st_bind(symbol_name(arm.pattern, arm.length), subject, arm.span); }
             else if (arm.patternKind == 1) { st_require(subject, st_expr(ctx, arm.pattern), arm.span); }
+            else if (arm.patternKind == 3) { let tag: Any = st_variant_pattern(ctx, arm, subject); if (arm.guard == 0) { covered[tag] = true; } }
             else if (arm.patternKind > 2) { diagnostic(arm.span, "strict match supports literals, names and wildcard patterns"); }
             if (arm.guard != 0) { st_require(st_type("Bool", []), st_expr(ctx, arm.guard), arm.span); }
             else if (arm.patternKind == 0 or arm.patternKind == 2) { coversAll = true; }
@@ -410,12 +491,20 @@ fun st_expr(ctx: Any, node: Any) -> Any {
             result = st_join(result, st_expr(ctx, arm.body), arm.span); pop(ST_SCOPES); arm = arm.next;
         }
         if (subject.name == "Bool" and not coversAll and (not coversTrue or not coversFalse)) { diagnostic(node.span, "non-exhaustive Bool match; add the missing boolean case or a wildcard"); }
+        if (not coversAll) {
+            let variants: Any = if (subject.name == "Result") { ["Ok", "Err"] } else if (ST_RECORDS[subject.name] != nil) { ST_RECORDS[subject.name].variants ?? [] } else { [] };
+            for tag: Any in variants { if (not has(covered, tag)) { diagnostic(node.span, "non-exhaustive " + st_show(subject) + " match; missing " + tag); } }
+        }
         return result;
     }
     if (k == E_TRY) {
         let value: Any = st_expr(ctx, node.operand);
-        if (value.name != "Any") { diagnostic(node.span, "postfix ? requires an explicit dynamic Any result"); }
-        return st_any();
+        if (value.name == "Any") { return st_any(); }
+        if (value.name != "Result") { diagnostic(node.span, "postfix ? requires Result<T, E> or Any"); }
+        if (ST_RESULT == 0 or ST_RESULT.name != "Result") { diagnostic(node.span, "typed ? requires an enclosing function returning Result<T, E>"); }
+        st_require(ST_RESULT.arguments[1], value.arguments[1], node.span);
+        node.propagationContract = ST_RESULT;
+        return value.arguments[0];
     }
     if (has([S_RETURN, S_EXPR, S_LET, S_ASSIGN, S_FOR, S_WHILE, S_SETIDX, S_SETPROP, S_BREAK, S_CONT], k)) { st_statement(ctx, node); return st_type("Never", []); }
     diagnostic(node.span, "unsupported expression in strict typing"); return st_any();
@@ -431,12 +520,15 @@ fun st_statement(ctx: Any, node: Any) -> Any {
         let actual: Any = st_expr(ctx, node.initializer);
         let declared: Any = if (node.annotation == nil or node.annotation == 0) { actual } else { st_annotation(node.annotation, source_module(node.span), ST_VARS, node.span) };
         st_require(declared, actual, node.span);
+        st_contract(node.initializer, declared);
         if (node.global == 0) { st_bind(name, declared, node.span); }
     } else if (k == S_ASSIGN) {
-        st_require(st_resolve(ctx, symbol_name(node.name, node.length), node.span), st_expr(ctx, node.value), node.span);
+        let expected: Any = st_resolve(ctx, symbol_name(node.name, node.length), node.span);
+        st_require(expected, st_expr(ctx, node.value), node.span); st_contract(node.value, expected);
     } else if (k == S_RETURN) {
         if (ST_RESULT == 0) { diagnostic(node.span, "return outside a function"); }
         st_require(ST_RESULT, st_expr(ctx, node.value), node.span);
+        st_contract(node.value, ST_RESULT);
     } else if (k == S_EXPR) { st_expr(ctx, node.expression); }
     else if (k == S_BLOCK) { st_block(ctx, node); }
     else if (k == S_IF) {
@@ -450,16 +542,18 @@ fun st_statement(ctx: Any, node: Any) -> Any {
         let element: Any = if (has(["List", "Array", "Slice"], iterable.name)) { iterable.arguments[0] } else if (iterable.name == "Str") { st_type("Str", []) } else { st_any() };
         let declared: Any = if (node.annotation == nil or node.annotation == 0) { element } else { st_annotation(node.annotation, source_module(node.span), ST_VARS, node.span) };
         st_require(declared, element, node.span);
+        node.bindingContract = declared;
         st_scope(); st_bind(symbol_name(node.name, node.length), declared, node.span); st_statement(ctx, node.body); pop(ST_SCOPES);
     } else if (k == S_SETIDX) {
         let object: Any = st_expr(ctx, node.object); let index: Any = st_expr(ctx, node.index); let value: Any = st_expr(ctx, node.value);
-        if (has(["List", "Array", "Slice"], object.name)) { st_require(st_type("Int", []), index, node.span); st_require(object.arguments[0], value, node.span); }
-        else if (object.name == "Map") { st_require(object.arguments[0], index, node.span); st_require(object.arguments[1], value, node.span); }
+        if (has(["List", "Array", "Slice"], object.name)) { st_require(st_type("Int", []), index, node.span); st_require(object.arguments[0], value, node.span); node.valueContract = object.arguments[0]; }
+        else if (object.name == "Map") { st_require(object.arguments[0], index, node.span); st_require(object.arguments[1], value, node.span); node.valueContract = object.arguments[1]; st_contract(node.index, object.arguments[0]); }
         else if (object.name != "Any") { diagnostic(node.span, "indexed assignment requires a list or map"); }
     } else if (k == S_SETPROP) {
         let object: Any = st_expr(ctx, node.object); let value: Any = st_expr(ctx, node.value);
         let field: Any = st_member(object, symbol_name(node.span.source + node.start, node.length), node.span);
         st_require(if (object.name == "Map") { object.arguments[1] } else { field }, value, node.span);
+        node.valueContract = if (object.name == "Map") { object.arguments[1] } else { field };
     } else if (k == S_DESTRUCT) { diagnostic(node.span, "strict declarations require named, typed bindings; bind the collection first"); }
     else if (k != S_BREAK and k != S_CONT) { st_expr(ctx, node); }
     return 0;
@@ -514,11 +608,20 @@ fun st_function(ctx: Any, rec: Any, signature: Any) -> Any {
     if (not st_returns(rec.body)) { diagnostic(rec.body.span, "not every path returns a value; add an explicit return"); }
     pop(ST_SCOPES); ST_RESULT = previous; ST_VARS = variables; return 0;
 }
+// Recover independent checks without leaking a failed function's scope or
+// return context into the next declaration.
+fun st_attempt(operation: Any) -> Any {
+    let scopes: Any = slice(ST_SCOPES, 0, len(ST_SCOPES));
+    let resultType: Any = ST_RESULT; let variables: Any = ST_VARS;
+    let accepted: Any = may { operation(); true } otherwise { collect_diagnostic(err.message); false };
+    ST_SCOPES = scopes; ST_RESULT = resultType; ST_VARS = variables;
+    return accepted;
+}
 fun strict_program(ctx: Any) -> Any {
     if (not STRICT_TYPES) { return 0; }
     ST_GLOBALS = {}; ST_RECORDS = {}; ST_SCOPES = []; ST_FUNCTIONS = {}; ST_RESULT = 0; ST_VARS = [];
     for record: Any in STRUCT_DECLS { let module: Any = source_module(record.span); let key: Any = if (module == "") { record.name } else { module + "::" + record.name }; ST_RECORDS[key] = {"fields": {}}; record.strictName = key; }
-    for enumeration: Any in ENUM_DECLS { let module: Any = source_module(enumeration.span); let key: Any = if (module == "") { enumeration.name } else { module + "::" + enumeration.name }; ST_RECORDS[key] = {"fields": {}}; enumeration.strictName = key; }
+    for enumeration: Any in ENUM_DECLS { let module: Any = source_module(enumeration.span); let key: Any = if (module == "") { enumeration.name } else { module + "::" + enumeration.name }; ST_RECORDS[key] = {"fields": {"tag": st_type("Str", [])}, "variants": []}; enumeration.strictName = key; }
     for record: Any in STRUCT_DECLS {
         let params: Any = []; let fields: Any = {};
         for field: Any in record.fields { let t: Any = st_annotation(field.annotation, source_module(record.span), [], field.span); fields[symbol_name(field.name, field.length)] = t; push(params, t); }
@@ -530,10 +633,11 @@ fun strict_program(ctx: Any) -> Any {
         for variant: Any in enumeration.variants {
             let params: Any = []; for param: Any in variant.parameters { push(params, st_annotation(param.annotation, source_module(enumeration.span), [], param.span)); }
             let t: Any = st_type("Function", params); t.result = st_type(enumeration.strictName, []);
+            t.variantTag = variant.name; push(ST_RECORDS[enumeration.strictName].variants, variant.name);
             variant.constructor.strictSignature = t; variant.constructor.strictSynthetic = true;
         }
     }
-    let builtins: Any = ["print", "syscall", "str", "int", "float", "to_float", "bool", "type", "type_name", "json_stringify", "len", "clock", "time", "pi", "e", "args", "read_stdin", "exit", "sleep", "yield", "run", "fail", "sqrt", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "floor", "ceil", "round", "trunc", "abs", "read_file", "read_dir", "file_exists", "env", "input", "json_parse", "write_file", "addr", "cstr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "push", "pop", "sort", "reverse", "slice", "sum", "map", "filter", "any", "all", "reduce", "__ccall6", "__longjmp", "__sp", "__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__fabs", "__fpow2", "__fiber_entry", "__fib_switch", "ptr", "chr", "ord", "count", "each", "times", "char_at", "char_from", "to_lower", "to_upper", "trim", "split", "repeat", "join", "contains", "starts_with", "ends_with", "index_of", "cmp", "min", "max", "to_map", "map_get", "map_set", "keys", "values", "has", "pow", "chars", "mkdir", "system", "exec", "wait", "remove", "merge", "unique", "pad_left", "pad_right", "str_of", "int_to_str", "str_cmp", "value_eq", "map_keys", "map_values", "map_has", "rt_raise", "spawn", "value_tag"];
+    let builtins: Any = ["Ok", "Err", "print", "syscall", "str", "int", "float", "to_float", "bool", "type", "type_name", "json_stringify", "len", "clock", "time", "pi", "e", "args", "read_stdin", "exit", "sleep", "yield", "run", "fail", "sqrt", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "floor", "ceil", "round", "trunc", "abs", "read_file", "read_dir", "file_exists", "env", "input", "json_parse", "write_file", "addr", "cstr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "push", "pop", "sort", "reverse", "slice", "sum", "map", "filter", "any", "all", "reduce", "__ccall6", "__longjmp", "__sp", "__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__f32", "__fabs", "__fpow2", "__fiber_entry", "__fib_switch", "ptr", "chr", "ord", "count", "each", "times", "char_at", "char_from", "to_lower", "to_upper", "trim", "split", "repeat", "join", "contains", "starts_with", "ends_with", "index_of", "cmp", "min", "max", "to_map", "map_get", "map_set", "keys", "values", "has", "pow", "chars", "mkdir", "system", "exec", "wait", "remove", "merge", "unique", "pad_left", "pad_right", "str_of", "int_to_str", "str_cmp", "value_eq", "map_keys", "map_values", "map_has", "rt_raise", "spawn", "value_tag"];
     // Inferred signatures can call builtins while checking local initializers.
     for name: Any in builtins { let t: Any = st_type("Function", []); t.result = st_any(); t.builtin = name; ST_GLOBALS[name] = t; }
     for rec: Any in FUNC_HEAD {
@@ -543,7 +647,9 @@ fun strict_program(ctx: Any) -> Any {
             let key: Any = if (module == "") { name } else { module + "::" + name };
             // Native/prelude internals have explicit Any contracts; only user
             // modules are checked here. Synthetic constructors own nominal types.
-            if (module != "" or not has(builtins, name)) { ST_GLOBALS[key] = rec.strictSignature ?? st_complete_signature(ctx, rec); }
+            if (module != "" or not has(builtins, name)) {
+                if (not st_attempt(fun() -> Any { ST_GLOBALS[key] = rec.strictSignature ?? st_complete_signature(ctx, rec); return 0; })) { ST_GLOBALS[key] = st_any(); }
+            }
         }
     }
     mut statement: Any = MAINBODY;
@@ -551,14 +657,14 @@ fun strict_program(ctx: Any) -> Any {
         if (statement.kind == S_LET and statement.global == 1) {
             let module: Any = source_module(statement.span); let name: Any = symbol_name(statement.name, statement.length);
             let key: Any = if (module == "") { name } else { module + "::" + name };
-            ST_GLOBALS[key] = if (statement.annotation == nil or statement.annotation == 0) { st_expr(ctx, statement.initializer) } else { st_annotation(statement.annotation, module, [], statement.span) };
+            if (not st_attempt(fun() -> Any { ST_GLOBALS[key] = if (statement.annotation == nil or statement.annotation == 0) { st_expr(ctx, statement.initializer) } else { st_annotation(statement.annotation, module, [], statement.span) }; return 0; })) { ST_GLOBALS[key] = st_any(); }
         }
         statement = statement.next;
     }
     st_scope(); statement = MAINBODY;
-    while (statement != 0) { if (source_module(statement.span) != "") { st_statement(ctx, statement); } statement = statement.next; }
+    while (statement != 0) { if (source_module(statement.span) != "") { st_attempt(fun() -> Any { st_statement(ctx, statement); return 0; }); } statement = statement.next; }
     for rec: Any in FUNC_HEAD {
-        if (rec.nested == 0 and rec.mode != 1 and source_module(rec.moduleSpan ?? rec.body.span) != "") { st_function(ctx, rec, rec.strictSignature ?? st_complete_signature(ctx, rec)); }
+        if (rec.nested == 0 and rec.mode != 1 and source_module(rec.moduleSpan ?? rec.body.span) != "") { st_attempt(fun() -> Any { st_function(ctx, rec, rec.strictSignature ?? st_complete_signature(ctx, rec)); return 0; }); }
     }
-    pop(ST_SCOPES); return 0;
+    pop(ST_SCOPES); diagnostics_finish(); return 0;
 }

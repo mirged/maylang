@@ -69,21 +69,57 @@ it does not infer concrete contracts for every old program. Values still use
 the existing tagged runtime representation, and types are erased after checking.
 Calling a dynamic value or passing one into a concrete API can still fail at runtime.
 
-Fixed-width integer and float annotations currently use the tagged `Int` and
-`Float` runtime values and do not select machine-width storage or enforce
-overflow bounds. Arrays and slices use the list runtime representation;
-`Result` and `Tuple` currently describe existing values at the type-checking
-level.
+Integer annotations use the tagged integer ABI. `Int8`, `Int16`, `Int32`,
+`UInt8`, `UInt16` and `UInt32` enforce their declared bounds at typed
+bindings, assignments, arguments, returns and collection accesses. Invalid
+integer literals fail checking; dynamic overflow raises an `arithmetic`
+fault in the full runtime, or exits with status 70 in the core runtime.
+Integer families are assignment-compatible, so a dynamic conversion to a
+narrower type is checked rather than rejected solely for having a wider type.
+`Int` and `Int64` retain the signed 61-bit range
+`-1152921504606846976..1152921504606846975`; `UInt64` uses its nonnegative
+part. These names do not provide a complete 64-bit payload or machine-width
+storage.
+
+`Float32` rounds through IEEE binary32 at typed boundaries and keeps the
+existing boxed binary64 storage. `Float` and `Float64` use binary64. Float32
+requires the full runtime. Lists and results recursively check their numeric
+payloads; rounding collection elements also affects aliases to that collection.
+Arrays and slices use the list representation. Fixed arrays check their length
+on assignment and return, including runtime values whose length is unknown
+during checking. `Tuple` remains a static description of existing values.
+`Any` and mutable aliases can bypass invariants until the next typed access;
+the language does not provide ownership or immutable collection storage.
 
 The return analysis accepts both returning branches of an `if` and returning
 `may`/`otherwise` branches. It is conservative about loops: add an explicit
 return after a loop even if it seems endless. Destructuring declarations and
 loop patterns must currently be expanded to individually typed bindings.
-Postfix `?` currently requires an `Any` operand in strict code; `Result<T, E>`
-does not yet connect result propagation to a function's declared error type.
+`Ok(value)` infers `Result<T, Never>` and `Err(error)` infers
+`Result<Never, E>`. Postfix `?` unwraps a typed result's success value and
+propagates failure only from a function returning `Result<U, E>` with a
+compatible error type. Dynamic `Any` propagation remains available.
+Result `.value` and `.error` fields are optional; matching extracts a concrete
+payload without an unchecked access:
+
+```may
+fun describe(value: Result<Int, Str>) -> Str {
+    return match(value) { Ok(n) => str(n), Err(message) => message };
+}
+enum Shape { Empty, Point(x: Int, y: Int) }
+fun size(shape: Shape) -> Int {
+    return match(shape) { Empty() => 0, Point(x, y) => x + y };
+}
+```
+
+Constructor patterns support typed bindings, ignored `_` payloads, guards,
+and imported namespace constructors. Nullary patterns use `Variant()`.
+Enum and Result matches must cover every variant or have an unguarded wildcard;
+guarded arms do not count as complete coverage. Payload bindings can be captured
+by closures and are scoped to their arm.
 Overloaded arithmetic also uses explicit `Any` boundaries until it has static
 contracts. For `Bool` matches, both `true` and `false` cases (or a wildcard)
-are required; other matches may still fail at runtime if no arm matches.
+are required; other open-ended value matches should include a wildcard.
 
 For existing untyped source, `--legacy` disables the new strict pass:
 

@@ -1,18 +1,19 @@
 // report.may — terminal formatting.
+import "stats.may";
 
-fun pad_right(s: Any, width: Any) -> Any {
-    mut out: Any = s;
+fun pad_right(s: Str, width: Int) -> Str {
+    mut out: Str = s;
     while (len(out) < width) { out = out + " "; }
     return out;
 }
 
-fun bar(count: Any) -> Any { return repeat("#", count); }
+fun bar(count: Int) -> Str { return repeat("#", count); }
 
-fun rule(width: Any) -> Any { return repeat("-", width); }
+fun rule(width: Int) -> Str { return repeat("-", width); }
 
 /// Render the ranked report. `entries` is a list of [word, count] pairs.
-fun render(title: Any, summary: Any, entries: Any, limit: Any) -> Any {
-    let width: Any = 46;
+fun render(title: Str, summary: Summary, entries: List<Entry>, limit: Int) -> Int {
+    let width: Int = 46;
     print(rule(width));
     print("  " + title);
     print(rule(width));
@@ -20,11 +21,11 @@ fun render(title: Any, summary: Any, entries: Any, limit: Any) -> Any {
     print("longest", summary.longest);
     print(rule(width));
 
-    let n: Any = len(entries);
-    let shown: Any = min(n, limit);
-    for i: Any in 0..shown {
-        let entry: Any = entries[i];
-        print(pad_right(entry[0], 18), pad_right(str(entry[1]), 5), bar(entry[1]));
+    let n: Int = len(entries);
+    let shown: Int = min(n, limit);
+    for i: Int in 0..shown {
+        let entry: Entry = entries[i];
+        print(pad_right(entry.word, 18), pad_right(str(entry.count), 5), bar(entry.count));
     }
     if (n > shown) {
         print("... and", n - shown, "more");

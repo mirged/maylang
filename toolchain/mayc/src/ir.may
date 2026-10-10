@@ -39,6 +39,12 @@ mut IR_HANDLERS: Any = 0;
 mut IR_MAIN: Any = 0;
 mut IR_RAW_MODE: Any = 0;
 mut IR_FUNCTION: Any = 0;
+mut IR_TRACE_ACTIVE: Any = false;
+
+fun ir_trace_leave() -> Any {
+    if (IR_TRACE_ACTIVE) { ir_runtime("rt_trace_pop", [], 0); }
+    return 0;
+}
 
 fun ir_temp(span: Any) -> Any {
     let result: Any = IRValue(IR_TEMP, IR_TEMPS, 0, 0, 0, span, 0);
@@ -138,7 +144,7 @@ fun ir_loop(ctx: Any, node: Any) -> Any {
     ir_label(top);
     let condition: Any = ir_binary(TK_LT, index, count, span);
     ir_emit(IR_FALSE, 0, condition, 0, done, span);
-    let item: Any = ir_runtime("rt_index_get", [iterable, index], span);
+    let item: Any = ir_contract(ctx, ir_runtime("rt_index_get", [iterable, index], span), node.bindingContract, span);
     ir_declare(node.name, node.length, item, 0, span);
     if (node.kind == E_COMP) {
         if (node.condition != 0) { ir_emit(IR_FALSE, 0, ir_node(ctx, node.condition), 0, step, span); }
@@ -151,7 +157,64 @@ fun ir_loop(ctx: Any, node: Any) -> Any {
     return result;
 }
 
+// Numeric bounds and array lengths are enforced at typed value boundaries.
+// Full-runtime Float32 values keep the boxed ABI and round through binary32.
+fun ir_contract(ctx: Any, value: Any, t: Any, span: Any) -> Any {
+    if (t == nil or IR_RAW_MODE == 1) { return value; }
+    if (has(["Int8", "Int16", "Int32", "UInt8", "UInt16", "UInt32", "UInt64"], t.name)) {
+        mut low: Any = 0; mut high: Any = 1152921504606846975;
+        if (t.name == "Int8") { low = -128; high = 127; }
+        if (t.name == "Int16") { low = -32768; high = 32767; }
+        if (t.name == "Int32") { low = -2147483648; high = 2147483647; }
+        if (t.name == "UInt8") { high = 255; }
+        if (t.name == "UInt16") { high = 65535; }
+        if (t.name == "UInt32") { high = 4294967295; }
+        return ir_runtime("rt_int_contract", [value, ir_integer(low, span), ir_integer(high, span)], span);
+    }
+    if (t.name == "Float32") {
+        if (ctx.runtime == "core") { diagnostic(span, "Float32 requires the full runtime"); }
+        return ir_runtime("rt_float32", [value], span);
+    }
+    if (t.name == "Optional") {
+        let result: Any = ir_copy(ir_temp(span), value); let done: Any = newlab(ctx);
+        ir_emit(IR_ISNIL, 0, value, 0, done, span);
+        ir_copy(result, ir_contract(ctx, value, t.arguments[0], span)); ir_label(done); return result;
+    }
+    if (has(["List", "Slice", "Array"], t.name)) {
+        let count: Any = ir_runtime("rt_len", [value], span);
+        if (t.name == "Array") {
+            let valid: Any = newlab(ctx);
+            ir_emit(IR_TRUE, 0, ir_binary(TK_EQ, count, ir_integer(t.arrayLength, span), span), 0, valid, span);
+            ir_runtime("rt_failarith", [ir_operation(E_STRB, {"address": addr("fixed array length mismatch"), "length": 27}, span)], span);
+            ir_label(valid);
+        }
+        let index: Any = ir_integer(0, span); let top: Any = newlab(ctx); let done: Any = newlab(ctx);
+        ir_label(top); ir_emit(IR_FALSE, 0, ir_binary(TK_LT, index, count, span), 0, done, span);
+        let item: Any = ir_runtime("rt_index_get", [value, index], span);
+        let converted: Any = ir_contract(ctx, item, t.arguments[0], span);
+        ir_emit(S_SETIDX, 0, value, index, {"object": value, "index": index, "value": converted}, span);
+        ir_copy(index, ir_binary(TK_PLUS, index, ir_integer(1, span), span)); ir_jump(top); ir_label(done); return value;
+    }
+    if (t.name == "Result") {
+        let key: Any = ir_operation(E_STRB, {"address": addr("ok"), "length": 2}, span);
+        let success: Any = ir_runtime("rt_map_get", [value, key], span);
+        let failure: Any = newlab(ctx); let done: Any = newlab(ctx);
+        ir_emit(IR_FALSE, 0, success, 0, failure, span);
+        let valueKey: Any = ir_operation(E_STRB, {"address": addr("value"), "length": 5}, span);
+        ir_runtime("rt_map_set", [value, valueKey, ir_contract(ctx, ir_runtime("rt_map_get", [value, valueKey], span), t.arguments[0], span)], span);
+        ir_jump(done); ir_label(failure);
+        let errorKey: Any = ir_operation(E_STRB, {"address": addr("error"), "length": 5}, span);
+        ir_runtime("rt_map_set", [value, errorKey, ir_contract(ctx, ir_runtime("rt_map_get", [value, errorKey], span), t.arguments[1], span)], span);
+        ir_label(done); return value;
+    }
+    return value;
+}
+
 fun ir_node(ctx: Any, node: Any) -> Any {
+    let value: Any = ir_node_value(ctx, node);
+    return ir_contract(ctx, value, if (node == 0) { nil } else { node.contract }, if (node == 0) { 0 } else { node.span });
+}
+fun ir_node_value(ctx: Any, node: Any) -> Any {
     if (node == 0) { return ir_nil(0); }
     let kind: Any = node.kind;
     let span: Any = node.span;
@@ -254,6 +317,7 @@ fun ir_node(ctx: Any, node: Any) -> Any {
         if (node.compound != nil and node.compound != 0) { previous = ir_operation(E_INDEX, {"object": object, "index": index}, span); }
         mut value: Any = ir_node(ctx, node.value);
         if (previous != 0) { value = ir_operation(E_BIN, {"op": node.compound, "left": previous, "right": value}, span); }
+        value = ir_contract(ctx, value, node.valueContract, span);
         ir_emit(kind, 0, object, index, {"object": object, "index": index, "value": value}, span);
         return value;
     }
@@ -263,6 +327,7 @@ fun ir_node(ctx: Any, node: Any) -> Any {
         if (node.compound != nil and node.compound != 0) { previous = ir_operation(E_GET, {"object": object, "start": node.start, "length": node.length, "span": span}, span); }
         mut value: Any = ir_node(ctx, node.value);
         if (previous != 0) { value = ir_operation(E_BIN, {"op": node.compound, "left": previous, "right": value}, span); }
+        value = ir_contract(ctx, value, node.valueContract, span);
         ir_emit(kind, 0, object, value, {"object": object, "start": node.start, "length": node.length, "value": value, "span": span}, span);
         return value;
     }
@@ -303,6 +368,7 @@ fun ir_node(ctx: Any, node: Any) -> Any {
         return ir_nil(span);
     }
     if (kind == E_MAY) {
+        let depth: Any = if (DEBUG_TRACES) { ir_runtime("rt_trace_depth", [], span) } else { 0 };
         let catchLabel: Any = newlab(ctx); let done: Any = newlab(ctx); let result: Any = ir_temp(span);
         ir_emit(IR_TRY_BEGIN, 0, 0, 0, catchLabel, span);
         IR_HANDLERS = IR_HANDLERS + 1;
@@ -310,6 +376,7 @@ fun ir_node(ctx: Any, node: Any) -> Any {
         IR_HANDLERS = IR_HANDLERS - 1;
         ir_emit(IR_TRY_END, 0, 0, 0, 0, span); ir_jump(done);
         ir_label(catchLabel); ir_emit(IR_TRY_END, 0, 0, 0, 0, span);
+        if (DEBUG_TRACES) { ir_runtime("rt_trace_restore", [depth], span); }
         ir_copy(result, ir_node(ctx, node.fallback)); ir_label(done);
         return result;
     }
@@ -319,7 +386,8 @@ fun ir_node(ctx: Any, node: Any) -> Any {
         let ok: Any = ir_runtime("rt_map_get", [value, okKey], span);
         let success: Any = newlab(ctx);
         ir_emit(IR_TRUE, 0, ok, 0, success, span);
-        ir_unwind(0); ir_emit(IR_RETURN, 0, value, 0, 0, span);
+        let failure: Any = ir_contract(ctx, value, node.propagationContract, span);
+        ir_unwind(0); ir_trace_leave(); ir_emit(IR_RETURN, 0, failure, 0, 0, span);
         ir_label(success);
         let valueKey: Any = ir_operation(E_STRB, {"address": addr("value"), "length": 5}, span);
         return ir_runtime("rt_map_get", [value, valueKey], span);
@@ -334,6 +402,22 @@ fun ir_node(ctx: Any, node: Any) -> Any {
                 let test: Any = ir_binary(TK_EQ, subject, ir_node(ctx, arm.pattern), span);
                 ir_emit(IR_FALSE, 0, test, 0, nextArm, span);
             } else if (arm.patternKind == 2) { ir_declare(arm.pattern, arm.length, subject, 0, span); }
+            else if (arm.patternKind == 3) {
+                let key: Any = if (arm.resultPattern) { "ok" } else { "tag" };
+                let actual: Any = ir_runtime("rt_map_get", [subject, ir_operation(E_STRB, {"address": addr(key), "length": len(key)}, span)], span);
+                mut expected: Any = 0;
+                if (arm.resultPattern) {
+                    let name: Any = if (arm.variantTag == "Ok") { "true" } else { "false" };
+                    expected = ir_operation(E_VAR, {"name": addr(name), "length": len(name)}, span);
+                } else { expected = ir_operation(E_STRB, {"address": addr(arm.variantTag), "length": len(arm.variantTag)}, span); }
+                ir_emit(IR_FALSE, 0, ir_binary(TK_EQ, actual, expected, span), 0, nextArm, span);
+                for binding: Any in arm.nested {
+                    if (binding.name != 0) {
+                        let field: Any = ir_operation(E_STRB, {"address": addr(binding.fieldName), "length": len(binding.fieldName)}, binding.span);
+                        ir_declare(binding.name, binding.length, ir_runtime("rt_map_get", [subject, field], span), 0, binding.span);
+                    }
+                }
+            }
             if (arm.guard != 0) { ir_emit(IR_FALSE, 0, ir_node(ctx, arm.guard), 0, nextArm, span); }
             ir_copy(result, ir_node(ctx, arm.body)); ir_jump(done); ir_label(nextArm);
             arm = arm.next;
@@ -346,6 +430,7 @@ fun ir_node(ctx: Any, node: Any) -> Any {
 
 fun ir_begin(raw: Any) -> Any {
     IR_CODE = []; IR_TEMPS = 0; IR_BREAKS = []; IR_CONTINUES = []; IR_HANDLERS = 0; IR_RAW_MODE = raw;
+    IR_TRACE_ACTIVE = false;
     return 0;
 }
 
@@ -378,7 +463,8 @@ fun ir_return_node(ctx: Any, node: Any) -> Any {
                 mut arg: Any = node.args;
                 while (arg != 0) { count = count + 1; arg = arg.next; }
                 if (count == rec.pc) {
-                    ir_emit(IR_TAILCALL, 0, ir_arguments(ctx, node.args), 0, 0, node.span);
+                    let arguments: Any = ir_arguments(ctx, node.args); ir_trace_leave();
+                    ir_emit(IR_TAILCALL, 0, arguments, 0, 0, node.span);
                     return 0;
                 }
             }
@@ -386,6 +472,7 @@ fun ir_return_node(ctx: Any, node: Any) -> Any {
     }
     let value: Any = ir_node(ctx, node);
     ir_unwind(0);
+    ir_trace_leave();
     ir_emit(IR_RETURN, 0, value, 0, 0, value.span);
     return 0;
 }
@@ -421,6 +508,14 @@ fun ir_program(ctx: Any) -> Any {
         if (DYNMODE == 0) { raw = 1; }
         ir_begin(raw);
         IR_FUNCTION = rec;
+        IR_TRACE_ACTIVE = DEBUG_TRACES and ctx.runtime == "full" and rec.mode == 0 and source_module(rec.moduleSpan ?? rec.body.span) != "";
+        if (IR_TRACE_ACTIVE) {
+            let location: Any = diagnostic_record(rec.moduleSpan ?? rec.body.span, "");
+            let parts: Any = split(symbol_name(rec.p, rec.l), "::");
+            let frame: Any = parts[len(parts) - 1] + " (" + location.file + ":" + str(location.range.start.line) + ")";
+            let literal: Any = ir_operation(E_STRB, {"address": addr(frame), "length": len(frame), "owner": frame}, rec.body.span);
+            ir_runtime("rt_trace_push", [literal], rec.body.span);
+        }
         ir_return_node(ctx, rec.body);
         rec.ir = IRBlock(IR_CODE, IR_TEMPS);
         ir_dependencies(rec.ir, names, labels, live, queue);

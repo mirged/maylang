@@ -32,6 +32,22 @@ set; `none` is equivalent to `--raw`. The default is `full` on x86-64 Linux and
 `core` on the other native targets. The experimental `clang-llvm` target defaults
 to the full Maylang runtime. `--time` reports elapsed stage times to stderr.
 
+`--diagnostics json` writes a schema-versioned diagnostics object to stderr.
+Each diagnostic includes severity, stage, code, original file, message and a
+1-based range whose columns count UTF-8 bytes. Independent top-level parser and
+type errors recover up to a limit of 20; an error prevents executable emission.
+Schema 1 clients should ignore unknown object keys. Incompatible changes to
+field meanings or coordinate units require a schema-version change. Stage codes
+such as `E_PARSE` and `E_TYPE` identify categories rather than unique errors.
+LSP consumes the same records and converts byte columns to its UTF-16 positions.
+
+`--debug` instruments user functions in full-runtime builds with source frames.
+Uncaught faults print the captured trace; caught faults expose it in `err.stack`.
+Frames name the function and its declaration location, rather than every call
+site. Tail calls keep bounded trace depth, handlers restore unwound frames, and
+cooperative fibers retain independent traces. Storage holds 1024 frames and
+snapshots show at most 64. This is error tracing, not a DWARF debugger interface.
+
 `main.may` expands imports and drives a staged compiler:
 
 1. `lexer.may` emits source-positioned `Token` structs.
@@ -109,6 +125,21 @@ is explicit and does not depend on the host:
 | `x86_64-windows` | PE32+ | Core runtime with kernel32 imports and `--raw` |
 | `clang-llvm` (experimental) | LLVM IR / ELF64 | Full runtime on x86-64 Linux; excludes FFI and fibers |
 
+| Capability | Full native | Full LLVM | Core | Raw |
+| --- | --- | --- | --- | --- |
+| Integers, booleans, direct functions and control flow | Yes | Yes | Yes | Yes |
+| Allocated UTF-8 strings and lists | Yes | Yes | Yes | Literal strings and pointer operations |
+| Floats, maps/records and closures | Yes | Yes | Rejected | Use raw storage/operations |
+| Recoverable faults and source traces | Yes | Yes | Faults exit 70; tracing rejected | No injected runtime |
+| Fibers and typed extern functions | Yes | Rejected | Rejected | No full-runtime ABI |
+| File/process/network libraries | Linux x86-64 | Linux x86-64 | Rejected | Explicit target OS calls |
+| Heap lifetime | Conservative GC | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
+
+The core/raw modes apply to the direct targets above; LLVM accepts the full
+runtime only. `tests/backends.py`, `tests/core_runtime.py` and `tests/llvm.py`
+exercise accepted capabilities and reject unsupported combinations before
+writing an executable. The raw ABI and platform limits are described below.
+
 ```sh
 toolchain/mayc/mayc_new --target arm64-linux examples/hello.may -o hello-arm64
 toolchain/mayc/mayc_new --target riscv64-linux examples/hello.may -o hello-riscv64
@@ -125,6 +156,9 @@ conversion and powers. [`runtime/corelib.may`](runtime/corelib.may) adds
 `str`, `substring`, `trim`, `repeat`, `range`, `sum`, `clamp`, `gcd`, `lcm`,
 `alloc` and `memcpy`. Case conversion is ASCII-only. Integer overflow and
 division by zero print a diagnostic and exit with status 70.
+Core heap chunks live until process exit, with a 256 MiB retained-heap cap.
+Exhausting it prints `core heap limit exceeded` and exits with status 70. Use
+the full collecting runtime for allocation-intensive, long-running programs.
 
 Core allocation uses native heap chunks of at least 1 MiB, retained until
 process exit. It has no garbage collector or individual free operation.

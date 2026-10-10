@@ -21,7 +21,12 @@ fun ls_find_stdlib(p: Any) -> Any {
     for root: Any in LS_ROOTS { push(paths, root + "/stdlib"); }
     let buffer: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
     let n: Any = syscall(89, addr("/proc/self/exe"), buffer, 4096);
-    if (n > 0) { push(paths, ls_normal(ls_dir(ls_text(buffer, n)) + "/../../stdlib")); }
+    if (n > 0) {
+        mut directory: Any = ls_dir(ls_text(buffer, n));
+        while (directory != "" and directory != "/") {
+            push(paths, ls_normal(directory + "/stdlib")); directory = ls_dir(directory);
+        }
+    }
     syscall(11, buffer, 4096);
     for path: Any in paths { if (file_exists(path + "/native.may")) { return ls_normal(path); } }
     return ls_normal(ls_cwd() + "/stdlib");

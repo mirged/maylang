@@ -1,6 +1,6 @@
 // main.may — maypkg, a build manager for Maylang projects.
 //
-//   maylang build -o maypkg toolchain/maypkg/main.may
+//   mayc toolchain/maypkg/main.may -o maypkg
 //   cd my_project
 //   /path/to/maypkg dev            # watch, rebuild and rerun on every save
 //

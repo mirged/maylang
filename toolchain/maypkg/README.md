@@ -24,7 +24,7 @@ any file defining `main`):
 
 ```sh
 /path/to/maypkg dev      # run, then rerun on every save — no flags
-/path/to/maypkg build    # incremental; runs maylang build for you
+/path/to/maypkg build    # incremental; runs the selected mayc
 /path/to/maypkg run      # compile and run the entry
 ```
 
@@ -46,7 +46,7 @@ native Maylang; use `--script` to emit `build/maypkg.dev.sh` instead.
 | `maypkg check` | imports, disk scan, orphans, brace balance |
 | `maypkg dot` | print the import graph as Graphviz DOT |
 | `maypkg lock` / `verify` | content digests for reproducible builds |
-| `maypkg build [--force\|--script]` | incremental build (runs `maylang build`) |
+| `maypkg build [--force\|--script]` | incremental build with the selected `mayc` |
 | `maypkg dev [--script]` | run, then rerun on every save |
 | `maypkg run [--script] [args]` | compile and run the entry |
 | `maypkg add` / `rm <name>` | manage dependencies |
@@ -85,8 +85,8 @@ entry the same way, so it works from anywhere inside a project.
   affected (to re-check): 2 module(s)
 ```
 
-`maypkg build` runs `maylang build`, then **writes the lock automatically**, so
-the next `build` short-circuits:
+`maypkg build` runs the selected `mayc`, then writes the lock and a separate
+successful-build state, so the next unchanged `build` short-circuits:
 
 ```
 up to date - myapp is current (6 modules)
@@ -102,6 +102,16 @@ hello from demo
 hello from demo
 ```
 
+Build state includes source and imported-library bytes, compiler path/version
+and bytes, runtime/prelude sidecars, manifest settings and output existence.
+Writing a lock manually does not mark an old executable current. Failed builds
+do not update successful-build state. Successful state is published with a
+same-directory atomic rename, so readers see a complete previous or replacement
+record even when publication fails. Generated scripts use the same selected
+compiler and shell-quote paths and arguments, including spaces and apostrophes.
+`dev` watches source, compiler and configuration changes. `run -- --flag value`
+passes flag arguments to the application.
+
 ## Manifest
 
 ```json
@@ -110,6 +120,10 @@ hello from demo
   "version": "0.1.0",
   "entry": "main.may",
   "target": "host",
+  "compiler": "",
+  "runtime": "auto",
+  "strict": true,
+  "flags": [],
   "description": "",
   "authors": [],
   "dependencies": {},
@@ -118,8 +132,17 @@ hello from demo
 }
 ```
 
-`target` is `host`, `linux` or `macos`; `output` is relative to the project
-root, so generated executables belong under `build/`.
+`target` is `host` or a target accepted by `mayc`, such as `x86_64-linux`,
+`arm64-linux`, `riscv64-linux`, `arm64-macos`, `x86_64-windows` or `clang-llvm`.
+`runtime` is `auto`, `full`, `core` or `none`; `strict` selects strict or legacy
+checking. Optional `flags` supports `--time` and `--debug`. Invalid JSON and
+invalid configuration fail without replacing the manifest.
+
+Compiler selection is `$MAYC`, manifest `compiler`, an adjacent `mayc`, then
+`mayc` on `PATH`. Relative configured paths resolve from the project root.
+Library lookup uses `$MAYLANG_STDLIB`, project `stdlib`, then directories beside
+and above the selected compiler. `sync` preserves compiler configuration.
+`output` is relative to the project root; place it under `build/` when desired.
 
 ## Modules
 
@@ -130,13 +153,24 @@ root, so generated executables belong under `build/`.
   order, missing imports, cycles, brace balance).
 * `project.may` — auto-location/discovery, inventory (build vs orphans) and
   incremental state (digests, dirty set, affected set, manifest derivation).
-* `checksum.may` — FNV-1a content digests.
+* `checksum.may` — FNV-1a source digests for locks and status.
+* `compiler.may` — selection, argument quoting and streamed SHA-256 build identity.
 * `render.may` — tree, table and Graphviz rendering.
 * `commands.may` — subcommands; `main.may` — dispatch.
 
 ## Requirements
 
+Run the isolated workflow suite after building the tool:
+
+```sh
+python3 toolchain/maypkg/tests/test_workflows.py --binary toolchain/maypkg/build/maypkg
+```
+
+It verifies compiler selection, quoting, source/dependency/configuration changes,
+failed-build recovery and atomic state publication. Broader watcher and cleanup
+coverage remains tracked in [issue #18](https://github.com/mirged/maylang/issues/18).
+
 maypkg uses the native primitives `read_dir`, `mkdir`, `exec`, `wait`, `system`
-and `sleep`. `build`/`run`/`dev` call `maylang`, so it must be on `PATH` (or use
-`--script` to emit a shell script). `read_dir` uses `getdents64` and is Linux
-only; the macOS build of those commands raises an `io` fault.
+and `sleep`. `build`/`run`/`dev` require a usable `mayc`, a POSIX shell and
+`sha256sum` (coreutils). The tool currently runs on Linux x86-64 with the full
+runtime; cross-target output does not make the project manager portable.

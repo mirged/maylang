@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise module identities, visibility and import parsing in both modes."""
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -129,12 +130,22 @@ def main():
         source.write_text('import "string" as strings;\nprint(strings.marker());\n')
         binary = work / 'relocated'
         result = subprocess.run([str(relocated), str(source), '-o', str(binary)],
-                                cwd=work, capture_output=True, timeout=60)
+                                cwd=work, capture_output=True, timeout=60,
+                                env={key: value for key, value in os.environ.items() if key != 'MAYLANG_STDLIB'})
         assert result.returncode == 0, result.stderr
         result = subprocess.run([str(binary)], capture_output=True, timeout=10)
         assert result.returncode == 0 and result.stdout == b'42\n', result
         count += 1
         print('PASS modules relocated compiler standard library', flush=True)
+        overrides = work / 'override'; overrides.mkdir()
+        (overrides / 'string.may').write_text('pub fun marker() -> Int { return 73; }\n')
+        result = subprocess.run([str(relocated), str(source), '-o', str(binary)],
+                                cwd=work, capture_output=True, timeout=60,
+                                env={**os.environ, 'MAYLANG_STDLIB': str(work / 'missing') + ':' + str(overrides)})
+        assert result.returncode == 0, result.stderr
+        assert subprocess.check_output([str(binary)]) == b'73\n'
+        count += 1
+        print('PASS modules explicit standard library overrides', flush=True)
     assert not failures, failures
     print(f'{count} module checks passed', flush=True)
 

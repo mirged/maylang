@@ -22,7 +22,7 @@ import "src/profile.may";
 
 // ---------------------------------------------------------------- Constants
 // Immutable let is Maylang's constant declaration. Update the version here.
-let MAYC_VERSION: Str = "0.8.2-2026-10-05-nightly";
+let MAYC_VERSION: Str = "0.9.0-2026-10-10-nightly";
 let RUNTIME_FILE_NAME: Any  = "runtime.may";
 let PRELUDE_FILE_NAME: Any  = "prelude.may";
 let NATIVE_FILE_NAME: Any   = "native.may";
@@ -140,7 +140,7 @@ fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
 // ------------------------------------------------------------- Driver Entry
 
 fun cli_usage() -> Any {
-    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --strict            Enable strict type checking (default)\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in full-runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
     syscall(1, 1, addr(message), len(message));
     syscall(60, 0);
     return 0;
@@ -222,12 +222,18 @@ fun main2() -> Any {
             llvmflag = 1;
         } else if (name_eq(ap, al, addr("--time"), 6) == 1) {
             PROFILE_ENABLED = true;
+        } else if (name_eq(ap, al, addr("--debug"), 7) == 1) {
+            DEBUG_TRACES = true;
         } else if (name_eq(ap, al, addr("--dump"), 6) == 1) {
             dumpflag = 1;
         } else if (name_eq(ap, al, addr("--dump-expanded"), 15) == 1) {
             expandedflag = 1;
         } else if (name_eq(ap, al, addr("--check"), 7) == 1) {
             checkflag = 1;
+        } else if (name_eq(ap, al, addr("--diagnostics"), 13) == 1) {
+            k += 1; if (k >= len(argv)) { die_str("mayc: --diagnostics requires text or json\n"); }
+            DIAGNOSTIC_FORMAT = symbol_name(argv[k][0], argv[k][1]);
+            if (DIAGNOSTIC_FORMAT != "text" and DIAGNOSTIC_FORMAT != "json") { die_str("mayc: --diagnostics requires text or json\n"); }
         } else if (name_eq(ap, al, addr("--legacy"), 8) == 1) {
             STRICT_TYPES = false;
         } else if (name_eq(ap, al, addr("--strict"), 8) == 1) {
@@ -275,12 +281,12 @@ fun main2() -> Any {
             syscall(1, 1, SRC, SRCLEN);
             syscall(60, 0);
         }
-        lex_all();
-        parse_program(ctx);
+        DIAGNOSTIC_STAGE = "lex"; lex_all();
+        DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
         profile_mark("parse");
-        strict_program(ctx);
+        DIAGNOSTIC_STAGE = "type"; strict_program(ctx);
         profile_mark("types");
-        sem_program();
+        DIAGNOSTIC_STAGE = "name"; sem_program();
         profile_mark("resolve");
         if (checkflag == 1) { syscall(60, 0); }
         ir_program(ctx);
@@ -290,8 +296,8 @@ fun main2() -> Any {
         if (ctx.runtime == "core") { load_core(a0, a0l, "core.may"); }
         else { load_runtime(a0, a0l); }
         PARSE_RAW = 1;
-        lex_all();
-        parse_program(ctx);
+        DIAGNOSTIC_STAGE = "lex"; lex_all();
+        DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
         profile_mark("runtime");
         RUNTIME_BODY = MAINBODY;
         for r: Any in FUNC_HEAD {
@@ -346,12 +352,12 @@ fun main2() -> Any {
             syscall(3, fd);
             syscall(60, 0);
         }
-        lex_all();
-        parse_program(ctx);
+        DIAGNOSTIC_STAGE = "lex"; lex_all();
+        DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
         profile_mark("parse");
-        strict_program(ctx);
+        DIAGNOSTIC_STAGE = "type"; strict_program(ctx);
         profile_mark("types");
-        sem_program();
+        DIAGNOSTIC_STAGE = "name"; sem_program();
         profile_mark("resolve");
         if (checkflag == 1) { syscall(60, 0); }
         ir_program(ctx);

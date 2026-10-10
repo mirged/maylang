@@ -1,38 +1,35 @@
 // stats.may — counting, ranking and summary statistics.
 import "text.may";
 
+struct Entry { word: Str, count: Int }
+struct Summary { total: Int, unique: Int, avg: Str, longest: Str }
+
 /// Count occurrences of each word. Returns a map word -> count.
-fun count_words(words_list: Any) -> Any {
-    let counts: Any = to_map([]);
-    for i: Any in 0..len(words_list) {
-        let w: Any = words_list[i];
-        let previous: Any = map_get(counts, w);
-        mut n: Any = 0;
-        if (previous != nil) { n = previous; }
-        map_set(counts, w, n + 1);
-    }
+fun count_words(words_list: List<Str>) -> Map<Str, Int> {
+    let counts: Map<Str, Int> = {};
+    for word in words_list { counts[word] = (counts[word] ?? 0) + 1; }
     return counts;
 }
 
 /// Order two [word, count] entries: more frequent first, ties alphabetical.
-fun compare_entries(a: Any, b: Any) -> Any {
-    if (a[1] > b[1]) { return -1; }
-    if (a[1] < b[1]) { return 1; }
-    if (cmp(a[0], b[0]) < 0) { return -1; }
-    if (cmp(a[0], b[0]) > 0) { return 1; }
+fun compare_entries(a: Entry, b: Entry) -> Int {
+    if (a.count > b.count) { return -1; }
+    if (a.count < b.count) { return 1; }
+    if (cmp(a.word, b.word) < 0) { return -1; }
+    if (cmp(a.word, b.word) > 0) { return 1; }
     return 0;
 }
 
 /// Turn a count map into a list of [word, count] pairs, ranked.
-fun rank(counts: Any) -> Any {
-    let entries: Any = [];
-    for w: Any in keys(counts) {
-        push(entries, [w, map_get(counts, w)]);
+fun rank(counts: Map<Str, Int>) -> List<Entry> {
+    let entries: List<Entry> = [];
+    for w: Str in keys(counts) {
+        push(entries, Entry(w, counts[w] ?? 0));
     }
-    let n: Any = len(entries);
-    for i: Any in 1..n {
-        let key: Any = entries[i];
-        mut j: Any = i - 1;
+    let n: Int = len(entries);
+    for i: Int in 1..n {
+        let key: Entry = entries[i];
+        mut j: Int = i - 1;
         while (j >= 0 && compare_entries(entries[j], key) > 0) {
             entries[j + 1] = entries[j];
             j = j - 1;
@@ -42,34 +39,29 @@ fun rank(counts: Any) -> Any {
     return entries;
 }
 
-fun total_length(words_list: Any) -> Any {
-    return sum(map(words_list, |w: Any| -> Any { return len(w); }));
+fun total_length(words_list: List<Str>) -> Int {
+    return sum(map(words_list, |w: Str| -> Int { return len(w); }));
 }
 
-fun longest_word(words_list: Any) -> Any {
+fun longest_word(words_list: List<Str>) -> Str {
     return reduce(
         words_list,
-        |a: Any, b: Any| -> Any { return if (len(b) > len(a)) { b } else { a }; },
+        |a: Str, b: Str| -> Str { return if (len(b) > len(a)) { b } else { a }; },
         ""
     );
 }
 
 /// Build a summary map for the report.
-fun summarize(words_list: Any, counts: Any) -> Any {
-    let total: Any = len(words_list);
-    let total_chars: Any = total_length(words_list);
-    mut whole: Any = 0;
-    mut frac: Any = 0;
+fun summarize(words_list: List<Str>, counts: Map<Str, Int>) -> Summary {
+    let total: Int = len(words_list);
+    let total_chars: Int = total_length(words_list);
+    mut whole: Int = 0;
+    mut frac: Int = 0;
     if (total > 0) {
         whole = total_chars / total;
         frac = (total_chars * 100 / total) % 100;
     }
-    mut frac_text: Any = str(frac);
+    mut frac_text: Str = str(frac);
     if (len(frac_text) < 2) { frac_text = "0" + frac_text; }
-    return {
-        "total": total,
-        "unique": len(counts),
-        "avg": str(whole) + "." + frac_text,
-        "longest": longest_word(words_list)
-    };
+    return Summary(total, len(counts), str(whole) + "." + frac_text, longest_word(words_list));
 }

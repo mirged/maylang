@@ -19,6 +19,10 @@ pub fun default(name: Any) -> Any {
         "version": "0.1.0",
         "entry": "main.may",
         "target": "host",
+        "compiler": "",
+        "runtime": "auto",
+        "strict": true,
+        "flags": [],
         "description": "",
         "authors": [],
         "dependencies": {},
@@ -55,12 +59,25 @@ fun folder_name(path: Any) -> Any {
 pub fun load(path: Any) -> Any {
     let doc: Any = json_parse(read_file(path));
     if (type(doc) != "Map") { fail("manifest must be a JSON object"); }
+    for key: Any in ["name", "entry", "target", "compiler", "runtime", "output"] {
+        if (doc[key] != nil and type(doc[key]) != "Str") { fail("manifest " + key + " must be a string"); }
+    }
+    if (doc.strict != nil and type(doc.strict) != "Bool") { fail("manifest strict must be a boolean"); }
+    if (doc.flags != nil and type(doc.flags) != "List") { fail("manifest flags must be a list"); }
+    for flag: Any in doc.flags ?? [] {
+        if (not has(["--time", "--debug"], flag)) { fail("manifest flags supports --time and --debug; use target/runtime/strict fields for compiler configuration"); }
+    }
+    if (doc.runtime != nil and not has(["auto", "full", "core", "none"], doc.runtime)) { fail("manifest runtime must be auto, full, core or none"); }
     let name: Any = doc.name ?? folder_name(path);
     return {
         "name": name,
         "version": doc.version ?? "0.0.0",
         "entry": doc.entry ?? "main.may",
         "target": doc.target ?? "host",
+        "compiler": doc.compiler ?? "",
+        "runtime": doc.runtime ?? "auto",
+        "strict": doc.strict ?? true,
+        "flags": doc.flags ?? [],
         "description": doc.description ?? "",
         "authors": doc.authors ?? [],
         "dependencies": doc.dependencies ?? {},

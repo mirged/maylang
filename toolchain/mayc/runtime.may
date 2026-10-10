@@ -16,6 +16,10 @@
 mut HEAP: Any = 0;
 mut HP: Any = 0;
 mut HEAPEND: Any = 0;
+// Allocation identity lives outside the collected heap. Header-shaped bytes
+// inside payloads or coalesced regions are not allocations. One byte per
+// aligned heap word is demand-paged and does not depend on payload contents.
+mut GCSTARTS: Any = 0;
 mut FREELIST: Any = 0;
 mut FREEBINS: Any = 0;
 mut FREECOUNT: Any = 0;
@@ -36,6 +40,37 @@ mut ERRFLAG: Any = 0;
 mut ERRVAL: Any = 2;
 mut HDEPTH: Any = 0;
 mut HSTACK: Any = 0;
+mut TRACE_STACK: Any = 0;
+mut TRACE_DEPTH: Any = 0;
+
+fun rt_trace_push(frame: Any) -> Any {
+    if (TRACE_STACK == 0) { TRACE_STACK = rt_alloc(8192); }
+    if (TRACE_DEPTH < 1024) { store64(TRACE_STACK + TRACE_DEPTH * 8, frame); }
+    TRACE_DEPTH += 1; return 2;
+}
+fun rt_trace_pop() -> Any {
+    if (TRACE_DEPTH > 0) {
+        TRACE_DEPTH -= 1;
+        if (TRACE_DEPTH < 1024) { store64(TRACE_STACK + TRACE_DEPTH * 8, 0); }
+    }
+    return 2;
+}
+fun rt_trace_depth() -> Any { return TRACE_DEPTH * 8; }
+fun rt_trace_restore(depth: Any) -> Any {
+    while (TRACE_DEPTH > depth / 8) { rt_trace_pop(); }
+    return 2;
+}
+fun rt_trace_snapshot() -> Any {
+    mut text: Any = rt_from(addr(""), 0);
+    mut index: Any = TRACE_DEPTH - 1;
+    if (index >= 1024) { index = 1023; text = rt_from(addr("  ... trace truncated\n"), 22); }
+    mut frames: Any = 0;
+    while (index >= 0 and frames < 64) {
+        text = rt_concat(text, rt_concat(rt_from(addr("  at "), 5), rt_concat(load64(TRACE_STACK + index * 8), rt_from(addr("\n"), 1))));
+        index -= 1; frames += 1;
+    }
+    return text;
+}
 
 // Print an uncaught error and exit (used when `__longjmp` finds no handler).
 fun rt_die_uncaught() -> Any {
@@ -46,6 +81,8 @@ fun rt_die_uncaught() -> Any {
     let s: Any = rt_concat(rt_concat(k, rt_from(addr(": "), 2)), m);
     rt_write(s + 7, rt_slen(s));
     rt_write(addr("\n"), 1);
+    let trace: Any = rt_map_get(ERRVAL, rt_from(addr("stack"), 5));
+    if (trace % 8 == 1 and rt_slen(trace) > 0) { rt_write(trace + 7, rt_slen(trace)); }
     syscall(60, 70);
     return 0;
 }
@@ -55,7 +92,7 @@ fun rt_mkerr(kp: Any, kl: Any, s: Any) -> Any {
     rt_map_set(e, rt_from(addr("__err"), 5), 4);
     rt_map_set(e, rt_from(addr("message"), 7), s);
     rt_map_set(e, rt_from(addr("kind"), 4), rt_from(kp, kl));
-    rt_map_set(e, rt_from(addr("stack"), 5), rt_from(addr(""), 0));
+    rt_map_set(e, rt_from(addr("stack"), 5), rt_trace_snapshot());
     return e;
 }
 
@@ -85,6 +122,17 @@ fun rt_failarith(s: Any) -> Any {
     ERRVAL = rt_mkerr(addr("arithmetic"), 10, s);
     __longjmp();
     return 2;
+}
+
+fun rt_int_contract(value: Any, low: Any, high: Any) -> Any {
+    if (value % 8 != 0) { return rt_failtype(rt_from(addr("expected an integer"), 19)); }
+    if (value < low or value > high) { return rt_failarith(rt_from(addr("integer outside annotated bounds"), 32)); }
+    return value;
+}
+
+fun rt_float32(value: Any) -> Any {
+    if (value % 8 != 6) { return rt_failtype(rt_from(addr("expected a float"), 16)); }
+    return rt_box(__f32(load64(value - 6)));
 }
 
 fun rt_typename(v: Any) -> Any {
@@ -118,6 +166,9 @@ fun rt_init() -> Any {
         sz = 33554432;
         HEAP = syscall(9, 0, sz, 3, 34, 0 - 1, 0);
     }
+    if (HEAP < 0) { syscall(60, 70); }
+    GCSTARTS = syscall(9, 0, sz / 8, 3, 34, 0 - 1, 0);
+    if (GCSTARTS < 0) { syscall(60, 70); }
     HEAPEND = HEAP + sz;
     HP = HEAP;
     FREELIST = 0;
@@ -126,6 +177,7 @@ fun rt_init() -> Any {
     MARKMAX = 1048576;
     MARKN = 0;
     MARKSTK = syscall(9, 0, 8388608, 3, 34, 0 - 1, 0);
+    if (MARKSTK < 0) { syscall(60, 70); }
     GBASE = 0;
     GCOUNT = 0;
     CSTOP = STACKTOP;
@@ -142,6 +194,7 @@ fun rt_candidate(w: Any) -> Any {
     let p: Any = w - t;
     if (p < HEAP + 16) { return 0; }
     if (p >= HP) { return 0; }
+    if (load8(GCSTARTS + (p - 16 - HEAP) / 8) != 1) { return 0; }
     if (load64(p - 8) != 5124095576638253) { return 0; }
     let sz: Any = load64(p - 16);
     let s: Any = sz - (sz % 2);
@@ -159,10 +212,10 @@ fun rt_setmark(p: Any) -> Any {
 }
 
 fun rt_pushmark(p: Any) -> Any {
-    if (MARKN < MARKMAX) {
-        store64(MARKSTK + MARKN * 8, p);
-        MARKN = MARKN + 1;
-    }
+    // Dropping a marked object's children would reclaim live objects.
+    if (MARKN >= MARKMAX) { rt_write(addr("GC mark stack exhausted\n"), 24); syscall(60, 70); }
+    store64(MARKSTK + MARKN * 8, p);
+    MARKN = MARKN + 1;
     return 0;
 }
 
@@ -197,6 +250,10 @@ fun rt_scan_range(lo: Any, hi: Any) -> Any {
 fun rt_gc() -> Any {
     if (GCFLAG == 0) { return 0; }
     MARKN = 0;
+    // Runtime metadata must also survive standalone/raw runtime harnesses.
+    rt_scan_word(GROOTS); rt_scan_word(HSTACK); rt_scan_word(ERRVAL);
+    rt_scan_word(FIB_TAB); rt_scan_word(FIB_SAVE0); rt_scan_word(FIB_CUR);
+    rt_scan_word(TRACE_STACK);
     mut i: Any = 0;
     while (i < GCOUNT) {
         rt_scan_word(load64(load64(GROOTS + i * 8)));
@@ -248,6 +305,7 @@ fun rt_sweep() -> Any {
         mut sz: Any = hdr - marked;
         if (sz < 16) { sz = 16; }
         if (marked == 0) {
+            store8(GCSTARTS + (p - HEAP) / 8, 0);
             if (run == 0) { run = p; }
             runsize += sz;
         } else {
@@ -287,6 +345,7 @@ fun rt_fit(need: Any) -> Any {
                 let size: Any = load64(block);
                 if (size - need >= 32) { rt_free_region(block + need, size - need); store64(block, need); }
                 store64(block + 8, 5124095576638253);
+                store8(GCSTARTS + (block - HEAP) / 8, 1);
                 return block + 16;
             }
             bin += 1;
@@ -305,11 +364,13 @@ fun rt_fit(need: Any) -> Any {
                 rt_free_region(cur + need, rem);
                 store64(cur, need);
                 store64(cur + 8, 5124095576638253);
+                store8(GCSTARTS + (cur - HEAP) / 8, 1);
                 return cur + 16;
             } else {
                 if (prev == 0) { FREELIST = nxt; } else { store64(prev + 8, nxt); }
                 store64(cur, sz);
                 store64(cur + 8, 5124095576638253);
+                store8(GCSTARTS + (cur - HEAP) / 8, 1);
                 return cur + 16;
             }
         }
@@ -339,6 +400,7 @@ fun rt_alloc(n: Any) -> Any {
     HP = HP + need;
     store64(H, need);
     store64(H + 8, 5124095576638253);
+    store8(GCSTARTS + (H - HEAP) / 8, 1);
     return H + 16;
 }
 
@@ -1787,12 +1849,21 @@ fun rt_read_file(p: Any) -> Any {
     let path: Any = rt_cstr(p) / 8;
     let fd: Any = syscall(2, path, 0, 0);
     if (fd < 0) { return rt_failstr(rt_from(addr("cannot read file"), 15)); }
-    let b: Any = rt_alloc(1048576);
+    mut capacity: Any = 65536;
+    mut b: Any = rt_alloc(capacity);
     mut off: Any = 0;
     mut r: Any = 1;
     while (r > 0) {
-        r = syscall(0, fd, b + off, 1048576 - off);
-        if (r > 0) { off = off + r; }
+        r = syscall(0, fd, b + off, capacity - off);
+        if (r == 0 - 4) { r = 1; continue; }
+        if (r < 0) { syscall(3, fd); return rt_failstr(rt_from(addr("cannot read file"), 15)); }
+        if (r > 0) {
+            off = off + r;
+            if (off == capacity) {
+                let next: Any = rt_alloc(capacity * 2);
+                rt_copy(next, b, off); b = next; capacity = capacity * 2;
+            }
+        }
     }
     syscall(3, fd);
     return rt_from(b, off);
@@ -1802,7 +1873,14 @@ fun rt_write_file(p: Any, data: Any) -> Any {
     let path: Any = rt_cstr(p) / 8;
     let fd: Any = syscall(2, path, 577, 420);
     if (fd < 0) { return rt_failstr(rt_from(addr("cannot write file"), 17)); }
-    syscall(1, fd, data + 7, rt_slen(data));
+    mut offset: Any = 0;
+    let count: Any = rt_slen(data);
+    while (offset < count) {
+        let written: Any = syscall(1, fd, data + 7 + offset, count - offset);
+        if (written == 0 - 4) { continue; }
+        if (written <= 0) { syscall(3, fd); return rt_failstr(rt_from(addr("cannot write file"), 17)); }
+        offset += written;
+    }
     syscall(3, fd);
     return 2;
 }
@@ -1906,14 +1984,14 @@ fun rt_system(cmd: Any) -> Any {
     store64(argv + 16, rt_cstr(cmd) / 8);
     store64(argv + 24, 0);
     let pid: Any = syscall(57);
+    if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
     if (pid == 0) {
-        syscall(59, sh, argv, 0);
+        mut envp: Any = INITIAL_ENVP;
+        if (envp == 0) { envp = STACKTOP + (load64(STACKTOP) + 2) * 8; }
+        syscall(59, sh, argv, envp);
         syscall(60, 127);
     }
-    let st: Any = rt_alloc(8);
-    syscall(61, pid, st, 0, 0);
-    let status: Any = load32(st);
-    return ((status / 256) % 256) * 8;
+    return rt_wait(pid * 8);
 }
 
 // Fork + execve a list of strings with the inherited environment; returns the child pid.
@@ -2215,11 +2293,15 @@ mut FIB_TAB: Any = 0;
 mut FIB_N: Any = 0;
 mut FIB_CUR: Any = 0;
 mut FIB_SAVE0: Any = 0;
+mut FIB_TRACE0: Any = 0;
+mut FIB_TRACE_DEPTH0: Any = 0;
 
 fun rt_spawn(fn: Any) -> Any {
+    if (FIB_N >= 128) { return rt_failstr(rt_from(addr("fiber limit exceeded"), 20)); }
     if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
-    let rec: Any = rt_alloc(32);
+    let rec: Any = rt_alloc(48);
+    store64(rec + 32, 0); store64(rec + 40, 0);
     store64(rec + 8, fn);
     store64(rec + 16, 1);
     let size: Any = 262144;
@@ -2243,7 +2325,10 @@ fun rt_spawn(fn: Any) -> Any {
 fun rt_yield() -> Any {
     if (FIB_CUR == 0) { return 0; }
     CSTOP = load64(FIB_CUR + 24);
+    store64(FIB_CUR + 32, TRACE_STACK); store64(FIB_CUR + 40, TRACE_DEPTH);
+    TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
     __fib_switch(FIB_CUR, FIB_SAVE0);
+    TRACE_STACK = load64(FIB_CUR + 32); TRACE_DEPTH = load64(FIB_CUR + 40);
     CSTOP = load64(FIB_CUR + 24);
     return 0;
 }
@@ -2251,6 +2336,7 @@ fun rt_yield() -> Any {
 fun rt_run() -> Any {
     if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
+    FIB_TRACE0 = TRACE_STACK; FIB_TRACE_DEPTH0 = TRACE_DEPTH;
     mut again: Any = 1;
     while (again == 1) {
         again = 0;
@@ -2261,7 +2347,9 @@ fun rt_run() -> Any {
                 again = 1;
                 FIB_CUR = rec;
                 CSTOP = load64(rec + 24);
+                TRACE_STACK = load64(rec + 32); TRACE_DEPTH = load64(rec + 40);
                 __fib_switch(FIB_SAVE0, rec);
+                TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
                 CSTOP = STACKTOP;
                 FIB_CUR = 0;
             }
@@ -2277,6 +2365,8 @@ fun rt_fiber_entry() -> Any {
     let fn: Any = load64(rec + 8);
     fn();
     store64(rec + 16, 0);
+    store64(rec + 32, TRACE_STACK); store64(rec + 40, TRACE_DEPTH);
+    TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
     __fib_switch(rec, FIB_SAVE0);
     return 0;
 }

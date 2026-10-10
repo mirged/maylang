@@ -1,8 +1,49 @@
 import "state.may";
 import "modules.may";
+import "sema.may";
 // diagnostics.may — failures travel through Maylang's error boundary.
 
 mut DIAGNOSTIC_SPAN: Any = 0;
+mut DIAGNOSTIC_FORMAT: Any = "text";
+mut DIAGNOSTIC_STAGE: Any = "frontend";
+mut DIAGNOSTICS: Any = [];
+
+fun diagnostic_record(span: Any, message: Any) -> Any {
+    if (span == 0) { return {"severity": "error", "code": "E_FRONTEND", "stage": DIAGNOSTIC_STAGE, "message": message, "file": nil, "range": nil}; }
+    mut path: Any = "<source>"; mut line: Any = span.line;
+    if (has(SOURCE_FILES, span.source)) {
+        let file: Any = SOURCE_FILES[span.source]; path = file.path;
+        mut chosen: Any = 0;
+        for origin: Any in file.origins { if (origin.start <= span.start) { chosen = origin; } else { break; } }
+        if (chosen != 0) {
+            path = chosen.path; line = chosen.line;
+            for offset: Any in chosen.start..span.start { if (load8(span.source + offset) == 10) { line += 1; } }
+        }
+    }
+    mut endLine: Any = line; mut endColumn: Any = span.col;
+    for offset: Any in span.start..span.start + span.length {
+        if (load8(span.source + offset) == 10) { endLine += 1; endColumn = 1; }
+        else { endColumn += 1; }
+    }
+    return {"severity": "error", "code": "E_" + to_upper(DIAGNOSTIC_STAGE), "stage": DIAGNOSTIC_STAGE,
+        "message": message, "file": path, "column_unit": "utf8-byte",
+        "range": {"start": {"line": line, "column": span.col}, "end": {"line": endLine, "column": endColumn}},
+        "span": span};
+}
+
+fun collect_diagnostic(message: Any) -> Any {
+    let record: Any = diagnostic_record(DIAGNOSTIC_SPAN, message);
+    for previous: Any in DIAGNOSTICS {
+        if (previous.file == record.file and json_stringify(previous.range) == json_stringify(record.range) and previous.message == record.message) { return 0; }
+    }
+    if (len(DIAGNOSTICS) < 20) { push(DIAGNOSTICS, record); }
+    return 0;
+}
+
+fun diagnostics_finish() -> Any {
+    if (len(DIAGNOSTICS) > 0) { fail(DIAGNOSTICS[0].message); }
+    return 0;
+}
 
 fun source_module(span: Any) -> Any {
     if (span == 0 or not has(SOURCE_FILES, span.source)) { return ""; }
@@ -26,9 +67,8 @@ fun diagnostic(span: Any, message: Any) -> Any {
     return 0;
 }
 
-fun report_diagnostic(message: Any) -> Any {
-    let span: Any = DIAGNOSTIC_SPAN;
-    if (span == 0) { die_str("mayc: ${message}\n"); }
+fun format_diagnostic(span: Any, message: Any) -> Any {
+    if (span == 0) { return "mayc: ${message}\n"; }
     mut path: Any = "<source>";
     mut lineNumber: Any = span.line;
     if (has(SOURCE_FILES, span.source)) {
@@ -51,14 +91,12 @@ fun report_diagnostic(message: Any) -> Any {
     while (begin > 0 and load8(span.source + begin - 1) != 10) { begin = begin - 1; }
     mut end: Any = span.start;
     while (load8(span.source + end) != 0 and load8(span.source + end) != 10) { end = end + 1; }
-    mut lineText: Any = "";
-    mut i: Any = begin;
-    while (i < end) { lineText = lineText + chr(load8(span.source + i)); i = i + 1; }
+    let lineText: Any = symbol_name(span.source + begin, end - begin);
     mut pointer: Any = "";
-    i = begin;
+    mut i: Any = begin;
     while (i < span.start) {
         if (load8(span.source + i) == 9) { pointer = pointer + "\t"; }
-        else { pointer = pointer + " "; }
+        else if (load8(span.source + i) < 128 or load8(span.source + i) >= 192) { pointer = pointer + " "; }
         i = i + 1;
     }
     mut width: Any = span.length;
@@ -66,6 +104,21 @@ fun report_diagnostic(message: Any) -> Any {
     if (width > 40) { width = 40; }
     i = 0;
     while (i < width) { pointer = pointer + "^"; i = i + 1; }
-    die_str("${path}:${lineNumber}:${span.col}: ${message}\n${lineText}\n${pointer}\n");
-    return 0;
+    return "${path}:${lineNumber}:${span.col}: ${message}\n${lineText}\n${pointer}\n";
+}
+
+fun report_diagnostic(message: Any) -> Any {
+    if (len(DIAGNOSTICS) == 0) { collect_diagnostic(message); }
+    if (DIAGNOSTIC_FORMAT == "json") {
+        let records: Any = [];
+        for record: Any in DIAGNOSTICS {
+            push(records, {"severity": record.severity, "code": record.code, "stage": record.stage,
+                "message": record.message, "file": record.file, "column_unit": record.column_unit,
+                "range": record.range});
+        }
+        die_str(json_stringify({"schema_version": 1, "diagnostics": records}) + "\n");
+    }
+    mut text: Any = "";
+    for record: Any in DIAGNOSTICS { text = text + format_diagnostic(record.span ?? 0, record.message); }
+    die_str(text); return 0;
 }

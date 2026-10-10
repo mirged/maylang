@@ -414,6 +414,11 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (name_eq(np, nl, addr("__ccall6"), len("__ccall6")) == 1) { cg_ccall6(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__longjmp"), len("__longjmp")) == 1) { cg_longjmp(ctx); return 1; }
     if (name_eq(np, nl, addr("__sp"), len("__sp")) == 1) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 224); return 1; }
+    if (name_eq(np, nl, addr("__f32"), 5) == 1) {
+        cg_expr(ctx, args);
+        x86_encode(ctx, X86Instruction([102, 72, 15, 110, 192, 242, 15, 90, 192, 243, 15, 90, 192, 102, 72, 15, 126, 192], 0, 0));
+        return 1;
+    }
     if (name_eq(np, nl, addr("__fbin"), len("__fbin")) == 1) { cg_fbin(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__fcmp"), len("__fcmp")) == 1) { cg_fcmp(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__ftrunc"), len("__ftrunc")) == 1) { cg_ftrunc(ctx, args); return 1; }
