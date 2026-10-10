@@ -160,6 +160,16 @@ and above the selected compiler. `sync` preserves compiler configuration.
 
 ## Requirements
 
+Run the isolated workflow suite after building the tool:
+
+```sh
+python3 toolchain/maypkg/tests/test_workflows.py --binary toolchain/maypkg/build/maypkg
+```
+
+It verifies compiler selection, quoting, source/dependency/configuration changes,
+failed-build recovery and atomic state publication. Broader watcher and cleanup
+coverage remains tracked in [issue #18](https://github.com/mirged/maylang/issues/18).
+
 maypkg uses the native primitives `read_dir`, `mkdir`, `exec`, `wait`, `system`
 and `sleep`. `build`/`run`/`dev` require a usable `mayc`, a POSIX shell and
 `sha256sum` (coreutils). The tool currently runs on Linux x86-64 with the full

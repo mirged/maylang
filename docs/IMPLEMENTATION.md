@@ -70,6 +70,12 @@ On Linux x86-64, 2026-10-10:
 
 ## Remaining limits
 
+The issue acceptance audit additionally covers atomic successful-build state
+publication under concurrent readers and failed rename cleanup, actionable LSP
+startup errors, nested/selective import and Unicode diagnostic locations, and
+bounded CPU/address-space use with seeded import-graph mutations. The roadmap
+records the exact completed and remaining issue scope against PR #21.
+
 The original sustained ecosystem corruption report is not conclusively resolved:
 the 5000-generation workload also passed with the old runtime. The proven
 interior-header bug is fixed, but the existing worker workaround and warning
