@@ -63,6 +63,13 @@ pub fun identity(loc: Any, st: Any) -> Any {
         let file: Any = fs.join_path(directory, name);
         if (fs.exists(file)) { sidecars[file] = file_digest(file, digestFile); }
     }
+    let library: Any = fs.stdlib_path();
+    if (library != "") {
+        for name: Any in ["prelude.may", "native.may"] {
+            let file: Any = fs.join_path(library, name);
+            if (fs.exists(file)) { sidecars[file] = file_digest(file, digestFile); }
+        }
+    }
     let core: Any = fs.join_path(directory, "runtime");
     for name: Any in fs.list(core) {
         if (ends_with(name, ".may")) { let file: Any = fs.join_path(core, name); sidecars[file] = file_digest(file, digestFile); }

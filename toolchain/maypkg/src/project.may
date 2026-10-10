@@ -76,7 +76,7 @@ pub fun locate() -> Any {
     let mp: Any = manifest.find();
     if (type(mp) != "Nil") {
         let root: Any = manifest.root_of(mp);
-        let loaded: Any = may { manifest.load(mp) } otherwise { nil };
+        let loaded: Any = manifest.load(mp);
         let name: Any = if (type(loaded) == "Map") { loaded.name } else { fs.basename(root) };
         mut entry: Any = "";
         if (len(override) > 0) {

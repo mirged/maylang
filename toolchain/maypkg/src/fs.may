@@ -106,31 +106,23 @@ pub fun normpath(p: Any) -> Any {
 }
 
 /// Directories searched for `import`ed modules, mirroring the compiler:
-/// `$MAYLANG_STDLIB` (colon-separated) wins, otherwise a set of conventional
-/// locations plus the directory of the running executable and `~/.maylang`.
+/// `$MAYLANG_STDLIB` (colon-separated), project stdlib, then directories
+/// beside and above the selected compiler.
 mut SELECTED_COMPILER: Any = "";
-pub fun use_compiler(path: Any) -> Any { SELECTED_COMPILER = path; return nil; }
+mut SELECTED_ROOT: Any = "";
+pub fun use_compiler(path: Any, root: Any) -> Any { SELECTED_COMPILER = path; SELECTED_ROOT = root; return nil; }
 
 pub fun stdlib_dirs() -> Any {
-    let envv: Any = env("MAYLANG_STDLIB");
-    if (envv != nil && len(trim(envv)) > 0) {
-        mut dirs: Any = [];
-        for d: Any in split(envv, ":") { if (len(d) > 0) { push(dirs, d); } }
-        // Overrides are searched first, followed by the compiler defaults.
-        push(dirs, "stdlib"); return dirs;
+    let root: Any = if (SELECTED_ROOT != "") { SELECTED_ROOT } else { cwd() };
+    let dirs: Any = [];
+    for directory: Any in split(env("MAYLANG_STDLIB") ?? "", ":") {
+        if (directory != "") { push(dirs, normpath(if (is_abs(directory)) { directory } else { join_path(root, directory) })); }
     }
-    mut dirs: Any = ["stdlib", "../stdlib", "../../stdlib", "../../../stdlib"];
-    let h: Any = env("HOME");
-    if (h != nil) { push(dirs, join_path(join_path(h, ".maylang"), "stdlib")); }
-    let exe: Any = if (len(SELECTED_COMPILER) > 0) { SELECTED_COMPILER } else { args()[0] ?? "" };
-    if (len(exe) > 0) {
-        mut d: Any = dirname(exe);
-        mut i: Any = 0;
-        while (i < 4 && len(d) > 0 && d != "." && d != "/") {
-            push(dirs, join_path(d, "stdlib"));
-            d = dirname(d);
-            i = i + 1;
-        }
+    push(dirs, join_path(root, "stdlib"));
+    let executable: Any = if (SELECTED_COMPILER != "") { SELECTED_COMPILER } else { args()[0] ?? "" };
+    mut directory: Any = dirname(if (is_abs(executable)) { executable } else { join_path(cwd(), executable) });
+    while (directory != "" and directory != "/") {
+        push(dirs, join_path(directory, "stdlib")); directory = dirname(directory);
     }
     return dirs;
 }

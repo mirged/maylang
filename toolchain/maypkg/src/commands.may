@@ -46,7 +46,9 @@ fun require_project() -> Any {
 fun ensure_manifest(loc: Any, disc: Any) -> Any {
     let path: Any = fs.join_path(loc.root, manifest.filename());
     if (has_manifest(loc)) { return path; }
-    manifest.save(path, project.synced(loc, disc));
+    let derived: Any = project.synced(loc, disc);
+    manifest.save(path, derived);
+    loc.m = derived; loc.manifest = path;
     print("maypkg: wrote ${path} (auto-detected)");
     return path;
 }
@@ -447,7 +449,7 @@ fun plan_text(loc: Any, st: Any) -> Any {
 
 pub fun cmd_build(opts: Any) -> Any {
     let loc: Any = require_project();
-    fs.use_compiler(compiler.path(loc));
+    fs.use_compiler(compiler.path(loc), loc.root);
     let disc: Any = project.discover(loc.entry);
     ensure_manifest(loc, disc);
     let st: Any = disc.st;
@@ -520,7 +522,7 @@ pub fun cmd_build(opts: Any) -> Any {
 
 pub fun cmd_run(opts: Any) -> Any {
     let loc: Any = require_project();
-    fs.use_compiler(compiler.path(loc));
+    fs.use_compiler(compiler.path(loc), loc.root);
     let out_name: Any = output_of(loc);
     let out_bin: Any = fs.join_path(loc.root, out_name);
 
@@ -573,7 +575,7 @@ fun fingerprint(files: Any) -> Any {
 /// `maypkg dev` — run the entry, then re-compile and re-run whenever any `.may` changes.
 pub fun cmd_dev(opts: Any) -> Any {
     mut loc: Any = require_project();
-    fs.use_compiler(compiler.path(loc));
+    fs.use_compiler(compiler.path(loc), loc.root);
     let disc: Any = project.discover(loc.entry);
     ensure_manifest(loc, disc);
     if (len(disc.st.missing) > 0) {
@@ -600,7 +602,7 @@ pub fun cmd_dev(opts: Any) -> Any {
     mut last: Any = json_stringify(compiler.identity(loc, graph.build(loc.entry)));
     while (true) {
         sleep(400);
-        loc = require_project(); fs.use_compiler(compiler.path(loc));
+        loc = require_project(); fs.use_compiler(compiler.path(loc), loc.root);
         let now: Any = json_stringify(compiler.identity(loc, graph.build(loc.entry)));
         if (now != last) {
             last = now;
@@ -655,7 +657,8 @@ pub fun cmd_clean(opts: Any) -> Any {
     let loc: Any = project.locate();
     let root: Any = loc.root;
     let artifacts: Any = ["build/maypkg.build.sh", "build/maypkg.run.sh", "build/maypkg.dev.sh",
-                     "build/maypkg.plan.txt", ".maypkg.dev.stamp", manifest.lockfile()];
+                     "build/maypkg.plan.txt", "build/maypkg.state.json", "build/maypkg.compiler-version",
+                     "build/maypkg.input-digest", ".maypkg.dev.stamp", manifest.lockfile()];
     push(artifacts, output_of(loc));
     mut present: Any = [];
     mut quoted: Any = [];

@@ -75,6 +75,12 @@ out.chmod(0o755)
         assert (project/'build/maypkg.state.json').read_bytes() == old
         run('build'); assert 'up to date' in run('build').stdout
         (project/doc['output']).unlink(); run('build')
+        manifest.write_text('{invalid json')
+        count=len(calls()); run('build',ok=False)
+        assert manifest.read_text()=='{invalid json' and len(calls())==count
+        doc['flags']=['--check'];manifest.write_text(json.dumps(doc))
+        run('build',ok=False);assert len(calls())==count
+        manifest.write_text(json.dumps({**doc,'flags':['--time']}))
         assert not (project/'literal').exists()
         print('PASS compiler selection, config/byte/source invalidation, lock independence, scripts, arguments and failure recovery')
         # The generated template must compile with strict defaults.
