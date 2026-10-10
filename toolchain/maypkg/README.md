@@ -105,7 +105,9 @@ hello from demo
 Build state includes source and imported-library bytes, compiler path/version
 and bytes, runtime/prelude sidecars, manifest settings and output existence.
 Writing a lock manually does not mark an old executable current. Failed builds
-do not update successful-build state. Generated scripts use the same selected
+do not update successful-build state. Successful state is published with a
+same-directory atomic rename, so readers see a complete previous or replacement
+record even when publication fails. Generated scripts use the same selected
 compiler and shell-quote paths and arguments, including spaces and apostrophes.
 `dev` watches source, compiler and configuration changes. `run -- --flag value`
 passes flag arguments to the application.

@@ -515,7 +515,7 @@ pub fun cmd_build(opts: Any) -> Any {
         exit(rc);
     }
     write_lock(loc, st);
-    fs.write(statePath, identity);
+    fs.write_atomic(statePath, identity);
     print("  built ${out_name} (${len(st.order)} modules) - lock updated");
     return nil;
 }

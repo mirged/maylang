@@ -27,6 +27,20 @@ pub fun write(path: Any, content: Any) -> Any {
     return nil;
 }
 
+/// Publish a complete file with a same-directory rename. Existing readers see
+/// either the old file or the completed replacement, never a truncated state.
+pub fun write_atomic(path: Any, content: Any) -> Any {
+    let temporary: Any = path + ".tmp." + str(syscall(39));
+    return may {
+        write_file(temporary, content);
+        if (syscall(82, cstr(temporary), cstr(path)) != 0) { fail("cannot replace file: " + path); }
+        nil
+    } otherwise {
+        syscall(87, cstr(temporary));
+        fail("cannot publish complete file: " + path);
+    };
+}
+
 pub fun is_abs(p: Any) -> Any { return starts_with(p, "/"); }
 
 /// Directory entries of `path` (empty when it is not a readable directory).
