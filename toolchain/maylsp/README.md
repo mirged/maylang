@@ -99,7 +99,7 @@ relative to their source file before the stdlib; `.may` is optional.
 | --- | --- |
 | Lifecycle and transport | Initialize, shutdown, exit, JSON-RPC errors, buffered streaming, partial reads/writes, strict JSON and UTF-8 validation. |
 | Document synchronization | Open, close, save, incremental and full changes, ordered edits, stale version protection; unsaved buffers override disk. |
-| Diagnostics | Push and document pull diagnostics from `mayc`'s lexer, parser, resolver, mutability checks and supported annotation checks; missing import diagnostics. |
+| Diagnostics | Push, document and workspace pull diagnostics from `mayc`'s lexer, parser, resolver, mutability checks and supported annotation checks; missing imports, result IDs, unchanged reports and workspace progress. |
 | Hover | Signatures and `///` documentation parsed from the open file, imported files and stdlib sources; the generated reference fills gaps for runtime primitives without a source declaration. |
 | Navigation | Definitions and declarations across lexical scopes, selected imports, aliases, structs, enum constructors and known fields. |
 | References and rename | Workspace references, highlights, prepare rename, cross-file edits, reserved-name rejection and binding conflict checks. |
@@ -130,6 +130,7 @@ src/index.may     tokens, scopes, bindings, imports and workspace index
 src/diagnostics.may in-process mayc lexer/parser/semantic checker adapter
 src/scheduler.may background compiler workers, debounce and cancellation
 src/navigation.may bounded navigation worker, snapshots and streamed results
+src/workspace.may workspace diagnostic batches, progress and snapshot cancellation
 src/docs.may      generated documentation compiled into the executable
 src/features.may  navigation and editor features
 docs/reference.json  editable documentation catalog
@@ -154,8 +155,36 @@ response, so late rename conflicts discard all partial edits. Runtime fatal
 output stays on the worker pipe and fails the request without corrupting LSP
 transport. Edits and workspace changes discard obsolete results with
 `RequestFailed` (-32803), asking the client to retry. Client cancellation returns
-`RequestCancelled` (-32800) for active or queued requests. Shutdown reaps both
+`RequestCancelled` (-32800) for active or queued requests. Shutdown reaps all
 workers. Local editor requests continue while navigation is running.
+
+Workspace diagnostic pulls use a third worker, independent of document checks
+and navigation. Send `workspace/diagnostic` with `previousResultIds: []` for the
+first pull and `{uri, value: resultId}` entries for subsequent pulls. The server
+advertises `diagnosticProvider.workspaceDiagnostics` and `workDoneProgress`.
+Reports carry the current open-buffer version, or `null` for unopened files.
+`partialResultToken` streams reports through `$/progress`; the final response
+then contains an empty `items` array. `workDoneToken` enables begin/report/end
+progress and `window/workDoneProgress/cancel` cancellation.
+
+Document and workspace result IDs include a server session, content/configuration
+epoch and canonical URI. Matching previous IDs receive `unchanged`; unknown IDs
+receive full reports. Edits and watched-file, folder or compiler-setting changes
+invalidate the workspace snapshot with `ServerCancelled` (-32802), requesting a
+retry. Client cancellation returns -32800. Deleted files and removed roots clear
+previous reports with empty full results; a file omitted only by the scan limit
+keeps its existing report. Unsaved buffers override disk files in import checks.
+The report formats follow [LSP 3.17 pull diagnostics](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_diagnostic).
+
+One workspace worker runs at a time, with eight queued requests and at most
+10,000 selected files. Each worker checks at most 32 entries before being
+reaped and replaced. Clean entries share a compiler check; any batch error
+triggers separate checks so lexer failures and recovery limits cannot mask
+other files. Reports drain at most 32 per event-loop turn. Requests are limited
+to 16 MiB of worker output, 30 seconds without a report and five minutes total.
+Workspace IDs encode their snapshot without retaining a growing report cache
+in the parent. Compiler symbol tables own zeroed mappings with explicit release;
+AST and strict-checker roots are released between checks.
 
 Unchanged diagnostic requests reuse cached checks, invalidated by document
 and filesystem changes. Compiler source assembly uses balanced concatenation
@@ -205,6 +234,22 @@ After rebuilding, use **Developer: Reload Window** in VS Code to restart the
 server with the new executable. The configured `maylang.serverPath` stays the
 same.
 
+## Workspace diagnostic benchmark
+
+Measure cold streamed checks and unchanged buffered reports, with interleaved hover:
+
+```sh
+python3 toolchain/maylsp/tests/benchmark_diagnostics.py \
+  --binary toolchain/maylsp/build/maylsp --files 10016 \
+  --report /tmp/diagnostic-benchmark.json
+```
+
+The fixture checks the 10,000-file cap, open/unopened versions and stable IDs.
+It also verifies that existing files omitted by the cap do not receive clears.
+The optional CI performance job repeats it on the extracted toolchain and
+publishes `diagnostic-benchmark.json` alongside compiler/navigation measurements.
+Timings are recorded without thresholds.
+
 ## Current limits
 
 The compiler recovers independent top-level syntax and type errors and reports
@@ -218,7 +263,8 @@ map members and dynamically selected callees may have no static definition.
 Document indexing still runs serially; compiler diagnostics and expensive
 navigation run in separate workers. Large individual files, imports and result
 sets remain constrained by the runtime heap and worker limits; failed navigation
-returns a request error. Workspace-wide pull diagnostics are not advertised.
+or workspace checks return a request error. Workspaces exceeding the scan limit
+need individual document pulls for omitted files.
 Bodies are limited to 16 MiB. Invalid
 transport headers terminate the server on stderr; invalid JSON produces a
 recoverable parse error.
@@ -233,3 +279,6 @@ behind VS Code's startup requests. Additional tests replay token deltas, verify
 ID invalidation and interleave edits/hover with large navigation requests,
 including queued/active cancellation, queue limits, late rename failures,
 worker fatal-output isolation and shutdown reaping.
+Workspace tests cover unopened files, full/unchanged reports, progress, restart
+IDs, dirty imports, deletion and removed roots, concurrent document requests,
+cancellation, stale snapshots, bounded queues and isolation of failed batches.

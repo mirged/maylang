@@ -104,11 +104,40 @@ targets and one matching workspace symbol. One run measured navigation at
 The optional performance job repeats this benchmark on the installed bundle
 and publishes a report without timing gates.
 
-Document indexing remains synchronous. Workspace-wide pull diagnostics remain
-pending. Large individual files, dependency graphs and result sets still face
+Document indexing remains synchronous. Workspace pull support is recorded
+below. Large individual files, dependency graphs and result sets still face
 runtime heap/worker limits; bounded request failure is handled without leaking
 worker output into the LSP transport. These changes do not resolve the original
 sustained-runtime GC corruption report.
+
+## Workspace diagnostics follow-up
+
+[PR #24](https://github.com/mirged/maylang/pull/24) implements issue #12.
+On Linux x86-64, 2026-10-11, the complete LSP suite passes unopened-file
+reports, full/unchanged IDs, progress, dirty imports, deleted files, removed
+roots, concurrent hover/document pulls, cancellation and stale snapshots.
+It checks queue bounds, fatal-output isolation, recovery and worker reaping.
+Mixed lexer/name failures across more files than the recovery cap preserve
+independent errors, and unrelated modules cannot expose unimported names.
+Restart tests verify that old IDs cannot conceal subsequent disk changes.
+The source rebuild passes; compiler verification passes **93/0** and language
+compliance passes **69/0**.
+
+Workspace pulls use one worker and eight queued requests. A worker checks at
+most 32 entries before replacement; clean entries share a compiler check,
+while any error causes individual checks. Reports stream to clients that
+provide partial-result tokens; other clients receive a buffered full response.
+Request bounds are 10,000 selected files, 16 MiB of worker output, 30 seconds
+without a report and five minutes total. Session/epoch/URI result IDs avoid a
+growing parent report cache. Compiler symbol tables own zeroed mappings with
+explicit release, and AST/strict-checker roots are released between checks.
+
+The diagnostic benchmark exercises cold streamed and unchanged buffered pulls
+with interleaved hover on 10,016 files. It checks open/unopened versions, stable
+IDs, the 10,000-file cap and preservation of reports for existing omitted files.
+The manual CI performance job repeats it on the extracted bundle and publishes
+`diagnostic-benchmark.json` alongside compiler and navigation measurements.
+Exact validation runs and measurements are recorded in the linked PR.
 
 ## Remaining limits
 

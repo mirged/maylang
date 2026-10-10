@@ -19,5 +19,12 @@ while a check is underway. The [editor reference](../toolchain/maylsp/docs/REFER
 documents keywords, types, operators and core functions with examples; the same
 documentation appears in hover, completion and signature help.
 
+Workspace pulls also check unopened `.may` files and unsaved imports. Full and
+unchanged reports include result IDs and document versions; optional progress
+tokens stream reports. Separate bounded workers keep local requests responsive,
+and cancellation, edits and folder changes stop obsolete snapshots. See the
+[server architecture and limits](../toolchain/maylsp/README.md#implementation)
+for scheduling, scan limits and protocol details.
+
 After rebuilding, run **Developer: Reload Window** in VS Code to load the new
 server executable.
