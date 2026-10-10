@@ -115,12 +115,13 @@ jobs:
           sha256sum -c maylang.tar.gz.sha256
           mkdir /tmp/maylang-toolchain
           tar -xzf maylang.tar.gz -C /tmp/maylang-toolchain
-      - name: Measure compiler and navigation performance without timing gates
+      - name: Measure compiler, navigation and diagnostic performance without timing gates
         run: |
           set -- /tmp/maylang-toolchain/maylang-*/bin/mayc
           python3 toolchain/mayc/tests/build_benchmark.py --compiler "$1" --samples 3 --report /tmp/build-benchmark.json
           set -- /tmp/maylang-toolchain/maylang-*/bin/maylsp
           python3 toolchain/maylsp/tests/benchmark_navigation.py --binary "$1" --files 10016 --report /tmp/navigation-benchmark.json
+          python3 toolchain/maylsp/tests/benchmark_diagnostics.py --binary "$1" --files 10016 --report /tmp/diagnostic-benchmark.json
       - name: Upload performance measurements
         if: always()
         uses: actions/upload-artifact@v4
@@ -129,6 +130,7 @@ jobs:
           path: |
             /tmp/build-benchmark.json
             /tmp/navigation-benchmark.json
+            /tmp/diagnostic-benchmark.json
           if-no-files-found: ignore
   editor:
     runs-on: ubuntu-24.04
