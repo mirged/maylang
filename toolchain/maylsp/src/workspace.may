@@ -77,7 +77,7 @@ fun ls_request_workspace(id: Any, p: Any) -> Any {
     }
     ls_workspace_changed();
     if (len(LS_WORKSPACE_QUEUE) >= 8) { ls_error(id, -32803, "Workspace diagnostic queue limit exceeded"); return nil; }
-    push(LS_WORKSPACE_QUEUE, {"id": id, "params": p, "previous": previous, "epoch": LS_INDEX_EPOCH, "parts": []});
+    push(LS_WORKSPACE_QUEUE, {"id": id, "params": p, "previous": previous, "epoch": LS_INDEX_EPOCH, "parts": [], "offset": 0, "files": nil, "started": false, "bytes": 0});
     return nil;
 }
 fun ls_workspace_contains(uri: Any) -> Any {
@@ -89,15 +89,18 @@ fun ls_workspace_emit(item: Any, completed: Any, total: Any) -> Any {
     return ls_write(ls_json({"item": item, "completed": completed, "total": total}) + "\n");
 }
 fun ls_workspace_compute(job: Any) -> Any {
-    let base: Any = {}; let files: Any = []; let seen: Any = {};
+    let base: Any = {}; let files: Any = job.files ?? []; let seen: Any = {};
     for uri: Any in keys(LS_DOCS) {
         if (LS_DOCS[uri].open) {
             base[uri] = LS_DOCS[uri];
-            if (ls_ends(LS_DOCS[uri].path, ".may")) { push(files, uri); seen[uri] = true; }
+            if (job.files == nil and ls_ends(LS_DOCS[uri].path, ".may")) { push(files, uri); seen[uri] = true; }
         }
     }
     if (len(files) > 10000) { fail("Workspace diagnostic file limit exceeded"); }
-    for root: Any in LS_ROOTS { ls_navigation_scan(root, 0, files, seen); }
+    if (job.files == nil) {
+        for root: Any in LS_ROOTS { ls_navigation_scan(root, 0, files, seen); }
+        ls_write(ls_json({"files": files}) + "\n");
+    }
     ls_navigation_restore(base);
     // Keep the two builtin indexes across batches; all other unopened indexes
     // and compiler caches are released after at most 32 entry checks.
@@ -105,9 +108,9 @@ fun ls_workspace_compute(job: Any) -> Any {
         let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
         if (builtin != nil) { base[builtin.uri] = builtin; }
     }
-    mut completed: Any = 0;
-    for uri: Any in files {
-        let doc: Any = ls_document(uri); completed += 1;
+    let end: Any = min(job.offset + 32, len(files));
+    for index: Any in job.offset..end {
+        let uri: Any = files[index]; let doc: Any = ls_document(uri); let completed: Any = index + 1;
         if (doc == nil) { ls_workspace_emit({"uri": uri, "version": nil, "kind": "full", "items": []}, completed, len(files)); }
         else {
             let resultId: Any = "workspace:" + str(job.epoch) + ":" + uri;
@@ -118,22 +121,25 @@ fun ls_workspace_compute(job: Any) -> Any {
             }
             ls_workspace_emit(report, completed, len(files));
         }
-        if (completed % 32 == 0) { ls_navigation_restore(base); LS_CHECK_CACHE = {}; LS_DIAG_CACHE = {}; }
     }
+    // Reap and replace the worker after every 32 entry checks. This also bounds
+    // compiler allocations and conservative-GC retention across a long pull.
+    if (end < len(files)) { ls_write(ls_json({"resume": end}) + "\n"); return nil; }
+    for uri: Any in files { seen[uri] = true; }
     for uri: Any in keys(job.previous) {
         // A file omitted solely by the scan limit must not have its diagnostics
         // cleared. Deleted files and documents in removed roots do get clears.
         if (not has(seen, uri) and (not file_exists(ls_path(uri)) or not ls_workspace_contains(uri))) {
-            ls_workspace_emit({"uri": uri, "version": nil, "kind": "full", "items": []}, completed, len(files));
+            ls_workspace_emit({"uri": uri, "version": nil, "kind": "full", "items": []}, len(files), len(files));
         }
     }
     ls_write("{\"done\":true}\n"); return nil;
 }
 fun ls_workspace_start(job: Any, now: Any) -> Any {
-    if (syscall(293, LS_WORKSPACE_IO, 524288) < 0) { ls_error(job.id, -32803, "Workspace diagnostic pipe failed"); return nil; }
+    if (syscall(293, LS_WORKSPACE_IO, 524288) < 0) { LS_WORKSPACE_JOB = job; ls_workspace_abort(-32803, "Workspace diagnostic pipe failed"); return nil; }
     let readFd: Any = load32(LS_WORKSPACE_IO); let writeFd: Any = load32(LS_WORKSPACE_IO + 4);
     let parentPid: Any = syscall(39); let pid: Any = syscall(57);
-    if (pid < 0) { syscall(3, readFd); syscall(3, writeFd); ls_error(job.id, -32803, "Workspace diagnostic fork failed"); return nil; }
+    if (pid < 0) { syscall(3, readFd); syscall(3, writeFd); LS_WORKSPACE_JOB = job; ls_workspace_abort(-32803, "Workspace diagnostic fork failed"); return nil; }
     if (pid == 0) {
         syscall(157, 1, 9, 0, 0, 0);
         if (syscall(110) != parentPid) { syscall(60, 0); }
@@ -147,14 +153,26 @@ fun ls_workspace_start(job: Any, now: Any) -> Any {
     }
     syscall(3, writeFd); syscall(72, readFd, 4, 2048);
     LS_WORKSPACE_PID = pid; LS_WORKSPACE_FD = readFd; LS_WORKSPACE_JOB = job;
-    LS_WORKSPACE_BUFFER = ""; LS_WORKSPACE_BYTES = 0;
-    LS_WORKSPACE_DEADLINE = now + 30000; LS_WORKSPACE_LIMIT = now + 300000;
-    ls_workspace_progress(job, {"kind": "begin", "title": "Checking Maylang workspace", "cancellable": true, "percentage": 0});
+    LS_WORKSPACE_BUFFER = ""; LS_WORKSPACE_BYTES = job.bytes;
+    LS_WORKSPACE_DEADLINE = now + 30000;
+    if (not job.started) {
+        job.started = true; job.limit = now + 300000;
+        ls_workspace_progress(job, {"kind": "begin", "title": "Checking Maylang workspace", "cancellable": true, "percentage": 0});
+    }
+    LS_WORKSPACE_LIMIT = job.limit;
     return nil;
 }
 fun ls_workspace_event(event: Any, now: Any) -> Any {
     if (event.failure != nil) { ls_workspace_abort(-32803, event.failure); return nil; }
     let job: Any = LS_WORKSPACE_JOB;
+    if (event.files != nil) {
+        if (job.files != nil or value_tag(event.files) != 5 or len(event.files) > 10000) { fail("Invalid workspace diagnostic inventory"); }
+        job.files = event.files; LS_WORKSPACE_DEADLINE = now + 30000; return nil;
+    }
+    if (event.resume != nil) {
+        if (value_tag(event.resume) != 0 or event.resume <= job.offset or event.resume >= len(job.files)) { fail("Invalid workspace diagnostic continuation"); }
+        job.offset = event.resume; ls_workspace_stop(); LS_WORKSPACE_JOB = job; return nil;
+    }
     if (event.done == true) {
         let parts: Any = job.parts; ls_workspace_stop();
         ls_workspace_progress(job, {"kind": "end", "message": "Workspace diagnostics complete"});
@@ -180,7 +198,7 @@ fun ls_workspace_tick(now: Any) -> Any {
         if (ls_find(LS_WORKSPACE_BUFFER, "\n") < 0) {
             let n: Any = syscall(0, LS_WORKSPACE_FD, LS_WORKSPACE_IO, 65536);
             if (n == 0 or (n < 0 and n != -4 and n != -11)) { closed = true; }
-            if (n > 0) { LS_WORKSPACE_BUFFER = LS_WORKSPACE_BUFFER + ls_text(LS_WORKSPACE_IO, n); LS_WORKSPACE_BYTES += n; }
+            if (n > 0) { LS_WORKSPACE_BUFFER = LS_WORKSPACE_BUFFER + ls_text(LS_WORKSPACE_IO, n); LS_WORKSPACE_BYTES += n; LS_WORKSPACE_JOB.bytes = LS_WORKSPACE_BYTES; }
         }
         if (LS_WORKSPACE_BYTES > 16777216) { ls_workspace_abort(-32803, "Workspace diagnostic result limit exceeded"); }
         else {
@@ -197,7 +215,8 @@ fun ls_workspace_tick(now: Any) -> Any {
             if (closed and LS_WORKSPACE_JOB != nil) { ls_workspace_abort(-32803, "Workspace diagnostic worker failed"); }
         }
     }
-    if (LS_WORKSPACE_PID == 0 and len(LS_WORKSPACE_QUEUE) > 0) {
+    if (LS_WORKSPACE_PID == 0 and LS_WORKSPACE_JOB != nil) { ls_workspace_start(LS_WORKSPACE_JOB, now); }
+    else if (LS_WORKSPACE_PID == 0 and len(LS_WORKSPACE_QUEUE) > 0) {
         let job: Any = LS_WORKSPACE_QUEUE[0]; LS_WORKSPACE_QUEUE = slice(LS_WORKSPACE_QUEUE, 1, len(LS_WORKSPACE_QUEUE));
         ls_workspace_start(job, now);
     }
