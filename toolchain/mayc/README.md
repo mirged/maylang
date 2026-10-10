@@ -224,6 +224,11 @@ python3 toolchain/mayc/tests/build_benchmark.py --compiler toolchain/mayc/mayc_n
   --baseline /path/to/old/mayc --report /tmp/mayc-build-performance.json
 ```
 
+Omit `--baseline` to record the current compiler's timings without a comparison.
+The report also records compiler/sidecar hashes and image sizes. The optional
+`performance` CI job runs this mode on manual workflow dispatches and uploads
+`build-benchmark.json`; timings do not gate pull requests.
+
 `tests/runtime_maps.py` checks real string-hash collisions, ordered iteration,
 replacement/removal, mixed key types, forced collections, byte copying and
 symbol-cache behavior.
@@ -328,6 +333,15 @@ Additional runtime and language compliance regressions live in
 [`tests/compliance`](../../tests/compliance/README.md). Run them with
 `python3 tests/compliance/run.py` after bootstrapping. Verification artifacts
 and reports are stored there as well.
+
+The source-only workflow keeps source convergence, compiler/library checks,
+project workflows, LSP, extracted installation and compliance in `bootstrap`.
+Editor packaging runs in `editor`. Cross-target execution runs separately in
+the optional `core-emulation` job using the checksummed bootstrap artifact.
+Both optional jobs use `continue-on-error`; a failing emulator installation or
+performance measurement does not fail the required checks. Native core checks
+remain in compiler verification. Branch protection can require `bootstrap` and
+`editor` independently of the optional jobs.
 
 The binary layouts and ABIs follow the primary specifications:
 [Arm AAPCS64](https://github.com/ARM-software/abi-aa/blob/main/aapcs64/aapcs64.rst),
