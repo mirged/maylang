@@ -2,6 +2,8 @@ import "protocol.may";
 import "text.may";
 import "diagnostics.may";
 import "index.may";
+import "features.may";
+import "navigation.may";
 // Compiler workers inherit the current unsaved buffers through fork. Only
 // the parent writes LSP packets. Each worker returns one JSON snapshot.
 mut LS_WORKER_PID: Any = 0;
@@ -19,6 +21,7 @@ fun ls_now() -> Any {
     return load64(LS_TIMER) * 1000 + load64(LS_TIMER + 8) / 1000000;
 }
 fun ls_scheduler_stop() -> Any {
+    ls_navigation_invalidate(-32800, "Server is shutting down");
     ls_worker_stop(); LS_CHECK_QUEUE = [];
     for waiter: Any in LS_CHECK_WAITERS { ls_error(waiter.id, -32800, "Server is shutting down"); }
     LS_CHECK_WAITERS = []; return nil;
@@ -38,6 +41,7 @@ fun ls_queue_check(uri: Any) -> Any {
     return nil;
 }
 fun ls_schedule_checks() -> Any {
+    ls_navigation_changed();
     if (LS_WORKER_PID > 0 and LS_WORKER_EPOCH != LS_INDEX_EPOCH) { ls_worker_stop(); }
     LS_WORKER_URI = ""; LS_CHECK_QUEUE = [];
     for uri: Any in keys(LS_DOCS) {
@@ -58,6 +62,7 @@ fun ls_request_check(id: Any, doc: Any) -> Any {
     LS_CHECK_DEADLINE = 0; return nil;
 }
 fun ls_cancel_check(id: Any) -> Any {
+    ls_navigation_cancel(id);
     let remaining: Any = [];
     for waiter: Any in LS_CHECK_WAITERS {
         if (waiter.id == id) { ls_error(id, -32800, "Request cancelled"); } else { push(remaining, waiter); }
@@ -73,6 +78,8 @@ fun ls_worker_start(uri: Any) -> Any {
         syscall(157, 1, 9, 0, 0, 0);
         if (syscall(110) != parentPid) { syscall(60, 0); }
         syscall(3, readFd); LS_OUTPUT_FD = writeFd; LS_DIAGNOSTIC_PUBLISH = false;
+        if (LS_NAVIGATION_FD >= 0) { syscall(3, LS_NAVIGATION_FD); }
+        syscall(33, writeFd, 1);
         may {
             LS_CHECK_ERRORS = {}; LS_CHECK_SEEN = {};
             let doc: Any = ls_document(uri);
@@ -108,6 +115,7 @@ fun ls_worker_result(snapshot: Any) -> Any {
     LS_CHECK_WAITERS = remaining; return nil;
 }
 fun ls_scheduler_tick() -> Any {
+    ls_navigation_tick(ls_now());
     if (LS_BACKGROUND_FD >= 0) {
         mut done: Any = false;
         while (true) {
@@ -130,5 +138,9 @@ fun ls_scheduler_tick() -> Any {
         if (LS_CHECK_CACHE[uri]?.epoch != LS_INDEX_EPOCH) { ls_worker_start(uri); }
     }
     LS_POLL_TIMEOUT = if (LS_WORKER_PID == 0 and len(LS_CHECK_QUEUE) > 0) { max(0, LS_CHECK_DEADLINE - ls_now()) } else { -1 };
+    if (LS_NAVIGATION_PID > 0) {
+        let remaining: Any = max(0, LS_NAVIGATION_DEADLINE - ls_now());
+        LS_POLL_TIMEOUT = if (LS_POLL_TIMEOUT < 0) { remaining } else { min(remaining, LS_POLL_TIMEOUT) };
+    }
     return nil;
 }

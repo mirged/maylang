@@ -6,6 +6,7 @@ mut LS_READ_END: Any = 0;
 mut LS_OUTPUT_FD: Any = 1;
 mut LS_IDLE_HOOK: Any = nil;
 mut LS_BACKGROUND_FD: Any = -1;
+mut LS_NAVIGATION_FD: Any = -1;
 mut LS_POLL_TIMEOUT: Any = -1;
 let LS_POLL: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
 fun ls_wait_input() -> Any {
@@ -14,7 +15,8 @@ fun ls_wait_input() -> Any {
         LS_IDLE_HOOK();
         store32(LS_POLL, 0); store16(LS_POLL + 4, 1); store16(LS_POLL + 6, 0);
         store32(LS_POLL + 8, LS_BACKGROUND_FD); store16(LS_POLL + 12, 1); store16(LS_POLL + 14, 0);
-        let n: Any = syscall(7, LS_POLL, 2, LS_POLL_TIMEOUT);
+        store32(LS_POLL + 16, LS_NAVIGATION_FD); store16(LS_POLL + 20, 1); store16(LS_POLL + 22, 0);
+        let n: Any = syscall(7, LS_POLL, 3, LS_POLL_TIMEOUT);
         if (n == -4) { continue; }
         if (n < 0) { fail("poll failed"); }
         if (load16(LS_POLL + 6) != 0) { return nil; }
