@@ -159,7 +159,10 @@ fun st_substitute(t: Any, bindings: Any) -> Any {
 }
 fun st_unify(expected: Any, actual: Any, bindings: Any, span: Any) -> Any {
     if (starts_with(expected.name, "$")) {
-        if (has(bindings, expected.name)) { st_require(bindings[expected.name], actual, span); }
+        if (has(bindings, expected.name)) {
+            if (bindings[expected.name].name == "Never" and actual.name != "Never") { bindings[expected.name] = actual; }
+            else { st_require(bindings[expected.name], actual, span); }
+        }
         else { bindings[expected.name] = actual; }
         return 0;
     }

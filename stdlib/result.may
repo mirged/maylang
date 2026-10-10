@@ -1,56 +1,45 @@
-// result.may — Result-style values (`{ok, value, error}`) using `may`.
-//
-// (The helper is named `error` rather than `err` to avoid shadowing the
-// runtime's structured `err` object.)
+// Typed Result helpers share the native {ok, value, error} representation.
 
 /// A successful result wrapping `value`.
-fun ok(value: Any) -> Any { return {"ok": true, "value": value, "error": nil}; }
+fun ok<T>(value: T) -> Result<T, Never> { return Ok(value); }
 
 /// A failed result carrying `message`.
-fun error(message: Any) -> Any { return {"ok": false, "value": nil, "error": message}; }
+fun error<E>(message: E) -> Result<Never, E> { return Err(message); }
 
 /// Whether `r` is a success.
-fun is_ok(r: Any) -> Any { return r.ok; }
+fun is_ok<T, E>(r: Result<T, E>) -> Bool { return r.ok; }
 
 /// Whether `r` is a failure.
-fun is_err(r: Any) -> Any { return !r.ok; }
+fun is_err<T, E>(r: Result<T, E>) -> Bool { return !r.ok; }
 
 /// Unwrap a success, or fault on a failure.
-fun unwrap(r: Any) -> Any {
-    if (r.ok) { return r.value; }
-    return fail("unwrap on error: " + str(r.error));
+fun unwrap<T, E>(r: Result<T, E>) -> T {
+    return match(r) { Ok(value) => value, Err(message) => fail("unwrap on error: " + str(message)) };
 }
 
 /// Unwrap a success, else return `fallback`.
-fun unwrap_or(r: Any, fallback: Any) -> Any {
-    return if (r.ok) { r.value } else { fallback };
+fun unwrap_or<T, E>(r: Result<T, E>, fallback: T) -> T {
+    return match(r) { Ok(value) => value, Err(_) => fallback };
 }
 
 /// Map the success value with `f`, passing failures through.
-fun map_result(r: Any, f: Any) -> Any {
-    return if (r.ok) { ok(f(r.value)) } else { r };
+fun map_result<T, U, E>(r: Result<T, E>, f: (T) -> U) -> Result<U, E> {
+    return match(r) { Ok(value) => Ok(f(value)), Err(message) => Err(message) };
 }
 
 /// Chain a fallible step: `f(value)` returns another Result.
-fun and_then(r: Any, f: Any) -> Any {
-    return if (r.ok) { f(r.value) } else { r };
+fun and_then<T, U, E>(r: Result<T, E>, f: (T) -> Result<U, E>) -> Result<U, E> {
+    return match(r) { Ok(value) => f(value), Err(message) => Err(message) };
 }
 
 /// Turn a list of Results into a Result of a list (the first failure wins).
-fun collect(results: Any) -> Any {
-    mut values: Any = [];
-    for r: Any in results {
-        if (!r.ok) { return r; }
-        push(values, r.value);
-    }
-    return ok(values);
+fun collect<T, E>(results: List<Result<T, E>>) -> Result<List<T>, E> {
+    let values: List<T> = [];
+    for result in results { push(values, result?); }
+    return Ok(values);
 }
 
 /// Turn a speculative block into a Result instead of a fallback.
-fun attempt(f: Any) -> Any {
-    return may {
-        ok(f())
-    } otherwise {
-        error(err.message)
-    };
+fun attempt<T>(f: () -> T) -> Result<T, Str> {
+    return may { Ok(f()) } otherwise { Err(str(err.message)) };
 }
