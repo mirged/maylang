@@ -32,6 +32,18 @@ set; `none` is equivalent to `--raw`. The default is `full` on x86-64 Linux and
 `core` on the other native targets. The experimental `clang-llvm` target defaults
 to the full Maylang runtime. `--time` reports elapsed stage times to stderr.
 
+`--diagnostics json` writes a schema-versioned diagnostics object to stderr.
+Each diagnostic includes severity, stage, code, original file, message and a
+1-based range whose columns count UTF-8 bytes. Independent top-level parser and
+type errors recover up to a limit of 20; an error prevents executable emission.
+
+`--debug` instruments user functions in full-runtime builds with source frames.
+Uncaught faults print the captured trace; caught faults expose it in `err.stack`.
+Frames name the function and its declaration location, rather than every call
+site. Tail calls keep bounded trace depth, handlers restore unwound frames, and
+cooperative fibers retain independent traces. Storage holds 1024 frames and
+snapshots show at most 64. This is error tracing, not a DWARF debugger interface.
+
 `main.may` expands imports and drives a staged compiler:
 
 1. `lexer.may` emits source-positioned `Token` structs.
@@ -125,6 +137,9 @@ conversion and powers. [`runtime/corelib.may`](runtime/corelib.may) adds
 `str`, `substring`, `trim`, `repeat`, `range`, `sum`, `clamp`, `gcd`, `lcm`,
 `alloc` and `memcpy`. Case conversion is ASCII-only. Integer overflow and
 division by zero print a diagnostic and exit with status 70.
+Core heap chunks live until process exit, with a 256 MiB retained-heap cap.
+Exhausting it prints `core heap limit exceeded` and exits with status 70. Use
+the full collecting runtime for allocation-intensive, long-running programs.
 
 Core allocation uses native heap chunks of at least 1 MiB, retained until
 process exit. It has no garbage collector or individual free operation.
