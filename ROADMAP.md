@@ -32,7 +32,7 @@ Review the roadmap when preparing a release, completing a milestone or receiving
 
 ## Tracking progress
 
-The initial initiatives now include completed and partial implementations. [PR #21](https://github.com/mirged/maylang/pull/21) delivers initiatives 7, 9, 10, 11, 15, 16 and 17, and advances 2, 4, 8, 18 and 19. [PR #22](https://github.com/mirged/maylang/pull/22) completes initiatives 3 and 18. Remaining checkboxes retain their original scope; successful emulation, a heap cap or CI artifacts do not complete native-host, reclamation or tagged-release work. Use these states when updating an initiative: **planned**, **in progress**, **blocked**, **completed**, **deferred** or **superseded**. Link the implementation PR when work starts and identify a concrete dependency when marking work blocked. Keep checkboxes aligned with verified results.
+The initial initiatives now include completed and partial implementations. [PR #21](https://github.com/mirged/maylang/pull/21) delivers initiatives 7, 9, 10, 11, 15, 16 and 17, and advances 2, 4, 8, 18 and 19. [PR #22](https://github.com/mirged/maylang/pull/22) completes initiatives 3 and 18. [PR #23](https://github.com/mirged/maylang/pull/23) completes initiatives 13 and 14. Remaining checkboxes retain their original scope; successful emulation, a heap cap or CI artifacts do not complete native-host, reclamation or tagged-release work. Use these states when updating an initiative: **planned**, **in progress**, **blocked**, **completed**, **deferred** or **superseded**. Link the implementation PR when work starts and identify a concrete dependency when marking work blocked. Keep checkboxes aligned with verified results.
 
 A milestone is ready when its agreed acceptance criteria pass and the relevant documentation reflects the delivered behavior. If its scope changes, record the decision before declaring it complete. Each implementation should include regression coverage appropriate to the change, validation commands and results, and any remaining limitations. Keep source-only builds and supported-target behavior covered as the compiler evolves.
 
@@ -326,33 +326,37 @@ Workspace-wide pull diagnostics are explicitly not advertised by the current ser
 
 ### Initiative 13. Implement semantic token delta responses in maylsp
 
-**Status:** planned  
+**Status:** completed  
 **Initial priority:** P2  
 **GitHub:** [Issue #13](https://github.com/mirged/maylang/issues/13)  
 **Relevant paths:** `toolchain/maylsp/src/features.may`, `toolchain/maylsp/main.may`
 
-The server caches full tokens but does not advertise token deltas.
+The server negotiates full/delta capabilities, caches result IDs and retains the last two token snapshots per document. Deltas edit the encoded integer arrays; unavailable IDs receive full results.
 
-- [ ] Negotiate full/delta support and maintain per-document result IDs.
-- [ ] Compute token edits against the client's prior result.
-- [ ] Fall back to full responses for unknown or invalidated IDs.
-- [ ] Test insertions, deletions, Unicode and close/reopen behavior.
+- [x] Negotiate full/delta support and maintain per-document result IDs.
+- [x] Compute token edits against the client's prior result.
+- [x] Fall back to full responses for unknown or invalidated IDs.
+- [x] Test insertions, deletions, Unicode and close/reopen behavior.
+
+**Implementation:** [PR #23](https://github.com/mirged/maylang/pull/23). Local protocol tests and near-limit benchmarks pass; validation and remaining limits are documented in the [maylsp guide](toolchain/maylsp/README.md).
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 
 ### Initiative 14. Make expensive LSP navigation cancellable and responsive
 
-**Status:** planned  
+**Status:** completed  
 **Initial priority:** P2  
 **GitHub:** [Issue #14](https://github.com/mirged/maylang/issues/14)  
 **Relevant paths:** `toolchain/maylsp/src/index.may`, `toolchain/maylsp/src/features.may`, `toolchain/maylsp/src/scheduler.may`
 
-Navigation runs serially, and cancellation does not affect already-running navigation requests.
+A bounded navigation worker keeps workspace requests off the transport loop. References, rename and symbols visit disk indexes in batches of 32 and stream results with a final status record. Cancellation, edits, queue limits, fatal output and shutdown are covered by protocol tests; a 10,016-file benchmark verifies the 10,000-file scan limit and interleaved hover.
 
-- [ ] Benchmark references, rename and symbols near indexing limits.
-- [ ] Introduce bounded scheduling or workers for expensive navigation.
-- [ ] Honor cancellation and discard results invalidated by edits.
-- [ ] Test edits and hover interleaved with large navigation requests.
+- [x] Benchmark references, rename and symbols near indexing limits.
+- [x] Introduce bounded scheduling or workers for expensive navigation.
+- [x] Honor cancellation and discard results invalidated by edits.
+- [x] Test edits and hover interleaved with large navigation requests.
+
+**Implementation:** [PR #23](https://github.com/mirged/maylang/pull/23). Local protocol tests and near-limit benchmarks pass; validation and remaining limits are documented in the [maylsp guide](toolchain/maylsp/README.md).
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 
