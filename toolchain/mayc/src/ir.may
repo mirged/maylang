@@ -334,6 +334,22 @@ fun ir_node(ctx: Any, node: Any) -> Any {
                 let test: Any = ir_binary(TK_EQ, subject, ir_node(ctx, arm.pattern), span);
                 ir_emit(IR_FALSE, 0, test, 0, nextArm, span);
             } else if (arm.patternKind == 2) { ir_declare(arm.pattern, arm.length, subject, 0, span); }
+            else if (arm.patternKind == 3) {
+                let key: Any = if (arm.resultPattern) { "ok" } else { "tag" };
+                let actual: Any = ir_runtime("rt_map_get", [subject, ir_operation(E_STRB, {"address": addr(key), "length": len(key)}, span)], span);
+                mut expected: Any = 0;
+                if (arm.resultPattern) {
+                    let name: Any = if (arm.variantTag == "Ok") { "true" } else { "false" };
+                    expected = ir_operation(E_VAR, {"name": addr(name), "length": len(name)}, span);
+                } else { expected = ir_operation(E_STRB, {"address": addr(arm.variantTag), "length": len(arm.variantTag)}, span); }
+                ir_emit(IR_FALSE, 0, ir_binary(TK_EQ, actual, expected, span), 0, nextArm, span);
+                for binding: Any in arm.nested {
+                    if (binding.name != 0) {
+                        let field: Any = ir_operation(E_STRB, {"address": addr(binding.fieldName), "length": len(binding.fieldName)}, binding.span);
+                        ir_declare(binding.name, binding.length, ir_runtime("rt_map_get", [subject, field], span), 0, binding.span);
+                    }
+                }
+            }
             if (arm.guard != 0) { ir_emit(IR_FALSE, 0, ir_node(ctx, arm.guard), 0, nextArm, span); }
             ir_copy(result, ir_node(ctx, arm.body)); ir_jump(done); ir_label(nextArm);
             arm = arm.next;

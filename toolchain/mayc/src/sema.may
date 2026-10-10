@@ -382,6 +382,23 @@ fun sem_node(node: Any) -> Any {
                 let symbol: Any = sem_declare(arm.pattern, arm.length, false, "variable", arm.span, 0);
                 arm.pattern = symbol.pointer; arm.length = symbol.length;
             } else if (arm.patternKind == 1) { arm.pattern = sem_node(arm.pattern); }
+            else if (arm.patternKind == 3) {
+                let constructor: Any = sem_resolve(arm.pattern, arm.length, arm.span);
+                let rec: Any = constructor.declaration;
+                let resultPattern: Any = source_module(constructor.span) == "" and (constructor.name == "Ok" or constructor.name == "Err");
+                if (rec == 0 or (rec.enumTag == nil and not resultPattern)) { diagnostic(arm.span, "pattern requires an enum or result constructor"); }
+                if (len(arm.nested) != rec.pc) { diagnostic(arm.span, "argument count mismatch for variant pattern"); }
+                arm.variantTag = if (resultPattern) { constructor.name } else { rec.enumTag };
+                arm.resultPattern = resultPattern;
+                for i: Any in 0..len(arm.nested) {
+                    let binding: Any = arm.nested[i];
+                    binding.fieldName = if (resultPattern) { if (constructor.name == "Ok") { "value" } else { "error" } } else { rec.enumFields[i] };
+                    if (binding.name != 0) {
+                        let symbol: Any = sem_declare(binding.name, binding.length, false, "variable", binding.span, 0);
+                        binding.name = symbol.pointer; binding.length = symbol.length;
+                    }
+                }
+            }
             arm.guard = sem_node(arm.guard); arm.body = sem_node(arm.body);
             sem_pop();
             arm = arm.next;

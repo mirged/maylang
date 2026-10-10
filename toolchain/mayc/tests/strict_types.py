@@ -7,6 +7,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 PASS = {
+    'enum_payload_match': ('enum Shape { Empty, Point(x: Int, label: Str) } fun describe(s: Shape) -> Str { return match(s) { Empty() => "empty", Point(x, label) => label + str(x) }; } print(describe(Empty()), describe(Point(7,"x")));', 'empty x7\n'),
+    'enum_match_guard': ('enum E { A(n: Int), B } fun f(e: E) -> Int { return match(e) { A(n) if n>0 => n, A(_) => 0, B() => -1 }; } print(f(A(2)), f(A(-2)), f(B()));', '2 0 -1\n'),
+    'result_payload_match': ('fun f(r: Result<Int, Str>) -> Str { return match(r) { Ok(n) => str(n), Err(e) => e }; } print(f(Ok(7)), f(Err("bad")));', '7 bad\n'),
+    'enum_match_capture': ('enum E { A(n: Int), B } fun f(e: E) -> () -> Int { return match(e) { A(n) => fun() -> Int { return n; }, B() => fun() -> Int { return 0; } }; } print(f(A(7))());', '7\n'),
+    'typed_results': ('fun divide(a: Int, b: Int) -> Result<Int, Str> { if (b == 0) { return Err("zero"); } return Ok(a/b); } fun compute(b: Int) -> Result<Int, Str> { let n: Int = divide(10,b)?; return Ok(n+1); } print(compute(2).value ?? 0, compute(0).error ?? "missing");', '6 zero\n'),
+    'inferred_results': ('fun choose(b: Bool) { if (b) { return Ok(7); } return Err("bad"); } fun use() -> Result<Int, Str> { return Ok(choose(true)? + 1); } print(use().value ?? 0);', '8\n'),
+    'result_error_widening': ('fun source() -> Result<Int, Str> { return Err("bad"); } fun use() -> Result<Str, Str> { let n: Int = source()?; return Ok(str(n)); } print(use().error ?? "missing");', 'bad\n'),
     'basics': ('fun add(a: Int, b: Int) { return a + b; }\nlet n = add(2,3);\nprint(n);', '5\n'),
     'inferred_builtin_return': ('fun size() { return len("hello"); }\nlet n: Int = size();\nprint(n);', '5\n'),
     'inferred_handler_builtin': ('fun test_may() {\nlet result = may {\nlet bad = 10 / 0\nbad\n} otherwise {\nprint("Caught an error: ${err}");\n}\nprint(result)\nreturn nil;\n}\ntest_may()', 'Caught an error: division by zero\n0\n'),
@@ -28,6 +35,18 @@ PASS = {
     'empty_collections': ('let xs: List<Int> = [];\nlet m: Map<Str, Int> = {};\nprint(sum(xs), len(m));', '0 0\n'),
 }
 FAIL = {
+    'enum_missing_variant': ('enum E { A, B } fun f(e: E) -> Int { return match(e) { A() => 1 }; }', 'non-exhaustive E match; missing B'),
+    'enum_guard_coverage': ('enum E { A(n: Int) } fun f(e: E) -> Int { return match(e) { A(n) if n>0 => n }; }', 'non-exhaustive E match'),
+    'enum_wrong_payload_arity': ('enum E { A(n: Int) } fun f(e: E) -> Int { return match(e) { A() => 1 }; }', 'argument count mismatch'),
+    'enum_wrong_payload_type': ('enum E { A(n: Int) } fun f(e: E) -> Str { return match(e) { A(n) => n }; }', 'expected Str, found Int'),
+    'enum_wrong_identity': ('enum E { A } enum F { B } fun f(e: E) -> Int { return match(e) { B() => 1, _ => 0 }; }', 'variant pattern does not belong'),
+    'result_non_exhaustive': ('fun f(r: Result<Int, Str>) -> Int { return match(r) { Ok(n) => n }; }', 'non-exhaustive Result<Int, Str> match; missing Err'),
+    'result_constructor_value': ('fun f() -> Result<Int, Str> { return Ok("bad"); }', 'expected Result<Int, Str>'),
+    'result_constructor_error': ('fun f() -> Result<Int, Str> { return Err(1); }', 'expected Result<Int, Str>'),
+    'result_propagation_error': ('fun a() -> Result<Int, Int> { return Err(1); } fun b() -> Result<Int, Str> { return Ok(a()?); }', 'expected Str, found Int'),
+    'result_propagation_return': ('fun a() -> Result<Int, Str> { return Ok(1); } fun b() -> Int { return a()?; }', 'typed ? requires an enclosing function'),
+    'result_propagation_top_level': ('let x: Int = Ok(1)?;', 'typed ? requires an enclosing function'),
+    'result_missing_payload': ('let r: Result<Int, Str> = Err("bad"); let x: Int = r.value;', 'expected Int, found Optional<Int>'),
     'missing_struct_field_type': ('struct P { x }', 'explicit type annotation'),
     'missing_enum_payload_type': ('enum E { Value(x) }', 'explicit type annotation'),
     'comprehension_binding_type': ('let xs = [x for x: Str in [1]];', 'expected Str, found Int'),
@@ -96,6 +115,13 @@ def main():
         assert result.returncode==0,result.stderr.decode()
         assert subprocess.check_output([str(work/'imports')])==b'3 7\n'
         print('PASS strict module types and calls',flush=True)
+        lib.write_text('pub enum E { Value(n: Int), Empty }')
+        source.write_text('import "library" as lib;\nfun use(e: lib.E) -> Int { return match(e) { lib.Value(n) => n, lib.Empty() => 0 }; } print(use(lib.Value(9)));')
+        result=subprocess.run([str(compiler),str(source),'-o',str(work/'imports')],capture_output=True)
+        assert result.returncode==0,result.stderr.decode()
+        assert subprocess.check_output([str(work/'imports')])==b'9\n'
+        print('PASS namespaced enum patterns',flush=True)
+
         # Preserve closure-valued tails and existing typed fields during migration.
         source = work/'migration.may'
         source.write_text('struct P { x: Int }\nfun make(n) { fun(x) { x+n } }\nlet f=make(4); print(f(5), P(2).x);')

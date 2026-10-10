@@ -79,11 +79,31 @@ The return analysis accepts both returning branches of an `if` and returning
 `may`/`otherwise` branches. It is conservative about loops: add an explicit
 return after a loop even if it seems endless. Destructuring declarations and
 loop patterns must currently be expanded to individually typed bindings.
-Postfix `?` currently requires an `Any` operand in strict code; `Result<T, E>`
-does not yet connect result propagation to a function's declared error type.
+`Ok(value)` infers `Result<T, Never>` and `Err(error)` infers
+`Result<Never, E>`. Postfix `?` unwraps a typed result's success value and
+propagates failure only from a function returning `Result<U, E>` with a
+compatible error type. Dynamic `Any` propagation remains available.
+Result `.value` and `.error` fields are optional; matching extracts a concrete
+payload without an unchecked access:
+
+```may
+fun describe(value: Result<Int, Str>) -> Str {
+    return match(value) { Ok(n) => str(n), Err(message) => message };
+}
+enum Shape { Empty, Point(x: Int, y: Int) }
+fun size(shape: Shape) -> Int {
+    return match(shape) { Empty() => 0, Point(x, y) => x + y };
+}
+```
+
+Constructor patterns support typed bindings, ignored `_` payloads, guards,
+and imported namespace constructors. Nullary patterns use `Variant()`.
+Enum and Result matches must cover every variant or have an unguarded wildcard;
+guarded arms do not count as complete coverage. Payload bindings can be captured
+by closures and are scoped to their arm.
 Overloaded arithmetic also uses explicit `Any` boundaries until it has static
 contracts. For `Bool` matches, both `true` and `false` cases (or a wildcard)
-are required; other matches may still fail at runtime if no arm matches.
+are required; other open-ended value matches should include a wildcard.
 
 For existing untyped source, `--legacy` disables the new strict pass:
 

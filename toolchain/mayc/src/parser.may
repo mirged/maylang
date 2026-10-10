@@ -338,6 +338,9 @@ fun parse_enum(ctx: Any) -> Any {
         body.statements = 0;
         body.tail = mapn;
         make_func(ctx, vs + SRC, vl, parr, len(parr), body, 0, [], []);
+        FUNC_HEAD[len(FUNC_HEAD) - 1].enumTag = symbol_name(vs + SRC, vl);
+        let fieldNames: Any = []; for parameter: Any in parr { push(fieldNames, symbol_name(parameter.name, parameter.length)); }
+        FUNC_HEAD[len(FUNC_HEAD) - 1].enumFields = fieldNames;
         push(variants, EnumVariant(symbol_name(vs + SRC, vl), parr, FUNC_HEAD[len(FUNC_HEAD) - 1]));
         if (ptok() == TK_COMMA) { adv(); }
     }
@@ -996,12 +999,28 @@ fun parse_match(ctx: Any) -> Any {
         mut pk: Any = 0;
         mut pv: Any = 0;
         mut pn: Any = 0;
+        mut payload: Any = [];
         if (ptok() == TK_IDENT) {
-            let s: Any = pstart() + SRC;
-            let l: Any = plen();
+            mut s: Any = pstart() + SRC;
+            mut l: Any = plen();
             adv();
-            let name: Any = symbol_name(s, l);
-            if (name == "_") {
+            mut name: Any = symbol_name(s, l);
+            while (ptok() == TK_DOT) {
+                adv(); name = name + "::" + slice_src(pstart(), plen()); expect(TK_IDENT);
+                s = addr(name); l = len(name);
+            }
+            if (ptok() == TK_LP) {
+                pk = 3; pv = s; pn = l; adv();
+                while (ptok() != TK_RP) {
+                    let binding: Any = mknode(E_PATTERN);
+                    binding.name = pstart() + SRC; binding.length = plen();
+                    if (slice_src(pstart(), plen()) == "_") { binding.name = 0; binding.length = 0; }
+                    expect(TK_IDENT); push(payload, binding);
+                    if (ptok() != TK_COMMA) { break; }
+                    adv();
+                }
+                expect(TK_RP);
+            } else if (name == "_") {
                 pk = 0;
             } else if (name == "true" or name == "false" or name == "nil") {
                 pk = 1;
@@ -1032,6 +1051,7 @@ fun parse_match(ctx: Any) -> Any {
         arm.length = pn;
         arm.guard = guard;
         arm.body = body;
+        arm.nested = payload;
         arm.next = h;
         h = arm;
         if (ptok() == TK_COMMA) { adv(); }
