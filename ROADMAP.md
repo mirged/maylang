@@ -326,7 +326,7 @@ Workspace-wide pull diagnostics are explicitly not advertised by the current ser
 
 ### Initiative 13. Implement semantic token delta responses in maylsp
 
-**Status:** completed  
+**Status:** completed
 **Initial priority:** P2  
 **GitHub:** [Issue #13](https://github.com/mirged/maylang/issues/13)  
 **Relevant paths:** `toolchain/maylsp/src/features.may`, `toolchain/maylsp/main.may`
@@ -344,7 +344,7 @@ The server negotiates full/delta capabilities, caches result IDs and retains the
 
 ### Initiative 14. Make expensive LSP navigation cancellable and responsive
 
-**Status:** completed  
+**Status:** completed
 **Initial priority:** P2  
 **GitHub:** [Issue #14](https://github.com/mirged/maylang/issues/14)  
 **Relevant paths:** `toolchain/maylsp/src/index.may`, `toolchain/maylsp/src/features.may`, `toolchain/maylsp/src/scheduler.may`
