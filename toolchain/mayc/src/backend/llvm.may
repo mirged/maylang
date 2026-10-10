@@ -171,6 +171,12 @@ fun llvm_builtin(s: Any, name: Any, values: Any, nodes: Any) -> Any {
         return a;
     }
     if (name == "__fsign") { return llvm_op(s, "lshr", a, "63"); }
+    if (name == "__f32") {
+        let wide: Any = llvm_ssa(s, "bitcast i64 ${a} to double", "double");
+        let narrow: Any = llvm_ssa(s, "fptrunc double ${wide} to float", "float");
+        let restored: Any = llvm_ssa(s, "fpext float ${narrow} to double", "double");
+        return llvm_ssa(s, "bitcast double ${restored} to i64", "i64");
+    }
     if (name == "__ftrunc" or name == "__ffrac") {
         mut d: Any = llvm_ssa(s, "bitcast i64 ${a} to double", "double");
         mut whole: Any = llvm_trunc(s,d);

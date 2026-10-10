@@ -138,7 +138,7 @@ fun ir_loop(ctx: Any, node: Any) -> Any {
     ir_label(top);
     let condition: Any = ir_binary(TK_LT, index, count, span);
     ir_emit(IR_FALSE, 0, condition, 0, done, span);
-    let item: Any = ir_runtime("rt_index_get", [iterable, index], span);
+    let item: Any = ir_contract(ctx, ir_runtime("rt_index_get", [iterable, index], span), node.bindingContract, span);
     ir_declare(node.name, node.length, item, 0, span);
     if (node.kind == E_COMP) {
         if (node.condition != 0) { ir_emit(IR_FALSE, 0, ir_node(ctx, node.condition), 0, step, span); }
@@ -151,7 +151,64 @@ fun ir_loop(ctx: Any, node: Any) -> Any {
     return result;
 }
 
+// Numeric bounds and array lengths are enforced at typed value boundaries.
+// Full-runtime Float32 values keep the boxed ABI and round through binary32.
+fun ir_contract(ctx: Any, value: Any, t: Any, span: Any) -> Any {
+    if (t == nil or IR_RAW_MODE == 1) { return value; }
+    if (has(["Int8", "Int16", "Int32", "UInt8", "UInt16", "UInt32", "UInt64"], t.name)) {
+        mut low: Any = 0; mut high: Any = 1152921504606846975;
+        if (t.name == "Int8") { low = -128; high = 127; }
+        if (t.name == "Int16") { low = -32768; high = 32767; }
+        if (t.name == "Int32") { low = -2147483648; high = 2147483647; }
+        if (t.name == "UInt8") { high = 255; }
+        if (t.name == "UInt16") { high = 65535; }
+        if (t.name == "UInt32") { high = 4294967295; }
+        return ir_runtime("rt_int_contract", [value, ir_integer(low, span), ir_integer(high, span)], span);
+    }
+    if (t.name == "Float32") {
+        if (ctx.runtime == "core") { diagnostic(span, "Float32 requires the full runtime"); }
+        return ir_runtime("rt_float32", [value], span);
+    }
+    if (t.name == "Optional") {
+        let result: Any = ir_copy(ir_temp(span), value); let done: Any = newlab(ctx);
+        ir_emit(IR_ISNIL, 0, value, 0, done, span);
+        ir_copy(result, ir_contract(ctx, value, t.arguments[0], span)); ir_label(done); return result;
+    }
+    if (has(["List", "Slice", "Array"], t.name)) {
+        let count: Any = ir_runtime("rt_len", [value], span);
+        if (t.name == "Array") {
+            let valid: Any = newlab(ctx);
+            ir_emit(IR_TRUE, 0, ir_binary(TK_EQ, count, ir_integer(t.arrayLength, span), span), 0, valid, span);
+            ir_runtime("rt_failarith", [ir_operation(E_STRB, {"address": addr("fixed array length mismatch"), "length": 27}, span)], span);
+            ir_label(valid);
+        }
+        let index: Any = ir_integer(0, span); let top: Any = newlab(ctx); let done: Any = newlab(ctx);
+        ir_label(top); ir_emit(IR_FALSE, 0, ir_binary(TK_LT, index, count, span), 0, done, span);
+        let item: Any = ir_runtime("rt_index_get", [value, index], span);
+        let converted: Any = ir_contract(ctx, item, t.arguments[0], span);
+        ir_emit(S_SETIDX, 0, value, index, {"object": value, "index": index, "value": converted}, span);
+        ir_copy(index, ir_binary(TK_PLUS, index, ir_integer(1, span), span)); ir_jump(top); ir_label(done); return value;
+    }
+    if (t.name == "Result") {
+        let key: Any = ir_operation(E_STRB, {"address": addr("ok"), "length": 2}, span);
+        let success: Any = ir_runtime("rt_map_get", [value, key], span);
+        let failure: Any = newlab(ctx); let done: Any = newlab(ctx);
+        ir_emit(IR_FALSE, 0, success, 0, failure, span);
+        let valueKey: Any = ir_operation(E_STRB, {"address": addr("value"), "length": 5}, span);
+        ir_runtime("rt_map_set", [value, valueKey, ir_contract(ctx, ir_runtime("rt_map_get", [value, valueKey], span), t.arguments[0], span)], span);
+        ir_jump(done); ir_label(failure);
+        let errorKey: Any = ir_operation(E_STRB, {"address": addr("error"), "length": 5}, span);
+        ir_runtime("rt_map_set", [value, errorKey, ir_contract(ctx, ir_runtime("rt_map_get", [value, errorKey], span), t.arguments[1], span)], span);
+        ir_label(done); return value;
+    }
+    return value;
+}
+
 fun ir_node(ctx: Any, node: Any) -> Any {
+    let value: Any = ir_node_value(ctx, node);
+    return ir_contract(ctx, value, if (node == 0) { nil } else { node.contract }, if (node == 0) { 0 } else { node.span });
+}
+fun ir_node_value(ctx: Any, node: Any) -> Any {
     if (node == 0) { return ir_nil(0); }
     let kind: Any = node.kind;
     let span: Any = node.span;
@@ -254,6 +311,7 @@ fun ir_node(ctx: Any, node: Any) -> Any {
         if (node.compound != nil and node.compound != 0) { previous = ir_operation(E_INDEX, {"object": object, "index": index}, span); }
         mut value: Any = ir_node(ctx, node.value);
         if (previous != 0) { value = ir_operation(E_BIN, {"op": node.compound, "left": previous, "right": value}, span); }
+        value = ir_contract(ctx, value, node.valueContract, span);
         ir_emit(kind, 0, object, index, {"object": object, "index": index, "value": value}, span);
         return value;
     }
@@ -263,6 +321,7 @@ fun ir_node(ctx: Any, node: Any) -> Any {
         if (node.compound != nil and node.compound != 0) { previous = ir_operation(E_GET, {"object": object, "start": node.start, "length": node.length, "span": span}, span); }
         mut value: Any = ir_node(ctx, node.value);
         if (previous != 0) { value = ir_operation(E_BIN, {"op": node.compound, "left": previous, "right": value}, span); }
+        value = ir_contract(ctx, value, node.valueContract, span);
         ir_emit(kind, 0, object, value, {"object": object, "start": node.start, "length": node.length, "value": value, "span": span}, span);
         return value;
     }

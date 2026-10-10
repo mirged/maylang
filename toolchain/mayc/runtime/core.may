@@ -3,6 +3,7 @@
 // collector, closures, floats, maps, exceptions, or operating-system libraries.
 mut CORE_HP: Any = 0;
 mut CORE_END: Any = 0;
+mut CORE_RETAINED: Any = 0;
 mut STACKTOP: Any = 0;
 fun rt_init() -> Any { return 0; }
 fun rt_gc_root(address: Any) -> Any { return 0; }
@@ -15,9 +16,13 @@ fun rt_alloc(n: Any) -> Any {
     if (CORE_HP + need > CORE_END) {
         mut size: Any = 1048576;
         if (need > size) { size = (need + 4095) / 4096 * 4096; }
+        if (CORE_RETAINED + size > 268435456) {
+            __host_write(addr("core heap limit exceeded\n"), 25); __host_exit(70);
+        }
         CORE_HP = __host_alloc(size);
         if (CORE_HP <= 0) { __host_exit(70); }
         CORE_END = CORE_HP + size;
+        CORE_RETAINED += size;
     }
     let pointer: Any = CORE_HP;
     CORE_HP += need;
@@ -35,6 +40,11 @@ fun rt_write(pointer: Any, count: Any) -> Any {
 fun rt_fail(s: Any) -> Any { rt_write(s + 7, rt_slen(s)); rt_write(addr("\n"), 1); __host_exit(70); return 2; }
 fun rt_failtype(s: Any) -> Any { return rt_fail(s); }
 fun rt_failarith(s: Any) -> Any { return rt_fail(s); }
+fun rt_int_contract(value: Any, low: Any, high: Any) -> Any {
+    if (value % 8 != 0) { return rt_failtype(rt_from(addr("expected an integer"), 19)); }
+    if (value < low or value > high) { return rt_failarith(rt_from(addr("integer outside annotated bounds"), 32)); }
+    return value;
+}
 fun rt_die_uncaught() -> Any { __host_exit(70); return 2; }
 fun rt_copy(d: Any, s: Any, n: Any) -> Any {
     mut i: Any = 0;

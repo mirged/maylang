@@ -91,6 +91,17 @@ fun rt_failarith(s: Any) -> Any {
     return 2;
 }
 
+fun rt_int_contract(value: Any, low: Any, high: Any) -> Any {
+    if (value % 8 != 0) { return rt_failtype(rt_from(addr("expected an integer"), 19)); }
+    if (value < low or value > high) { return rt_failarith(rt_from(addr("integer outside annotated bounds"), 32)); }
+    return value;
+}
+
+fun rt_float32(value: Any) -> Any {
+    if (value % 8 != 6) { return rt_failtype(rt_from(addr("expected a float"), 16)); }
+    return rt_box(__f32(load64(value - 6)));
+}
+
 fun rt_typename(v: Any) -> Any {
     let t: Any = v % 8;
     if (t == 0) { return rt_from(addr("Int"), 3); }
