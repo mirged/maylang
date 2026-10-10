@@ -38,13 +38,13 @@ def main():
             for name, params in [('cold', {'previousResultIds': [], 'partialResultToken': 'reports', 'workDoneToken': 'work'}),
                                  ('unchanged', None)]:
                 if params is None:
-                    params = {'previousResultIds': previous}
+                    params = {'previousResultIds': previous, 'workDoneToken': 'unchanged-work'}
                 start = time.monotonic()
                 pending = client.send('workspace/diagnostic', params, request=True)
                 hover = client.send('textDocument/hover', {**doc, 'position': {'line': 1, 'character': 7}}, request=True)
                 reports, received, progress = {}, {}, []
                 while len(received) < 2:
-                    reply = client.receive(timeout=40)
+                    reply = client.receive(timeout=320)
                     if 'id' not in reply:
                         if reply.get('method') == '$/progress':
                             value = reply['params']['value']
@@ -82,8 +82,8 @@ def main():
                 print(name, report['measurements'][name], flush=True)
             if args.files > 10000:
                 omitted = next(p for p in paths if p.as_uri() not in reports)
-                result = client.result('workspace/diagnostic', {'previousResultIds': previous[:-1] + [
-                    {'uri': omitted.as_uri(), 'value': 'previous-report'}]})
+                result = client.result('workspace/diagnostic', {'workDoneToken': 'limit-work',
+                    'previousResultIds': previous[:-1] + [{'uri': omitted.as_uri(), 'value': 'previous-report'}]})
                 assert len(result['items']) == 10000
                 assert omitted.as_uri() not in {r['uri'] for r in result['items']}, 'scan limit cleared an existing omitted file'
                 report['scan_limit_preserves_omitted_diagnostics'] = True

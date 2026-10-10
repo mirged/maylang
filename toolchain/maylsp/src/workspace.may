@@ -102,12 +102,12 @@ fun ls_workspace_compute(job: Any) -> Any {
     }
     ls_navigation_restore(base);
     // Keep builtin indexes within this worker; other disk indexes and compiler
-    // state are released when it exits after at most eight entry checks.
+    // state are released when it exits after at most 32 entry checks.
     for name: Any in ["prelude.may", "native.may"] {
         let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
         if (builtin != nil) { base[builtin.uri] = builtin; }
     }
-    let end: Any = min(job.offset + 8, len(files));
+    let end: Any = min(job.offset + 32, len(files));
     let documents: Any = {}; let pending: Any = []; let single: Any = {};
     for index: Any in job.offset..end {
         let uri: Any = files[index]; let doc: Any = ls_document(uri); documents[uri] = doc;
@@ -140,7 +140,7 @@ fun ls_workspace_compute(job: Any) -> Any {
             ls_workspace_emit(report, completed, len(files));
         }
     }
-    // Reap and replace the worker after every eight entry checks. This bounds
+    // Reap and replace the worker after every 32 entry checks. This bounds
     // compiler allocations and conservative-GC retention across a long pull.
     if (end < len(files)) { ls_write(ls_json({"resume": end}) + "\n"); return nil; }
     for uri: Any in files { seen[uri] = true; }
