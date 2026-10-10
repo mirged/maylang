@@ -167,6 +167,17 @@ def main():
         record("runtime hash tables and allocation bins", maps.returncode == 0, (maps.stdout + maps.stderr).decode())
         gc = run(["python3", COMPILER / "tests/gc.py", "--compiler", compiler], timeout=180)
         record("GC allocation identity and repeated collections", gc.returncode == 0, (gc.stdout + gc.stderr).decode())
+        libraries = run(["python3", COMPILER / "tests/stdlib_contracts.py", "--compiler", compiler], timeout=180)
+        record("typed standard-library contracts", libraries.returncode == 0, (libraries.stdout + libraries.stderr).decode())
+        processes = run(["python3", COMPILER / "tests/processes.py", "--compiler", compiler], timeout=180)
+        record("process inheritance and exit contracts", processes.returncode == 0, (processes.stdout + processes.stderr).decode())
+        for script, name in [("file_io.py", "complete binary file I/O"),
+                             ("numeric_contracts.py", "numeric bounds and array lengths"),
+                             ("diagnostics.py", "structured diagnostics and recovery"),
+                             ("debug_traces.py", "debug traces and fiber isolation"),
+                             ("fuzz.py", "bounded frontend fuzzing")]:
+            result = run(["python3", COMPILER / "tests" / script, "--compiler", compiler], timeout=180)
+            record(name, result.returncode == 0, (result.stdout + result.stderr).decode())
         if not options.features_only:
             targets(compiler)
     except (RuntimeError, subprocess.TimeoutExpired) as error:
