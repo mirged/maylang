@@ -56,7 +56,7 @@ fun ls_schedule_checks() -> Any {
 }
 fun ls_report_check(uri: Any, previous: Any) -> Any {
     let cached: Any = LS_CHECK_CACHE[uri]; let related: Any = {};
-    let resultId: Any = "document:" + str(LS_INDEX_EPOCH) + ":" + uri;
+    let resultId: Any = "document:" + LS_DIAGNOSTIC_SESSION + ":" + str(LS_INDEX_EPOCH) + ":" + uri;
     if (cached != nil) { for other: Any in keys(cached.seen) { if (other != uri) { related[other] = {"kind": "full", "items": cached.errors[other] ?? []}; } } }
     if (previous == resultId) { return {"kind": "unchanged", "resultId": resultId, "relatedDocuments": related}; }
     return {"kind": "full", "resultId": resultId, "items": cached?.errors[uri] ?? [], "relatedDocuments": related};

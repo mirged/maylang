@@ -22,6 +22,15 @@ mut LS_DIAGNOSTIC_PUBLISH: Any = true;
 mut LS_RECHECK_HOOK: Any = nil;
 mut LS_CHECK_PARTS: Any = [];
 mut LS_CHECK_LENGTH: Any = 0;
+fun ls_diagnostic_session() -> Any {
+    let buffer: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let read: Any = syscall(318, buffer, 16, 0);
+    let nonce: Any = if (read == 16) {
+        str(load32(buffer)) + ":" + str(load32(buffer + 4)) + ":" + str(load32(buffer + 8)) + ":" + str(load32(buffer + 12))
+    } else { str(syscall(39)) + ":" + str(clock()) };
+    syscall(11, buffer, 4096); return nonce;
+}
+let LS_DIAGNOSTIC_SESSION: Any = ls_diagnostic_session();
 fun ls_diag(doc: Any, a: Any, b: Any, message: Any) -> Any {
     return {"range": ls_range(doc.text, a, b), "severity": 1, "source": "maylsp", "message": message};
 }

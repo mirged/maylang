@@ -7,6 +7,35 @@ from pathlib import Path
 from test_lsp import Client
 
 
+def run_diagnostic_restart(binary, work):
+    folder = work / 'diagnostic-restart'
+    folder.mkdir()
+    source = folder / 'main.may'
+    source.write_text('print(1);\n')
+    doc = {'textDocument': {'uri': source.as_uri()}}
+    document_id = None
+    previous = []
+    for iteration in range(2):
+        client = Client(binary)
+        try:
+            client.result('initialize', {'rootUri': folder.as_uri()})
+            document = client.result('textDocument/diagnostic', {**doc, 'previousResultId': document_id})
+            workspace = client.result('workspace/diagnostic', {'previousResultIds': previous})
+            assert document['kind'] == 'full' and workspace['items'][0]['kind'] == 'full'
+            if iteration:
+                assert document['resultId'] != document_id
+                assert workspace['items'][0]['resultId'] != previous[0]['value']
+                assert document['items'] and workspace['items'][0]['items']
+            document_id = document['resultId']
+            previous = [{'uri': source.as_uri(), 'value': workspace['items'][0]['resultId']}]
+            client.stop()
+        finally:
+            if client.process.poll() is None:
+                client.process.kill(); client.process.wait()
+        source.write_text('print(changed_on_disk);\n')
+    print('PASS diagnostic IDs invalidate across server restarts and disk changes', flush=True)
+
+
 def run_workspace_batch_errors(binary, work):
     folder = work / 'workspace-batch-errors'
     folder.mkdir()

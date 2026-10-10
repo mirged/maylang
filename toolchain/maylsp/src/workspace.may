@@ -9,7 +9,6 @@ import "navigation.may";
 mut LS_WORKSPACE_PID: Any = 0;
 mut LS_WORKSPACE_JOB: Any = nil;
 mut LS_WORKSPACE_QUEUE: Any = [];
-mut LS_WORKSPACE_IDS: Any = {};
 mut LS_WORKSPACE_EPOCH: Any = -1;
 mut LS_WORKSPACE_BUFFER: Any = "";
 mut LS_WORKSPACE_BYTES: Any = 0;
@@ -45,7 +44,7 @@ fun ls_workspace_invalidate(code: Any, message: Any) -> Any {
 fun ls_workspace_changed() -> Any {
     if (LS_WORKSPACE_EPOCH != LS_INDEX_EPOCH) {
         ls_workspace_invalidate(-32802, "Workspace changed; retry diagnostic request");
-        LS_WORKSPACE_IDS = {}; LS_WORKSPACE_EPOCH = LS_INDEX_EPOCH;
+        LS_WORKSPACE_EPOCH = LS_INDEX_EPOCH;
     }
     return nil;
 }
@@ -102,18 +101,18 @@ fun ls_workspace_compute(job: Any) -> Any {
         ls_write(ls_json({"files": files}) + "\n");
     }
     ls_navigation_restore(base);
-    // Keep the two builtin indexes across batches; all other unopened indexes
-    // and compiler caches are released after at most 32 entry checks.
+    // Keep builtin indexes within this worker; other disk indexes and compiler
+    // state are released when it exits after at most eight entry checks.
     for name: Any in ["prelude.may", "native.may"] {
         let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
         if (builtin != nil) { base[builtin.uri] = builtin; }
     }
-    let end: Any = min(job.offset + 32, len(files));
+    let end: Any = min(job.offset + 8, len(files));
     let documents: Any = {}; let pending: Any = []; let single: Any = {};
     for index: Any in job.offset..end {
         let uri: Any = files[index]; let doc: Any = ls_document(uri); documents[uri] = doc;
-        let resultId: Any = "workspace:" + str(job.epoch) + ":" + uri;
-        if (doc != nil and (job.previous[uri] != resultId or LS_WORKSPACE_IDS[uri] != resultId)) { push(pending, doc); }
+        let resultId: Any = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
+        if (doc != nil and job.previous[uri] != resultId) { push(pending, doc); }
     }
     mut clean: Any = true;
     if (len(pending) > 0) {
@@ -126,9 +125,9 @@ fun ls_workspace_compute(job: Any) -> Any {
         let uri: Any = files[index]; let doc: Any = documents[uri]; let completed: Any = index + 1;
         if (doc == nil) { ls_workspace_emit({"uri": uri, "version": nil, "kind": "full", "items": []}, completed, len(files)); }
         else {
-            let resultId: Any = "workspace:" + str(job.epoch) + ":" + uri;
+            let resultId: Any = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
             let report: Any = {"uri": uri, "version": doc.version, "kind": "unchanged", "resultId": resultId};
-            if (job.previous[uri] != resultId or LS_WORKSPACE_IDS[uri] != resultId) {
+            if (job.previous[uri] != resultId) {
                 report.kind = "full"; report.items = [];
                 if (has(single, uri)) { report.items = single[uri]; }
                 else if (not clean) {
@@ -141,7 +140,7 @@ fun ls_workspace_compute(job: Any) -> Any {
             ls_workspace_emit(report, completed, len(files));
         }
     }
-    // Reap and replace the worker after every 32 entry checks. This also bounds
+    // Reap and replace the worker after every eight entry checks. This bounds
     // compiler allocations and conservative-GC retention across a long pull.
     if (end < len(files)) { ls_write(ls_json({"resume": end}) + "\n"); return nil; }
     for uri: Any in files { seen[uri] = true; }
@@ -200,8 +199,6 @@ fun ls_workspace_event(event: Any, now: Any) -> Any {
     }
     let item: Any = event.item;
     if (value_tag(item) != 7 or value_tag(item.uri) != 1 or not has(["full", "unchanged"], item.kind)) { fail("Invalid workspace diagnostic worker report"); }
-    if (item.resultId != nil) { LS_WORKSPACE_IDS[item.uri] = item.resultId; }
-    else { LS_WORKSPACE_IDS = remove(LS_WORKSPACE_IDS, item.uri); }
     if (job.params.partialResultToken != nil) { ls_notify("$/progress", {"token": job.params.partialResultToken, "value": {"items": [item]}}); }
     else { push(job.parts, ls_json(item)); }
     if (event.completed % 32 == 0 or event.completed == event.total) {
