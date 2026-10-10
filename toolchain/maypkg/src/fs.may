@@ -5,7 +5,15 @@
 // declared entry point and its import graph instead of walking directories,
 // and emits shell scripts for the steps the language cannot perform itself.
 
-pub fun cwd() -> Any { return env("PWD") ?? "."; }
+pub fun cwd() -> Any {
+    let buffer: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    if (buffer < 0) { fail("cannot allocate current-directory buffer"); }
+    let count: Any = syscall(79, buffer, 4096);
+    if (count <= 0) { syscall(11, buffer, 4096); fail("cannot read current directory"); }
+    mut result: Any = "";
+    for i: Any in 0..count - 1 { result = result + chr(load8(buffer + i)); }
+    syscall(11, buffer, 4096); return result;
+}
 pub fun home() -> Any { return env("HOME") ?? "."; }
 
 pub fun exists(path: Any) -> Any { return file_exists(path); }
@@ -100,17 +108,21 @@ pub fun normpath(p: Any) -> Any {
 /// Directories searched for `import`ed modules, mirroring the compiler:
 /// `$MAYLANG_STDLIB` (colon-separated) wins, otherwise a set of conventional
 /// locations plus the directory of the running executable and `~/.maylang`.
+mut SELECTED_COMPILER: Any = "";
+pub fun use_compiler(path: Any) -> Any { SELECTED_COMPILER = path; return nil; }
+
 pub fun stdlib_dirs() -> Any {
     let envv: Any = env("MAYLANG_STDLIB");
     if (envv != nil && len(trim(envv)) > 0) {
         mut dirs: Any = [];
         for d: Any in split(envv, ":") { if (len(d) > 0) { push(dirs, d); } }
-        return dirs;
+        // Overrides are searched first, followed by the compiler defaults.
+        push(dirs, "stdlib"); return dirs;
     }
     mut dirs: Any = ["stdlib", "../stdlib", "../../stdlib", "../../../stdlib"];
     let h: Any = env("HOME");
     if (h != nil) { push(dirs, join_path(join_path(h, ".maylang"), "stdlib")); }
-    let exe: Any = args()[0] ?? "";
+    let exe: Any = if (len(SELECTED_COMPILER) > 0) { SELECTED_COMPILER } else { args()[0] ?? "" };
     if (len(exe) > 0) {
         mut d: Any = dirname(exe);
         mut i: Any = 0;

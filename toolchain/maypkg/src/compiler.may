@@ -1,0 +1,75 @@
+// Compiler selection, shell arguments and build identity in one place.
+import "fs.may" as fs;
+import "checksum.may" as hash;
+
+pub fun quote(value: Any) -> Any { return "'" + replace(value, "'", "'\"'\"'") + "'"; }
+
+pub fun path(loc: Any) -> Any {
+    let override: Any = env("MAYC") ?? "";
+    let configured: Any = if (loc.m != nil) { loc.m.compiler ?? "" } else { "" };
+    let requested: Any = if (len(override) > 0) { override } else { configured };
+    if (len(requested) > 0 and contains(requested, "/")) {
+        let result: Any = fs.normpath(if (fs.is_abs(requested)) { requested } else { fs.join_path(loc.root, requested) });
+        if (not fs.exists(result)) { fail("compiler does not exist: " + result); }
+        return result;
+    }
+    if (len(requested) == 0) {
+        let adjacent: Any = fs.join_path(fs.dirname(args()[0]), "mayc");
+        if (fs.exists(adjacent)) { return fs.normpath(if (fs.is_abs(adjacent)) { adjacent } else { fs.join_path(fs.cwd(), adjacent) }); }
+    }
+    let name: Any = if (len(requested) > 0) { requested } else { "mayc" };
+    for directory: Any in split(env("PATH") ?? "", ":") {
+        let candidate: Any = fs.join_path(if (directory == "") { fs.cwd() } else { directory }, name);
+        if (fs.exists(candidate)) { return fs.normpath(if (fs.is_abs(candidate)) { candidate } else { fs.join_path(fs.cwd(), candidate) }); }
+    }
+    fail("cannot find " + name + "; set MAYC or the manifest compiler field"); return "";
+}
+
+pub fun options(loc: Any) -> Any {
+    if (loc.m == nil) { return []; }
+    let result: Any = [];
+    if (loc.m.target != "host") { push(result, "--target"); push(result, loc.m.target); }
+    if (loc.m.runtime != "auto") { push(result, "--runtime"); push(result, loc.m.runtime); }
+    push(result, if (loc.m.strict) { "--strict" } else { "--legacy" });
+    for option: Any in loc.m.flags { push(result, option); }
+    return result;
+}
+
+pub fun command(loc: Any, output: Any) -> Any {
+    mut result: Any = quote(path(loc));
+    for option: Any in options(loc) { result = result + " " + quote(option); }
+    return result + " " + quote(loc.entry) + " -o " + quote(output);
+}
+
+fun file_digest(file: Any, scratch: Any) -> Any {
+    // Stream binary inputs without decoding UTF-8 or retaining them in the
+    // language heap. sha256sum also sees bytes beyond read_file's old limit.
+    if (system("sha256sum -- " + quote(file) + " > " + quote(scratch)) != 0) { fail("cannot hash build input: " + file); }
+    return split(trim(read_file(scratch)), " ")[0];
+}
+
+pub fun identity(loc: Any, st: Any) -> Any {
+    let executable: Any = path(loc);
+    let build: Any = fs.join_path(loc.root, "build"); fs.mkdirs(build);
+    let versionFile: Any = fs.join_path(build, "maypkg.compiler-version");
+    let digestFile: Any = fs.join_path(build, "maypkg.input-digest");
+    if (system(quote(executable) + " --version > " + quote(versionFile)) != 0) { fail("cannot query compiler version: " + executable); }
+    let modules: Any = {};
+    for source: Any in st.order { modules[source] = file_digest(source, digestFile); }
+    let sidecars: Any = {};
+    let directory: Any = fs.dirname(executable);
+    let implicit: Any = ["runtime.may", "native.may", "prelude.may", "build/bin/mayc_new"];
+    for name: Any in implicit {
+        let file: Any = fs.join_path(directory, name);
+        if (fs.exists(file)) { sidecars[file] = file_digest(file, digestFile); }
+    }
+    let core: Any = fs.join_path(directory, "runtime");
+    for name: Any in fs.list(core) {
+        if (ends_with(name, ".may")) { let file: Any = fs.join_path(core, name); sidecars[file] = file_digest(file, digestFile); }
+    }
+    return {"schema": 1, "compiler": executable, "version": trim(read_file(versionFile)),
+        "compiler_digest": file_digest(executable, digestFile), "options": options(loc),
+        "entry": loc.entry, "output": if (loc.m != nil) { loc.m.output } else { loc.name },
+        "manifest": hash.digest(fs.read_or(fs.join_path(loc.root, "mayproj.json"), "")),
+        "stdlib": env("MAYLANG_STDLIB") ?? "", "modules": modules, "sidecars": sidecars};
+}

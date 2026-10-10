@@ -169,6 +169,8 @@ pub fun synced(loc: Any, disc: Any) -> Any {
         m.description = existing.description;
         m.authors = existing.authors;
         m.target = existing.target;
+        m.compiler = existing.compiler; m.runtime = existing.runtime;
+        m.strict = existing.strict; m.flags = existing.flags;
         m.output = existing.output;
     }
     m.entry = rel_to(loc.root, loc.entry);

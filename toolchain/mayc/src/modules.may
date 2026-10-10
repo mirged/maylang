@@ -32,6 +32,15 @@ fun module_path(path: Any) -> Any {
 }
 
 fun module_file(path: Any) -> Any {
+    if (starts_with(path, "stdlib/")) {
+        let configured: Any = env("MAYLANG_STDLIB") ?? "";
+        for directory: Any in split(configured, ":") {
+            if (directory != "") {
+                let candidate: Any = directory + "/" + substring(path, 7, len(path) - 7);
+                if (file_ok(addr(candidate)) == 1) { return module_path(candidate); }
+            }
+        }
+    }
     if (starts_with(path, "stdlib/") and file_ok(addr(path)) == 0) {
         // Find an installed sidecar or the checkout containing this compiler.
         let buffer: Any = irt_alloc(4096);
