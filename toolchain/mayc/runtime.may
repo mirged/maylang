@@ -1804,12 +1804,21 @@ fun rt_read_file(p: Any) -> Any {
     let path: Any = rt_cstr(p) / 8;
     let fd: Any = syscall(2, path, 0, 0);
     if (fd < 0) { return rt_failstr(rt_from(addr("cannot read file"), 15)); }
-    let b: Any = rt_alloc(1048576);
+    mut capacity: Any = 65536;
+    mut b: Any = rt_alloc(capacity);
     mut off: Any = 0;
     mut r: Any = 1;
     while (r > 0) {
-        r = syscall(0, fd, b + off, 1048576 - off);
-        if (r > 0) { off = off + r; }
+        r = syscall(0, fd, b + off, capacity - off);
+        if (r == 0 - 4) { r = 1; continue; }
+        if (r < 0) { syscall(3, fd); return rt_failstr(rt_from(addr("cannot read file"), 15)); }
+        if (r > 0) {
+            off = off + r;
+            if (off == capacity) {
+                let next: Any = rt_alloc(capacity * 2);
+                rt_copy(next, b, off); b = next; capacity = capacity * 2;
+            }
+        }
     }
     syscall(3, fd);
     return rt_from(b, off);
@@ -1819,7 +1828,14 @@ fun rt_write_file(p: Any, data: Any) -> Any {
     let path: Any = rt_cstr(p) / 8;
     let fd: Any = syscall(2, path, 577, 420);
     if (fd < 0) { return rt_failstr(rt_from(addr("cannot write file"), 17)); }
-    syscall(1, fd, data + 7, rt_slen(data));
+    mut offset: Any = 0;
+    let count: Any = rt_slen(data);
+    while (offset < count) {
+        let written: Any = syscall(1, fd, data + 7 + offset, count - offset);
+        if (written == 0 - 4) { continue; }
+        if (written <= 0) { syscall(3, fd); return rt_failstr(rt_from(addr("cannot write file"), 17)); }
+        offset += written;
+    }
     syscall(3, fd);
     return 2;
 }
@@ -1923,14 +1939,14 @@ fun rt_system(cmd: Any) -> Any {
     store64(argv + 16, rt_cstr(cmd) / 8);
     store64(argv + 24, 0);
     let pid: Any = syscall(57);
+    if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
     if (pid == 0) {
-        syscall(59, sh, argv, 0);
+        mut envp: Any = INITIAL_ENVP;
+        if (envp == 0) { envp = STACKTOP + (load64(STACKTOP) + 2) * 8; }
+        syscall(59, sh, argv, envp);
         syscall(60, 127);
     }
-    let st: Any = rt_alloc(8);
-    syscall(61, pid, st, 0, 0);
-    let status: Any = load32(st);
-    return ((status / 256) % 256) * 8;
+    return rt_wait(pid * 8);
 }
 
 // Fork + execve a list of strings with the inherited environment; returns the child pid.
