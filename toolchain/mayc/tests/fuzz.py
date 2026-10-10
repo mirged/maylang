@@ -3,6 +3,7 @@
 import argparse
 import json
 import random
+import resource
 import subprocess
 import tempfile
 from pathlib import Path
@@ -17,6 +18,11 @@ TEMPLATES=[
 TOKENS=[';', '{', '}', '(', ')', '[', ']', '<', '>', '?', '"', '/*', '*/', '\n', '🙂', '\x00', 'return', 'import "missing";']
 
 
+def resource_limits():
+    resource.setrlimit(resource.RLIMIT_AS, (1024*1024*1024, 1024*1024*1024))
+    resource.setrlimit(resource.RLIMIT_CPU, (5, 6))
+
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--compiler',type=Path,default=ROOT/'toolchain/mayc/mayc_new');parser.add_argument('--seed',type=int,default=731);parser.add_argument('--cases',type=int,default=48);args=parser.parse_args()
     rng=random.Random(args.seed)
@@ -25,7 +31,7 @@ def main():
         def check(text):
             source.write_text(text)
             try:
-                result=subprocess.run([str(args.compiler.resolve()),'--check',str(source)],capture_output=True,timeout=5)
+                result=subprocess.run([str(args.compiler.resolve()),'--check',str(source)],capture_output=True,timeout=5,preexec_fn=resource_limits)
                 return result.returncode in (0,1),result.returncode,result.stderr.decode(errors='replace')
             except subprocess.TimeoutExpired:
                 return False,'timeout','frontend exceeded five seconds'
@@ -56,7 +62,22 @@ def main():
         (work/'a.may').write_text('import "b";\nfun a() -> Int { return 1; }')
         (work/'b.may').write_text('import "./a.may";\nfun b() -> Int { return 2; }')
         assert check('import "a";\nimport "./a.may";\nprint(a());')[0]
-        print(f'PASS {args.cases} seeded frontend mutations and cyclic/alternate import identities (seed {args.seed})')
+        for case in range(8):
+            for index in range(4):
+                imports = []
+                for edge in range(rng.randrange(4)):
+                    target = rng.randrange(4)
+                    name = rng.choice([f'm{target}', f'./m{target}.may', f'./nested/../m{target}.may'])
+                    imports.append(f'import "{name}" as edge{edge};')
+                (work/f'm{index}.may').write_text('\n'.join(imports)+f'\npub fun value{index}() -> Int {{ return {index}; }}')
+            ok, status, message = check('import "m0";\nprint(42);')
+            if not ok:
+                artifacts = ROOT/f'tests/compliance/build/fuzz/seed-{args.seed}-graph-{case}'
+                artifacts.mkdir(parents=True, exist_ok=True)
+                for module in work.glob('*.may'): (artifacts/module.name).write_bytes(module.read_bytes())
+                (artifacts/'failure.json').write_text(json.dumps({'seed':args.seed,'case':case,'token_cases':args.cases,'status':status,'stderr':message},indent=2)+'\n')
+                raise AssertionError(f'import graph failure; saved reproduction: {artifacts}')
+        print(f'PASS {args.cases} seeded frontend mutations and cyclic/alternate/mutated import graphs (seed {args.seed})')
 
 
 if __name__=='__main__':main()
