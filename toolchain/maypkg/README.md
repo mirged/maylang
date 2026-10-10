@@ -111,6 +111,8 @@ record even when publication fails. Generated scripts use the same selected
 compiler and shell-quote paths and arguments, including spaces and apostrophes.
 `dev` watches source, compiler and configuration changes. `run -- --flag value`
 passes flag arguments to the application.
+The watcher snapshots inputs before running, so edits during the first run are
+detected. A failed compilation never runs the previous executable.
 
 ## Manifest
 
@@ -143,6 +145,9 @@ Compiler selection is `$MAYC`, manifest `compiler`, an adjacent `mayc`, then
 Library lookup uses `$MAYLANG_STDLIB`, project `stdlib`, then directories beside
 and above the selected compiler. `sync` preserves compiler configuration.
 `output` is relative to the project root; place it under `build/` when desired.
+Outputs cannot replace source files or project metadata, or escape the project.
+`new` refuses nonempty directories. `clean --dry-run` lists generated files
+without modifying them; cleanup preserves other files in `build/`.
 
 ## Modules
 
@@ -167,8 +172,9 @@ python3 toolchain/maypkg/tests/test_workflows.py --binary toolchain/maypkg/build
 ```
 
 It verifies compiler selection, quoting, source/dependency/configuration changes,
-failed-build recovery and atomic state publication. Broader watcher and cleanup
-coverage remains tracked in [issue #18](https://github.com/mirged/maylang/issues/18).
+failed-build recovery and atomic state publication, then runs isolated command,
+import/cycle/orphan, ancestor-discovery and cleanup tests. Native and generated
+watchers run with bounded subprocess timeouts and process-group shutdown checks.
 
 maypkg uses the native primitives `read_dir`, `mkdir`, `exec`, `wait`, `system`
 and `sleep`. `build`/`run`/`dev` require a usable `mayc`, a POSIX shell and

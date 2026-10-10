@@ -45,7 +45,8 @@ from this implementation's commits.
 - Complete reproducible toolchain archives, installed-tool verification,
   a packaged VS Code extension and a fully typed maintained textstats CLI.
 - Bounded seeded parser mutations with minimized failure artifacts; CI gates
-  the compiler, libraries, core targets, project manager, LSP and release bundle.
+  the compiler, libraries, native core, project manager, LSP and release bundle.
+  Cross-target emulation runs in a separate optional job.
 
 ## Verified locally
 
@@ -67,6 +68,23 @@ On Linux x86-64, 2026-10-10:
   The VS Code extension compiles and packages as a VSIX.
 - Seed 731 passes 48 frontend mutations plus cyclic/alternate import paths.
   A real ecosystem workload runs 5000 generations successfully.
+
+## Project workflow follow-up
+
+[PR #22](https://github.com/mirged/maylang/pull/22) completes issues #3 and #18.
+On Linux x86-64, 2026-10-11, the combined maypkg suite passes isolated command,
+import/cycle/orphan, ancestor-discovery, quoted-path, native/generated watcher,
+failed-build recovery, process-group shutdown and cleanup-preservation checks.
+The watcher records inputs before its first run; output paths cannot replace
+sources/metadata or escape the project, and `new` refuses nonempty directories.
+
+The benchmark passes current-only and baseline-comparison modes, checking
+program output and executing rebuilt compilers. CI keeps cross-target emulation
+optional and runs performance measurements only on manual workflow dispatch;
+both consume checksummed artifacts from the required bootstrap job. Performance
+reports include samples, compiler/sidecar hashes and image sizes, without a
+timing threshold. Branch protection settings remain the repository owner's
+choice; optional jobs use `continue-on-error` independently of required checks.
 
 ## Remaining limits
 

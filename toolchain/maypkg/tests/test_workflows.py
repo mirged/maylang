@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -139,6 +140,8 @@ out.chmod(0o755)
         result = subprocess.run([str(executable), str(target), str(payload)], capture_output=True, timeout=30)
         assert result.returncode != 0 and target.is_dir() and not list(work.glob('published.json.tmp.*')), result
         print('PASS atomic build-state publication, concurrent readers and failed-rename cleanup')
+    subprocess.run([sys.executable, str(Path(__file__).with_name('test_commands.py')),
+                    '--binary', str(binary)], check=True, timeout=150)
 
 
 if __name__ == '__main__':

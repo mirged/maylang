@@ -29,8 +29,22 @@ fun target_of(loc: Any) -> Any {
 }
 
 fun output_of(loc: Any) -> Any {
-    if (has_manifest(loc) && len(loc.m.output) > 0) { return loc.m.output; }
-    return loc.name;
+    let raw: Any = if (has_manifest(loc) && len(loc.m.output) > 0) { loc.m.output } else { loc.name };
+    let out: Any = fs.normpath(raw);
+    if (fs.is_abs(raw) || out == "." || out == ".." || starts_with(out, "../")) {
+        print("maypkg: output must be a file inside the project: ${raw}"); exit(1);
+    }
+    let protected: Any = [manifest.filename(), manifest.lockfile(), "build/maypkg.build.sh",
+        "build/maypkg.run.sh", "build/maypkg.dev.sh", "build/maypkg.plan.txt",
+        "build/maypkg.state.json", "build/maypkg.compiler-version", "build/maypkg.input-digest",
+        ".maypkg.dev.stamp"];
+    if (ends_with(out, ".may") || fs.normpath(fs.join_path(loc.root, out)) == fs.normpath(loc.entry)) {
+        print("maypkg: output would replace a source file: ${raw}"); exit(1);
+    }
+    for path: Any in protected {
+        if (out == path) { print("maypkg: output would replace project metadata: ${raw}"); exit(1); }
+    }
+    return out;
 }
 
 fun require_project() -> Any {
@@ -105,6 +119,9 @@ pub fun cmd_new(opts: Any) -> Any {
     }
     let dir: Any = opts[0];
     let name: Any = if (len(opts) > 1) { opts[1] } else { fs.basename(dir) };
+    if (fs.exists(dir) && len(fs.list(dir)) > 0) {
+        print("maypkg: refusing to overwrite nonempty directory: ${dir}"); exit(1);
+    }
     fs.mkdirs(dir);
     let m: Any = manifest.default(name);
     m.entry = "main.may";
@@ -598,8 +615,8 @@ pub fun cmd_dev(opts: Any) -> Any {
     print("  sources  ${len(disc.local)} local, ${len(disc.stdlib)} stdlib");
     print("  watching for changes; Ctrl-C to stop");
     print("");
-    run_entry(loc);
     mut last: Any = json_stringify(compiler.identity(loc, graph.build(loc.entry)));
+    run_entry(loc);
     while (true) {
         sleep(400);
         loc = require_project(); fs.use_compiler(compiler.path(loc), loc.root);
@@ -679,7 +696,8 @@ pub fun cmd_clean(opts: Any) -> Any {
         for p: Any in present { print("    ${p}"); }
         return nil;
     }
-    system("rm -f " + join(quoted, " "));
+    let rc: Any = system("rm -f -- " + join(quoted, " "));
+    if (rc != 0) { print("maypkg: cleanup failed"); exit(rc); }
     print("  removed ${len(present)} generated file(s)");
     return nil;
 }
