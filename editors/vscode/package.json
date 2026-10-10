@@ -1,16 +1,16 @@
 {
   "name": "maylang",
   "displayName": "Maylang",
-  "description": "Maylang language support: syntax highlighting and the maylang-lsp language server.",
+  "description": "Maylang language support: syntax highlighting and the maylsp language server.",
   "version": "0.1.0",
   "publisher": "maylang",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://example.invalid/maylang"
+    "url": "https://github.com/mirged/maylang"
   },
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.82.0"
   },
   "categories": ["Programming Languages"],
   "keywords": ["maylang", "lsp", "language-server"],
@@ -48,8 +48,8 @@
         },
         "maylang.serverPath": {
           "type": "string",
-          "default": "maylang-lsp",
-          "description": "Path to the maylang-lsp executable (found on PATH by default)."
+          "default": "maylsp",
+          "description": "Path to the maylsp executable (found on PATH by default)."
         },
         "maylang.trace.server": {
           "type": "string",

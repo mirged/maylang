@@ -23,8 +23,8 @@ Point the extension at the resulting binary in your VS Code settings:
 ```
 
 See [the server README](../../toolchain/maylsp/README.md) for the complete
-feature list and standard library configuration. The default command remains
-`maylang-lsp` for users who already installed a server under that name.
+feature list and standard library configuration. The default command is `maylsp`, matching the installed toolchain bundle.
+Existing installations under another name can use `maylang.serverPath`.
 
 ## Run the extension from source
 
@@ -41,7 +41,7 @@ an Extension Development Host with `.may` files supported.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `maylang.serverPath` | `maylang-lsp` | Path to the `maylang-lsp` executable. |
+| `maylang.serverPath` | `maylsp` | Path to the `maylsp` executable. |
 | `maylang.strict` | `true` | Require explicit types and returns; disable for legacy source. |
 | `maylang.trace.server` | `off` | Trace JSON-RPC traffic (`off`/`messages`/`verbose`). |
 

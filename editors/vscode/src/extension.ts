@@ -17,8 +17,8 @@ let client: LanguageClient | undefined;
 function serverCommand(): string {
   const configured = workspace
     .getConfiguration("maylang")
-    .get<string>("serverPath", "maylang-lsp");
-  return configured && configured.length > 0 ? configured : "maylang-lsp";
+    .get<string>("serverPath", "maylsp");
+  return configured && configured.length > 0 ? configured : "maylsp";
 }
 
 export function activate(context: ExtensionContext): void {

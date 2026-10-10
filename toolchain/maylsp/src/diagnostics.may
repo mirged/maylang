@@ -63,7 +63,7 @@ fun ls_diagnostics(doc: Any) -> Any {
     ARENAP = LS_ARENA_BASE;
     FUNC_HEAD = []; FOREIGN_DECLS = [];
     IN_FUN = 0; RUNTIME_BODY = 0; MAINBODY = 0; PARSE_RAW = 0; DYNMODE = 1;
-    DIAGNOSTIC_SPAN = 0; SOURCE_FILES = {}; MODULE_PUBLIC = {}; MODULE_EXPLICIT = {}; MODULE_IMPORTS = {};
+    DIAGNOSTIC_SPAN = 0; DIAGNOSTICS = []; SOURCE_FILES = {}; MODULE_PUBLIC = {}; MODULE_EXPLICIT = {}; MODULE_IMPORTS = {};
     SEM_LOOPS = 0;
     LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_LENGTH = 0; LS_CHECK_ORIGINS = []; LS_CHECK_SEEN = {}; LS_CHECK_ERRORS = {};
     let ctx: Any = emitter_new(0);
@@ -77,18 +77,27 @@ fun ls_diagnostics(doc: Any) -> Any {
             LS_CHECK_TEXT = ls_join(LS_CHECK_PARTS, "");
             SRC = addr(LS_CHECK_TEXT); SRCLEN = ls_bytes(LS_CHECK_TEXT);
             SOURCE_FILES[SRC] = SourceFile(doc.path, LS_CHECK_ORIGINS);
-            lex_all(); parse_program(ctx); strict_program(ctx); sem_program();
+            DIAGNOSTIC_STAGE = "lex"; lex_all(); DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
+            DIAGNOSTIC_STAGE = "type"; strict_program(ctx); DIAGNOSTIC_STAGE = "name"; sem_program();
         }
     } otherwise {
-        let span: Any = DIAGNOSTIC_SPAN;
+        if (len(DIAGNOSTICS) == 0) { collect_diagnostic(err.message); }
+        for record: Any in DIAGNOSTICS {
+        let span: Any = record.span ?? 0;
         mut origin: Any = nil;
         if (span != 0) {
             for candidate: Any in LS_CHECK_ORIGINS { if (candidate.start <= span.start) { origin = candidate; } else { break; } }
         }
         if (origin != nil) {
             let bad: Any = ls_document(origin.uri); let offset: Any = min(ls_bytes(bad.text), max(0, span.start - origin.start));
-            LS_CHECK_ERRORS[bad.uri] = [ls_diag(bad, offset, min(ls_bytes(bad.text), offset + max(1, span.length)), err.message)];
-        } else { LS_CHECK_ERRORS[doc.uri] = [ls_diag(doc, 0, 0, err.message)]; }
+            if (not has(LS_CHECK_ERRORS, bad.uri)) { LS_CHECK_ERRORS[bad.uri] = []; }
+            let item: Any = ls_diag(bad, offset, min(ls_bytes(bad.text), offset + max(1, span.length)), record.message);
+            item.code = record.code; push(LS_CHECK_ERRORS[bad.uri], item);
+        } else {
+            if (not has(LS_CHECK_ERRORS, doc.uri)) { LS_CHECK_ERRORS[doc.uri] = []; }
+            push(LS_CHECK_ERRORS[doc.uri], ls_diag(doc, 0, 0, record.message));
+        }
+        }
     }
     emitter_release(ctx);
     // Every open buffer in this dependency closure gets a fresh result.
@@ -103,7 +112,7 @@ fun ls_diagnostics(doc: Any) -> Any {
     // Release AST roots; the raw compiler scratch arena is reused next time.
     SRC = 0; TOKS = []; NTOKS = 0; FUNC_HEAD = []; MAINBODY = 0; PROGRAM_AST = 0;
     DECLARATIONS = []; STRUCT_DECLS = []; ENUM_DECLS = []; SEM_SCOPES = []; SEM_FUNCTIONS = {}; SOURCE_FILES = {};
-    LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_ORIGINS = [];
+    LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_ORIGINS = []; DIAGNOSTICS = []; DIAGNOSTIC_SPAN = 0;
     return nil;
 }
 fun ls_pull_diagnostics(doc: Any) -> Any {
