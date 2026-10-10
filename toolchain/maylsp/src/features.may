@@ -257,6 +257,7 @@ fun ls_inlay(doc: Any, p: Any) -> Any {
     }
     return out;
 }
+mut LS_SEMANTIC_ID: Any = 0;
 fun ls_semantic(doc: Any, requested: Any) -> Any {
     if (requested == nil and doc.semanticEpoch == LS_INDEX_EPOCH and doc.semanticCache != nil) { return doc.semanticCache; }
     let tokens: Any = [];
@@ -304,8 +305,31 @@ fun ls_semantic(doc: Any, requested: Any) -> Any {
         }
     }
     let result: Any = {"data": data};
-    if (requested == nil) { doc.semanticCache = result; doc.semanticEpoch = LS_INDEX_EPOCH; }
+    if (requested == nil) {
+        LS_SEMANTIC_ID += 1; result.resultId = str(LS_SEMANTIC_ID);
+        let history: Any = doc.semanticHistory ?? [];
+        doc.semanticHistory = if (len(history) > 0) { [history[len(history) - 1], result] } else { [result] };
+        doc.semanticCache = result; doc.semanticEpoch = LS_INDEX_EPOCH;
+    }
     return result;
+}
+fun ls_semantic_delta(doc: Any, previous: Any) -> Any {
+    if (value_tag(previous) != 1) { fail("previousResultId must be a string"); }
+    mut before: Any = nil;
+    for snapshot: Any in doc.semanticHistory ?? [] {
+        if (snapshot.resultId == previous) { before = snapshot.data; }
+    }
+    let current: Any = ls_semantic(doc, nil);
+    if (before == nil) { return current; }
+    let after: Any = current.data; mut start: Any = 0;
+    while (start < len(before) and start < len(after) and before[start] == after[start]) { start += 1; }
+    mut oldEnd: Any = len(before); mut newEnd: Any = len(after);
+    while (oldEnd > start and newEnd > start and before[oldEnd - 1] == after[newEnd - 1]) { oldEnd -= 1; newEnd -= 1; }
+    let edits: Any = [];
+    if (oldEnd != start or newEnd != start) {
+        push(edits, {"start": start, "deleteCount": oldEnd - start, "data": slice(after, start, newEnd)});
+    }
+    return {"resultId": current.resultId, "edits": edits};
 }
 fun ls_format(doc: Any, options: Any) -> Any {
     let size: Any = options.tabSize ?? 4; let spaces: Any = options.insertSpaces ?? true;

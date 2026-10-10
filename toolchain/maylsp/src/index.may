@@ -353,6 +353,7 @@ fun ls_set_document(uri: Any, text: Any, version: Any) -> Any {
     LS_INDEX_EPOCH += 1;
     let key: Any = ls_uri(ls_path(uri));
     let doc: Any = {"uri": key, "path": ls_path(key), "text": text, "version": version, "open": true};
+    if (LS_DOCS[key]?.open) { doc.semanticHistory = LS_DOCS[key].semanticHistory; }
     LS_DOCS[key] = doc; ls_index(doc); return doc;
 }
 fun ls_import_doc(doc: Any, imp: Any) -> Any {

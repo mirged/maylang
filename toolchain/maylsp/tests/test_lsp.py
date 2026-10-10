@@ -637,6 +637,63 @@ def run_strict_checks(binary, work):
             client.process.wait()
 
 
+def run_semantic_deltas(binary, work):
+    folder = work / "semantic-deltas"; folder.mkdir()
+    path = folder / "main.may"; path.write_text("")
+    doc = {"textDocument": {"uri": path.as_uri()}}
+    client = Client(binary)
+    try:
+        caps = client.result("initialize", {"rootUri": folder.as_uri(), "capabilities": {
+            "textDocument": {"semanticTokens": {"requests": {"full": {"delta": True}}}}}})["capabilities"]
+        assert caps["semanticTokensProvider"]["full"] == {"delta": True}
+        client.send("textDocument/didOpen", {"textDocument": {
+            "uri": path.as_uri(), "text": "", "version": 1, "languageId": "maylang"}})
+        previous = client.result("textDocument/semanticTokens/full", doc)
+        assert previous["data"] == [] and isinstance(previous["resultId"], str)
+        assert client.result("textDocument/semanticTokens/full", doc) == previous
+        original_id = previous["resultId"]
+        for version, text in enumerate([
+                'let text = "éλ🙂";\nprint(text);\n',
+                '// 🙂\nlet text = "éλ🙂";\nprint(text);\n',
+                '// 🙂\nlet text = "éλ🙂";\n', '', 'let number = 1;\n'], 2):
+            client.send("textDocument/didChange", {"textDocument": {
+                "uri": path.as_uri(), "version": version}, "contentChanges": [{"text": text}]})
+            delta = client.result("textDocument/semanticTokens/full/delta", {
+                **doc, "previousResultId": previous["resultId"]})
+            assert "edits" in delta and delta["resultId"] != previous["resultId"], delta
+            rebuilt = previous["data"][:]
+            for edit in sorted(delta["edits"], key=lambda e: e["start"], reverse=True):
+                rebuilt[edit["start"]:edit["start"]+edit["deleteCount"]] = edit.get("data", [])
+            full = client.result("textDocument/semanticTokens/full", doc)
+            assert rebuilt == full["data"] and delta["resultId"] == full["resultId"]
+            assert len(rebuilt) % 5 == 0
+            if version == 2:
+                # String token length uses UTF-16, including the surrogate pair.
+                assert any(rebuilt[i+2:i+4] == [6, 1] for i in range(0, len(rebuilt), 5)), rebuilt
+            previous = full
+        unchanged = client.result("textDocument/semanticTokens/full/delta", {
+            **doc, "previousResultId": previous["resultId"]})
+        assert unchanged == {"resultId": previous["resultId"], "edits": []}
+        for invalid in ("unknown", original_id):
+            fallback = client.result("textDocument/semanticTokens/full/delta", {**doc, "previousResultId": invalid})
+            assert fallback == previous, fallback
+        assert client.request("textDocument/semanticTokens/full/delta", {**doc, "previousResultId": 42})["error"]["code"] == -32602
+        # IDs are scoped to their document and cannot survive a close/reopen.
+        other = folder / "other.may"; other.write_text('print(1);\n')
+        remote = {"textDocument": {"uri": other.as_uri()}}
+        assert "data" in client.result("textDocument/semanticTokens/full/delta", {**remote, "previousResultId": previous["resultId"]})
+        client.send("textDocument/didClose", doc)
+        client.send("textDocument/didOpen", {"textDocument": {
+            "uri": path.as_uri(), "text": 'print(2);\n', "version": 1, "languageId": "maylang"}})
+        fallback = client.result("textDocument/semanticTokens/full/delta", {**doc, "previousResultId": previous["resultId"]})
+        assert "data" in fallback and fallback["resultId"] != previous["resultId"]
+        client.stop()
+        print("PASS semantic delta negotiation, replay, insertion/deletion, UTF-16, ID eviction and close/reopen", flush=True)
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path)
@@ -648,6 +705,7 @@ def main():
         if args.binary is None:
             subprocess.run([str(args.compiler), str(ROOT / "toolchain/maylsp/main.may"), "-o", str(binary)], cwd=ROOT, check=True, timeout=120)
         run_strict_checks(binary, work)
+        run_semantic_deltas(binary, work)
         run(binary, work)
         run_documentation(binary, work)
         run_inlay_types(binary, work)
