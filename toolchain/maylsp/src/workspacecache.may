@@ -1,0 +1,58 @@
+import "text.may";
+import "index.may";
+
+// Encoded full reports live outside the collected object heap. Fixed storage
+// and a low-load hash index bound cache size without fragmenting worker heaps.
+let LS_WORKSPACE_CACHE_DATA: Any = syscall(9, 0, 16777216, 3, 34, -1, 0);
+let LS_WORKSPACE_CACHE_INDEX: Any = syscall(9, 0, 524288, 3, 34, -1, 0);
+mut LS_WORKSPACE_CACHE_CURSOR: Any = 0;
+mut LS_WORKSPACE_CACHE_COUNT: Any = 0;
+mut LS_WORKSPACE_CACHE_EPOCH: Any = -1;
+
+fun ls_workspace_cache_reset() -> Any {
+    if (LS_WORKSPACE_CACHE_EPOCH == LS_INDEX_EPOCH) { return nil; }
+    if (syscall(28, LS_WORKSPACE_CACHE_INDEX, 524288, 4) < 0) {
+        mut i: Any = 0;
+        while (i < 32768) { store64(LS_WORKSPACE_CACHE_INDEX + i * 16, 0); i += 1; }
+    }
+    syscall(28, LS_WORKSPACE_CACHE_DATA, 16777216, 4);
+    LS_WORKSPACE_CACHE_CURSOR = 0; LS_WORKSPACE_CACHE_COUNT = 0;
+    LS_WORKSPACE_CACHE_EPOCH = LS_INDEX_EPOCH; return nil;
+}
+fun ls_workspace_cache_slot(uri: Any) -> Any {
+    mut hash: Any = 5381; mut i: Any = 0;
+    while (i < ls_bytes(uri)) { hash = (hash * 131 + ls_byte(uri, i)) % 32768; i += 1; }
+    mut probes: Any = 0;
+    while (probes < 32768) {
+        let slot: Any = LS_WORKSPACE_CACHE_INDEX + hash * 16;
+        let offset: Any = load64(slot);
+        if (offset == 0) { return slot; }
+        if (load32(slot + 8) == ls_bytes(uri)) {
+            i = 0;
+            while (i < ls_bytes(uri) and load8(LS_WORKSPACE_CACHE_DATA + offset - 1 + i) == ls_byte(uri, i)) { i += 1; }
+            if (i == ls_bytes(uri)) { return slot; }
+        }
+        hash = (hash + 1) % 32768; probes += 1;
+    }
+    return nil;
+}
+fun ls_workspace_cache_get(uri: Any) -> Any {
+    if (LS_WORKSPACE_CACHE_EPOCH != LS_INDEX_EPOCH) { return nil; }
+    let slot: Any = ls_workspace_cache_slot(uri);
+    if (slot == nil or load64(slot) == 0) { return nil; }
+    return ls_text(LS_WORKSPACE_CACHE_DATA + load64(slot) - 1 + load32(slot + 8), load32(slot + 12));
+}
+fun ls_workspace_cache_put(uri: Any, row: Any) -> Any {
+    let slot: Any = ls_workspace_cache_slot(uri);
+    if (slot == nil or load64(slot) != 0 or LS_WORKSPACE_CACHE_COUNT >= 10000) { return nil; }
+    let size: Any = ls_bytes(uri) + ls_bytes(row);
+    if (LS_WORKSPACE_CACHE_CURSOR + size > 16777216) { return nil; }
+    let pointer: Any = LS_WORKSPACE_CACHE_DATA + LS_WORKSPACE_CACHE_CURSOR;
+    mut i: Any = 0;
+    while (i < ls_bytes(uri)) { store8(pointer + i, ls_byte(uri, i)); i += 1; }
+    i = 0;
+    while (i < ls_bytes(row)) { store8(pointer + ls_bytes(uri) + i, ls_byte(row, i)); i += 1; }
+    store32(slot + 8, ls_bytes(uri)); store32(slot + 12, ls_bytes(row));
+    store64(slot, LS_WORKSPACE_CACHE_CURSOR + 1);
+    LS_WORKSPACE_CACHE_CURSOR += size; LS_WORKSPACE_CACHE_COUNT += 1; return nil;
+}

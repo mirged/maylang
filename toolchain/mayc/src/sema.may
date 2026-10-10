@@ -18,11 +18,19 @@ mut SYMBOL_CACHE: Any = 0;
 mut SYMBOL_CAPACITY: Any = 0;
 mut SYMBOL_STRINGS: Any = [];
 
+fun symbol_cache_release() -> Any {
+    if (SYMBOL_CACHE != 0) { syscall(11, SYMBOL_CACHE, SYMBOL_CAPACITY * 24); }
+    SYMBOL_CACHE = 0; SYMBOL_CAPACITY = 0; SYMBOL_STRINGS = []; return 0;
+}
+
 fun symbol_cache_grow() -> Any {
     let previous: Any = SYMBOL_CACHE;
     let capacity: Any = SYMBOL_CAPACITY;
     SYMBOL_CAPACITY = if (capacity == 0) { 65536 } else { capacity * 2 };
-    SYMBOL_CACHE = irt_alloc(SYMBOL_CAPACITY * 24);
+    // Own a fresh zeroed mapping rather than probing reused scratch-arena
+    // bytes. Compiler hosts release this table between independent checks.
+    SYMBOL_CACHE = syscall(9, 0, SYMBOL_CAPACITY * 24, 3, 34, -1, 0);
+    if (SYMBOL_CACHE < 0) { fail("Cannot allocate compiler symbol cache"); }
     for index: Any in 0..capacity {
         let entry: Any = previous + index * 24;
         if (load64(entry + 16) != 0) {
@@ -33,6 +41,7 @@ fun symbol_cache_grow() -> Any {
             store64(target, pointer); store64(target + 8, length); store64(target + 16, load64(entry + 16));
         }
     }
+    if (previous != 0) { syscall(11, previous, capacity * 24); }
     return 0;
 }
 

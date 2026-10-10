@@ -22,6 +22,15 @@ mut LS_DIAGNOSTIC_PUBLISH: Any = true;
 mut LS_RECHECK_HOOK: Any = nil;
 mut LS_CHECK_PARTS: Any = [];
 mut LS_CHECK_LENGTH: Any = 0;
+fun ls_diagnostic_session() -> Any {
+    let buffer: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let read: Any = syscall(318, buffer, 16, 0);
+    let nonce: Any = if (read == 16) {
+        str(load32(buffer)) + ":" + str(load32(buffer + 4)) + ":" + str(load32(buffer + 8)) + ":" + str(load32(buffer + 12))
+    } else { str(syscall(39)) + ":" + str(clock()) };
+    syscall(11, buffer, 4096); return nonce;
+}
+let LS_DIAGNOSTIC_SESSION: Any = ls_diagnostic_session();
 fun ls_diag(doc: Any, a: Any, b: Any, message: Any) -> Any {
     return {"range": ls_range(doc.text, a, b), "severity": 1, "source": "maylsp", "message": message};
 }
@@ -53,13 +62,18 @@ fun ls_check_append(doc: Any, builtin: Any) -> Any {
     return nil;
 }
 fun ls_diagnostics(doc: Any) -> Any {
+    return ls_diagnostics_entries(doc, [doc]);
+}
+fun ls_diagnostics_entries(doc: Any, entries: Any) -> Any {
     let cached: Any = LS_CHECK_CACHE[doc.uri];
-    if (cached != nil and cached.epoch == LS_INDEX_EPOCH) {
+    if (len(entries) == 1 and cached != nil and cached.epoch == LS_INDEX_EPOCH) {
         LS_CHECK_ERRORS = cached.errors; LS_CHECK_SEEN = cached.seen;
         LS_DIAG_CACHE[doc.uri] = LS_CHECK_ERRORS[doc.uri] ?? [];
         return nil;
     }
     if (not LS_COMPILER_READY) { irt_init(); LS_ARENA_BASE = ARENAP; LS_COMPILER_READY = true; }
+    // Drop interned names before rewinding source storage for another entry.
+    symbol_cache_release();
     ARENAP = LS_ARENA_BASE;
     FUNC_HEAD = []; FOREIGN_DECLS = [];
     IN_FUN = 0; RUNTIME_BODY = 0; MAINBODY = 0; PARSE_RAW = 0; DYNMODE = 1;
@@ -72,7 +86,7 @@ fun ls_diagnostics(doc: Any) -> Any {
             let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
             if (builtin != nil) { ls_check_append(builtin, true); }
         }
-        ls_check_append(doc, false);
+        for entry: Any in entries { ls_check_append(entry, false); }
         if (len(keys(LS_CHECK_ERRORS)) == 0) {
             LS_CHECK_TEXT = ls_join(LS_CHECK_PARTS, "");
             SRC = addr(LS_CHECK_TEXT); SRCLEN = ls_bytes(LS_CHECK_TEXT);
@@ -112,6 +126,9 @@ fun ls_diagnostics(doc: Any) -> Any {
     // Release AST roots; the raw compiler scratch arena is reused next time.
     SRC = 0; TOKS = []; NTOKS = 0; FUNC_HEAD = []; MAINBODY = 0; PROGRAM_AST = 0;
     DECLARATIONS = []; STRUCT_DECLS = []; ENUM_DECLS = []; SEM_SCOPES = []; SEM_FUNCTIONS = {}; SOURCE_FILES = {};
+    FOREIGN_DECLS = []; SEM_STACK = []; SEM_MAIN_BOXED = [];
+    ST_GLOBALS = {}; ST_RECORDS = {}; ST_SCOPES = []; ST_FUNCTIONS = {}; ST_RESULT = 0; ST_VARS = [];
+    symbol_cache_release();
     LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_ORIGINS = []; DIAGNOSTICS = []; DIAGNOSTIC_SPAN = 0;
     return nil;
 }

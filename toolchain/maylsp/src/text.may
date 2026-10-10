@@ -36,7 +36,8 @@ fun ls_trim(s: Any) -> Any {
 fun ls_matches(s: Any, at: Any, part: Any) -> Any {
     let n: Any = ls_bytes(part);
     if (at < 0 or at + n > ls_bytes(s)) { return false; }
-    for i: Any in 0..n { if (load8(addr(s) + at + i) != load8(addr(part) + i)) { return false; } }
+    mut i: Any = 0;
+    while (i < n) { if (load8(addr(s) + at + i) != load8(addr(part) + i)) { return false; } i += 1; }
     return true;
 }
 fun ls_starts(s: Any, prefix: Any) -> Any { return ls_matches(s, 0, prefix); }
@@ -147,13 +148,33 @@ fun ls_path(uri: Any) -> Any {
     encoded = ls_text(p, n); syscall(11, p, ls_bytes(raw) + 1);
     return ls_normal(encoded);
 }
+fun ls_join(parts: Any, separator: Any) -> Any {
+    if (len(parts) == 0) { return ""; }
+    mut level: Any = parts;
+    // Balanced concatenation bounds copied bytes for large semantic-token
+    // arrays; the stdlib join repeatedly copies the entire growing result.
+    while (len(level) > 1) {
+        let next: Any = []; mut i: Any = 0;
+        while (i < len(level)) {
+            if (i + 1 < len(level)) { push(next, level[i] + separator + level[i + 1]); }
+            else { push(next, level[i]); }
+            i += 2;
+        }
+        level = next;
+    }
+    return level[0];
+}
 fun ls_uri(path: Any) -> Any {
     let hex: Any = "0123456789ABCDEF";
-    mut out: Any = "file://";
-    for i: Any in 0..ls_bytes(path) {
+    let parts: Any = ["file://"]; mut start: Any = 0; mut i: Any = 0;
+    while (i < ls_bytes(path)) {
         let c: Any = ls_byte(path, i);
-        if (ls_ident(c) or c == 47 or c == 45 or c == 46 or c == 126 or c == 58) { out = out + chr(c); }
-        else { out = out + "%" + chr(ls_byte(hex, c / 16)) + chr(ls_byte(hex, c % 16)); }
+        if (not (ls_ident(c) or c == 47 or c == 45 or c == 46 or c == 126 or c == 58)) {
+            push(parts, ls_slice(path, start, i));
+            push(parts, "%" + chr(ls_byte(hex, c / 16)) + chr(ls_byte(hex, c % 16))); start = i + 1;
+        }
+        i += 1;
     }
-    return out;
+    push(parts, if (start == 0) { path } else { ls_slice(path, start, ls_bytes(path)) });
+    return ls_join(parts, "");
 }

@@ -310,17 +310,19 @@ The LSP guide says checking stops at the first syntax or semantic error in an im
 
 ### Initiative 12. Implement workspace-wide pull diagnostics in maylsp
 
-**Status:** planned  
+**Status:** completed
 **Initial priority:** P2  
 **GitHub:** [Issue #12](https://github.com/mirged/maylang/issues/12)  
 **Relevant paths:** `toolchain/maylsp/main.may`, `toolchain/maylsp/src/scheduler.may`
 
-Workspace-wide pull diagnostics are explicitly not advertised by the current server.
+Workspace pull diagnostics cover unopened files and unsaved imports through bounded snapshot workers, with full/unchanged reports, progress and cancellation.
 
-- [ ] Implement workspace/diagnostic negotiation and result identifiers.
-- [ ] Cover unopened files with bounded scheduling and progress.
-- [ ] Handle cancellation, deletion and unsaved imports without stale results.
-- [ ] Add protocol tests for full, unchanged and cancelled reports.
+- [x] Implement workspace/diagnostic negotiation and result identifiers.
+- [x] Cover unopened files with bounded scheduling and progress.
+- [x] Handle cancellation, deletion and unsaved imports without stale results.
+- [x] Add protocol tests for full, unchanged and cancelled reports.
+
+**Implementation:** [PR #24](https://github.com/mirged/maylang/pull/24). Protocol, compiler, compliance and workspace-limit validation are recorded in [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) and the linked PR.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 

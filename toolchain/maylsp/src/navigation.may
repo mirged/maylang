@@ -140,6 +140,7 @@ fun ls_navigation_start(job: Any, now: Any) -> Any {
         if (syscall(110) != parentPid) { syscall(60, 0); }
         syscall(3, readFd);
         if (LS_BACKGROUND_FD >= 0) { syscall(3, LS_BACKGROUND_FD); }
+        if (LS_WORKSPACE_FD >= 0) { syscall(3, LS_WORKSPACE_FD); }
         // Runtime fatal errors write directly to fd 1. Keep those bytes off
         // the client transport; malformed worker output becomes a request error.
         syscall(33, writeFd, 1);
