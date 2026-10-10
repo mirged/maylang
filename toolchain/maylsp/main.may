@@ -4,6 +4,7 @@ import "src/index.may";
 import "src/diagnostics.may";
 import "src/features.may";
 import "src/scheduler.may";
+import "src/navigation.may";
 import "../mayc/src/state.may";
 
 mut LS_INITIALIZED: Any = false;
@@ -41,6 +42,8 @@ fun ls_initialize(p: Any) -> Any {
     LS_STDLIB = ls_find_stdlib(p); LS_INITIALIZED = true;
     STRICT_TYPES = p.initializationOptions?.strict ?? true;
     if (value_tag(STRICT_TYPES) != 3 and value_tag(STRICT_TYPES) != 4) { fail("strict must be a boolean"); }
+    let fullTokens: Any = p.capabilities?.textDocument?.semanticTokens?.requests?.full;
+    let tokenMode: Any = if (value_tag(fullTokens) == 7 and fullTokens.delta == true) { ({"delta": true}) } else { true };
     return {"serverInfo": {"name": "maylsp", "version": "0.1.0"}, "capabilities": {
         "positionEncoding": "utf-16",
         "textDocumentSync": {"openClose": true, "change": 2, "save": {"includeText": true}},
@@ -57,7 +60,7 @@ fun ls_initialize(p: Any) -> Any {
         "callHierarchyProvider": true,
         "diagnosticProvider": {"identifier": "maylsp", "interFileDependencies": true, "workspaceDiagnostics": false},
         "inlayHintProvider": true,
-        "semanticTokensProvider": {"legend": {"tokenTypes": ["keyword", "string", "number", "comment", "function", "variable", "parameter", "type", "operator"], "tokenModifiers": ["declaration", "readonly"]}, "full": true, "range": true},
+        "semanticTokensProvider": {"legend": {"tokenTypes": ["keyword", "string", "number", "comment", "function", "variable", "parameter", "type", "operator"], "tokenModifiers": ["declaration", "readonly"]}, "full": tokenMode, "range": true},
         "codeActionProvider": {"codeActionKinds": ["source.organizeImports"]},
         "workspace": {"workspaceFolders": {"supported": true, "changeNotifications": true}}
     }};
@@ -147,18 +150,19 @@ fun ls_dispatch(method: Any, p: Any) -> Any {
     if (method == "textDocument/documentLink") { return ls_links(doc); }
     if (method == "textDocument/inlayHint") { return ls_inlay(doc, p); }
     if (method == "textDocument/semanticTokens/full") { return ls_semantic(doc, nil); }
+    if (method == "textDocument/semanticTokens/full/delta") { return ls_semantic_delta(doc, p.previousResultId); }
     if (method == "textDocument/semanticTokens/range") { return ls_semantic(doc, p.range); }
     if (method == "textDocument/codeAction") { return ls_actions(doc, p); }
     if (method == "textDocument/diagnostic") { return ls_pull_diagnostics(doc); }
     if (method == "textDocument/prepareCallHierarchy") { let d: Any = ls_target(doc, p); return if (d != nil and d.kind == 12) { [ls_call_item(d)] } else { [] }; }
     return nil;
 }
-let LS_METHODS: Any = ["initialized", "$/setTrace", "$/cancelRequest", "window/workDoneProgress/cancel", "textDocument/didOpen", "textDocument/didChange", "textDocument/didSave", "textDocument/didClose", "workspace/didChangeWatchedFiles", "workspace/didChangeWorkspaceFolders", "workspace/didChangeConfiguration", "workspace/symbol", "textDocument/hover", "textDocument/completion", "textDocument/signatureHelp", "textDocument/definition", "textDocument/declaration", "textDocument/references", "textDocument/documentHighlight", "textDocument/prepareRename", "textDocument/rename", "textDocument/documentSymbol", "textDocument/formatting", "textDocument/foldingRange", "textDocument/selectionRange", "textDocument/documentLink", "textDocument/inlayHint", "textDocument/semanticTokens/full", "textDocument/semanticTokens/range", "textDocument/codeAction", "textDocument/diagnostic", "textDocument/prepareCallHierarchy", "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls"];
+let LS_METHODS: Any = ["initialized", "$/setTrace", "$/cancelRequest", "window/workDoneProgress/cancel", "textDocument/didOpen", "textDocument/didChange", "textDocument/didSave", "textDocument/didClose", "workspace/didChangeWatchedFiles", "workspace/didChangeWorkspaceFolders", "workspace/didChangeConfiguration", "workspace/symbol", "textDocument/hover", "textDocument/completion", "textDocument/signatureHelp", "textDocument/definition", "textDocument/declaration", "textDocument/references", "textDocument/documentHighlight", "textDocument/prepareRename", "textDocument/rename", "textDocument/documentSymbol", "textDocument/formatting", "textDocument/foldingRange", "textDocument/selectionRange", "textDocument/documentLink", "textDocument/inlayHint", "textDocument/semanticTokens/full", "textDocument/semanticTokens/full/delta", "textDocument/semanticTokens/range", "textDocument/codeAction", "textDocument/diagnostic", "textDocument/prepareCallHierarchy", "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls"];
 fun ls_message(message: Any) -> Any {
     if (value_tag(message) != 7 or message.jsonrpc != "2.0" or value_tag(message.method) != 1) { ls_error(nil, -32600, "Invalid Request"); return nil; }
     let request: Any = has(message, "id"); let id: Any = message.id; let method: Any = message.method;
     if (request and value_tag(id) != 0 and value_tag(id) != 1 and id != nil) { ls_error(nil, -32600, "Invalid request ID"); return nil; }
-    if (method == "exit") { ls_worker_stop(); exit(if (LS_SHUTDOWN) { 0 } else { 1 }); }
+    if (method == "exit") { ls_worker_stop(); ls_navigation_stop(); exit(if (LS_SHUTDOWN) { 0 } else { 1 }); }
     if (method == "initialize") {
         if (not request) { return nil; }
         if (LS_INITIALIZED) { ls_error(id, -32600, "Already initialized"); return nil; }
@@ -173,6 +177,7 @@ fun ls_message(message: Any) -> Any {
         let params: Any = message.params ?? ({});
         if (value_tag(params) != 7) { fail("params must be an object"); }
         if (method == "$/cancelRequest") { ls_cancel_check(params.id); return nil; }
+        if (request and ls_navigation_method(method)) { ls_request_navigation(id, method, params); return nil; }
         if (request and method == "textDocument/diagnostic") { ls_request_check(id, ls_doc_param(params)); return nil; }
         let result: Any = ls_dispatch(method, params);
         if (request) { ls_reply(id, result); }
@@ -185,7 +190,7 @@ fun ls_message(message: Any) -> Any {
 fun ls_main() -> Any {
     while (true) {
         ls_scheduler_tick();
-        let body: Any = ls_packet(); if (body == nil) { ls_worker_stop(); return nil; }
+        let body: Any = ls_packet(); if (body == nil) { ls_worker_stop(); ls_navigation_stop(); return nil; }
         mut parsed: Any = false;
         let message: Any = may { let value: Any = ls_parse_json(body); parsed = true; value } otherwise { ls_error(nil, -32700, "Parse error: " + err.message); nil };
         if (parsed) { ls_message(message); }
@@ -194,7 +199,7 @@ fun ls_main() -> Any {
 }
 LS_IDLE_HOOK = ls_scheduler_tick; LS_RECHECK_HOOK = ls_schedule_checks;
 may { ls_main(); } otherwise {
-    ls_worker_stop();
+    ls_worker_stop(); ls_navigation_stop();
     let message: Any = "maylsp: transport error: " + err.message + "\n";
     syscall(1, 2, addr(message), ls_bytes(message)); exit(1);
 }

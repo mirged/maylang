@@ -86,6 +86,30 @@ reports include samples, compiler/sidecar hashes and image sizes, without a
 timing threshold. Branch protection settings remain the repository owner's
 choice; optional jobs use `continue-on-error` independently of required checks.
 
+## Language server follow-up
+
+[PR #23](https://github.com/mirged/maylang/pull/23) completes issues #13 and #14.
+On Linux x86-64, 2026-10-11, the full LSP protocol suite passes semantic delta
+negotiation/replay, Unicode, ID eviction and document lifecycle tests, plus
+1,024-file navigation interleaved with hover, cancellation, edits and unsaved
+imports. It verifies bounded queues, late rename failures, worker fatal-output
+isolation, recovery and shutdown reaping. Generated references pass `--check`.
+
+Navigation uses one worker, 32 queued requests, a 30-second deadline and a
+16 MiB result limit. Disk indexes are processed in batches of 32; encoded
+results stream to the parent with a final status, preventing incomplete rename
+responses. A 10,016-file benchmark returns exactly 10,000 references/rename
+targets and one matching workspace symbol. One run measured navigation at
+4.72/7.37/2.20 seconds and interleaved hover at 0.89/3.67/9.21 milliseconds.
+The optional performance job repeats this benchmark on the installed bundle
+and publishes a report without timing gates.
+
+Document indexing remains synchronous. Workspace-wide pull diagnostics remain
+pending. Large individual files, dependency graphs and result sets still face
+runtime heap/worker limits; bounded request failure is handled without leaking
+worker output into the LSP transport. These changes do not resolve the original
+sustained-runtime GC corruption report.
+
 ## Remaining limits
 
 The issue acceptance audit additionally covers atomic successful-build state

@@ -187,21 +187,29 @@ fun ls_prepare_rename(doc: Any, p: Any) -> Any {
     if (d == nil or ls_starts(d.uri, ls_uri(LS_STDLIB) + "/")) { return nil; }
     return {"range": ls_range(doc.text, doc.tokens[i].a, doc.tokens[i].b), "placeholder": d.name};
 }
-fun ls_rename(doc: Any, p: Any) -> Any {
+fun ls_rename_target(doc: Any, p: Any) -> Any {
     if (value_tag(p.newName) != 1 or not ls_valid_name(p.newName)) { fail("newName must be a non-reserved Maylang identifier"); }
     let target: Any = ls_target(doc, p);
     if (target == nil or ls_prepare_rename(doc, p) == nil) { fail("symbol cannot be renamed"); }
     let declaring: Any = ls_document(target.uri);
     for d: Any in declaring.defs { if (d.scope == target.scope and d.name == p.newName and d.id != target.id) { fail("name already declared in this scope"); } }
+    return target;
+}
+fun ls_rename_edit(using: Any, target: Any, occurrence: Any, newName: Any) -> Any {
+    let at: Any = ls_token_index(using, occurrence.range.start);
+    if (at >= 0 and (at == 0 or not has([".", "?."], ls_at(using.tokens, at - 1)))) {
+        let collision: Any = ls_local(using, newName, using.tokens[at]);
+        if (collision != nil and collision.id != target.id) { fail("rename would capture an existing binding"); }
+    }
+    return {"range": occurrence.range, "newText": newName};
+}
+fun ls_rename(doc: Any, p: Any) -> Any {
+    let target: Any = ls_rename_target(doc, p);
     let changes: Any = {};
     for occurrence: Any in ls_occurrences(target, true) {
-        let using: Any = ls_document(occurrence.uri); let at: Any = ls_token_index(using, occurrence.range.start);
-        if (at >= 0 and (at == 0 or not has([".", "?."], ls_at(using.tokens, at - 1)))) {
-            let collision: Any = ls_local(using, p.newName, using.tokens[at]);
-            if (collision != nil and collision.id != target.id) { fail("rename would capture an existing binding"); }
-        }
+        let using: Any = ls_document(occurrence.uri);
         if (not has(changes, occurrence.uri)) { changes[occurrence.uri] = []; }
-        push(changes[occurrence.uri], {"range": occurrence.range, "newText": p.newName});
+        push(changes[occurrence.uri], ls_rename_edit(using, target, occurrence, p.newName));
     }
     return {"changes": changes};
 }
@@ -257,6 +265,7 @@ fun ls_inlay(doc: Any, p: Any) -> Any {
     }
     return out;
 }
+mut LS_SEMANTIC_ID: Any = 0;
 fun ls_semantic(doc: Any, requested: Any) -> Any {
     if (requested == nil and doc.semanticEpoch == LS_INDEX_EPOCH and doc.semanticCache != nil) { return doc.semanticCache; }
     let tokens: Any = [];
@@ -304,8 +313,31 @@ fun ls_semantic(doc: Any, requested: Any) -> Any {
         }
     }
     let result: Any = {"data": data};
-    if (requested == nil) { doc.semanticCache = result; doc.semanticEpoch = LS_INDEX_EPOCH; }
+    if (requested == nil) {
+        LS_SEMANTIC_ID += 1; result.resultId = str(LS_SEMANTIC_ID);
+        let history: Any = doc.semanticHistory ?? [];
+        doc.semanticHistory = if (len(history) > 0) { [history[len(history) - 1], result] } else { [result] };
+        doc.semanticCache = result; doc.semanticEpoch = LS_INDEX_EPOCH;
+    }
     return result;
+}
+fun ls_semantic_delta(doc: Any, previous: Any) -> Any {
+    if (value_tag(previous) != 1) { fail("previousResultId must be a string"); }
+    mut before: Any = nil;
+    for snapshot: Any in doc.semanticHistory ?? [] {
+        if (snapshot.resultId == previous) { before = snapshot.data; }
+    }
+    let current: Any = ls_semantic(doc, nil);
+    if (before == nil) { return current; }
+    let after: Any = current.data; mut start: Any = 0;
+    while (start < len(before) and start < len(after) and before[start] == after[start]) { start += 1; }
+    mut oldEnd: Any = len(before); mut newEnd: Any = len(after);
+    while (oldEnd > start and newEnd > start and before[oldEnd - 1] == after[newEnd - 1]) { oldEnd -= 1; newEnd -= 1; }
+    let edits: Any = [];
+    if (oldEnd != start or newEnd != start) {
+        push(edits, {"start": start, "deleteCount": oldEnd - start, "data": slice(after, start, newEnd)});
+    }
+    return {"resultId": current.resultId, "edits": edits};
 }
 fun ls_format(doc: Any, options: Any) -> Any {
     let size: Any = options.tabSize ?? 4; let spaces: Any = options.insertSpaces ?? true;

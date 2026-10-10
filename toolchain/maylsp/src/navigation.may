@@ -1,0 +1,198 @@
+import "protocol.may";
+import "text.may";
+import "index.may";
+import "features.may";
+import "diagnostics.may";
+
+// One isolated navigation worker, at most 32 queued requests. The parent owns
+// transport and cancels snapshots invalidated by edits or workspace changes.
+mut LS_NAVIGATION_PID: Any = 0;
+mut LS_NAVIGATION_JOB: Any = nil;
+mut LS_NAVIGATION_QUEUE: Any = [];
+mut LS_NAVIGATION_PARTS: Any = [];
+mut LS_NAVIGATION_BYTES: Any = 0;
+mut LS_NAVIGATION_DEADLINE: Any = 0;
+let LS_NAVIGATION_IO: Any = syscall(9, 0, 65536, 3, 34, -1, 0);
+
+fun ls_navigation_method(method: Any) -> Any {
+    return has(["workspace/symbol", "textDocument/references", "textDocument/rename",
+        "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls"], method);
+}
+fun ls_navigation_stream(method: Any, p: Any) -> Any {
+    if (method == "workspace/symbol") {
+        let query: Any = ls_lower(p.query ?? ""); mut first: Any = true;
+        ls_write("{\"result\":[");
+        ls_navigation_walk(fun(doc: Any) -> Any {
+            for d: Any in doc.defs {
+                if (d.scope == 0 and ls_contains(ls_lower(d.name), query)) {
+                    if (not first) { ls_write(","); } first = false;
+                    ls_write(ls_json({"name": d.name, "kind": d.kind, "location": ls_location(d)}));
+                }
+            }
+            return nil;
+        });
+        ls_write("]}"); return nil;
+    }
+    if (has(["callHierarchy/incomingCalls", "callHierarchy/outgoingCalls"], method)) {
+        let result: Any = if (method == "callHierarchy/incomingCalls") { ls_incoming_calls(p.item) } else { ls_outgoing_calls(p.item) };
+        ls_write(ls_json({"result": result})); return nil;
+    }
+    let doc: Any = ls_doc_param(p); let rename: Any = method == "textDocument/rename";
+    let target: Any = if (rename) { ls_rename_target(doc, p) } else { ls_target(doc, p) };
+    if (target == nil) { ls_write("{\"result\":[]}"); return nil; }
+    mut first: Any = true;
+    ls_write(if (rename) { "{\"result\":{\"changes\":{" } else { "{\"result\":[" });
+    ls_navigation_walk(fun(using: Any) -> Any {
+        let found: Any = ls_document_occurrences(using, target, rename or (p.context?.includeDeclaration ?? false));
+        if (rename and len(found) > 0) {
+            let edits: Any = [];
+            for occurrence: Any in found { push(edits, ls_rename_edit(using, target, occurrence, p.newName)); }
+            if (not first) { ls_write(","); } first = false;
+            ls_write(ls_quote(using.uri) + ":" + ls_json(edits));
+        } else if (not rename) {
+            for occurrence: Any in found {
+                if (not first) { ls_write(","); } first = false;
+                ls_write(ls_json(occurrence));
+            }
+        }
+        return nil;
+    });
+    ls_write(if (rename) { "}}}" } else { "]}" }); return nil;
+}
+fun ls_navigation_scan(path: Any, depth: Any, files: Any, seen: Any) -> Any {
+    if (depth > 24 or len(files) >= 10000) { return nil; }
+    let entries: Any = may { read_dir(path) } otherwise { [] };
+    for entry: Any in entries {
+        if (len(files) >= 10000) { break; }
+        if (has([".", "..", ".git", "target", "node_modules", ".codex", ".agents", "build"], entry)) { continue; }
+        let child: Any = path + "/" + entry;
+        if (ls_ends(entry, ".may")) {
+            let uri: Any = ls_uri(child);
+            if (not has(seen, uri)) { seen[uri] = true; push(files, uri); }
+        } else { ls_navigation_scan(child, depth + 1, files, seen); }
+    }
+    return nil;
+}
+fun ls_navigation_restore(base: Any) -> Any {
+    let documents: Any = {};
+    for uri: Any in keys(base) { documents[uri] = base[uri]; }
+    LS_DOCS = documents; return nil;
+}
+fun ls_navigation_walk(visit: Any) -> Any {
+    let base: Any = {}; let seen: Any = {}; let files: Any = keys(LS_DOCS);
+    for uri: Any in files { base[uri] = LS_DOCS[uri]; seen[uri] = true; }
+    for root: Any in LS_ROOTS { ls_navigation_scan(root, 0, files, seen); }
+    mut count: Any = 0;
+    for uri: Any in files {
+        let doc: Any = ls_document(uri);
+        if (doc != nil) { visit(doc); }
+        count += 1;
+        // Retain unsaved buffers and their original dependency snapshot, while
+        // releasing transient indexes after each bounded batch of disk files.
+        if (count % 32 == 0) { ls_navigation_restore(base); }
+    }
+    ls_navigation_restore(base); return nil;
+}
+fun ls_navigation_stop() -> Any {
+    if (LS_NAVIGATION_PID > 0) {
+        syscall(62, LS_NAVIGATION_PID, 9);
+        mut waited: Any = syscall(61, LS_NAVIGATION_PID, 0, 0, 0);
+        while (waited == -4) { waited = syscall(61, LS_NAVIGATION_PID, 0, 0, 0); }
+    }
+    if (LS_NAVIGATION_FD >= 0) { syscall(3, LS_NAVIGATION_FD); }
+    LS_NAVIGATION_PID = 0; LS_NAVIGATION_FD = -1; LS_NAVIGATION_JOB = nil;
+    LS_NAVIGATION_PARTS = []; LS_NAVIGATION_BYTES = 0; return nil;
+}
+fun ls_navigation_invalidate(code: Any, message: Any) -> Any {
+    if (LS_NAVIGATION_JOB != nil) { ls_error(LS_NAVIGATION_JOB.id, code, message); }
+    ls_navigation_stop();
+    for job: Any in LS_NAVIGATION_QUEUE { ls_error(job.id, code, message); }
+    LS_NAVIGATION_QUEUE = []; return nil;
+}
+fun ls_navigation_changed() -> Any {
+    mut stale: Any = LS_NAVIGATION_JOB != nil and LS_NAVIGATION_JOB.epoch != LS_INDEX_EPOCH;
+    for job: Any in LS_NAVIGATION_QUEUE { if (job.epoch != LS_INDEX_EPOCH) { stale = true; } }
+    if (stale) { ls_navigation_invalidate(-32803, "Content changed during navigation; retry request"); }
+    return nil;
+}
+fun ls_navigation_cancel(id: Any) -> Any {
+    if (LS_NAVIGATION_JOB != nil and LS_NAVIGATION_JOB.id == id) {
+        ls_navigation_stop(); ls_error(id, -32800, "Request cancelled");
+    }
+    let remaining: Any = [];
+    for job: Any in LS_NAVIGATION_QUEUE {
+        if (job.id == id) { ls_error(id, -32800, "Request cancelled"); } else { push(remaining, job); }
+    }
+    LS_NAVIGATION_QUEUE = remaining; return nil;
+}
+fun ls_request_navigation(id: Any, method: Any, p: Any) -> Any {
+    if (len(LS_NAVIGATION_QUEUE) >= 32) { ls_error(id, -32803, "Navigation queue limit exceeded"); return nil; }
+    push(LS_NAVIGATION_QUEUE, {"id": id, "method": method, "params": p, "epoch": LS_INDEX_EPOCH});
+    return nil;
+}
+fun ls_navigation_start(job: Any, now: Any) -> Any {
+    if (syscall(293, LS_NAVIGATION_IO, 524288) < 0) { ls_error(job.id, -32803, "Navigation pipe failed"); return nil; }
+    let readFd: Any = load32(LS_NAVIGATION_IO); let writeFd: Any = load32(LS_NAVIGATION_IO + 4);
+    let parentPid: Any = syscall(39); let pid: Any = syscall(57);
+    if (pid < 0) { syscall(3, readFd); syscall(3, writeFd); ls_error(job.id, -32803, "Navigation fork failed"); return nil; }
+    if (pid == 0) {
+        syscall(157, 1, 9, 0, 0, 0);
+        if (syscall(110) != parentPid) { syscall(60, 0); }
+        syscall(3, readFd);
+        if (LS_BACKGROUND_FD >= 0) { syscall(3, LS_BACKGROUND_FD); }
+        // Runtime fatal errors write directly to fd 1. Keep those bytes off
+        // the client transport; malformed worker output becomes a request error.
+        syscall(33, writeFd, 1);
+        LS_OUTPUT_FD = writeFd; LS_DIAGNOSTIC_PUBLISH = false;
+        // Results stream to the parent as files are visited. A final status
+        // record commits success or discards partial results after late errors.
+        may { ls_navigation_stream(job.method, job.params); ls_write("\n{}"); }
+        otherwise { ls_write("\n" + ls_json({"error": {"code": -32602, "message": err.message}})); }
+        syscall(3, writeFd); syscall(60, 0); exit(0);
+    }
+    syscall(3, writeFd); syscall(72, readFd, 4, 2048);
+    LS_NAVIGATION_PID = pid; LS_NAVIGATION_FD = readFd; LS_NAVIGATION_JOB = job;
+    LS_NAVIGATION_PARTS = []; LS_NAVIGATION_BYTES = 0; LS_NAVIGATION_DEADLINE = now + 30000;
+    return nil;
+}
+fun ls_navigation_tick(now: Any) -> Any {
+    if (LS_NAVIGATION_JOB != nil and LS_NAVIGATION_JOB.epoch != LS_INDEX_EPOCH) {
+        ls_navigation_invalidate(-32803, "Content changed during navigation; retry request");
+    }
+    if (LS_NAVIGATION_PID > 0 and now >= LS_NAVIGATION_DEADLINE) {
+        let id: Any = LS_NAVIGATION_JOB.id; ls_navigation_stop(); ls_error(id, -32803, "Navigation time limit exceeded");
+    }
+    if (LS_NAVIGATION_FD >= 0) {
+        mut done: Any = false;
+        // Bound pipe draining per turn so a large result cannot starve input.
+        for chunk: Any in 0..4 {
+            let n: Any = syscall(0, LS_NAVIGATION_FD, LS_NAVIGATION_IO, 65536);
+            if (n == -4) { continue; }
+            if (n == -11) { break; }
+            if (n <= 0) { done = true; break; }
+            push(LS_NAVIGATION_PARTS, ls_text(LS_NAVIGATION_IO, n)); LS_NAVIGATION_BYTES += n;
+            if (LS_NAVIGATION_BYTES > 16777216) { done = true; break; }
+        }
+        if (done) {
+            let job: Any = LS_NAVIGATION_JOB; let body: Any = ls_join(LS_NAVIGATION_PARTS, "");
+            ls_navigation_stop();
+            if (job.epoch != LS_INDEX_EPOCH) { ls_error(job.id, -32803, "Content changed during navigation; retry request"); }
+            else {
+                let snapshot: Any = may {
+                    let boundary: Any = ls_find(body, "\n");
+                    if (boundary < 0) { fail("incomplete navigation worker result"); }
+                    let status: Any = ls_parse_json(ls_slice(body, boundary + 1, ls_bytes(body)));
+                    if (status.error != nil) { status } else { ls_parse_json(ls_slice(body, 0, boundary)) }
+                } otherwise { {"error": {"code": -32803, "message": "Navigation worker failed or result limit exceeded"}} };
+                if (snapshot.error != nil) { ls_error(job.id, snapshot.error.code, snapshot.error.message); }
+                else { ls_reply(job.id, snapshot.result); }
+            }
+        }
+    }
+    if (LS_NAVIGATION_PID == 0 and len(LS_NAVIGATION_QUEUE) > 0) {
+        let job: Any = LS_NAVIGATION_QUEUE[0]; LS_NAVIGATION_QUEUE = slice(LS_NAVIGATION_QUEUE, 1, len(LS_NAVIGATION_QUEUE));
+        if (job.epoch != LS_INDEX_EPOCH) { ls_error(job.id, -32803, "Content changed during navigation; retry request"); }
+        else { ls_navigation_start(job, now); }
+    }
+    return nil;
+}

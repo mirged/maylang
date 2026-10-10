@@ -4,11 +4,14 @@ import argparse
 import json
 import os
 import queue
+import signal
 import subprocess
 import tempfile
 import threading
 import time
 from pathlib import Path
+
+from navigation_fixture import workspace as navigation_workspace
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -32,6 +35,8 @@ class Client:
                         raise EOFError("server closed stdout")
                     if line == b"\r\n":
                         break
+                    if b":" not in line:
+                        raise ValueError(f"invalid LSP header: {line!r}")
                     key, value = line.decode().strip().split(":", 1)
                     headers[key.lower()] = value.strip()
                 body = self.process.stdout.read(int(headers["content-length"]))
@@ -59,8 +64,8 @@ class Client:
         self.raw(json.dumps(message, ensure_ascii=ascii).encode())
         return message.get("id")
 
-    def receive(self):
-        message = self.messages.get(timeout=30)
+    def receive(self, timeout=30):
+        message = self.messages.get(timeout=timeout)
         if isinstance(message, Exception):
             raise message
         return message
@@ -115,6 +120,7 @@ def run(binary, work):
         initialized = c.request("initialize", {"rootUri": work.as_uri(), "initializationOptions": {"stdlibPath": str(ROOT / "stdlib")}}, identifier=0)
         caps = initialized["result"]["capabilities"]
         assert caps["positionEncoding"] == "utf-16" and caps["textDocumentSync"]["change"] == 2
+        assert caps["semanticTokensProvider"]["full"] is True
         c.send("initialized", {})
         assert c.request("initialize", {})["error"]["code"] == -32600
         c.raw(b'{"jsonrpc":"2.0", "id":99, "method":"broken",}', fragmented=True)
@@ -637,6 +643,174 @@ def run_strict_checks(binary, work):
             client.process.wait()
 
 
+def run_semantic_deltas(binary, work):
+    folder = work / "semantic-deltas"; folder.mkdir()
+    path = folder / "main.may"; path.write_text("")
+    doc = {"textDocument": {"uri": path.as_uri()}}
+    client = Client(binary)
+    try:
+        caps = client.result("initialize", {"rootUri": folder.as_uri(), "capabilities": {
+            "textDocument": {"semanticTokens": {"requests": {"full": {"delta": True}}}}}})["capabilities"]
+        assert caps["semanticTokensProvider"]["full"] == {"delta": True}
+        client.send("textDocument/didOpen", {"textDocument": {
+            "uri": path.as_uri(), "text": "", "version": 1, "languageId": "maylang"}})
+        previous = client.result("textDocument/semanticTokens/full", doc)
+        assert previous["data"] == [] and isinstance(previous["resultId"], str)
+        assert client.result("textDocument/semanticTokens/full", doc) == previous
+        original_id = previous["resultId"]
+        for version, text in enumerate([
+                'let text = "éλ🙂";\nprint(text);\n',
+                '// 🙂\nlet text = "éλ🙂";\nprint(text);\n',
+                '// 🙂\nlet text = "éλ🙂";\n', '', 'let number = 1;\n'], 2):
+            client.send("textDocument/didChange", {"textDocument": {
+                "uri": path.as_uri(), "version": version}, "contentChanges": [{"text": text}]})
+            delta = client.result("textDocument/semanticTokens/full/delta", {
+                **doc, "previousResultId": previous["resultId"]})
+            assert "edits" in delta and delta["resultId"] != previous["resultId"], delta
+            rebuilt = previous["data"][:]
+            for edit in sorted(delta["edits"], key=lambda e: e["start"], reverse=True):
+                rebuilt[edit["start"]:edit["start"]+edit["deleteCount"]] = edit.get("data", [])
+            full = client.result("textDocument/semanticTokens/full", doc)
+            assert rebuilt == full["data"] and delta["resultId"] == full["resultId"]
+            assert len(rebuilt) % 5 == 0
+            if version == 2:
+                # String token length uses UTF-16, including the surrogate pair.
+                assert any(rebuilt[i+2:i+4] == [6, 1] for i in range(0, len(rebuilt), 5)), rebuilt
+            previous = full
+        unchanged = client.result("textDocument/semanticTokens/full/delta", {
+            **doc, "previousResultId": previous["resultId"]})
+        assert unchanged == {"resultId": previous["resultId"], "edits": []}
+        for invalid in ("unknown", original_id):
+            fallback = client.result("textDocument/semanticTokens/full/delta", {**doc, "previousResultId": invalid})
+            assert fallback == previous, fallback
+        assert client.request("textDocument/semanticTokens/full/delta", {**doc, "previousResultId": 42})["error"]["code"] == -32602
+        # IDs are scoped to their document and cannot survive a close/reopen.
+        other = folder / "other.may"; other.write_text('print(1);\n')
+        remote = {"textDocument": {"uri": other.as_uri()}}
+        assert "data" in client.result("textDocument/semanticTokens/full/delta", {**remote, "previousResultId": previous["resultId"]})
+        client.send("textDocument/didClose", doc)
+        client.send("textDocument/didOpen", {"textDocument": {
+            "uri": path.as_uri(), "text": 'print(2);\n', "version": 1, "languageId": "maylang"}})
+        fallback = client.result("textDocument/semanticTokens/full/delta", {**doc, "previousResultId": previous["resultId"]})
+        assert "data" in fallback and fallback["resultId"] != previous["resultId"]
+        client.stop()
+        print("PASS semantic delta negotiation, replay, insertion/deletion, UTF-16, ID eviction and close/reopen", flush=True)
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+
+
+def run_navigation_workers(binary, work):
+    path, library, text = navigation_workspace(work / "navigation-workers", 1024)
+    doc = {"textDocument": {"uri": path.as_uri()}}
+    client = Client(binary)
+    def query():
+        return {**doc, "position": position(text, 'shared'), "context": {"includeDeclaration": True}}
+    def children():
+        return [int(pid) for pid in Path(f'/proc/{client.process.pid}/task/{client.process.pid}/children').read_text().split()]
+    def replies(ids):
+        found = {}; deadline = time.monotonic() + 10
+        while len(found) < len(ids):
+            reply = client.receive(timeout=max(0.1, deadline-time.monotonic()))
+            if 'id' not in reply: client.notifications.append(reply); continue
+            assert reply['id'] in ids and reply['id'] not in found, reply
+            found[reply['id']] = reply
+        return found
+    def hover_barrier():
+        identifier = client.send('textDocument/hover', query(), request=True)
+        reply = replies({identifier})[identifier]
+        assert 'Shared' in reply['result']['contents']['value']
+    try:
+        client.result('initialize', {'rootUri': path.parent.as_uri()})
+        client.send('textDocument/didOpen', {'textDocument': {
+            'uri': path.as_uri(), 'text': text, 'version': 1, 'languageId': 'maylang'}})
+        assert client.result('textDocument/diagnostic', doc)['items'] == []
+        active = client.send('textDocument/references', query(), request=True)
+        queued = client.send('textDocument/rename', {**query(), 'newName': 'renamed'}, request=True)
+        hover_barrier()
+        assert 1 <= len(children()) <= 2
+        for identifier in (queued, active): client.send('$/cancelRequest', {'id': identifier})
+        results = replies({queued, active})
+        assert all(reply['error']['code'] == -32800 for reply in results.values()), results
+        hover_barrier()  # No duplicate results may follow cancellation.
+
+        active = client.send('textDocument/references', query(), request=True)
+        queued = client.send('workspace/symbol', {'query': 'shared'}, request=True)
+        text = 'import "library" as lib;\nlet current = 7;\nprint(lib.shared());\n'
+        client.send('textDocument/didChange', {'textDocument': {'uri': path.as_uri(), 'version': 2},
+                                             'contentChanges': [{'text': text}]})
+        results = replies({active, queued})
+        assert all(reply['error']['code'] == -32803 for reply in results.values()), results
+        # Fresh work uses the edited unsaved buffer and covers all fixture files.
+        renamed = client.result('textDocument/rename', {**query(), 'newName': 'renamed'})
+        assert len(renamed['changes']) == 1024
+        assert renamed['changes'][path.as_uri()][0]['range']['start']['line'] == 2
+        references = client.result('textDocument/references', query())
+        assert len(references) == 1024, len(references)
+        collision = path.parent / 'collision.may'
+        collision.write_text('import "library";\nlet renamed = 0;\nshared();\n')
+        failed = client.request('textDocument/rename', {**query(), 'newName': 'renamed'})
+        assert failed['error']['code'] == -32602 and 'capture' in failed['error']['message'], failed
+        collision.unlink()  # A late validation error must discard partial edits.
+
+        pending = client.send('textDocument/references', query(), request=True)
+        client.send('textDocument/didOpen', {'textDocument': {'uri': library.as_uri(),
+            'text': '// unsaved import\n/// Shared changed function.\npub fun shared() -> Int { return 2; }\n',
+            'version': 1, 'languageId': 'maylang'}})
+        assert replies({pending})[pending]['error']['code'] == -32803
+        hover_barrier()
+        references = client.result('textDocument/references', query())
+        declaration = next(item for item in references if item['uri'] == library.as_uri())
+        assert declaration['range']['start']['line'] == 2, declaration
+
+        identifiers = {client.send('workspace/symbol', {'query': 'shared'}, request=True) for _ in range(40)}
+        barrier = client.send('textDocument/hover', query(), request=True)
+        completed = {}
+        while True:
+            reply = client.receive(timeout=5)
+            if 'id' not in reply: client.notifications.append(reply); continue
+            if reply['id'] == barrier: break
+            assert reply['id'] in identifiers and reply['id'] not in completed, reply
+            completed[reply['id']] = reply
+        assert any(reply.get('error', {}).get('code') == -32803 for reply in completed.values()), completed
+        assert len(children()) <= 2
+        for identifier in identifiers - completed.keys(): client.send('$/cancelRequest', {'id': identifier})
+        completed.update(replies(identifiers - completed.keys()))
+        assert len(completed) == 40
+        hover_barrier()
+
+        # A save without new text does not invalidate an otherwise current job.
+        pending = client.send('textDocument/references', query(), request=True)
+        client.send('textDocument/didSave', doc)
+        assert len(replies({pending})[pending]['result']) == 1024
+        # Simulate a runtime fatal write on the worker's actual stdout, then a
+        # crash. It must fail one request and leave framed transport healthy.
+        client.result('textDocument/diagnostic', {'textDocument': {'uri': library.as_uri()}})
+        pending = client.send('textDocument/references', query(), request=True)
+        hover_barrier(); worker_pids = children()
+        assert len(worker_pids) == 1, worker_pids
+        worker = worker_pids[0]; os.kill(worker, signal.SIGSTOP)
+        descriptor = os.open(f'/proc/{worker}/fd/1', os.O_WRONLY)
+        try: os.write(descriptor, b'out of memory\n')
+        finally: os.close(descriptor)
+        os.kill(worker, signal.SIGKILL)
+        assert replies({pending})[pending]['error']['code'] == -32803
+        hover_barrier()
+        assert len(client.result('textDocument/references', query())) == 1024
+        pending = client.send('workspace/symbol', {'query': 'shared'}, request=True)
+        hover_barrier(); worker_pids = children()
+        shutdown = client.send('shutdown', request=True)
+        results = replies({pending, shutdown})
+        assert results[pending]['error']['code'] == -32800 and results[shutdown]['result'] is None
+        client.send('exit'); client.process.wait(timeout=5)
+        assert client.process.returncode == 0 and not client.process.stderr.read()
+        assert all(not Path(f'/proc/{pid}').exists() for pid in worker_pids), worker_pids
+        print('PASS navigation workers, hover interleaving, cancellation, stale results, queue limits, fatal-output isolation and reaping', flush=True)
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path)
@@ -648,6 +822,8 @@ def main():
         if args.binary is None:
             subprocess.run([str(args.compiler), str(ROOT / "toolchain/maylsp/main.may"), "-o", str(binary)], cwd=ROOT, check=True, timeout=120)
         run_strict_checks(binary, work)
+        run_semantic_deltas(binary, work)
+        run_navigation_workers(binary, work)
         run(binary, work)
         run_documentation(binary, work)
         run_inlay_types(binary, work)

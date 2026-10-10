@@ -39,6 +39,23 @@ python3 toolchain/maylsp/tests/benchmark_lsp.py
 Use `--binary /path/to/maylsp` to compare builds and `--source /path/to/file.may`
 to profile another source file. Timings depend on file size and machine load.
 
+Measure references, rename and workspace symbols at the scanning limit, with
+a hover request queued immediately after each navigation request:
+
+```sh
+python3 toolchain/maylsp/tests/benchmark_navigation.py \
+  --binary toolchain/maylsp/build/maylsp --files 10016 \
+  --report /tmp/navigation-benchmark.json
+```
+
+This creates temporary projects, verifies 10,000-file results and records
+navigation/hover timings and the server hash. The extra 16 files test the scan
+limit. On Linux x86-64, 2026-10-11, one run measured references at 4.72 s,
+rename at 7.37 s and symbols at 2.20 s; interleaved hover returned in 0.89 ms,
+3.67 ms and 9.21 ms respectively. These are fixture measurements, not latency
+guarantees. The optional manually dispatched performance CI job uploads the
+same report without timing thresholds.
+
 Run `toolchain/maylsp/build/maylsp` to start the server. It waits for framed LSP
 messages. The native executable currently targets Linux x86-64, matching
 the self-hosted compiler's syscall runtime.
@@ -91,7 +108,7 @@ relative to their source file before the stdlib; `.may` is optional.
 | Symbols | Nested document outline and workspace search. |
 | Call hierarchy | Prepare, incoming and outgoing calls to named functions, grouped with call-site ranges. |
 | Formatting | Configurable spaces/tabs, brace indentation, trailing whitespace removal, blank line normalization; string/comment braces do not affect indentation and multiline string contents are preserved. |
-| Semantic tokens | Full and range requests; keywords, strings, numbers, comments, functions, variables, parameters, types and operators; declaration/readonly modifiers. |
+| Semantic tokens | Full, negotiated delta and range requests; keywords, strings, numbers, comments, functions, variables, parameters, types and operators; declaration/readonly modifiers. |
 | Folding and selection | Multiline brackets, consecutive comment blocks and nested token/block/document selections. |
 | Document links | Clickable resolved import paths. |
 | Inlay hints | Literal types, constructors, declared function return types, known builtin results and binding aliases; unknown results are omitted and explicit annotations are not repeated. |
@@ -112,6 +129,7 @@ src/text.may      byte slices, UTF-16 positions and file URI conversion
 src/index.may     tokens, scopes, bindings, imports and workspace index
 src/diagnostics.may in-process mayc lexer/parser/semantic checker adapter
 src/scheduler.may background compiler workers, debounce and cancellation
+src/navigation.may bounded navigation worker, snapshots and streamed results
 src/docs.may      generated documentation compiled into the executable
 src/features.may  navigation and editor features
 docs/reference.json  editable documentation catalog
@@ -127,21 +145,38 @@ when their snapshot is current. Cancellation removes pending diagnostic
 requests; shutdown stops and reaps the worker. The parent alone writes LSP
 packets, including push diagnostics when the client is idle.
 
+References, rename, workspace symbols and call hierarchy use a separate worker.
+One navigation request runs at a time, with at most 32 queued requests, a
+30-second deadline and a 16 MiB result limit. References, rename and symbols
+index disk files in batches of 32 and stream encoded results to the parent;
+unsaved buffers remain in the snapshot. A final worker status commits the
+response, so late rename conflicts discard all partial edits. Runtime fatal
+output stays on the worker pipe and fails the request without corrupting LSP
+transport. Edits and workspace changes discard obsolete results with
+`RequestFailed` (-32803), asking the client to retry. Client cancellation returns
+`RequestCancelled` (-32800) for active or queued requests. Shutdown reaps both
+workers. Local editor requests continue while navigation is running.
+
 Unchanged diagnostic requests reuse cached checks, invalidated by document
 and filesystem changes. Compiler source assembly uses balanced concatenation
 and preserves import offsets in one module copy. Symbol lookups use per-name
 indexes and cache imported name resolution. Token lookup uses binary search;
-full semantic tokens are cached until an index change. Formatting visits tokens
+full semantic tokens are cached with a stable result ID until an index change.
+The last two full snapshots per document support delta
+requests; unknown, evicted, other-document and close/reopen IDs receive a full
+response. Deltas compare the encoded integer arrays, including UTF-16 positions.
+Range requests do not alter full-token history. Formatting visits tokens
 in source order, and text processing uses byte helpers instead of repeatedly
 indexing Unicode strings. Document highlights only inspect the current document.
 Workspace scanning is
 lazy, skips build/cache directories, and is bounded to 24 directory levels
-and 10,000 indexed files. Imports also load files outside workspace roots.
+and 10,000 workspace file paths. Imports and open buffers can also load files
+outside workspace roots and remain available to navigation snapshots.
 
 ## Documentation
 
 The [editor reference](docs/REFERENCE.md) covers keywords, common types,
-operators, runtime functions and core library helpers. Its 117 entries include
+operators, runtime functions and core library helpers. Its 139 entries include
 examples and API behavior; callable entries also explain parameters and return
 values. The same catalog appears in hover, completion details and signature help.
 Local and imported declarations retain their own source comments when they
@@ -180,11 +215,11 @@ Annotation checking follows
 uses known declarations and simple binding types. Dynamically constructed
 map members and dynamically selected callees may have no static definition.
 
-Indexing and navigation requests still run serially; compiler diagnostics run
-in the background. Cancellation applies to pending document diagnostic
-requests, not to navigation requests already executing. Workspace-wide pull
-diagnostics and semantic
-token deltas are not advertised. Bodies are limited to 16 MiB. Invalid
+Document indexing still runs serially; compiler diagnostics and expensive
+navigation run in separate workers. Large individual files, imports and result
+sets remain constrained by the runtime heap and worker limits; failed navigation
+returns a request error. Workspace-wide pull diagnostics are not advertised.
+Bodies are limited to 16 MiB. Invalid
 transport headers terminate the server on stderr; invalid JSON produces a
 recoverable parse error.
 
@@ -194,4 +229,7 @@ shadowing, navigation, references, rename, completion, signature help,
 symbols, formatting, tokens, folding, selection, links, hints, code actions,
 call hierarchy, file notifications, malformed messages, shutdown, documentation,
 diagnostic cancellation, rapid edits, idle publication and hover responsiveness
-behind VS Code's startup requests.
+behind VS Code's startup requests. Additional tests replay token deltas, verify
+ID invalidation and interleave edits/hover with large navigation requests,
+including queued/active cancellation, queue limits, late rename failures,
+worker fatal-output isolation and shutdown reaping.
