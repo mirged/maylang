@@ -51,14 +51,17 @@ fun ls_schedule_checks() -> Any {
     // Coalesce bursts of didChange notifications before forking a snapshot.
     LS_CHECK_DEADLINE = ls_now() + 120; return nil;
 }
-fun ls_report_check(uri: Any) -> Any {
+fun ls_report_check(uri: Any, previous: Any) -> Any {
     let cached: Any = LS_CHECK_CACHE[uri]; let related: Any = {};
-    if (cached != nil) { for other: Any in keys(cached.errors) { if (other != uri) { related[other] = {"kind": "full", "items": cached.errors[other]}; } } }
-    return {"kind": "full", "items": cached?.errors[uri] ?? [], "relatedDocuments": related};
+    let resultId: Any = "document:" + str(LS_INDEX_EPOCH) + ":" + uri;
+    if (cached != nil) { for other: Any in keys(cached.seen) { if (other != uri) { related[other] = {"kind": "full", "items": cached.errors[other] ?? []}; } } }
+    if (previous == resultId) { return {"kind": "unchanged", "resultId": resultId, "relatedDocuments": related}; }
+    return {"kind": "full", "resultId": resultId, "items": cached?.errors[uri] ?? [], "relatedDocuments": related};
 }
-fun ls_request_check(id: Any, doc: Any) -> Any {
-    if (LS_CHECK_CACHE[doc.uri]?.epoch == LS_INDEX_EPOCH) { ls_reply(id, ls_report_check(doc.uri)); return nil; }
-    push(LS_CHECK_WAITERS, {"id": id, "uri": doc.uri}); ls_queue_check(doc.uri);
+fun ls_request_check(id: Any, doc: Any, previous: Any) -> Any {
+    if (previous != nil and value_tag(previous) != 1) { fail("previousResultId must be a string"); }
+    if (LS_CHECK_CACHE[doc.uri]?.epoch == LS_INDEX_EPOCH) { ls_reply(id, ls_report_check(doc.uri, previous)); return nil; }
+    push(LS_CHECK_WAITERS, {"id": id, "uri": doc.uri, "previous": previous}); ls_queue_check(doc.uri);
     LS_CHECK_DEADLINE = 0; return nil;
 }
 fun ls_cancel_check(id: Any) -> Any {
@@ -110,7 +113,7 @@ fun ls_worker_result(snapshot: Any) -> Any {
     }
     let remaining: Any = [];
     for waiter: Any in LS_CHECK_WAITERS {
-        if (waiter.uri == uri) { ls_reply(waiter.id, ls_report_check(uri)); } else { push(remaining, waiter); }
+        if (waiter.uri == uri) { ls_reply(waiter.id, ls_report_check(uri, waiter.previous)); } else { push(remaining, waiter); }
     }
     LS_CHECK_WAITERS = remaining; return nil;
 }

@@ -178,7 +178,7 @@ fun ls_message(message: Any) -> Any {
         if (value_tag(params) != 7) { fail("params must be an object"); }
         if (method == "$/cancelRequest") { ls_cancel_check(params.id); return nil; }
         if (request and ls_navigation_method(method)) { ls_request_navigation(id, method, params); return nil; }
-        if (request and method == "textDocument/diagnostic") { ls_request_check(id, ls_doc_param(params)); return nil; }
+        if (request and method == "textDocument/diagnostic") { ls_request_check(id, ls_doc_param(params), params.previousResultId); return nil; }
         let result: Any = ls_dispatch(method, params);
         if (request) { ls_reply(id, result); }
     } otherwise {

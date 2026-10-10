@@ -811,6 +811,42 @@ def run_navigation_workers(binary, work):
             client.process.kill(); client.process.wait()
 
 
+def run_diagnostic_ids(binary, work):
+    folder = work / 'diagnostic-ids'
+    folder.mkdir()
+    library = folder / 'library.may'
+    library.write_text('pub fun answer() -> Int { return 1; }\n')
+    source = folder / 'main.may'
+    text = 'import "library";\nanswer();\n'
+    source.write_text(text)
+    client = Client(binary)
+    try:
+        client.result('initialize', {'rootUri': folder.as_uri()})
+        client.send('textDocument/didOpen', {'textDocument': {'uri': source.as_uri(), 'languageId': 'maylang', 'version': 1, 'text': text}})
+        params = {'textDocument': {'uri': source.as_uri()}}
+        full = client.result('textDocument/diagnostic', params)
+        assert full['kind'] == 'full' and full['items'] == [] and full['resultId']
+        unchanged = client.result('textDocument/diagnostic', {**params, 'previousResultId': full['resultId']})
+        assert unchanged['kind'] == 'unchanged' and unchanged['resultId'] == full['resultId'] and 'items' not in unchanged
+        assert client.result('textDocument/diagnostic', {**params, 'previousResultId': 'unknown'})['kind'] == 'full'
+        assert client.request('textDocument/diagnostic', {**params, 'previousResultId': 42})['error']['code'] == -32602
+        client.send('textDocument/didOpen', {'textDocument': {'uri': library.as_uri(), 'languageId': 'maylang', 'version': 1, 'text': 'pub fun answer() -> Int { return missing; }\n'}})
+        changed = client.result('textDocument/diagnostic', {**params, 'previousResultId': full['resultId']})
+        assert changed['kind'] == 'full' and changed['resultId'] != full['resultId']
+        assert changed['relatedDocuments'][library.as_uri()]['items'], changed
+        client.send('textDocument/didChange', {'textDocument': {'uri': library.as_uri(), 'version': 2}, 'contentChanges': [{'text': library.read_text()}]})
+        fixed = client.result('textDocument/diagnostic', {**params, 'previousResultId': changed['resultId']})
+        assert fixed['kind'] == 'full' and fixed['relatedDocuments'][library.as_uri()]['items'] == []
+        other = folder / 'other.may'
+        other.write_text('print(1);\n')
+        assert client.result('textDocument/diagnostic', {'textDocument': {'uri': other.as_uri()}, 'previousResultId': fixed['resultId']})['kind'] == 'full'
+        client.stop()
+        print('PASS diagnostic result IDs, unchanged reports and related-document clearing', flush=True)
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path)
@@ -823,6 +859,7 @@ def main():
             subprocess.run([str(args.compiler), str(ROOT / "toolchain/maylsp/main.may"), "-o", str(binary)], cwd=ROOT, check=True, timeout=120)
         run_strict_checks(binary, work)
         run_semantic_deltas(binary, work)
+        run_diagnostic_ids(binary, work)
         run_navigation_workers(binary, work)
         run(binary, work)
         run_documentation(binary, work)
