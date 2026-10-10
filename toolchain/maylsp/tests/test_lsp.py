@@ -860,6 +860,8 @@ def main():
         run_strict_checks(binary, work)
         run_semantic_deltas(binary, work)
         run_diagnostic_ids(binary, work)
+        from workspace_diagnostics import run_workspace_diagnostics
+        run_workspace_diagnostics(binary, work)
         run_navigation_workers(binary, work)
         run(binary, work)
         run_documentation(binary, work)
