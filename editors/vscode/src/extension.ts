@@ -55,7 +55,13 @@ export function activate(context: ExtensionContext): void {
     clientOptions
   );
 
-  client.start();
+  void client.start().catch((error: unknown) => {
+    window.showErrorMessage(
+      `Maylang: could not start language server "${command}". ` +
+        `Install the toolchain and add its bin directory to PATH, or set "maylang.serverPath" to maylsp's full path. ` +
+        String(error)
+    );
+  });
 }
 
 export function deactivate(): Thenable<void> | undefined {
