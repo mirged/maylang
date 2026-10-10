@@ -4,6 +4,27 @@ This document describes the archived Rust native runtime. For the self-hosted
 mayc runtime, its size-bin allocator and the portable core's process-lifetime
 heap, see [the mayc runtime documentation](../toolchain/mayc/README.md).
 
+## Active self-hosted collector
+
+The full mayc runtime uses conservative, nonmoving mark-and-sweep over a
+reserved heap. An independently mapped allocation-start table validates real
+allocation boundaries before reading headers. Sweep clears identity for dead
+blocks; allocation restores it when a block is reused. This prevents stale
+headers inside coalesced/reused payloads from being treated as allocations and
+having their payload bytes modified by marking.
+
+The table reserves one byte per eight heap bytes (32 MiB for the default
+256 MiB heap), with pages committed on demand. Stack, global and suspended
+fiber roots are traced, including runtime metadata. Mark-stack exhaustion
+terminates with exit 70 instead of silently losing live descendants.
+
+`python3 toolchain/mayc/tests/gc.py` checks header-shaped interior bytes and
+100 forced collections with a retained, growing graph. The existing map suite
+also forces automatic collection in a reduced heap. Conservative retention,
+fixed heap capacity and nonmoving fragmentation remain limitations.
+
+## Archived Rust collector
+
 Maylang has no interpreter: every program is compiled to x86-64 machine code
 and runs on a small hand-written runtime, including a garbage collector. This
 document describes that collector.

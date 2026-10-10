@@ -18,6 +18,8 @@ fun gc_regression() -> Any {
     STACKTOP = __sp();
     rt_init();
     let owner: Any = rt_alloc(128);
+    let roots: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    store64(roots, owner); rt_gc_root(roots);
     // Payload bytes can contain old headers after coalescing/reuse, or simply
     // coincidentally match a header. They must never become allocation roots.
     store64(owner + 16, 32);
@@ -25,6 +27,7 @@ fun gc_regression() -> Any {
     if (rt_candidate(owner + 32) != 0) { syscall(60, 1); }
     if (rt_candidate(owner) != owner) { syscall(60, 2); }
     let graph: Any = rt_list_new(4);
+    store64(roots + 8, graph); rt_gc_root(roots + 8);
     mut round: Any = 0;
     while (round < 100) {
         let text: Any = rt_from(addr("persistent"), 10);

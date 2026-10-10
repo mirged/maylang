@@ -16,6 +16,10 @@
 mut HEAP: Any = 0;
 mut HP: Any = 0;
 mut HEAPEND: Any = 0;
+// Allocation identity lives outside the collected heap. Header-shaped bytes
+// inside payloads or coalesced regions are not allocations. One byte per
+// aligned heap word is demand-paged and does not depend on payload contents.
+mut GCSTARTS: Any = 0;
 mut FREELIST: Any = 0;
 mut FREEBINS: Any = 0;
 mut FREECOUNT: Any = 0;
@@ -118,6 +122,9 @@ fun rt_init() -> Any {
         sz = 33554432;
         HEAP = syscall(9, 0, sz, 3, 34, 0 - 1, 0);
     }
+    if (HEAP < 0) { syscall(60, 70); }
+    GCSTARTS = syscall(9, 0, sz / 8, 3, 34, 0 - 1, 0);
+    if (GCSTARTS < 0) { syscall(60, 70); }
     HEAPEND = HEAP + sz;
     HP = HEAP;
     FREELIST = 0;
@@ -126,6 +133,7 @@ fun rt_init() -> Any {
     MARKMAX = 1048576;
     MARKN = 0;
     MARKSTK = syscall(9, 0, 8388608, 3, 34, 0 - 1, 0);
+    if (MARKSTK < 0) { syscall(60, 70); }
     GBASE = 0;
     GCOUNT = 0;
     CSTOP = STACKTOP;
@@ -142,6 +150,7 @@ fun rt_candidate(w: Any) -> Any {
     let p: Any = w - t;
     if (p < HEAP + 16) { return 0; }
     if (p >= HP) { return 0; }
+    if (load8(GCSTARTS + (p - 16 - HEAP) / 8) != 1) { return 0; }
     if (load64(p - 8) != 5124095576638253) { return 0; }
     let sz: Any = load64(p - 16);
     let s: Any = sz - (sz % 2);
@@ -159,10 +168,10 @@ fun rt_setmark(p: Any) -> Any {
 }
 
 fun rt_pushmark(p: Any) -> Any {
-    if (MARKN < MARKMAX) {
-        store64(MARKSTK + MARKN * 8, p);
-        MARKN = MARKN + 1;
-    }
+    // Dropping a marked object's children would reclaim live objects.
+    if (MARKN >= MARKMAX) { rt_write(addr("GC mark stack exhausted\n"), 24); syscall(60, 70); }
+    store64(MARKSTK + MARKN * 8, p);
+    MARKN = MARKN + 1;
     return 0;
 }
 
@@ -197,6 +206,9 @@ fun rt_scan_range(lo: Any, hi: Any) -> Any {
 fun rt_gc() -> Any {
     if (GCFLAG == 0) { return 0; }
     MARKN = 0;
+    // Runtime metadata must also survive standalone/raw runtime harnesses.
+    rt_scan_word(GROOTS); rt_scan_word(HSTACK); rt_scan_word(ERRVAL);
+    rt_scan_word(FIB_TAB); rt_scan_word(FIB_SAVE0); rt_scan_word(FIB_CUR);
     mut i: Any = 0;
     while (i < GCOUNT) {
         rt_scan_word(load64(load64(GROOTS + i * 8)));
@@ -248,6 +260,7 @@ fun rt_sweep() -> Any {
         mut sz: Any = hdr - marked;
         if (sz < 16) { sz = 16; }
         if (marked == 0) {
+            store8(GCSTARTS + (p - HEAP) / 8, 0);
             if (run == 0) { run = p; }
             runsize += sz;
         } else {
@@ -287,6 +300,7 @@ fun rt_fit(need: Any) -> Any {
                 let size: Any = load64(block);
                 if (size - need >= 32) { rt_free_region(block + need, size - need); store64(block, need); }
                 store64(block + 8, 5124095576638253);
+                store8(GCSTARTS + (block - HEAP) / 8, 1);
                 return block + 16;
             }
             bin += 1;
@@ -305,11 +319,13 @@ fun rt_fit(need: Any) -> Any {
                 rt_free_region(cur + need, rem);
                 store64(cur, need);
                 store64(cur + 8, 5124095576638253);
+                store8(GCSTARTS + (cur - HEAP) / 8, 1);
                 return cur + 16;
             } else {
                 if (prev == 0) { FREELIST = nxt; } else { store64(prev + 8, nxt); }
                 store64(cur, sz);
                 store64(cur + 8, 5124095576638253);
+                store8(GCSTARTS + (cur - HEAP) / 8, 1);
                 return cur + 16;
             }
         }
@@ -339,6 +355,7 @@ fun rt_alloc(n: Any) -> Any {
     HP = HP + need;
     store64(H, need);
     store64(H + 8, 5124095576638253);
+    store8(GCSTARTS + (H - HEAP) / 8, 1);
     return H + 16;
 }
 

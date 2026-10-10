@@ -165,6 +165,8 @@ def main():
         record("portable core runtime across formats", core.returncode == 0, (core.stdout + core.stderr).decode())
         maps = run(["python3", COMPILER / "tests/runtime_maps.py", "--compiler", compiler], timeout=180)
         record("runtime hash tables and allocation bins", maps.returncode == 0, (maps.stdout + maps.stderr).decode())
+        gc = run(["python3", COMPILER / "tests/gc.py", "--compiler", compiler], timeout=180)
+        record("GC allocation identity and repeated collections", gc.returncode == 0, (gc.stdout + gc.stderr).decode())
         if not options.features_only:
             targets(compiler)
     except (RuntimeError, subprocess.TimeoutExpired) as error:
