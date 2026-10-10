@@ -23,6 +23,10 @@ fun symbol_cache_grow() -> Any {
     let capacity: Any = SYMBOL_CAPACITY;
     SYMBOL_CAPACITY = if (capacity == 0) { 65536 } else { capacity * 2 };
     SYMBOL_CACHE = irt_alloc(SYMBOL_CAPACITY * 24);
+    // The arena can be rewound between checks in a compiler host. Reused
+    // storage is not zeroed by irt_alloc; clear occupancy before probing.
+    mut empty: Any = 0;
+    while (empty < SYMBOL_CAPACITY) { store64(SYMBOL_CACHE + empty * 24 + 16, 0); empty += 1; }
     for index: Any in 0..capacity {
         let entry: Any = previous + index * 24;
         if (load64(entry + 16) != 0) {

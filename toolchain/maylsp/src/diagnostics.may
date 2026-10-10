@@ -60,6 +60,9 @@ fun ls_diagnostics(doc: Any) -> Any {
         return nil;
     }
     if (not LS_COMPILER_READY) { irt_init(); LS_ARENA_BASE = ARENAP; LS_COMPILER_READY = true; }
+    // Symbol tables point into this scratch arena. Never retain them while
+    // rewinding it for a subsequent workspace entry.
+    SYMBOL_CACHE = 0; SYMBOL_CAPACITY = 0; SYMBOL_STRINGS = [];
     ARENAP = LS_ARENA_BASE;
     FUNC_HEAD = []; FOREIGN_DECLS = [];
     IN_FUN = 0; RUNTIME_BODY = 0; MAINBODY = 0; PARSE_RAW = 0; DYNMODE = 1;
@@ -112,6 +115,9 @@ fun ls_diagnostics(doc: Any) -> Any {
     // Release AST roots; the raw compiler scratch arena is reused next time.
     SRC = 0; TOKS = []; NTOKS = 0; FUNC_HEAD = []; MAINBODY = 0; PROGRAM_AST = 0;
     DECLARATIONS = []; STRUCT_DECLS = []; ENUM_DECLS = []; SEM_SCOPES = []; SEM_FUNCTIONS = {}; SOURCE_FILES = {};
+    FOREIGN_DECLS = []; SEM_STACK = []; SEM_MAIN_BOXED = [];
+    ST_GLOBALS = {}; ST_RECORDS = {}; ST_SCOPES = []; ST_FUNCTIONS = {}; ST_RESULT = 0; ST_VARS = [];
+    SYMBOL_CACHE = 0; SYMBOL_CAPACITY = 0; SYMBOL_STRINGS = [];
     LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_ORIGINS = []; DIAGNOSTICS = []; DIAGNOSTIC_SPAN = 0;
     return nil;
 }

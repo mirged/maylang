@@ -135,7 +135,7 @@ def run_workspace_diagnostics(binary, work):
 
         # A long scan allows deterministic active/queued cancellation and edits.
         for i in range(256):
-            (folder / f'check{i:03}.may').write_text(f'print({i});\n')
+            (folder / f'check{i:03}.may').write_text(f'let value{i}: Int = {i};\nprint(value{i});\n')
         open_doc(source, text)
         client.result('textDocument/diagnostic', {'textDocument': {'uri': source.as_uri()}})
         pending = client.send('workspace/diagnostic', {'previousResultIds': [],
@@ -162,6 +162,7 @@ def run_workspace_diagnostics(binary, work):
             'contentChanges': [{'text': text + 'print(latest_error);\n'}]})
         assert replies({pending})[pending]['error']['code'] == -32802
         retry = pull()
+        assert all(r['items'] == [] for r in retry['items'] if '/check' in r['uri']), retry
         assert by_uri(retry)[source.as_uri()]['version'] == 2
         assert 'latest_error' in by_uri(retry)[source.as_uri()]['items'][0]['message']
         pending = client.send('workspace/diagnostic', {'previousResultIds': []}, request=True)
