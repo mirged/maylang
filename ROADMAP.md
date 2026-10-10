@@ -32,7 +32,7 @@ Review the roadmap when preparing a release, completing a milestone or receiving
 
 ## Tracking progress
 
-The initial initiatives now include completed and partial implementations. [PR #21](https://github.com/mirged/maylang/pull/21) delivers initiatives 7, 9, 10, 11, 15, 16 and 17, and advances 2, 4, 8, 18 and 19. Remaining checkboxes retain their original scope; successful emulation, a heap cap or CI artifacts do not complete native-host, reclamation or tagged-release work. Use these states when updating an initiative: **planned**, **in progress**, **blocked**, **completed**, **deferred** or **superseded**. Link the implementation PR when work starts and identify a concrete dependency when marking work blocked. Keep checkboxes aligned with verified results.
+The initial initiatives now include completed and partial implementations. [PR #21](https://github.com/mirged/maylang/pull/21) delivers initiatives 7, 9, 10, 11, 15, 16 and 17, and advances 2, 4, 8, 18 and 19. [PR #22](https://github.com/mirged/maylang/pull/22) completes initiatives 3 and 18. Remaining checkboxes retain their original scope; successful emulation, a heap cap or CI artifacts do not complete native-host, reclamation or tagged-release work. Use these states when updating an initiative: **planned**, **in progress**, **blocked**, **completed**, **deferred** or **superseded**. Link the implementation PR when work starts and identify a concrete dependency when marking work blocked. Keep checkboxes aligned with verified results.
 
 A milestone is ready when its agreed acceptance criteria pass and the relevant documentation reflects the delivered behavior. If its scope changes, record the decision before declaring it complete. Each implementation should include regression coverage appropriate to the change, validation commands and results, and any remaining limitations. Keep source-only builds and supported-target behavior covered as the compiler evolves.
 
@@ -81,7 +81,7 @@ PR #21 fixes a proven interior-allocation-header bug and tests 100 forced collec
 
 ### Initiative 3. Add CI for compiler, compliance and self-hosting verification
 
-**Status:** in progress
+**Status:** completed
 
 **Initial priority:** P0  
 **GitHub:** [Issue #3](https://github.com/mirged/maylang/issues/3)  
@@ -89,13 +89,16 @@ PR #21 fixes a proven interior-allocation-header bug and tests 100 forced collec
 
 The Linux workflow verifies source-only bootstrap convergence, the Rust workspace,
 direct LLVM lowering, native compiler entrypoints and language compliance. It
-uploads reports and failure logs. Optional emulator/performance jobs remain to
-be separated and automated; the complete initiative stays open.
+uploads reports and failure logs. Cross-target emulation uses a separate optional job. Manually dispatched
+performance measurements use the tested toolchain bundle and publish reports
+without timing thresholds.
 
 - [x] Add Linux x86-64 CI with explicit Python/binutils requirements.
 - [x] Run compiler stage convergence and compliance checks on pull requests.
 - [x] Upload reports and failure logs and fail on verification errors.
-- [ ] Separate required checks from optional emulator/performance jobs.
+- [x] Separate required checks from optional emulator/performance jobs.
+
+**Implementation:** [PR #22](https://github.com/mirged/maylang/pull/22). Optional jobs use checksummed bootstrap artifacts and do not fail the required checks.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 
@@ -249,19 +252,19 @@ Source digests support incremental builds; audit freshness so toolchain/configur
 
 ### Initiative 18. Add isolated end-to-end tests for maypkg commands
 
-**Status:** in progress
+**Status:** completed
 **Initial priority:** P1  
 **GitHub:** [Issue #18](https://github.com/mirged/maylang/issues/18)  
 **Relevant paths:** `toolchain/maypkg/main.may`, `toolchain/maypkg/src/`, `toolchain/maypkg/README.md`
 
 Discovery, shell generation, watching and cleanup need a focused reproducible integration suite.
 
-- [ ] Create temporary fixture projects for new/init/sync/tree/lock/verify/build/run.
-- [ ] Cover imports, cycles, orphans, ancestor discovery and paths with spaces.
-- [ ] Test watcher rebuilds and shutdown with bounded subprocess timeouts.
-- [ ] Verify clean/dry-run only affect generated artifacts and document one test command.
+- [x] Create temporary fixture projects for new/init/sync/tree/lock/verify/build/run.
+- [x] Cover imports, cycles, orphans, ancestor discovery and paths with spaces.
+- [x] Test watcher rebuilds and shutdown with bounded subprocess timeouts.
+- [x] Verify clean/dry-run only affect generated artifacts and document one test command.
 
-PR #21 adds isolated compiler/configuration selection, quoted paths, dependency/sidecar invalidation, failed-build recovery, new-project and atomic-state tests. Full command coverage, watcher lifecycle and clean/dry-run tests remain pending.
+**Implementation:** [PR #22](https://github.com/mirged/maylang/pull/22) completes the isolated command suite begun in PR #21. Native and generated watchers detect changed inputs, recover after failed compilation and stop with bounded process-group checks. Cleanup preserves source/configuration, unrelated build files and files outside the project; invalid outputs fail before deletion. The README documents one command for the full suite.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 
