@@ -7,6 +7,28 @@ from pathlib import Path
 from test_lsp import Client
 
 
+def run_large_diagnostic_frames(binary, work):
+    folder = work / 'diagnostic-frames'
+    folder.mkdir()
+    (folder / 'main.may').write_text('print(1);\n')
+    client = Client(binary)
+    try:
+        client.result('initialize', {'rootUri': folder.as_uri()})
+        first = client.result('workspace/diagnostic', {'previousResultIds': []})
+        # A legal near-limit frame must not materialize one list element per
+        # byte before parsing it. Follow it with another pull to check recovery.
+        response = client.request('unknown/method', {'blob': 'x' * (15 * 1024 * 1024)})
+        assert response['error']['code'] == -32601, response
+        same = client.result('workspace/diagnostic', {'previousResultIds': [
+            {'uri': r['uri'], 'value': r['resultId']} for r in first['items']]})
+        assert same['items'][0]['kind'] == 'unchanged', same
+        client.stop()
+        print('PASS near-limit JSON frames and subsequent diagnostic pulls', flush=True)
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+
+
 def run_diagnostic_restart(binary, work):
     folder = work / 'diagnostic-restart'
     folder.mkdir()
@@ -146,6 +168,8 @@ def run_workspace_diagnostics(binary, work):
         same = pull(previous(first))
         assert all(r['kind'] == 'unchanged' and 'items' not in r for r in same['items']), same
         assert {r['uri']: r['resultId'] for r in first['items']} == {r['uri']: r['resultId'] for r in same['items']}
+        unicode_id = client.request('workspace/diagnostic', {'previousResultIds': previous(first)}, identifier='workspace-🚀')
+        assert all(r['kind'] == 'unchanged' for r in unicode_id['result']['items']), unicode_id
         assert all(r['kind'] == 'full' for r in pull([{'uri': source.as_uri(), 'value': 'unknown'}])['items'])
         client.notifications = []
         assert pull(previous(first), partialResultToken=7)['items'] == []
@@ -164,6 +188,9 @@ def run_workspace_diagnostics(binary, work):
         # Disk changes and deletion notifications cannot overwrite an open buffer.
         library.write_text('print(disk_only_error);\n')
         client.send('workspace/didChangeWatchedFiles', {'changes': [{'uri': library.as_uri(), 'type': 2}]})
+        assert 'expected Str' in by_uri(pull())[source.as_uri()]['items'][0]['message']
+        library.unlink()
+        client.send('workspace/didChangeWatchedFiles', {'changes': [{'uri': library.as_uri(), 'type': 3}]})
         assert 'expected Str' in by_uri(pull())[source.as_uri()]['items'][0]['message']
         library.write_text('pub fun answer(value: Int) -> Int { return value; }\n')
         client.send('textDocument/didClose', {'textDocument': {'uri': library.as_uri()}})

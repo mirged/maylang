@@ -64,10 +64,11 @@ fun ls_packet() -> Any {
     }
     if (size < 0 or size > 16777216) { fail("invalid Content-Length"); }
     let p: Any = syscall(9, 0, max(1, size), 3, 34, -1, 0);
-    for i: Any in 0..size {
+    mut i: Any = 0;
+    while (i < size) {
         let c: Any = ls_read_byte();
         if (c < 0) { syscall(11, p, max(1, size)); return nil; }
-        store8(p + i, c);
+        store8(p + i, c); i += 1;
     }
     let body: Any = ls_text(p, size); syscall(11, p, max(1, size)); return body;
 }
@@ -169,7 +170,8 @@ fun ls_parse_json(s: Any) -> Any {
 }
 fun ls_quote(s: Any) -> Any {
     let parts: Any = ["\""]; let hex: Any = "0123456789abcdef"; mut start: Any = 0;
-    for i: Any in 0..ls_bytes(s) {
+    mut i: Any = 0;
+    while (i < ls_bytes(s)) {
         let c: Any = ls_byte(s, i);
         if (c == 34 or c == 92 or c < 32) {
             push(parts, ls_slice(s, start, i));
@@ -178,24 +180,9 @@ fun ls_quote(s: Any) -> Any {
             else { push(parts, "\\u00" + chr(ls_byte(hex, c / 16)) + chr(ls_byte(hex, c % 16))); }
             start = i + 1;
         }
+        i += 1;
     }
     push(parts, ls_slice(s, start, ls_bytes(s))); push(parts, "\""); return ls_join(parts, "");
-}
-fun ls_join(parts: Any, separator: Any) -> Any {
-    if (len(parts) == 0) { return ""; }
-    mut level: Any = parts;
-    // Balanced concatenation bounds copied bytes for large semantic-token
-    // arrays; the stdlib join repeatedly copies the entire growing result.
-    while (len(level) > 1) {
-        let next: Any = []; mut i: Any = 0;
-        while (i < len(level)) {
-            if (i + 1 < len(level)) { push(next, level[i] + separator + level[i + 1]); }
-            else { push(next, level[i]); }
-            i += 2;
-        }
-        level = next;
-    }
-    return level[0];
 }
 fun ls_json(v: Any) -> Any {
     let t: Any = value_tag(v);
