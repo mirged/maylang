@@ -3,6 +3,7 @@ import "text.may";
 import "index.may";
 import "diagnostics.may";
 import "navigation.may";
+import "workspacecache.may";
 
 // Workspace pulls get one worker and eight queued requests. Stream individual
 // reports; retain encoded strings only when the client cannot accept partials.
@@ -44,6 +45,7 @@ fun ls_workspace_invalidate(code: Any, message: Any) -> Any {
 fun ls_workspace_changed() -> Any {
     if (LS_WORKSPACE_EPOCH != LS_INDEX_EPOCH) {
         ls_workspace_invalidate(-32802, "Workspace changed; retry diagnostic request");
+        ls_workspace_cache_reset();
         LS_WORKSPACE_EPOCH = LS_INDEX_EPOCH;
     }
     return nil;
@@ -88,7 +90,7 @@ fun ls_workspace_emit(item: Any, completed: Any, total: Any) -> Any {
     return ls_write(ls_json({"item": item, "completed": completed, "total": total}) + "\n");
 }
 fun ls_workspace_compute(job: Any) -> Any {
-    let base: Any = {}; let files: Any = job.files ?? []; let seen: Any = {};
+    let base: Any = {}; mut files: Any = job.files ?? []; let seen: Any = {};
     for uri: Any in keys(LS_DOCS) {
         if (LS_DOCS[uri].open) {
             base[uri] = LS_DOCS[uri];
@@ -98,21 +100,31 @@ fun ls_workspace_compute(job: Any) -> Any {
     if (len(files) > 10000) { fail("Workspace diagnostic file limit exceeded"); }
     if (job.files == nil) {
         for root: Any in LS_ROOTS { ls_navigation_scan(root, 0, files, seen); }
+        // Check changed/unknown reports first, before buffering unchanged ones.
+        let fresh: Any = []; let unchanged: Any = [];
+        for uri: Any in files {
+            let resultId: Any = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
+            if (job.previous[uri] == resultId) { push(unchanged, uri); } else { push(fresh, uri); }
+        }
+        files = fresh;
+        for uri: Any in unchanged { push(files, uri); }
         ls_write(ls_json({"files": files}) + "\n");
     }
     ls_navigation_restore(base);
-    // Keep builtin indexes within this worker; other disk indexes and compiler
-    // state are released when it exits after at most 32 entry checks.
-    for name: Any in ["prelude.may", "native.may"] {
-        let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
-        if (builtin != nil) { base[builtin.uri] = builtin; }
-    }
     let end: Any = min(job.offset + 32, len(files));
-    let documents: Any = {}; let pending: Any = []; let single: Any = {};
+    let documents: Any = {}; let pending: Any = []; let single: Any = {}; let ready: Any = {};
     for index: Any in job.offset..end {
-        let uri: Any = files[index]; let doc: Any = ls_document(uri); documents[uri] = doc;
+        let uri: Any = files[index];
         let resultId: Any = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
-        if (doc != nil and job.previous[uri] != resultId) { push(pending, doc); }
+        let cached: Any = if (job.previous[uri] != resultId) { ls_workspace_cache_get(uri) } else { nil };
+        // A matching snapshot needs only existence and version metadata, not
+        // disk indexes or compiler/builtin state in a newly forked worker.
+        let doc: Any = if (job.previous[uri] == resultId or cached != nil) {
+            if (LS_DOCS[uri]?.open == true or file_exists(ls_path(uri))) { ({"uri": uri, "version": LS_DOCS[uri]?.version}) } else { nil }
+        } else { ls_document(uri) };
+        documents[uri] = doc;
+        if (doc != nil and cached != nil) { ready[uri] = ls_parse_json(cached); }
+        else if (doc != nil and job.previous[uri] != resultId) { push(pending, doc); }
     }
     mut clean: Any = true;
     if (len(pending) > 0) {
@@ -129,7 +141,8 @@ fun ls_workspace_compute(job: Any) -> Any {
             let report: Any = {"uri": uri, "version": doc.version, "kind": "unchanged", "resultId": resultId};
             if (job.previous[uri] != resultId) {
                 report.kind = "full"; report.items = [];
-                if (has(single, uri)) { report.items = single[uri]; }
+                if (has(ready, uri)) { report.items = ready[uri].items; }
+                else if (has(single, uri)) { report.items = single[uri]; }
                 else if (not clean) {
                     // Any batch error can stop lexing/resolution or hit the
                     // recovery cap. Recheck entries independently in that case.
@@ -193,12 +206,23 @@ fun ls_workspace_event(event: Any, now: Any) -> Any {
     }
     if (event.done == true) {
         let parts: Any = job.parts; ls_workspace_stop();
+        let prefix: Any = "{\"jsonrpc\":\"2.0\",\"id\":" + ls_json(job.id) + ",\"result\":{\"items\":[";
+        mut size: Any = ls_bytes(prefix) + 3 + max(0, len(parts) - 1);
+        for part: Any in parts { size += ls_bytes(part); }
+        if (size > 16777216) {
+            ls_workspace_progress(job, {"kind": "end", "message": "Workspace diagnostic result limit exceeded"});
+            ls_error(job.id, -32803, "Workspace diagnostic result limit exceeded"); return nil;
+        }
         ls_workspace_progress(job, {"kind": "end", "message": "Workspace diagnostics complete"});
-        let body: Any = "{\"jsonrpc\":\"2.0\",\"id\":" + ls_json(job.id) + ",\"result\":{\"items\":[" + ls_join(parts, ",") + "]}}";
-        ls_write("Content-Length: " + str(ls_bytes(body)) + "\r\n\r\n" + body); return nil;
+        // Emit one framed response without allocating another large joined body.
+        ls_write("Content-Length: " + str(size) + "\r\n\r\n"); ls_write(prefix);
+        mut first: Any = true;
+        for part: Any in parts { if (not first) { ls_write(","); } first = false; ls_write(part); }
+        ls_write("]}}"); return nil;
     }
     let item: Any = event.item;
     if (value_tag(item) != 7 or value_tag(item.uri) != 1 or not has(["full", "unchanged"], item.kind)) { fail("Invalid workspace diagnostic worker report"); }
+    if (item.kind == "full" and item.resultId != nil) { ls_workspace_cache_put(item.uri, ls_json(item)); }
     if (job.params.partialResultToken != nil) { ls_notify("$/progress", {"token": job.params.partialResultToken, "value": {"items": [item]}}); }
     else { push(job.parts, ls_json(item)); }
     if (event.completed % 32 == 0 or event.completed == event.total) {

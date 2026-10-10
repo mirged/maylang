@@ -128,9 +128,14 @@ most 32 entries before replacement; clean entries share a compiler check,
 while any error causes individual checks. Reports stream to clients that
 provide partial-result tokens; other clients receive a buffered full response.
 Request bounds are 10,000 selected files, 16 MiB of worker output, 30 seconds
-without a report and five minutes total. Session/epoch/URI result IDs avoid a
-growing parent report cache. Compiler symbol tables own zeroed mappings with
+without a report and five minutes total. Result IDs include session/epoch/URI.
+Encoded full reports use a 16 MiB mapping capped at 10,000 entries and cleared
+on snapshot changes. Compiler symbol tables own zeroed mappings with
 explicit release, and AST/strict-checker roots are released between checks.
+Unchanged reports avoid indexes and compiler state, changed files run first,
+and buffered responses emit one frame without a second large joined string.
+Byte scans avoid materialized integer ranges and URI encoding copies spans.
+A near-limit 15 MiB frame is accepted without breaking subsequent pulls.
 
 The diagnostic benchmark exercises cold streamed and unchanged buffered pulls
 with interleaved hover on 10,016 files. It checks open/unopened versions, stable

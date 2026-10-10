@@ -131,6 +131,7 @@ src/diagnostics.may in-process mayc lexer/parser/semantic checker adapter
 src/scheduler.may background compiler workers, debounce and cancellation
 src/navigation.may bounded navigation worker, snapshots and streamed results
 src/workspace.may workspace diagnostic batches, progress and snapshot cancellation
+src/workspacecache.may bounded encoded full reports, cleared on snapshot changes
 src/docs.may      generated documentation compiled into the executable
 src/features.may  navigation and editor features
 docs/reference.json  editable documentation catalog
@@ -182,8 +183,13 @@ reaped and replaced. Clean entries share a compiler check; any batch error
 triggers separate checks so lexer failures and recovery limits cannot mask
 other files. Reports drain at most 32 per event-loop turn. Requests are limited
 to 16 MiB of worker output, 30 seconds without a report and five minutes total.
-Workspace IDs encode their snapshot without retaining a growing report cache
-in the parent. Compiler symbol tables own zeroed mappings with explicit release;
+Workspace IDs encode their session and snapshot. Full reports are cached as
+encoded JSON in a 16 MiB mapping with at most 10,000 entries; snapshot changes
+clear it. Matching reports check only existence and version; changed files
+are checked first. Buffered replies write one frame from encoded parts without
+allocating another joined result string. Byte scans use counters and URI encoding
+copies spans, avoiding temporary arrays for large frames and repeated prefixes.
+Compiler symbol tables own zeroed mappings with explicit release;
 AST and strict-checker roots are released between checks.
 
 Unchanged diagnostic requests reuse cached checks, invalidated by document
