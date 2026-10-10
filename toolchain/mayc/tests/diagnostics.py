@@ -31,6 +31,13 @@ def main():
         assert {(Path(r['file']).name,r['range']['start']['line']) for r in records} == {('library.may',1),('library.may',2),('app.may',2)},records
         assert all(record['stage']=='type' for record in records)
         print('PASS multiple type errors preserve original import paths and lines',flush=True)
+        nested = work/'nested'; nested.mkdir()
+        leaf = nested/'leaf.may'; leaf.write_text('pub fun broken() -> Int { return "bad"; }\n')
+        library.write_text('from "nested/leaf" import broken;\nfun use() -> Int { return broken(); }\n')
+        source.write_text('import "library";\nprint(42);\n')
+        records = check(1)
+        assert records[0]['file'] == str(leaf) and records[0]['range']['start']['line'] == 1, records
+        print('PASS nested selective imports preserve original diagnostic ranges',flush=True)
         source.write_text('fun broken() -> Int { let n = ; return 1; }\nlet bad = ;\nlet good = 1;\n')
         records=check(2); assert all(record['stage']=='parse' for record in records)
         print('PASS parser recovery across block and statement boundaries',flush=True)
@@ -38,8 +45,15 @@ def main():
         check(20)
         source.write_text('let message = "héllo";\nlet number: Int = message;\n')
         records=check(1); assert records[0]['range']['start']['line']==2
+        source.write_text('let text = "🙂"; let number: Int = text;\n')
+        records=check(1)
+        assert records[0]['range']['start']['column'] == source.read_text().encode().index(b'let number') + 1, records
         result=subprocess.run([str(args.compiler.resolve()),str(source),'-o',str(binary)],capture_output=True,timeout=60)
         assert b'^' in result.stderr and b'expected Int, found Str' in result.stderr,result
+        assert source.read_bytes().strip() in result.stderr and result.stderr.endswith(b'^^^\n'), result
+        unicode_path = work/'šaltinis🙂.may'; unicode_path.write_text('let n: Int = "bad";\n')
+        result=subprocess.run([str(args.compiler.resolve()),'--diagnostics','json','--check',str(unicode_path)],capture_output=True,timeout=60)
+        assert json.loads(result.stderr)['diagnostics'][0]['file'] == str(unicode_path), result
         source.write_text('print(42);')
         result=subprocess.run([str(args.compiler.resolve()),'--diagnostics','json','--check',str(source)],capture_output=True,timeout=60)
         assert result.returncode==0 and not result.stderr,result

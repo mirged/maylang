@@ -46,7 +46,18 @@ fun die(p: Any, n: Any) -> Any {
 
 // Print a (runtime) string to stderr and exit with failure.
 fun die_str(s: Any) -> Any {
-    syscall(1, 2, addr(s), len(s));
+    // Compiler messages are NUL-terminated UTF-8. len counts code points,
+    // whereas write requires bytes; keep this portable to the C bootstrap.
+    let pointer: Any = addr(s);
+    mut count: Any = 0;
+    while (load8(pointer + count) != 0) { count += 1; }
+    mut offset: Any = 0;
+    while (offset < count) {
+        let written: Any = syscall(1, 2, pointer + offset, count - offset);
+        if (written == -4) { continue; }
+        if (written <= 0) { break; }
+        offset += written;
+    }
     syscall(60, 1);
     return 0;
 }

@@ -1,5 +1,6 @@
 import "state.may";
 import "modules.may";
+import "sema.may";
 // diagnostics.may — failures travel through Maylang's error boundary.
 
 mut DIAGNOSTIC_SPAN: Any = 0;
@@ -90,14 +91,12 @@ fun format_diagnostic(span: Any, message: Any) -> Any {
     while (begin > 0 and load8(span.source + begin - 1) != 10) { begin = begin - 1; }
     mut end: Any = span.start;
     while (load8(span.source + end) != 0 and load8(span.source + end) != 10) { end = end + 1; }
-    mut lineText: Any = "";
-    mut i: Any = begin;
-    while (i < end) { lineText = lineText + chr(load8(span.source + i)); i = i + 1; }
+    let lineText: Any = symbol_name(span.source + begin, end - begin);
     mut pointer: Any = "";
-    i = begin;
+    mut i: Any = begin;
     while (i < span.start) {
         if (load8(span.source + i) == 9) { pointer = pointer + "\t"; }
-        else { pointer = pointer + " "; }
+        else if (load8(span.source + i) < 128 or load8(span.source + i) >= 192) { pointer = pointer + " "; }
         i = i + 1;
     }
     mut width: Any = span.length;
