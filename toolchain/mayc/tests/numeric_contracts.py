@@ -25,6 +25,9 @@ let fs: List<Float32> = [16777217.0]; print(fs[0] == 16777216.0);
 fun array(n: List<Int>) -> [Int; 2] { return n; }
 print(may { array([1]); "bad" } otherwise { str(err.kind) });
 let good: [Int; 2] = array([1,2]); print(good);
+fun original_error() -> Result<Int, Int> { return Err(256); }
+fun narrow_error() -> Result<Int, UInt8> { return Ok(original_error()?); }
+print(may { narrow_error(); "bad" } otherwise { str(err.kind) });
 '''
 
 
@@ -37,7 +40,7 @@ def main():
             result=subprocess.run([str(args.compiler.resolve()),'--target',target,str(source),'-o',str(binary)],capture_output=True,timeout=120)
             assert result.returncode==0,result.stderr.decode()
             result=subprocess.run([str(binary)],capture_output=True,timeout=10)
-            expected=b'255 -128 4294967295\n'+b'arithmetic\n'*5+b'true true\ntrue\narithmetic\n[1, 2]\n'
+            expected=b'255 -128 4294967295\n'+b'arithmetic\n'*5+b'true true\ntrue\narithmetic\n[1, 2]\narithmetic\n'
             assert result.returncode==0 and result.stdout==expected,result
             print('PASS bounds, collection mutation/aliases, binary32 precision and arrays on '+target,flush=True)
         for code, message in [('let n: UInt8 = 256;','outside UInt8 bounds'),('let n: Int8 = -129;','outside Int8 bounds'),('let n: UInt64 = -1;','outside UInt64 bounds'),('let a: [Int; 2] = [1];','fixed array length mismatch')]:

@@ -503,6 +503,7 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
         if (value.name != "Result") { diagnostic(node.span, "postfix ? requires Result<T, E> or Any"); }
         if (ST_RESULT == 0 or ST_RESULT.name != "Result") { diagnostic(node.span, "typed ? requires an enclosing function returning Result<T, E>"); }
         st_require(ST_RESULT.arguments[1], value.arguments[1], node.span);
+        node.propagationContract = ST_RESULT;
         return value.arguments[0];
     }
     if (has([S_RETURN, S_EXPR, S_LET, S_ASSIGN, S_FOR, S_WHILE, S_SETIDX, S_SETPROP, S_BREAK, S_CONT], k)) { st_statement(ctx, node); return st_type("Never", []); }

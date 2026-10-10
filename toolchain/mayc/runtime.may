@@ -40,6 +40,37 @@ mut ERRFLAG: Any = 0;
 mut ERRVAL: Any = 2;
 mut HDEPTH: Any = 0;
 mut HSTACK: Any = 0;
+mut TRACE_STACK: Any = 0;
+mut TRACE_DEPTH: Any = 0;
+
+fun rt_trace_push(frame: Any) -> Any {
+    if (TRACE_STACK == 0) { TRACE_STACK = rt_alloc(8192); }
+    if (TRACE_DEPTH < 1024) { store64(TRACE_STACK + TRACE_DEPTH * 8, frame); }
+    TRACE_DEPTH += 1; return 2;
+}
+fun rt_trace_pop() -> Any {
+    if (TRACE_DEPTH > 0) {
+        TRACE_DEPTH -= 1;
+        if (TRACE_DEPTH < 1024) { store64(TRACE_STACK + TRACE_DEPTH * 8, 0); }
+    }
+    return 2;
+}
+fun rt_trace_depth() -> Any { return TRACE_DEPTH * 8; }
+fun rt_trace_restore(depth: Any) -> Any {
+    while (TRACE_DEPTH > depth / 8) { rt_trace_pop(); }
+    return 2;
+}
+fun rt_trace_snapshot() -> Any {
+    mut text: Any = rt_from(addr(""), 0);
+    mut index: Any = TRACE_DEPTH - 1;
+    if (index >= 1024) { index = 1023; text = rt_from(addr("  ... trace truncated\n"), 22); }
+    mut frames: Any = 0;
+    while (index >= 0 and frames < 64) {
+        text = rt_concat(text, rt_concat(rt_from(addr("  at "), 5), rt_concat(load64(TRACE_STACK + index * 8), rt_from(addr("\n"), 1))));
+        index -= 1; frames += 1;
+    }
+    return text;
+}
 
 // Print an uncaught error and exit (used when `__longjmp` finds no handler).
 fun rt_die_uncaught() -> Any {
@@ -50,6 +81,8 @@ fun rt_die_uncaught() -> Any {
     let s: Any = rt_concat(rt_concat(k, rt_from(addr(": "), 2)), m);
     rt_write(s + 7, rt_slen(s));
     rt_write(addr("\n"), 1);
+    let trace: Any = rt_map_get(ERRVAL, rt_from(addr("stack"), 5));
+    if (trace % 8 == 1 and rt_slen(trace) > 0) { rt_write(trace + 7, rt_slen(trace)); }
     syscall(60, 70);
     return 0;
 }
@@ -59,7 +92,7 @@ fun rt_mkerr(kp: Any, kl: Any, s: Any) -> Any {
     rt_map_set(e, rt_from(addr("__err"), 5), 4);
     rt_map_set(e, rt_from(addr("message"), 7), s);
     rt_map_set(e, rt_from(addr("kind"), 4), rt_from(kp, kl));
-    rt_map_set(e, rt_from(addr("stack"), 5), rt_from(addr(""), 0));
+    rt_map_set(e, rt_from(addr("stack"), 5), rt_trace_snapshot());
     return e;
 }
 
@@ -220,6 +253,7 @@ fun rt_gc() -> Any {
     // Runtime metadata must also survive standalone/raw runtime harnesses.
     rt_scan_word(GROOTS); rt_scan_word(HSTACK); rt_scan_word(ERRVAL);
     rt_scan_word(FIB_TAB); rt_scan_word(FIB_SAVE0); rt_scan_word(FIB_CUR);
+    rt_scan_word(TRACE_STACK);
     mut i: Any = 0;
     while (i < GCOUNT) {
         rt_scan_word(load64(load64(GROOTS + i * 8)));
@@ -2259,11 +2293,15 @@ mut FIB_TAB: Any = 0;
 mut FIB_N: Any = 0;
 mut FIB_CUR: Any = 0;
 mut FIB_SAVE0: Any = 0;
+mut FIB_TRACE0: Any = 0;
+mut FIB_TRACE_DEPTH0: Any = 0;
 
 fun rt_spawn(fn: Any) -> Any {
+    if (FIB_N >= 128) { return rt_failstr(rt_from(addr("fiber limit exceeded"), 20)); }
     if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
-    let rec: Any = rt_alloc(32);
+    let rec: Any = rt_alloc(48);
+    store64(rec + 32, 0); store64(rec + 40, 0);
     store64(rec + 8, fn);
     store64(rec + 16, 1);
     let size: Any = 262144;
@@ -2287,7 +2325,10 @@ fun rt_spawn(fn: Any) -> Any {
 fun rt_yield() -> Any {
     if (FIB_CUR == 0) { return 0; }
     CSTOP = load64(FIB_CUR + 24);
+    store64(FIB_CUR + 32, TRACE_STACK); store64(FIB_CUR + 40, TRACE_DEPTH);
+    TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
     __fib_switch(FIB_CUR, FIB_SAVE0);
+    TRACE_STACK = load64(FIB_CUR + 32); TRACE_DEPTH = load64(FIB_CUR + 40);
     CSTOP = load64(FIB_CUR + 24);
     return 0;
 }
@@ -2295,6 +2336,7 @@ fun rt_yield() -> Any {
 fun rt_run() -> Any {
     if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
+    FIB_TRACE0 = TRACE_STACK; FIB_TRACE_DEPTH0 = TRACE_DEPTH;
     mut again: Any = 1;
     while (again == 1) {
         again = 0;
@@ -2305,7 +2347,9 @@ fun rt_run() -> Any {
                 again = 1;
                 FIB_CUR = rec;
                 CSTOP = load64(rec + 24);
+                TRACE_STACK = load64(rec + 32); TRACE_DEPTH = load64(rec + 40);
                 __fib_switch(FIB_SAVE0, rec);
+                TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
                 CSTOP = STACKTOP;
                 FIB_CUR = 0;
             }
@@ -2321,6 +2365,8 @@ fun rt_fiber_entry() -> Any {
     let fn: Any = load64(rec + 8);
     fn();
     store64(rec + 16, 0);
+    store64(rec + 32, TRACE_STACK); store64(rec + 40, TRACE_DEPTH);
+    TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
     __fib_switch(rec, FIB_SAVE0);
     return 0;
 }

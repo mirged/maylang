@@ -1041,6 +1041,7 @@ fun parse_match(ctx: Any) -> Any {
             while (ptok() == TK_DOT) {
                 adv(); name = name + "::" + slice_src(pstart(), plen()); expect(TK_IDENT);
                 s = addr(name); l = len(name);
+                push(SYMBOL_STRINGS, name);
             }
             if (ptok() == TK_LP) {
                 pk = 3; pv = s; pn = l; adv();

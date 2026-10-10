@@ -21,6 +21,7 @@ mut RUNTIME_BODY: Any = 0;
 mut SOURCE_FILES: Any = {};
 mut FOREIGN_DECLS: Any = [];
 mut STRICT_TYPES: Any = true;
+mut DEBUG_TRACES: Any = false;
 
 fun irt_init() -> Any {
     ARENA = syscall(9, 0, 268435456, 3, 34, 0 - 1, 0);
