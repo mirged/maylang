@@ -1,6 +1,6 @@
 // main.may — a text analytics CLI.
 //
-//   maylang build -o textstats example_projects/apps/textstats/main.may
+//   mayc example_projects/apps/textstats/main.may -o textstats
 //   ./textstats < somefile.txt
 //   cat somefile.txt | ./textstats
 //
@@ -10,17 +10,17 @@ import "src/text.may";
 import "src/stats.may";
 import "src/report.may";
 
-let sample: Any =
+let sample: Str =
     "The quick brown fox jumps over the lazy dog. " +
     "The dog barks, and the fox runs away. " +
     "A quick fox is a happy fox; a lazy dog is a sleepy dog.";
 
-mut source: Any = read_stdin();
+mut source: Str = read_stdin();
 if (len(trim(source)) == 0) { source = sample; }
 
-let tokens: Any = words(source);
-let counts: Any = count_words(tokens);
-let entries: Any = rank(counts);
-let summary: Any = summarize(tokens, counts);
+let tokens: List<Str> = words(source);
+let counts: Map<Str, Int> = count_words(tokens);
+let entries: List<Entry> = rank(counts);
+let summary: Summary = summarize(tokens, counts);
 
 render("TEXT STATISTICS", summary, entries, 15);

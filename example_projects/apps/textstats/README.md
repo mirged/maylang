@@ -1,8 +1,9 @@
 # textstats — a text analytics CLI in Maylang
 
 Reads text, tokenises it, counts words and prints a ranked frequency report.
-It is split across modules and compiles to a **freestanding native executable**
-(or runs on the bytecode VM — the same source, both targets).
+It uses typed modules, records and collections and compiles to a native
+Linux x86-64 executable with the full runtime. Toolchain bundle verification
+builds it using the extracted compiler and checks a known frequency report.
 
 ```
 example_projects/apps/textstats/
@@ -18,13 +19,10 @@ example_projects/apps/textstats/
 ## Build and run
 
 ```sh
-# native executable (ELF on Linux, Mach-O on macOS):
+# native executable (Linux x86-64 full runtime):
 make
 ./build/textstats < sample.txt
 cat somefile.txt | ./build/textstats
-
-# the same code on the bytecode VM:
-maylang run main.may < sample.txt
 ```
 
 Example:
@@ -34,8 +32,8 @@ $ printf 'red fish blue fish\nred fish\n' | ./build/textstats
 ----------------------------------------------
   TEXT STATISTICS
 ----------------------------------------------
-words 6  unique 3  avg 3.83
-longest three
+words 6  unique 3  avg 3.66
+longest fish
 ----------------------------------------------
 fish               3     ###
 red                2     ##
@@ -51,10 +49,14 @@ blue               1     #
   strip punctuation)
 * maps for counting, with `map_get` / `map_set` / `keys`
 * lists, `push`, `len`, `for … in`
-* higher-order functions compiled inline: `map`, `reduce`, and function-valued
-  arguments (`|w| len(w)`)
+* typed higher-order functions: `map`, `reduce`, and function-valued
+  arguments (`|w: Str| -> Int { return len(w); }`)
 * `match`-free control flow, `??`, and multi-argument `print`
 * reading standard input (`read_stdin`)
 
-No floats are used: the average length is printed as a fixed-point value built
-from integer arithmetic, so the whole program stays inside the native subset.
+The average length uses integer arithmetic. Maps and records require the full
+runtime, so the core cross-target subset does not support this application.
+
+Input tokenization currently recognizes ASCII letters and digits; punctuation
+and non-ASCII letters are removed. A later Unicode tokenizer needs its own
+behavioral tests.
