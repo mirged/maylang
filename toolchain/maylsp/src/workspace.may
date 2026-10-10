@@ -109,15 +109,34 @@ fun ls_workspace_compute(job: Any) -> Any {
         if (builtin != nil) { base[builtin.uri] = builtin; }
     }
     let end: Any = min(job.offset + 32, len(files));
+    let documents: Any = {}; let pending: Any = []; let single: Any = {};
     for index: Any in job.offset..end {
-        let uri: Any = files[index]; let doc: Any = ls_document(uri); let completed: Any = index + 1;
+        let uri: Any = files[index]; let doc: Any = ls_document(uri); documents[uri] = doc;
+        let resultId: Any = "workspace:" + str(job.epoch) + ":" + uri;
+        if (doc != nil and (job.previous[uri] != resultId or LS_WORKSPACE_IDS[uri] != resultId)) { push(pending, doc); }
+    }
+    mut clean: Any = true;
+    if (len(pending) > 0) {
+        LS_CHECK_CACHE = {}; LS_DIAG_CACHE = {};
+        ls_diagnostics_entries(pending[0], pending);
+        clean = len(keys(LS_CHECK_ERRORS)) == 0;
+        if (len(pending) == 1) { single[pending[0].uri] = LS_CHECK_ERRORS[pending[0].uri] ?? []; }
+    }
+    for index: Any in job.offset..end {
+        let uri: Any = files[index]; let doc: Any = documents[uri]; let completed: Any = index + 1;
         if (doc == nil) { ls_workspace_emit({"uri": uri, "version": nil, "kind": "full", "items": []}, completed, len(files)); }
         else {
             let resultId: Any = "workspace:" + str(job.epoch) + ":" + uri;
             let report: Any = {"uri": uri, "version": doc.version, "kind": "unchanged", "resultId": resultId};
             if (job.previous[uri] != resultId or LS_WORKSPACE_IDS[uri] != resultId) {
-                LS_CHECK_CACHE = {}; LS_DIAG_CACHE = {};
-                ls_diagnostics(doc); report.kind = "full"; report.items = LS_CHECK_ERRORS[uri] ?? [];
+                report.kind = "full"; report.items = [];
+                if (has(single, uri)) { report.items = single[uri]; }
+                else if (not clean) {
+                    // Any batch error can stop lexing/resolution or hit the
+                    // recovery cap. Recheck entries independently in that case.
+                    LS_CHECK_CACHE = {}; LS_DIAG_CACHE = {};
+                    ls_diagnostics(doc); report.items = LS_CHECK_ERRORS[uri] ?? [];
+                }
             }
             ls_workspace_emit(report, completed, len(files));
         }

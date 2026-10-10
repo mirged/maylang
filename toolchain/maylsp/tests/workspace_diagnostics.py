@@ -7,6 +7,33 @@ from pathlib import Path
 from test_lsp import Client
 
 
+def run_workspace_batch_errors(binary, work):
+    folder = work / 'workspace-batch-errors'
+    folder.mkdir()
+    for i in range(40):
+        (folder / f'bad{i:02}.may').write_text('print(missing);\n' if i % 2 else 'let value = "unterminated\n')
+    clean = folder / 'clean.may'
+    clean.write_text('let value: Int = 1;\nprint(value);\n')
+    library = folder / 'library.may'
+    library.write_text('pub fun answer() -> Int { return 1; }\n')
+    isolated = folder / 'isolated.may'
+    isolated.write_text('print(answer());\n')
+    client = Client(binary)
+    try:
+        client.result('initialize', {'rootUri': folder.as_uri(), 'initializationOptions': {'strict': True}})
+        result = client.result('workspace/diagnostic', {'previousResultIds': []})
+        reports = {r['uri']: r for r in result['items']}
+        assert len(reports) == 43, len(reports)
+        assert reports[clean.as_uri()]['items'] == [] and reports[library.as_uri()]['items'] == []
+        assert all(reports[(folder / f'bad{i:02}.may').as_uri()]['items'] for i in range(40))
+        assert 'answer' in reports[isolated.as_uri()]['items'][0]['message'], reports[isolated.as_uri()]
+        client.stop()
+        print('PASS workspace batch error isolation, recovery limits and module visibility', flush=True)
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+
+
 def run_workspace_diagnostics(binary, work):
     folder = work / 'workspace-diagnostics'
     folder.mkdir()
