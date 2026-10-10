@@ -554,6 +554,15 @@ fun st_function(ctx: Any, rec: Any, signature: Any) -> Any {
     if (not st_returns(rec.body)) { diagnostic(rec.body.span, "not every path returns a value; add an explicit return"); }
     pop(ST_SCOPES); ST_RESULT = previous; ST_VARS = variables; return 0;
 }
+// Recover independent checks without leaking a failed function's scope or
+// return context into the next declaration.
+fun st_attempt(operation: Any) -> Any {
+    let scopes: Any = slice(ST_SCOPES, 0, len(ST_SCOPES));
+    let resultType: Any = ST_RESULT; let variables: Any = ST_VARS;
+    let accepted: Any = may { operation(); true } otherwise { collect_diagnostic(err.message); false };
+    ST_SCOPES = scopes; ST_RESULT = resultType; ST_VARS = variables;
+    return accepted;
+}
 fun strict_program(ctx: Any) -> Any {
     if (not STRICT_TYPES) { return 0; }
     ST_GLOBALS = {}; ST_RECORDS = {}; ST_SCOPES = []; ST_FUNCTIONS = {}; ST_RESULT = 0; ST_VARS = [];
@@ -584,7 +593,9 @@ fun strict_program(ctx: Any) -> Any {
             let key: Any = if (module == "") { name } else { module + "::" + name };
             // Native/prelude internals have explicit Any contracts; only user
             // modules are checked here. Synthetic constructors own nominal types.
-            if (module != "" or not has(builtins, name)) { ST_GLOBALS[key] = rec.strictSignature ?? st_complete_signature(ctx, rec); }
+            if (module != "" or not has(builtins, name)) {
+                if (not st_attempt(fun() -> Any { ST_GLOBALS[key] = rec.strictSignature ?? st_complete_signature(ctx, rec); return 0; })) { ST_GLOBALS[key] = st_any(); }
+            }
         }
     }
     mut statement: Any = MAINBODY;
@@ -592,14 +603,14 @@ fun strict_program(ctx: Any) -> Any {
         if (statement.kind == S_LET and statement.global == 1) {
             let module: Any = source_module(statement.span); let name: Any = symbol_name(statement.name, statement.length);
             let key: Any = if (module == "") { name } else { module + "::" + name };
-            ST_GLOBALS[key] = if (statement.annotation == nil or statement.annotation == 0) { st_expr(ctx, statement.initializer) } else { st_annotation(statement.annotation, module, [], statement.span) };
+            if (not st_attempt(fun() -> Any { ST_GLOBALS[key] = if (statement.annotation == nil or statement.annotation == 0) { st_expr(ctx, statement.initializer) } else { st_annotation(statement.annotation, module, [], statement.span) }; return 0; })) { ST_GLOBALS[key] = st_any(); }
         }
         statement = statement.next;
     }
     st_scope(); statement = MAINBODY;
-    while (statement != 0) { if (source_module(statement.span) != "") { st_statement(ctx, statement); } statement = statement.next; }
+    while (statement != 0) { if (source_module(statement.span) != "") { st_attempt(fun() -> Any { st_statement(ctx, statement); return 0; }); } statement = statement.next; }
     for rec: Any in FUNC_HEAD {
-        if (rec.nested == 0 and rec.mode != 1 and source_module(rec.moduleSpan ?? rec.body.span) != "") { st_function(ctx, rec, rec.strictSignature ?? st_complete_signature(ctx, rec)); }
+        if (rec.nested == 0 and rec.mode != 1 and source_module(rec.moduleSpan ?? rec.body.span) != "") { st_attempt(fun() -> Any { st_function(ctx, rec, rec.strictSignature ?? st_complete_signature(ctx, rec)); return 0; }); }
     }
-    pop(ST_SCOPES); return 0;
+    pop(ST_SCOPES); diagnostics_finish(); return 0;
 }

@@ -228,6 +228,10 @@ fun main2() -> Any {
             expandedflag = 1;
         } else if (name_eq(ap, al, addr("--check"), 7) == 1) {
             checkflag = 1;
+        } else if (name_eq(ap, al, addr("--diagnostics"), 13) == 1) {
+            k += 1; if (k >= len(argv)) { die_str("mayc: --diagnostics requires text or json\n"); }
+            DIAGNOSTIC_FORMAT = symbol_name(argv[k][0], argv[k][1]);
+            if (DIAGNOSTIC_FORMAT != "text" and DIAGNOSTIC_FORMAT != "json") { die_str("mayc: --diagnostics requires text or json\n"); }
         } else if (name_eq(ap, al, addr("--legacy"), 8) == 1) {
             STRICT_TYPES = false;
         } else if (name_eq(ap, al, addr("--strict"), 8) == 1) {
@@ -275,12 +279,12 @@ fun main2() -> Any {
             syscall(1, 1, SRC, SRCLEN);
             syscall(60, 0);
         }
-        lex_all();
-        parse_program(ctx);
+        DIAGNOSTIC_STAGE = "lex"; lex_all();
+        DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
         profile_mark("parse");
-        strict_program(ctx);
+        DIAGNOSTIC_STAGE = "type"; strict_program(ctx);
         profile_mark("types");
-        sem_program();
+        DIAGNOSTIC_STAGE = "name"; sem_program();
         profile_mark("resolve");
         if (checkflag == 1) { syscall(60, 0); }
         ir_program(ctx);
@@ -290,8 +294,8 @@ fun main2() -> Any {
         if (ctx.runtime == "core") { load_core(a0, a0l, "core.may"); }
         else { load_runtime(a0, a0l); }
         PARSE_RAW = 1;
-        lex_all();
-        parse_program(ctx);
+        DIAGNOSTIC_STAGE = "lex"; lex_all();
+        DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
         profile_mark("runtime");
         RUNTIME_BODY = MAINBODY;
         for r: Any in FUNC_HEAD {
@@ -346,12 +350,12 @@ fun main2() -> Any {
             syscall(3, fd);
             syscall(60, 0);
         }
-        lex_all();
-        parse_program(ctx);
+        DIAGNOSTIC_STAGE = "lex"; lex_all();
+        DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
         profile_mark("parse");
-        strict_program(ctx);
+        DIAGNOSTIC_STAGE = "type"; strict_program(ctx);
         profile_mark("types");
-        sem_program();
+        DIAGNOSTIC_STAGE = "name"; sem_program();
         profile_mark("resolve");
         if (checkflag == 1) { syscall(60, 0); }
         ir_program(ctx);
