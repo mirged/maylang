@@ -17,7 +17,7 @@ fun rt_alloc(n: Any) -> Any {
         mut size: Any = 1048576;
         if (need > size) { size = (need + 4095) / 4096 * 4096; }
         if (CORE_RETAINED + size > 268435456) {
-            __host_write(addr("core heap limit exceeded\n"), 25); __host_exit(70);
+            rt_write(addr("core heap limit exceeded\n"), 25); __host_exit(70);
         }
         CORE_HP = __host_alloc(size);
         if (CORE_HP <= 0) { __host_exit(70); }
