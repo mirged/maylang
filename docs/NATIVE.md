@@ -145,8 +145,9 @@ It compiles the whole language:
 
 Float formatting is shortest-round-trip for plain magnitudes; values outside
 `[1e-4, 1e16)` use scientific notation with a 15-significant-digit mantissa.
-Remaining limitations: self tail calls are optimised, but there is no general
-optimiser pass (constant folding, register allocation, …).
+Remaining limitations: constant folding, linear-scan register allocation, self
+tail calls and function reachability pruning are implemented. General inlining
+and tail calls between different functions remain unsupported.
 
 ## The native prelude
 
