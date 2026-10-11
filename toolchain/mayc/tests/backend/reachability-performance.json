@@ -1,0 +1,66 @@
+{
+  "timing": "whole compiler process including startup and writing; no cache; sequential runs; identical runtime/library sidecars",
+  "compiler_rebuild_samples": 0,
+  "results": {
+    "before": {
+      "compiler_sha256": "ec48e527219dd66b8d0224e9af816f81b16eb72adad6d4897347a40a5c6d04b4",
+      "hello": {
+        "median_ms": 1063.057,
+        "samples_ms": [
+          876.934,
+          1063.057,
+          1144.617
+        ],
+        "image_bytes": 252864
+      },
+      "features": {
+        "median_ms": 983.203,
+        "samples_ms": [
+          1041.228,
+          968.103,
+          983.203
+        ],
+        "image_bytes": 314072
+      }
+    },
+    "after": {
+      "compiler_sha256": "ad26c770f85ee49ae2b4a4c8eb21eabf34b27e0134f7b7dde974f6ab2192738e",
+      "hello": {
+        "median_ms": 608.445,
+        "samples_ms": [
+          608.445,
+          578.608,
+          645.495
+        ],
+        "image_bytes": 133088
+      },
+      "features": {
+        "median_ms": 762.467,
+        "samples_ms": [
+          763.132,
+          762.467,
+          760.922
+        ],
+        "image_bytes": 207216
+      }
+    },
+    "core_hello": {
+      "median_ms": 114.247,
+      "samples_ms": [
+        117.074,
+        114.247,
+        111.188
+      ],
+      "image_bytes": 30608
+    }
+  },
+  "sidecars_sha256": {
+    "runtime.may": "52eec72b01eccc7ae748dd16acefb55391cb3a639ce4319ae478f227a95dce32",
+    "native.may": "3e97c3e755dd834da9e88b8209f71ed10ef286022f4eb82d7e463bff7cd0c9fe",
+    "prelude.may": "7b6ef9e2d60984601eef8c165441409abcc529fde7db32381ce23f611c90650e"
+  },
+  "speedups": {
+    "hello": 1.75,
+    "features": 1.29
+  }
+}
