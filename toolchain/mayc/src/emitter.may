@@ -1,8 +1,9 @@
 import "state.may";
+import "sema.may";
 // ByteSink owns its mapping; all accesses must fit before touching memory.
 struct ByteSink { data: Any, length: Any, capacity: Any }
 struct ImageLayout { base: Any, codeOffset: Any, codeAddress: Any, dataOffset: Any, dataAddress: Any, alignment: Any }
-struct EmissionContext { code: Any, data: Any, image: Any, labels: Any, fixups: Any, maxLocals: Any, locals: Any, globals: Any, returnLabel: Any, mode: Any, envSlot: Any, envCaptures: Any, envCount: Any, fiberLabel: Any, globalBytes: Any, rodataOffset: Any, ffiStartSlot: Any, tempBase: Any, restartLabel: Any, boxed: Any, target: Any, layout: Any, functions: Any, foreign: Any, mainIR: Any, dynamic: Any, mainBoxed: Any, allocation: Any, runtime: Any, platform: Any, functionIndex: Any }
+struct EmissionContext { code: Any, data: Any, image: Any, labels: Any, fixups: Any, maxLocals: Any, locals: Any, globals: Any, returnLabel: Any, mode: Any, envSlot: Any, envCaptures: Any, envCount: Any, fiberLabel: Any, globalBytes: Any, rodataOffset: Any, ffiStartSlot: Any, tempBase: Any, restartLabel: Any, boxed: Any, target: Any, layout: Any, functions: Any, foreign: Any, mainIR: Any, dynamic: Any, mainBoxed: Any, allocation: Any, runtime: Any, platform: Any, functionIndex: Any, reachability: Any }
 
 fun sink_new(capacity: Any) -> Any {
     let pointer: Any = syscall(9, 0, capacity, 3, 34, 0 - 1, 0);
@@ -22,7 +23,48 @@ fun sink_release(sink: Any) -> Any {
 }
 
 fun emitter_new(target: Any) -> Any {
-    return EmissionContext(sink_new(16777216), sink_new(4194304), sink_new(33554432), [0, 0], [], 0, [], [], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], target, 0, [], [], 0, 0, [], 0, "none", [], {});
+    return EmissionContext(sink_new(16777216), sink_new(4194304), sink_new(33554432), [0, 0], [], 0, [], [], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], target, 0, [], [], 0, 0, [], 0, "none", [], {}, 0);
+}
+
+// Backend-generated runtime calls and function addresses are graph edges too.
+// Discover them while emitting main and then drain a deduplicated worklist.
+fun emission_begin(ctx: Any) -> Any {
+    ctx.reachability = {"labels": [], "live": [], "queue": [], "fiber": false};
+    mut index: Any = 0;
+    while (index < len(ctx.labels)) {
+        push(ctx.reachability.labels, nil); push(ctx.reachability.live, false);
+        index += 1;
+    }
+    for rec: Any in ctx.functions { ctx.reachability.labels[rec.lab] = rec; }
+    return 0;
+}
+
+fun emission_reference(ctx: Any, label: Any) -> Any {
+    if (ctx.reachability == 0) { return 0; }
+    if (ctx.fiberLabel > 1 and label == ctx.fiberLabel) { ctx.reachability.fiber = true; }
+    // Labels created during emission belong to internal branches/trampolines,
+    // never to another source function. Original labels permit O(1) lookup.
+    if (label >= len(ctx.reachability.labels)) { return 0; }
+    let rec: Any = ctx.reachability.labels[label];
+    if (rec != nil and not ctx.reachability.live[label]) {
+        ctx.reachability.live[label] = true;
+        push(ctx.reachability.queue, rec);
+    }
+    return 0;
+}
+
+fun emission_finish(ctx: Any) -> Any {
+    let retained: Any = []; let foreign: Any = []; let names: Any = {};
+    // Preserve declaration order in symbols and loader metadata.
+    for rec: Any in ctx.functions {
+        if (ctx.reachability.live[rec.lab]) {
+            push(retained, rec); names[symbol_name(rec.p, rec.l)] = rec;
+            if (rec.foreign == true) { push(foreign, rec); }
+        }
+    }
+    ctx.functions = retained; ctx.foreign = foreign; ctx.functionIndex = names;
+    ctx.reachability = 0;
+    return 0;
 }
 
 fun emitter_release(ctx: Any) -> Any {
@@ -82,6 +124,9 @@ fun placelab(ctx: Any, id: Any) -> Any { ctx.labels[id] = ctx.code.length; retur
 fun lab_off(ctx: Any, id: Any) -> Any { return ctx.labels[id]; }
 
 fun fx(ctx: Any, kind: Any, off: Any, tgt: Any) -> Any {
+    // Data offsets share the same integer space as labels; only code
+    // relocations participate in function reachability.
+    if (kind == 0 or kind == 6 or kind == 100 or kind == 102 or kind == 104) { emission_reference(ctx, tgt); }
     push(ctx.fixups, {"kind": kind, "off": off, "tgt": tgt});
     return 0;
 }

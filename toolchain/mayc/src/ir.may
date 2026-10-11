@@ -479,26 +479,20 @@ fun ir_return_node(ctx: Any, node: Any) -> Any {
 
 fun ir_program(ctx: Any) -> Any {
     glob_scan(ctx, RUNTIME_BODY); glob_scan(ctx, MAINBODY);
-    ffi_prepare(ctx);
-    platform_prepare(ctx);
-    ctx.globalBytes = ctx.data.length;
-    ctx.rodataOffset = ((ctx.data.length / ctx.target.alignment) + 1) * ctx.target.alignment;
-    sink_require(ctx.data, ctx.rodataOffset);
-    ctx.data.length = ctx.rodataOffset;
     ir_begin(1 - DYNMODE);
     IR_FUNCTION = 0;
     mut statement: Any = MAINBODY;
     while (statement != 0) { ir_node(ctx, statement); statement = statement.next; }
     IR_MAIN = IRBlock(IR_CODE, IR_TEMPS);
     // All declarations are checked earlier. Lower only functions reachable
-    // through calls or function values; retain raw runtime and FFI entrypoints
-    // for backend-generated calls which do not occur explicitly in source IR.
+    // through calls or function values. Raw runtime functions and str remain
+    // available to backends, which discover their actual generated references.
     let names: Any = {}; let labels: Any = [];
     let live: Any = []; let queue: Any = [];
     for index: Any in 0..len(ctx.labels) { push(labels, 0); push(live, false); }
     for rec: Any in FUNC_HEAD { names[symbol_name(rec.p, rec.l)] = rec; labels[rec.lab] = rec; }
     for rec: Any in FUNC_HEAD {
-        if (rec.mode == 1 or rec.foreign == true or symbol_name(rec.p, rec.l) == "str") { ir_reachable(rec, live, queue); }
+        if (rec.mode == 1 or symbol_name(rec.p, rec.l) == "str") { ir_reachable(rec, live, queue); }
     }
     ir_dependencies(IR_MAIN, names, labels, live, queue);
     mut next: Any = 0;
@@ -520,6 +514,15 @@ fun ir_program(ctx: Any) -> Any {
         rec.ir = IRBlock(IR_CODE, IR_TEMPS);
         ir_dependencies(rec.ir, names, labels, live, queue);
     }
+    // Unused externs must not add loader dependencies or fail at startup.
+    let foreign: Any = [];
+    for rec: Any in FOREIGN_DECLS { if (live[rec.lab]) { push(foreign, rec); } }
+    ffi_prepare(ctx, foreign);
+    platform_prepare(ctx);
+    ctx.globalBytes = ctx.data.length;
+    ctx.rodataOffset = ((ctx.data.length / ctx.target.alignment) + 1) * ctx.target.alignment;
+    sink_require(ctx.data, ctx.rodataOffset);
+    ctx.data.length = ctx.rodataOffset;
     // Snapshot the emission inputs. Backend-private ABI labels live in copied
     // records, so separate contexts can emit this unit without mutating its AST.
     ctx.mainIR = IR_MAIN; ctx.dynamic = DYNMODE; ctx.mainBoxed = main_boxed();
