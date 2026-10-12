@@ -1,0 +1,65 @@
+name: Tagged release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Install bootstrap requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc binutils clang llvm python3
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Build and validate tagged source
+        run: |
+          cargo test --offline --locked --workspace
+          python3 toolchain/rust/test.py
+          sh toolchain/rust/build.sh
+          python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
+          python3 toolchain/tests/test_release.py
+          python3 toolchain/maylsp/docs/generate.py --check
+          python3 reference/generate.py --check
+          python3 toolchain/tests/documentation.py
+      - name: Package twice and verify extracted installation
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --release-tag "$RELEASE_TAG" --output /tmp/maylang-linux-x86_64.tar.gz
+          python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --release-tag "$RELEASE_TAG" --output /tmp/maylang-repeat.tar.gz
+          cmp /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-repeat.tar.gz
+          python3 toolchain/tests/test_package.py /tmp/maylang-linux-x86_64.tar.gz
+      - name: Package editor extension
+        working-directory: editors/vscode
+        run: |
+          npm ci
+          npm exec --yes --package @vscode/vsce@3.6.2 -- vsce package --out /tmp/maylang-vscode.vsix
+          cd /tmp
+          sha256sum maylang-vscode.vsix > maylang-vscode.vsix.sha256
+      - name: Publish verified assets from the existing source tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes --title "Maylang $RELEASE_TAG"
+          gh release upload "$RELEASE_TAG" /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-linux-x86_64.tar.gz.sha256 /tmp/maylang-vscode.vsix /tmp/maylang-vscode.vsix.sha256
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            gh release edit "$RELEASE_TAG" --prerelease --draft=false
+          else
+            gh release edit "$RELEASE_TAG" --draft=false
+          fi

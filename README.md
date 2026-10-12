@@ -124,7 +124,7 @@ launches are not yet verified here. See [target details](toolchain/mayc/README.m
 | [stdlib/](stdlib/README.md) | Standard library modules, including ML experiments |
 | [docs/](docs/) | Strict syntax, grammar, native internals, GC, and editor docs |
 | [editors/vscode/](editors/vscode/README.md) | VS Code integration |
-| [guide/](guide/README.md) | Interactive React/Vite language reference |
+| [reference/](reference/README.md) | Generated language, runtime and standard-library reference |
 | [tests/compliance/](tests/compliance/README.md) | Additional runtime and language regressions |
 | [toolchain/rust/](toolchain/rust/) | Unified Rust compiler crates and source-only bootstrap |
 

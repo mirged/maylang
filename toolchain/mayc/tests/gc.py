@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Allocation identity and live graphs across repeated forced collections."""
+"""GC allocation identity, retained graphs and global-root capacity."""
 import argparse
 import subprocess
 import tempfile
@@ -28,6 +28,12 @@ fun gc_regression() -> Any {
     if (rt_candidate(owner) != owner) { syscall(60, 2); }
     let graph: Any = rt_list_new(4);
     store64(roots + 8, graph); rt_gc_root(roots + 8);
+    // cstr returns an address encoded as a user Ptr/Int (raw address * 8).
+    // Keeping only that value must preserve its independently allocated copy.
+    let copied: Any = rt_cstr(rt_from(addr("persistent"), 10));
+    rt_scan_word(copied);
+    if (load64(copied / 8 - 16) % 2 != 1) { syscall(60, 6); }
+    store64(roots + 16, copied); rt_gc_root(roots + 16);
     mut round: Any = 0;
     while (round < 100) {
         let text: Any = rt_from(addr("persistent"), 10);
@@ -42,10 +48,12 @@ fun gc_regression() -> Any {
             index += 1;
         }
         if (load64(owner + 16) != 32) { syscall(60, 4); }
+        let bytes: Any = load64(roots + 16) / 8;
+        if (load8(bytes) != 112 or load8(bytes + 10) != 0) { syscall(60, 7); }
         round += 1;
     }
     if (GCCOUNT != 100) { syscall(60, 5); }
-    syscall(1, 1, addr("PASS GC allocation identity and live graphs\n"), 43);
+    syscall(1, 1, addr("PASS GC allocation identity and live graphs\n"), 44);
     return 0;
 }
 gc_regression();
@@ -59,6 +67,28 @@ gc_regression();
         result = subprocess.run([str(binary)], capture_output=True, timeout=30)
         assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
         print(result.stdout.decode(), end='')
+        source.write_text(runtime + r'''
+fun root_capacity_regression() -> Any {
+    STACKTOP = __sp(); rt_init();
+    let root: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    rt_gc_root(root);
+    let neighbor: Any = rt_alloc(32);
+    mut count: Any = 1;
+    while (count < 131072) { rt_gc_root(root); count += 1; }
+    if (GCOUNT != 131072 or load64(neighbor - 16) != 48) { syscall(60, 3); }
+    if (load64(GROOTS) != root or load64(GROOTS + 1048568) != root) { syscall(60, 4); }
+    // A further registration used to overwrite the next allocation's header.
+    rt_gc_root(root);
+    syscall(60, if (load64(neighbor - 16) != 48) { 1 } else { 2 });
+    return 0;
+}
+root_capacity_regression();
+''')
+        result = subprocess.run([str(args.compiler.resolve()), '--raw', '--legacy', str(source), '-o', str(binary)], capture_output=True, timeout=60)
+        assert result.returncode == 0, result.stderr.decode()
+        result = subprocess.run([str(binary)], capture_output=True, timeout=30)
+        assert result.returncode == 70 and result.stdout == b'GC global root table exhausted\n' and not result.stderr, result
+        print('PASS global root capacity fails before writing outside the table')
 
 
 if __name__ == '__main__':

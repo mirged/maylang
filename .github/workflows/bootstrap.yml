@@ -22,6 +22,10 @@ jobs:
           rustup default stable
       - name: Check the unified Rust workspace
         run: cargo test --offline --locked --workspace
+      - name: Check synchronized public library reference
+        run: |
+          python3 reference/generate.py --check
+          python3 toolchain/maylsp/docs/generate.py --check
       - name: Build and verify three compiler generations from source
         run: |
           test ! -e toolchain/mayc/build/bin/mayc_new
@@ -36,6 +40,8 @@ jobs:
           python3 toolchain/mayc/tests/reachability.py --llvm
       - name: Verify native compiler and current entrypoints
         run: python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
+      - name: Execute strict documentation examples
+        run: python3 toolchain/tests/documentation.py
       - name: Verify contracts and error traces through LLVM
         run: |
           python3 toolchain/mayc/tests/numeric_contracts.py --llvm
@@ -49,6 +55,7 @@ jobs:
           python3 toolchain/maylsp/tests/test_lsp.py
       - name: Build and test an extracted release
         run: |
+          python3 toolchain/tests/test_release.py
           python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --output /tmp/maylang.tar.gz
           python3 toolchain/tests/test_package.py /tmp/maylang.tar.gz
       - name: Upload complete toolchain bundle

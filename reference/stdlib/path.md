@@ -1,0 +1,18 @@
+- **path.may** — Lexical path operations without filesystem access.
+- Availability: full Linux x86-64 runtime.
+- Import: `import "path" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../stdlib/path.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../stdlib/CONTRACTS.md).
+- Operations are lexical; they do not resolve symlinks or access the filesystem. path_relative requires matching roots and returns `.` for identical paths.
+- **path_substr** — `fun path_substr(s: Any, start: Any, stop: Any) -> Any` — Return characters from inclusive `start` to exclusive `stop` as a string.
+- **path_is_absolute** — `fun path_is_absolute(p: Any) -> Any` — Recognize leading `/` or a drive letter followed by `:/` or `:\`.
+- **path_normalize** — `fun path_normalize(p: Any) -> Any` — Replace backslashes with `/`, remove repeated separators and `.`, resolve lexical `..`, preserve roots; empty relative paths become `.`.
+- **path_join** — `fun path_join(a: Any, b: Any) -> Any` — Join and normalize two paths; an absolute second path replaces the first.
+- **path_basename** — `fun path_basename(p: Any) -> Any` — Return the final component after normalization; the root `/` yields an empty string.
+- **path_dirname** — `fun path_dirname(p: Any) -> Any` — Return the normalized parent path, preserving roots; a lone relative component has parent `.`.
+- **path_extension** — `fun path_extension(p: Any) -> Any` — Return the extension without its dot; dotfiles and trailing dots produce an empty string.
+- **path_stem** — `fun path_stem(p: Any) -> Any` — Return the basename without its final extension.
+- **path_relative** — `fun path_relative(base_path: Any, target_path: Any) -> Any` — Return a lexical relative path; equal paths produce `.` and mismatched roots raise a fault.
+- `path_relative` explicit fault strings: `"relative paths must have the same root"`; runtime/callback faults can also propagate.

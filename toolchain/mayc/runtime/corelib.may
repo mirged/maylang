@@ -1,6 +1,12 @@
 // Small portable libraries. These functions use the common core runtime ABI.
 fun str(value: Any) -> Str { return str_of(value); }
 fun alloc(bytes: Int) -> Ptr { return __core_alloc(bytes); }
+fun arena_new(bytes: Int) -> Ptr { return __core_arena_new(bytes); }
+fun arena_alloc(arena: Ptr, bytes: Int) -> Ptr { return __core_arena_alloc(arena, bytes); }
+fun arena_reset(arena: Ptr) -> Nil { __core_arena_reset(arena); return; }
+fun arena_used(arena: Ptr) -> Int { return __core_arena_used(arena); }
+fun arena_capacity(arena: Ptr) -> Int { return __core_arena_capacity(arena); }
+fun core_heap_retained() -> Int { return __core_heap_retained(); }
 fun memcpy(destination: Ptr, source: Ptr, bytes: Int) -> Nil { __core_copy(destination, source, bytes); return; }
 fun substring(s: Str, start: Int, count: Int) -> Str { return __core_substring(s, start, count); }
 fun str_concat(a: Str, b: Str) -> Str { return a + b; }

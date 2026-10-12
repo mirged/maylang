@@ -17,9 +17,17 @@ The table reserves one byte per eight heap bytes (32 MiB for the default
 256 MiB heap), with pages committed on demand. Stack, global and suspended
 fiber roots are traced, including runtime metadata. Mark-stack exhaustion
 terminates with exit 70 instead of silently losing live descendants.
+The global-root registry admits 131,072 addresses; further registrations print
+`GC global root table exhausted` and exit 70 before overwriting adjacent heap
+headers. The regression fills the real table and places a neighboring allocation
+at its end to exercise this boundary.
 
 `python3 toolchain/mayc/tests/gc.py` checks header-shaped interior bytes and
-100 forced collections with a retained, growing graph. The existing map suite
+100 forced collections with a retained, growing graph. It also verifies that
+encoded user addresses (`address * 8`) preserve the allocation returned by
+`cstr`; both decoded and direct candidates must pass allocation-start identity
+validation. Holding an `addr` into a string's interior still requires keeping
+the source string alive. The existing map suite
 also forces automatic collection in a reduced heap. Conservative retention,
 fixed heap capacity and nonmoving fragmentation remain limitations.
 

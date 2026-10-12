@@ -220,7 +220,11 @@ fun rt_pushmark(p: Any) -> Any {
 }
 
 fun rt_scan_word(w: Any) -> Any {
-    let q: Any = rt_candidate(w);
+    mut q: Any = rt_candidate(w);
+    // User Ptr/Int addresses are encoded as address * 8. In particular cstr
+    // returns the only reference to a separately allocated NUL-terminated copy.
+    // Validate decoded starts with the same identity table before marking.
+    if (q == 0 and w % 8 == 0) { q = rt_candidate(w / 8); }
     if (q != 0) {
         if (rt_setmark(q) == 1) { rt_pushmark(q); }
     }
@@ -230,6 +234,9 @@ fun rt_scan_word(w: Any) -> Any {
 // Register the address of a global as a GC root (called once per global at
 // program start; DATA offsets are not contiguous once literals are interned).
 fun rt_gc_root(a: Any) -> Any {
+    if (GCOUNT >= 131072) {
+        rt_write(addr("GC global root table exhausted\n"), 31); syscall(60, 70);
+    }
     if (GROOTS == 0) { GROOTS = rt_alloc(1048576); }
     store64(GROOTS + GCOUNT * 8, a);
     GCOUNT = GCOUNT + 1;

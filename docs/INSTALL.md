@@ -30,6 +30,12 @@ commit; `SOURCE_DATE_EPOCH` can override them.
 
 ## Install or upgrade
 
+Download `maylang-linux-x86_64.tar.gz` and its adjacent `.sha256` from the
+[GitHub releases](https://github.com/mirged/maylang/releases), together with the
+optional `maylang-vscode.vsix` and its checksum. Nightly/prerelease tags are
+marked as prereleases. The bundle's `provenance.json` records the source tag,
+commit, compiler digest and Rust/C bootstrap tool versions.
+
 ```sh
 cd /tmp
 sha256sum -c maylang.tar.gz.sha256
@@ -69,12 +75,36 @@ Use VS Code's **Install from VSIX** command. The extension starts `maylsp` from
 editor after changing its inherited `PATH`. VS Code 1.82 or later is required.
 Other LSP editors can launch the same `maylsp` executable over stdin/stdout.
 
+## Preparing a tagged release
+
+The [Tagged release workflow](../.github/workflows/release.yml) runs when a
+maintainer pushes `v<compiler-version>`. Set `MAYC_VERSION` in
+`toolchain/mayc/main.may` before tagging. Packaging rejects a different version,
+a tag pointing at another commit, or a dirty checkout. For example, the
+compiler version `0.9.0-2026-10-10-nightly` requires the exact source tag
+`v0.9.0-2026-10-10-nightly`. Annotated tags are recommended.
+
+The workflow bootstraps from tagged source, checks compiler generations and
+contracts, packages twice and compares the archives byte for byte, then tests
+an extracted installation. It builds the VSIX with locked project dependencies
+and a fixed packager version. Assets and checksums are attached to a draft
+release before publication; tags containing a hyphen publish as prereleases.
+A failure before publication leaves no published incomplete release. Ordinary
+branch CI continues to upload artifacts without creating a release or tag.
+
+To enforce the same source contract locally from a clean tagged checkout:
+
+```sh
+python3 toolchain/package.py --release-tag v0.9.0-2026-10-10-nightly --output /tmp/maylang-linux-x86_64.tar.gz
+python3 toolchain/tests/test_package.py /tmp/maylang-linux-x86_64.tar.gz
+```
+
 ## Target limits
 
 Full runtime applications run on Linux x86-64. The core runtime emits Linux
 ARM64/RISC-V64, macOS ARM64 and Windows x86-64 programs, with fewer language and
 OS features and a bounded process-lifetime heap. Cross-target core execution is
-tested with an emulator; macOS signing and real Windows/macOS host behavior
-still require testing on those systems. LLVM output is experimental and
+tested with an emulator and with real macOS/Windows loaders in the
+[native target suite](NATIVE_TARGETS.md). LLVM output is experimental and
 excludes fibers and typed extern functions. See the
 [compiler target matrix](../toolchain/mayc/README.md#cross-compilation).

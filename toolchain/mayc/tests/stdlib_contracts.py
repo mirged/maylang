@@ -45,6 +45,11 @@ print(lines);
             result = subprocess.run([str(binary)], capture_output=True, timeout=10)
             assert result.returncode == 0 and result.stdout == b'7 9 7 bad 7 [7, 8] bad nil caught\n["a", "b"]\n', result
             print('PASS typed Result and I/O contracts on '+target, flush=True)
+            result = subprocess.run([compiler, '--target', target, str(ROOT/'toolchain/mayc/tests/library/boundaries.may'), '-o', str(binary)], capture_output=True, timeout=120)
+            assert result.returncode == 0, result.stderr.decode()
+            result = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            assert result.returncode == 0 and result.stdout == b'PASS collection/string/path/numeric/experimental ML boundaries\n' and not result.stderr, result
+            print('PASS library boundaries on '+target, flush=True)
         for code in ['let n: Str = result.unwrap(result.ok(1));', 'io.io_read_text(1);', 'io.io_write_lines("x", [1]);']:
             source.write_text(imports + code)
             result = subprocess.run([compiler, '--check', str(source)], capture_output=True, timeout=60)

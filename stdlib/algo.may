@@ -84,6 +84,7 @@ fun drop(xs: Any, n: Any) -> Any { return [xs[i] for i: Any in max(0, n)..len(xs
 
 /// Split a list into consecutive groups of `size`.
 fun chunk(xs: Any, size: Any) -> Any {
+    if (size <= 0) { fail("chunk size must be positive"); }
     mut out: Any = [];
     mut i: Any = 0;
     while (i < len(xs)) {

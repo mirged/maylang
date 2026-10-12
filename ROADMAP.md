@@ -6,7 +6,7 @@ This is a living plan. Community needs, reproducible failures, contributor avail
 
 ## Starting point
 
-The current project has a self-hosted compiler running on Linux x86-64, several native output targets, a Maylang language server, a package manager, a standard library and example projects. A minimal Rust → C bootstrap builds the compiler entirely from source. The documented gaps include full-runtime GC corruption under sustained allocation and native macOS/Windows execution that still needs verification. The linked issues capture the starting assumptions; verify them against current code before implementation.
+The current project has a self-hosted compiler running on Linux x86-64, several native output targets, a Maylang language server, a package manager, a standard library and example projects. A minimal Rust → C bootstrap builds the compiler entirely from source. The remaining reported gap is full-runtime GC corruption under sustained allocation; native macOS/Windows core checks now pass. The linked issues capture the starting assumptions; verify them against current code before implementation.
 
 ## Milestones at a glance
 
@@ -126,7 +126,7 @@ Deliver complete installations and validate the platforms advertised to users. C
 
 ### Initiative 4. Package reproducible releases with runtime sidecars
 
-**Status:** in progress
+**Status:** completed
 **Initial priority:** P1  
 **GitHub:** [Issue #4](https://github.com/mirged/maylang/issues/4)  
 **Relevant paths:** `toolchain/mayc/mayc_new`, `toolchain/mayc/README.md`, `toolchain/maylsp/Makefile`
@@ -134,45 +134,47 @@ Deliver complete installations and validate the platforms advertised to users. C
 The compiler requires runtime sidecars, so copying its executable alone is insufficient.
 
 - [x] Define a bundle layout for compiler, launcher, runtime, stdlib and LSP.
-- [ ] Build from tagged source and record version/bootstrap provenance.
+- [x] Build from tagged source and record version/bootstrap provenance.
 - [x] Publish checksums and verify an extracted bundle outside the checkout.
-- [ ] Document installation, PATH and upgrades with binaries distributed as release assets.
+- [x] Document installation, PATH and upgrades with binaries distributed as release assets.
 
-PR #21 defines complete deterministic archives, records commit/version/bootstrap provenance, publishes checksummed CI artifacts and verifies extracted installations. Tagged-source releases and published release assets remain pending.
+PR #21 defines complete deterministic archives, records commit/version/bootstrap provenance, publishes checksummed CI artifacts and verifies extracted installations. Tagged-source releases now have a version-matched, clean-source publication workflow with deterministic archive comparison and extracted-install tests. The first [checksummed tagged prerelease](https://github.com/mirged/maylang/releases/tag/v0.9.0-2026-10-10-nightly) is published; its clean source provenance, deterministic packaging and extracted installation pass the release workflow.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 
 ### Initiative 5. Verify Mach-O output on native macOS runners
 
-**Status:** planned  
+**Status:** completed
 **Initial priority:** P1  
 **GitHub:** [Issue #5](https://github.com/mirged/maylang/issues/5)  
 **Relevant paths:** `toolchain/mayc/src/formats/macho.may`, `toolchain/mayc/tests/core_runtime.py`
 
-The compiler guide says native macOS launches and signing are not yet verified.
+The original compiler guide required native macOS launch and signing verification.
 
-- [ ] Cross-emit ARM64 Mach-O fixtures on the supported compiler host.
-- [ ] Sign and execute fixtures on Apple Silicon.
-- [ ] Check output, allocation, calls and exit behavior.
-- [ ] Record tested macOS versions and automate native checks when runner access is available.
+- [x] Cross-emit ARM64 Mach-O fixtures on the supported compiler host.
+- [x] Sign and execute fixtures on Apple Silicon.
+- [x] Check output, allocation, calls and exit behavior.
+- [x] Record tested macOS versions and automate native checks when runner access is available.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
+Native validation: [successful Windows/macOS run](https://github.com/mirged/maylang/actions/runs/38255666274) and [tested host versions/loader corrections](docs/NATIVE_TARGETS.md).
 
 ### Initiative 6. Verify PE output on native Windows runners
 
-**Status:** planned  
+**Status:** completed
 **Initial priority:** P1  
 **GitHub:** [Issue #6](https://github.com/mirged/maylang/issues/6)  
 **Relevant paths:** `toolchain/mayc/src/formats/pe.may`, `toolchain/mayc/tests/core_runtime.py`
 
-Windows execution is emulated; native loader behavior still needs validation.
+The original Windows checks used emulation; native loader behavior is now verified.
 
-- [ ] Cross-emit x86-64 PE fixtures for a Windows runner.
-- [ ] Exercise kernel32 imports, allocation, output and exit status.
-- [ ] Check loading and calling convention behavior with useful logs.
-- [ ] Document tested Windows versions and automate the native checks.
+- [x] Cross-emit x86-64 PE fixtures for a Windows runner.
+- [x] Exercise kernel32 imports, allocation, output and exit status.
+- [x] Check loading and calling convention behavior with useful logs.
+- [x] Document tested Windows versions and automate the native checks.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
+Native validation: [successful Windows/macOS run](https://github.com/mirged/maylang/actions/runs/38255666274) and [tested host versions/loader corrections](docs/NATIVE_TARGETS.md).
 
 ### Initiative 7. Publish and enforce a target/runtime feature compatibility matrix
 
@@ -368,55 +370,56 @@ Define portable memory behavior, document public APIs and keep learning material
 
 ### Initiative 8. Define bounded memory management for the core runtime
 
-**Status:** in progress
+**Status:** completed
 **Initial priority:** P2  
 **GitHub:** [Issue #8](https://github.com/mirged/maylang/issues/8)  
 **Relevant paths:** `toolchain/mayc/runtime/core.may`, `toolchain/mayc/runtime/corelib.may`
 
 Core allocation retains chunks until process exit and has no individual free operation.
 
-- [ ] Measure allocation growth in a long-running core workload.
-- [ ] Specify an arena/reset or collector design with clear lifetime rules.
-- [ ] Implement the selected API across core targets.
-- [ ] Test repeated reclamation and document ownership and restrictions.
+- [x] Measure allocation growth in a long-running core workload.
+- [x] Specify an arena/reset or collector design with clear lifetime rules.
+- [x] Implement the selected API across core targets.
+- [x] Test repeated reclamation and document ownership and restrictions.
 
-PR #21 caps process-lifetime core allocation at 256 MiB and verifies exhaustion on every emitted target. Reclamation, arena/reset APIs and their lifetime rules remain pending.
+PR #21 caps process-lifetime core allocation at 256 MiB and verifies exhaustion on every emitted target. Explicit scratch arenas now reuse capacity on all five targets with documented ownership rules. The 1,024-round workload requests 1 GiB cumulatively with only 1,052,672 retained bytes; reset does not free OS pages. See [core memory](docs/CORE_MEMORY.md).
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 
 ### Initiative 19. Document stdlib API contracts and add runtime-mode conformance tests
 
-**Status:** in progress
+**Status:** completed
 **Initial priority:** P2  
 **GitHub:** [Issue #19](https://github.com/mirged/maylang/issues/19)  
 **Relevant paths:** `stdlib/README.md`, `stdlib/`, `toolchain/mayc/tests/`
 
 Standard-library edge cases and runtime/platform requirements need an explicit tested contract.
 
-- [ ] Inventory public APIs and mark core/full/platform restrictions.
-- [ ] Document types, errors, mutation and Unicode/numeric semantics.
-- [ ] Test boundaries for collections, strings, paths and numeric operations.
-- [ ] Distinguish experimental ML APIs and link examples to runnable tests.
+- [x] Inventory public APIs and mark core/full/platform restrictions.
+- [x] Document types, errors, mutation and Unicode/numeric semantics.
+- [x] Test boundaries for collections, strings, paths and numeric operations.
+- [x] Distinguish experimental ML APIs and link examples to runnable tests.
 
-PR #21 gives Result and I/O helpers concrete generic contracts and checks numeric, array, binary-file and process boundaries on native/LLVM output. A complete public API inventory and cross-runtime library contract suite remain pending.
+PR #21 gives Result and I/O helpers concrete generic contracts and checks numeric, array, binary-file and process boundaries on native/LLVM output. The generated [reference inventory](reference/inventory.json) now records visibility, signatures, runtime/platform and experimental status. [Contracts](stdlib/CONTRACTS.md) and native/LLVM boundary tests cover collections, strings, paths, numbers and fixed ML inference.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 
 ### Initiative 20. Make the interactive guide reproducible and validate documentation examples
 
-**Status:** planned  
+**Status:** superseded
 **Initial priority:** P2  
 **GitHub:** [Issue #20](https://github.com/mirged/maylang/issues/20)  
-**Relevant paths:** `guide/package.json`, `guide/package-lock.json`, `docs/STRICT.md`, `docs/GRAMMAR.md`, `toolchain/maylsp/docs/generate.py`
+**Relevant paths:** `reference/generate.py`, `reference/EXAMPLES.md`, `docs/STRICT.md`, `docs/GRAMMAR.md`, `toolchain/maylsp/docs/generate.py`
 
-The guide declares latest dependency versions and language examples are distributed across several references.
+The user chose the dependency-free generated Markdown reference migration instead of maintaining the React/Vite guide. No Node installation, lockfile or production frontend build remains in this documentation path.
 
-- [ ] Replace latest declarations with an intentional version policy and updated lockfile.
-- [ ] Run npm ci and production guide build in CI.
-- [ ] Check runnable strict-language examples and mark historical syntax explicitly.
-- [ ] Run reference generation with --check and document synchronized reference updates.
+- [x] Replace the guide with a source-controlled, dependency-free reference.
+- [x] Gate reference freshness, complete declaration descriptions and list-only Markdown in CI.
+- [x] Check runnable strict-language examples and mark historical syntax explicitly.
+- [x] Run reference generation with --check and document synchronized reference updates.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
+The documentation suite compiles and runs 24 complete examples from the actual reference and strict guide. Historical grammar fragments are explicitly labeled; editor and reference catalogs both run with `--check`.
 
 ## Future proposals
 
@@ -427,3 +430,6 @@ The roadmap is open to directions beyond these twenty issues. Proposals might ad
 - 2026-10-10: Audited issue acceptance against PR #21; recorded completed compiler diagnostics, fuzzing, compatibility and project/editor work, with explicit remaining GC, release, memory and workflow scope.
 
 - 2026-10-02: Converted the initial twenty-issue TODO into five outcome-based milestones, retained implementation checklists, and added a community process for revising priorities and scope.
+
+- 2026-10-12: Added native Windows/macOS execution and corrected loader defects; implemented core scratch arenas, library boundary fixes, tagged release automation and the generated reference migration. Fixed a reproducible encoded-cstr GC root defect; the original sustained ecosystem report still lacks a matching reproducer.
+- 2026-10-12: [PR #26](https://github.com/mirged/maylang/pull/26) completes native hosts, explicit core arenas, library contracts and the reference migration. The tagged-source release workflow published the first verified prerelease; the original sustained GC report remains open.

@@ -1,0 +1,558 @@
+{
+  "modules": {
+    "algo.may": "Sorting, searching, grouping and eager list transformations.",
+    "collections.may": "List-backed stacks and queues and map-backed sets.",
+    "csv.may": "Quoted comma-separated text parsing, serialization and records.",
+    "format.may": "Text tables, percentages, durations, byte sizes and ANSI formatting.",
+    "functional.may": "Composition, currying, partial application and memoization.",
+    "io.may": "Text, line, JSON, CSV and key-value file helpers.",
+    "iter.may": "Eager list iteration, scans, windows and keyed reductions.",
+    "math.may": "Arithmetic, number theory and geometric helpers.",
+    "native.may": "Historical compatibility copy of full-runtime helpers; the active injected sidecar is toolchain/mayc/native.may.",
+    "net.may": "Synchronous IPv4 TCP/UDP sockets for full Linux x86-64 runtimes.",
+    "path.may": "Lexical path operations without filesystem access.",
+    "prelude.may": "Automatically loaded small convenience functions in full-runtime builds.",
+    "random.may": "Explicit stateful Park–Miller pseudorandom streams.",
+    "result.may": "Map-based success/failure values and composition.",
+    "stats.may": "Descriptive statistics and simple linear regression.",
+    "string.may": "String transformations and simple delimiter helpers.",
+    "test.may": "Counting assertions and a final test report.",
+    "validate.may": "Input predicates and structured rule/field validation.",
+    "ml/classical.may": "kNN, k-means, linear and logistic regression.",
+    "ml/data.may": "Encoding, splitting, batching and feature normalization.",
+    "ml/fixed.may": "Typed fixed-point dense neural inference with softsign activation.",
+    "ml/loss.may": "Losses, gradients and classification metrics.",
+    "ml/model.may": "Minibatch training, evaluation and JSON weight persistence.",
+    "ml/nn.may": "Dense neural layers, inference, backpropagation and snapshots.",
+    "ml/optim.may": "SGD, momentum and Adam optimizer state and updates.",
+    "ml/tensor.may": "Dense row-major tensors, broadcasting, reductions and matrix operations.",
+    "core": "Portable core library, including typed scratch arenas and basic list/string/integer helpers."
+  },
+  "symbols": {
+    "identity": "Return the argument unchanged.",
+    "constantly": "Return a unary function that always returns `value`.",
+    "compose": "Return a unary function computing `f(g(x))`.",
+    "compose3": "Return a unary function computing `f(g(h(x)))`.",
+    "flip": "Return a binary function calling `f(b, a)`.",
+    "curry": "Convert a binary function into two nested unary functions.",
+    "uncurry": "Convert a curried function into one taking two arguments.",
+    "apply_n": "Return the result of applying `f` to `x` `n` times; nonpositive counts leave `x` unchanged.",
+    "enumerate": "Return `[index, value]` pairs in input order.",
+    "zip_with": "Return `f(a[i], b[i])` for each pair, stopping at the shorter list.",
+    "find_index": "Return the first index satisfying `pred`, or `-1`.",
+    "find_value": "Return the first value satisfying `pred`, or `fallback`.",
+    "take_while": "Return the longest initial prefix satisfying `pred`.",
+    "drop_while": "Return the suffix after the initial prefix satisfying `pred`.",
+    "scan": "Return `[seed, f(seed, x0), ...]`, including the initial accumulator.",
+    "windows": "Return all overlapping consecutive windows of positive `width`; return `[]` when width exceeds length.",
+    "pairwise": "Return overlapping adjacent value pairs; fewer than two inputs produce `[]`.",
+    "sum_by": "Sum `f(x)` over inputs, starting at integer zero.",
+    "min_by": "Return the element with the smallest `f(x)` score; `nil` for empty input; ties retain the earliest element.",
+    "max_by": "Return the element with the largest `f(x)` score; `nil` for empty input; ties retain the earliest element.",
+    "frequencies": "Return occurrence counts keyed by `str(x)`.",
+    "cartesian": "Return all `[x, y]` pairs, with `a` as the outer iteration.",
+    "stats_mean": "Return the floating arithmetic mean, or `nil` for empty input.",
+    "stats_sum_squares": "Return the sum of squared values, starting at `0.0`.",
+    "stats_variance": "Return population variance (divide by `n`), or `nil` when empty.",
+    "stats_sample_variance": "Return sample variance (divide by `n - 1`), or `nil` for fewer than two inputs.",
+    "stats_stddev": "Return the square root of population variance, or `nil` when empty.",
+    "stats_zscores": "Return standardized values using population deviation; empty/constant inputs produce zeros.",
+    "stats_quantile": "Sort and linearly interpolate at `q * (n - 1)`; empty input returns `nil`; nonempty input requires `q` in `[0, 1]`.",
+    "stats_median": "Return `stats_quantile(xs, 0.5)`.",
+    "stats_mode": "Return a most frequent original value, or `nil`; counts use stringified keys.",
+    "stats_covariance": "Return sample covariance of the common prefix, or `nil` for fewer than two pairs.",
+    "stats_correlation": "Return covariance divided by the two sample deviations; return `nil` for insufficient/constant data. Use equal input lengths for consistent normalization.",
+    "stats_linear_regression": "Return `{slope, intercept, r}` using the common prefix; require at least two points and varying x values.",
+    "csv_parse": "Return rows of string cells; handle quoted commas/newlines, doubled quotes and CRLF; reject unterminated quotes; skip blank unquoted lines.",
+    "csv_escape": "Stringify and quote empty cells or cells containing commas, quotes or line breaks; double embedded quotes.",
+    "csv_stringify": "Serialize row lists with commas and LF between rows, without a final newline.",
+    "csv_records": "Return a list of maps keyed by headers; short rows fill with empty strings and extra cells are ignored.",
+    "path_substr": "Return characters from inclusive `start` to exclusive `stop` as a string.",
+    "path_is_absolute": "Recognize leading `/` or a drive letter followed by `:/` or `:\\`.",
+    "path_normalize": "Replace backslashes with `/`, remove repeated separators and `.`, resolve lexical `..`, preserve roots; empty relative paths become `.`.",
+    "path_join": "Join and normalize two paths; an absolute second path replaces the first.",
+    "path_basename": "Return the final component after normalization; the root `/` yields an empty string.",
+    "path_dirname": "Return the normalized parent path, preserving roots; a lone relative component has parent `.`.",
+    "path_extension": "Return the extension without its dot; dotfiles and trailing dots produce an empty string.",
+    "path_stem": "Return the basename without its final extension.",
+    "path_relative": "Return a lexical relative path; equal paths produce `.` and mismatched roots raise a fault.",
+    "validate_nonempty": "True for a string with non-whitespace content after trimming.",
+    "validate_in_range": "True for an Int/Float within the inclusive bounds; false for other types.",
+    "validate_email": "Apply a simple @/domain-dot heuristic; this is not a complete email parser.",
+    "validate_url": "True for strings beginning with `http://` or `https://`.",
+    "validate_all": "Apply rules shaped `{check: unary predicate, message: string}` and return `{ok, errors, value}`.",
+    "validate_required_fields": "Return `{ok, missing}`; absent keys and nil-valued fields are missing.",
+    "validate_int_string": "Check a nonempty string by attempting trimmed integer conversion and catching faults.",
+    "validate_float_string": "Validate signed decimal syntax with optional dot and exponent; exponent digits are required.",
+    "format_percent": "Return a ratio multiplied by 100, rounded through `round` and decorated with `%`; `digits` controls scale, not zero-padding.",
+    "format_bytes": "Return bytes or binary KiB/MiB/GiB/TiB notation using 1024-based scaling.",
+    "format_duration": "Clamp negative integer seconds to zero and return `MM:SS` or `HH:MM:SS`.",
+    "format_table": "Return a pipe-delimited text table with widths from headers and rows; missing cells are empty and extra columns are ignored.",
+    "format_kv": "Return newline-separated key/value lines with keys padded to `width`.",
+    "format_ansi": "Wrap stringified text in an ANSI SGR code and reset sequence.",
+    "format_bold": "Wrap text with ANSI bold (code 1).",
+    "format_dim": "Wrap text with ANSI dim (code 2).",
+    "format_color": "Wrap text with the supplied ANSI color code.",
+    "io_read_text": "Read an entire text file; propagate read errors.",
+    "io_read_or": "Read text or return `fallback` on a caught runtime fault.",
+    "io_write_text": "Write `str(text)` and return the supplied path.",
+    "io_read_lines": "Read a file and split on LF; a trailing newline yields a trailing empty entry.",
+    "io_write_lines": "Join lines with LF, write without an added final newline, and return the path.",
+    "io_read_json": "Read and parse JSON; propagate I/O and parse errors.",
+    "io_read_json_or": "Read and parse JSON, returning `fallback` on any caught fault.",
+    "io_write_json": "Serialize JSON, write it and return the path.",
+    "io_read_csv": "Read a file and return parsed CSV rows.",
+    "io_write_csv": "Serialize CSV rows, write them and return the path.",
+    "io_read_config": "Return trimmed key/value strings from `key=value` lines; skip blanks, # comments and lines without a nonempty key; later keys replace earlier keys.",
+    "random_new": "Return `{state}` with seed normalized to `abs(int(seed)) % 2147483646 + 1`.",
+    "random_next_int": "Advance `rng.state` using multiplier 48271 modulo 2147483647; return the new positive integer state.",
+    "random_float": "Advance the generator and return a value strictly between zero and one.",
+    "random_int": "Advance the generator and return an integer in inclusive `[lo, hi]`; reject reversed bounds.",
+    "random_choice": "Return a randomly chosen input element; empty input returns `nil` without drawing.",
+    "random_shuffle": "Return a shallow shuffled list copy using Fisher–Yates, advancing `rng`.",
+    "random_sample": "Shuffle and return `count` entries without replacement; require `0 <= count <= len(xs)`.",
+    "random_normal": "Return a Box–Muller normal draw centered at `mean` with multiplier `stddev`; advance the generator twice.",
+    "RANDOM_MODULUS": "Park–Miller modulus, 2147483647.",
+    "check": "Increment passed/failed counters and print `FAIL: label` for false conditions; continue running the suite.",
+    "assert_true": "Record the supplied condition through `check`.",
+    "assert_equal": "Record equality; include actual/expected display values in a failure label.",
+    "assert_not_equal": "Record inequality against the unexpected value.",
+    "assert_contains": "Record membership through `has`.",
+    "assert_near": "Record whether absolute numeric difference is at most tolerance.",
+    "test_summary": "Print totals and raise `fail` if any recorded assertion failed.",
+    "__passed": "Mutable module-wide count of successful recorded assertions, initially zero.",
+    "__failed": "Mutable module-wide count of failed recorded assertions, initially zero.",
+    "id": "Return `x` unchanged.",
+    "inc": "Return `x + 1`.",
+    "dec": "Return `x - 1`.",
+    "truthy": "Convert a dynamic value to Boolean using runtime truthiness.",
+    "default": "Return the fallback only when the value is `nil`.",
+    "Ok": "Return a success map `{ok: true, value, error: nil}`.",
+    "Err": "Return a failure map `{ok: false, value: nil, error}`.",
+    "Some": "Return the same success-map representation as `Ok`.",
+    "None": "Return `nil`; invoke as a zero-argument function.",
+    "__op_add": "Internal map/record `+` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.",
+    "__op_sub": "Internal map/record `-` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.",
+    "__op_mul": "Internal map/record `*` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.",
+    "__op_div": "Internal map/record `/` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.",
+    "str_concat": "Concatenate through the dynamic `+` operator.",
+    "is_space_code": "True for ASCII space, tab, LF and CR character codes.",
+    "is_upper_code": "True for ASCII uppercase letter codes 65..90.",
+    "is_lower_code": "True for ASCII lowercase letter codes 97..122.",
+    "to_lower": "Return an ASCII-lowercased string; other character codes pass through.",
+    "to_upper": "Return an ASCII-uppercased string; other character codes pass through.",
+    "index_of": "Return the first substring index or `-1`; an empty needle returns zero.",
+    "contains": "True when `index_of` is nonnegative.",
+    "starts_with": "True when the string begins with the supplied prefix.",
+    "ends_with": "True when the string ends with the supplied suffix.",
+    "replace": "Replace non-overlapping occurrences; an empty needle returns the original string.",
+    "chars": "Return Unicode codepoints as one-character strings.",
+    "make_error": "Construct a structured error object with category and message for the native runtime.",
+    "raise_error": "Construct and raise a structured runtime error; does not return normally.",
+    "fail_list": "Build and raise a fail-category error from displayable message items.",
+    "type_name": "Return the tagged runtime type name.",
+    "raise_binop_error": "Raise an operator/type error describing both operands and the operator.",
+    "raise_add_error": "Raise the native addition operand-type error.",
+    "raise_exp_error": "Raise the native exponentiation operand-type error.",
+    "raise_div_zero": "Raise the arithmetic division-by-zero fault.",
+    "raise_overflow": "Raise the arithmetic integer-overflow fault.",
+    "raise_io_error": "Raise an I/O-category error with the supplied message.",
+    "ptr": "Return the integer address unchanged; pointer lifetime/validity remains the caller's responsibility.",
+    "print_error": "Print a structured error's category/message and available stack text.",
+    "concat_lists": "Return a shallow concatenation of two lists.",
+    "string_repr": "Produce the native display representation for dynamic values.",
+    "type": "Return the native runtime type name.",
+    "sign": "Return -1, 0 or 1 according to comparison with zero.",
+    "parse_int": "Parse a trimmed integer string with range checking; propagate conversion faults.",
+    "parse_float": "Parse a trimmed floating-point string through native conversion.",
+    "pi": "Return the binary64 approximation of π, 3.141592653589793.",
+    "e": "Return the binary64 approximation of Euler's number, 2.718281828459045.",
+    "round": "Return `floor(x + 0.5)`; halfway negative values round toward positive infinity.",
+    "sinh": "Compute `(exp(x) - exp(-x)) / 2.0`.",
+    "cosh": "Compute `(exp(x) + exp(-x)) / 2.0`.",
+    "tanh": "Compute `(exp(2*x) - 1) / (exp(2*x) + 1)`; large inputs may overflow the exponential.",
+    "hypot": "Return `sqrt(x*x + y*y)` without an overflow-resistant scaling algorithm.",
+    "cbrt": "Return a sign-preserving cube root computed with fractional powers.",
+    "jd_is_space": "Internal JSON whitespace predicate for space, tab, LF and CR.",
+    "jd_skip": "Internal JSON parser: skip whitespace from index `i` and return the next index.",
+    "jd_hex": "Internal JSON parser: decode one hexadecimal character or raise a parse fault.",
+    "jd_string": "Internal JSON parser: decode a quoted string and return the parsed value and next position.",
+    "jd_number": "Internal JSON parser: read a number and return the parsed value and next position.",
+    "jd_array": "Internal JSON parser: read an array and return the parsed list and next position.",
+    "jd_object": "Internal JSON parser: read an object and return the parsed map and next position.",
+    "jd_value": "Internal JSON parser: dispatch by the next token and return the value and next position.",
+    "jq_escape": "Internal JSON serializer: quote/escape a string including control characters.",
+    "clamp": "Return `max(lo, min(x, hi))`.",
+    "chr": "Return a one-character string from a character code.",
+    "ord": "Return the first character's codepoint; require a nonempty string.",
+    "even": "True when `n % 2 == 0`.",
+    "odd": "True when `n % 2 != 0`.",
+    "product": "Multiply a numeric list, starting at one.",
+    "count": "Return the count of values equal to the supplied value.",
+    "find": "Return the first element satisfying the unary predicate, or `nil`.",
+    "zip": "Return paired elements, stopping at the shorter list.",
+    "flatten": "Return a one-level concatenation of nested lists.",
+    "unique": "Return distinct list values in first-occurrence order.",
+    "range_step": "Return an exclusive-end arithmetic progression in either direction; step zero returns an empty list.",
+    "pad_left": "Prepend whole padding strings until the code-point width is reached; empty padding faults when more text is needed.",
+    "pad_right": "Append whole padding strings until the code-point width is reached; empty padding faults when more text is needed.",
+    "split_lines": "Split on LF, preserving empty fields.",
+    "get": "Return the lookup value when non-nil, otherwise fallback; a present nil-valued entry also uses the fallback.",
+    "times": "Call unary `f(i)` over integers `0..n`; return `nil`.",
+    "each": "Call unary `f(x)` for every input element; return `nil`.",
+    "assert_eq": "Raise an assertion error if actual and expected values differ.",
+    "ml_distance": "Return Euclidean distance between equal-width numeric feature vectors.",
+    "ml_knn_predict": "Return the majority label among k nearest training rows; require nonempty matching data and k within the training set size; votes use stringified label keys.",
+    "ml_kmeans": "Return `{centers, labels, inertia}` after up to `iterations` assignment/update rounds; use random initial rows and retain centers for empty clusters.",
+    "ml_linear_fit": "Train zero-initialized linear weights by batch gradient descent; return `{weights, bias}`.",
+    "ml_linear_predict": "Return linear predictions for input rows using `{weights, bias}`.",
+    "ml_classical_sigmoid": "Return sigmoid after clamping input to [-60, 60].",
+    "ml_logistic_fit": "Train binary logistic regression by batch gradient descent; labels must be 0 or 1; return `{weights, bias}`.",
+    "ml_logistic_predict": "Return probabilities for each feature row using the trained logistic model.",
+    "ml_one_hot": "Return a row of floating 0/1 entries for each integer class label; validate labels and positive class count.",
+    "ml_train_test_split": "Shuffle paired rows and return `{x_train, y_train, x_test, y_test}`; require at least two rows and fraction strictly between 0 and 1; ensure both partitions are nonempty.",
+    "ml_batches": "Return consecutive `{x, y}` batches including a shorter final batch; require matching row counts and positive batch size.",
+    "ml_feature_stats": "Return per-column population `{mean, scale}`; replace scales smaller than 1e-12 with 1.0; validate nonempty rectangular rows.",
+    "ml_standardize": "Return `(x - mean) / scale` per column using previously fitted statistics.",
+    "ml_minmax_fit": "Return per-column `{min, max}` statistics; require nonempty rows.",
+    "ml_minmax_transform": "Return per-column [0,1] scaling using fitted bounds; constant columns become 0.0; values outside training bounds are not clipped.",
+    "FixedLayer": "Typed layer descriptor with input/output widths and an offset into the shared parameter list.",
+    "FixedNetwork": "Typed network containing layer descriptors, integer parameters and a positive integer scale.",
+    "nn_fixed_model": "Validate dimensions, scale and output-major weights/biases; return a FixedNetwork. Scale is 1..32768, widths 1..1024 and absolute parameters at most 16*scale.",
+    "nn_fixed_predict": "Return integer-scaled output values using softsign activation; validate input width and absolute input at most 16*scale; share network parameters without mutation.",
+    "ml_mse": "Return MSE over nested prediction/target rows; validate matching nonempty batch counts; require matching nonempty rectangular widths as a caller precondition.",
+    "ml_mse_gradient": "Return the elementwise MSE gradient normalized by total output count.",
+    "ml_binary_cross_entropy": "Return output-count-averaged binary cross entropy, bounding each logarithm argument below by 1e-8.",
+    "ml_binary_cross_entropy_gradient": "Return output-count-normalized (prediction-target) divided by max(1e-8, prediction*(1-prediction)).",
+    "ml_categorical_cross_entropy": "Return batch-averaged categorical cross entropy from probability rows and target rows.",
+    "ml_categorical_cross_entropy_gradient": "Return the categorical derivative `-target / clamped_probability / batch_count`.",
+    "ml_accuracy": "Return classification accuracy; single outputs use a 0.5 threshold, multiple outputs use argmax; empty/mismatched batch counts return 0.0.",
+    "ml_confusion_matrix": "Return a class-by-class count matrix indexed by actual then predicted class.",
+    "ml_classification_report": "Return `{class, precision, recall, f1, support}` entries for each row of a confusion matrix; zero denominators yield zero.",
+    "ml_loss_value": "Dispatch losses named `mse`, `binary_cross_entropy` or `cross_entropy`; reject other names.",
+    "ml_loss_gradient": "Dispatch the matching gradient for the three supported loss names.",
+    "ml_train_batch": "Run forward, loss, backward and an optimizer update in order; mutate model/optimizer and return loss.",
+    "ml_fit": "Shuffle and train minibatches each epoch; mutate model, optimizer and RNG; return `{model, history}` with sample-weighted epoch losses.",
+    "ml_evaluate": "Return `{loss, accuracy, predictions}` using the selected loss; prediction updates the model's forward caches.",
+    "ml_save": "Write the model state dictionary as JSON; return the underlying write_file result. Does not save optimizer state.",
+    "ml_load": "Read JSON layer states into an already constructed compatible model; return that model.",
+    "nn_model": "Return an empty dynamic model `{layers: [], input_dim: 0, output_dim: 0}`.",
+    "nn_add_dense": "Append a dense layer with random initialization and zero biases; validate positive compatible dimensions; mutate and return model.",
+    "nn_sigmoid": "Return sigmoid after clamping its input to [-60,60].",
+    "nn_activate_scalar": "Apply `linear`, `relu`, `sigmoid` or `tanh`; reject unknown scalar activation names.",
+    "nn_activate_row": "Apply scalar activation to a row or use stabilized `softmax` for a full row.",
+    "nn_forward": "Return output rows while storing each layer's input and output caches for backpropagation.",
+    "nn_activation_delta": "Return the activation-adjusted gradient for one cached batch/output element, including the softmax Jacobian.",
+    "nn_backward": "Populate gradient weights/biases from the last forward caches; propagate the gradient backward and return model.",
+    "nn_predict": "Run `nn_forward` for input rows; update training caches.",
+    "nn_tensor_rows": "Convert a rank-two tensor to nested rows; reject other ranks.",
+    "nn_predict_tensor": "Return a tensor matrix of predictions, updating forward caches.",
+    "nn_forward_tensor": "Convert a matrix tensor to rows, run forward and return matrix tensor outputs.",
+    "nn_backward_tensor": "Convert matrix tensor gradients to rows and run backward; return model.",
+    "nn_parameter_count": "Return the sum of dense weights and biases across all layers.",
+    "nn_state_dict": "Return layer states containing weights, bias, activation and dimensions for JSON snapshots.",
+    "nn_load_state": "Validate layer counts/dimensions and assign state weights/biases into the existing model; return model.",
+    "ml_sgd": "Construct an SGD optimizer with positive learning rate and zero momentum.",
+    "ml_sgd_momentum": "Construct SGD state with positive learning rate and momentum in [0,1).",
+    "ml_adam": "Construct Adam state; require positive learning rate/epsilon and betas in [0,1).",
+    "ml_adam_default": "Construct Adam using beta1=0.9, beta2=0.999 and epsilon=1e-8.",
+    "ml_zero_matrix_like": "Return a same-shaped nested matrix of 0.0 entries.",
+    "ml_adam_matrix": "Return updated `{param, first, second}` matrices using bias-corrected Adam moments and the current optimizer powers.",
+    "ml_adam_vector": "Return updated `{param, first, second}` vectors using bias-corrected Adam moments.",
+    "ml_optimizer_step": "Update dense model parameters and optimizer velocity/moments in place; return model. Run backward first.",
+    "tensor_size": "Return the product of dimensions; an empty shape has scalar size one.",
+    "tensor": "Return `{data, shape}` after checking nonnegative integer dimensions and matching element count; retain the data list reference and copy the shape list.",
+    "tensor_scalar": "Wrap a scalar as a tensor with one element and empty shape.",
+    "tensor_vector": "Return a shallow-copied rank-one tensor from a list.",
+    "tensor_matrix": "Validate rectangular rows and flatten into a rank-two tensor; empty rows produce shape [0,0].",
+    "tensor_zeros": "Return a tensor of floating zeros with the requested shape.",
+    "tensor_ones": "Return a tensor of floating ones with the requested shape.",
+    "tensor_full": "Return a tensor filled with the supplied value.",
+    "tensor_arange": "Return a rank-one exclusive-stop arithmetic sequence; step cannot be zero; support positive and negative steps.",
+    "tensor_eye": "Return an n-by-n floating identity matrix tensor.",
+    "tensor_rank": "Return the number of shape dimensions.",
+    "tensor_numel": "Return the stored data length.",
+    "tensor_reshape": "Return a new tensor wrapper sharing data after validating the new shape's element count.",
+    "tensor_at": "Return an element by flat index using list indexing rules.",
+    "tensor_at2": "Return the element at row/column in a rank-two tensor; validate rank and coordinates.",
+    "tensor_map": "Return a tensor of mapped data with the same shape.",
+    "tensor_same_shape": "Compare two shape lists and return Bool; different ranks/dimensions return false without raising.",
+    "tensor_broadcast_shape": "Return the compatible trailing-dimension broadcast shape; dimensions must match or be one.",
+    "tensor_broadcast_to": "Return a tensor expanded to the requested compatible shape using row-major coordinate mapping.",
+    "tensor_broadcast_zip": "Broadcast two tensors to a common shape and combine entries with a binary callback.",
+    "tensor_add_broadcast": "Return elementwise addition after trailing-dimension broadcasting.",
+    "tensor_sub_broadcast": "Return elementwise subtraction after trailing-dimension broadcasting.",
+    "tensor_mul_broadcast": "Return elementwise multiplication after trailing-dimension broadcasting.",
+    "tensor_div_broadcast": "Return elementwise division after trailing-dimension broadcasting; numeric division faults propagate.",
+    "tensor_zip": "Combine equally shaped tensors with a binary callback; reject shape mismatches.",
+    "tensor_add": "Return equal-shape elementwise addition.",
+    "tensor_sub": "Return equal-shape elementwise subtraction.",
+    "tensor_mul": "Return equal-shape elementwise multiplication.",
+    "tensor_scale": "Return each element multiplied by a scalar factor.",
+    "tensor_add_scalar": "Return each element plus a scalar value.",
+    "tensor_abs": "Return elementwise absolute values.",
+    "tensor_sqrt": "Return elementwise square roots.",
+    "tensor_exp": "Return elementwise exponential values.",
+    "tensor_log": "Return elementwise natural logarithms.",
+    "tensor_clip": "Return elements clamped to inclusive [lo,hi].",
+    "tensor_sum": "Return the sum of all tensor elements.",
+    "tensor_mean": "Return the floating element mean, or nil for an empty tensor.",
+    "tensor_dot": "Return the dot product of equal-length rank-one tensors.",
+    "tensor_transpose": "Return the row-major transpose of a rank-two tensor.",
+    "tensor_sum_axis": "Reduce a matrix on axis 0 or 1; negative axes normalize by rank; return a vector tensor.",
+    "tensor_mean_axis": "Return axis sums divided by the reduced dimension; reject an empty reduced dimension.",
+    "tensor_softmax_rows": "Return a rank-two tensor with stabilized softmax independently in each row.",
+    "tensor_concat_vectors": "Concatenate two rank-one tensors into a vector tensor.",
+    "tensor_rows": "Return a copied rank-two row interval [start,stop); validate the bounds.",
+    "tensor_matmul": "Return a rank-two matrix product; require matching inner dimensions.",
+    "tensor_argmax": "Return the first flat index of the largest element, or -1 for an empty tensor.",
+    "tensor_softmax": "Return stabilized softmax for a rank-one tensor; empty input returns an empty vector.",
+    "Address": "IPv4 host/port record; use address() for validation and canonicalization.",
+    "Socket": "Owned descriptor, socket kind and operation timeout record; aliases share the descriptor and close state.",
+    "Datagram": "UDP byte payload with its sender Address.",
+    "net_fault": "Construct and raise a network error with operation and positive errno.",
+    "net_check": "Return nonnegative syscall status or raise a network fault from the negated status.",
+    "net_timeout": "Validate the allowed timeout range -1..2147483647 milliseconds.",
+    "net_deadline": "Convert a timeout to a monotonic deadline, using -1.0 for unlimited waiting.",
+    "net_now": "Return monotonic clock seconds using Linux clock_gettime.",
+    "net_remaining": "Return remaining deadline milliseconds, rounded up, or -1 for unlimited waiting.",
+    "net_open": "Validate a live descriptor and optional expected socket kind; return the descriptor.",
+    "net_buffer": "Allocate a NUL-filled byte string; allow 0..16777216 bytes.",
+    "net_trim": "Change a buffer's byte length and append a terminating NUL; require sufficient underlying allocation.",
+    "address": "Validate/canonicalize the host and port and return Address; valid ports are 0..65535.",
+    "net_sockaddr": "Encode a validated address as a Linux sockaddr_in byte buffer.",
+    "net_decode": "Decode a Linux AF_INET sockaddr_in byte buffer into Address.",
+    "net_socket": "Create a nonblocking, close-on-exec IPv4 descriptor; return Socket with a 30000 ms timeout.",
+    "net_discard": "Close a socket during cleanup and mark it closed.",
+    "net_poll": "Poll descriptor read/write readiness against a monotonic deadline, retrying interrupted calls.",
+    "socket_wait": "Return readiness as Bool using the explicit timeout; false on timeout; do not change the socket timeout.",
+    "net_ready": "Wait for readiness or raise a timeout fault for the named operation.",
+    "socket_local_address": "Return the bound/local Address, including an OS-assigned ephemeral port.",
+    "socket_peer_address": "Return the connected peer Address.",
+    "tcp_connect_timeout": "Connect to an IPv4 peer with an explicit timeout; reject port zero; clean up on failure and return Socket on success.",
+    "tcp_accept": "Accept and return a connected Socket inheriting the listener's timeout.",
+    "net_receive": "Read bytes into a supplied buffer interval against the same deadline; return the syscall byte count.",
+    "udp_send_to": "Send a complete datagram and return the byte count; require nonzero destination port and payload at most 65507 bytes.",
+    "repeat": "Return a string repeated n times; nonpositive counts produce an empty string.",
+    "substring": "Return a string starting at codepoint index start and containing count codepoints; require indices within the source string.",
+    "range": "Return an eager list of integers from inclusive a to exclusive b; the full-runtime source function takes exactly two arguments.",
+    "split": "Split by a literal delimiter, preserving empty fields; an empty delimiter returns a one-element list containing the original string.",
+    "core:arena_new": "Allocate one process-lifetime scratch arena with capacity rounded up to eight bytes; negative or oversized capacities terminate with status 70.",
+    "core:arena_alloc": "Reserve an eight-byte-aligned scratch span; negative requests or capacity exhaustion terminate with status 70.",
+    "core:arena_reset": "Reset the cursor without clearing bytes or returning pages; invalidate every previously returned span. Callers must discard all aliases before resetting.",
+    "core:arena_used": "Read consumed scratch bytes including alignment padding.",
+    "core:arena_capacity": "Read rounded scratch capacity in bytes.",
+    "core:core_heap_retained": "Read total requested native chunk bytes, including ordinary allocations and arenas.",
+    "core:alloc": "Allocate raw process-lifetime bytes; return a Ptr. Core heap exhaustion terminates with status 70.",
+    "core:memcpy": "Copy raw bytes between valid, nonoverlapping caller-owned pointer spans.",
+    "core:gcd": "Return the nonnegative greatest common divisor of two integers.",
+    "core:lcm": "Return the nonnegative least common multiple, or zero if either input is zero; overflow terminates with status 70.",
+    "core:clamp": "Bound an integer between low and high; callers provide low <= high.",
+    "core:sum": "Sum integer elements with checked arithmetic.",
+    "core:is_space_code": "Test ASCII space, tab, line feed or carriage return character codes."
+  },
+  "notes": {
+    "native.may": [
+      "This page also inventories runtime support functions (`__op_*`, `jd_*`, formatting and error helpers); their exposed names are not a separate stability guarantee.",
+      "Actual source arity wins over legacy catalogs: full-runtime `range(a, b)` takes two arguments, and `None()` is a call.",
+      "String case conversion is ASCII-only. String lengths and indices count codepoints; networking byte helpers operate on raw bytes.",
+      "Names asin, acos, atan, atan2 and powf are mentioned in older runtime comments, but are not registered callable APIs in the active mayc implementation; do not infer their availability from those comments."
+    ],
+    "string.may": [
+      "`words` splits ASCII space, tab, carriage return and newline, dropping empty fields.",
+      "Padding requires a nonempty pad when growth is needed; multicharacter pads can overshoot width.",
+      "`csv` is a simple comma split; use `csv_parse` from the csv module for quoted CSV."
+    ],
+    "algo.may": [
+      "`chunk` validates a positive size, including for empty input; invalid sizes raise `chunk size must be positive`.",
+      "Quicksort and merge_sort return the original list on length zero/one; larger results are newly assembled.",
+      "Grouping and deduplication use dynamic maps; group_by/count_by stringify keys."
+    ],
+    "collections.may": [
+      "Stacks and queues store shared list references in maps; mutations are visible through aliases.",
+      "Queue pop advances a head index; consumed elements are retained in the backing list.",
+      "stack_peek on an empty stack uses out-of-range indexing and can fault; guard with stack_empty.",
+      "Sets use map keys and true values; set_remove returns a new map rather than mutating the original."
+    ],
+    "math.may": [
+      "Integer division truncates toward zero; average and even-length median on integer inputs may therefore truncate. Use floating inputs or stats_mean/stats_median for fractional results.",
+      "factorial/fibonacci do not reject negative arguments; their empty loops return 1 and 0 respectively."
+    ],
+    "random.may": [
+      "All draws mutate the explicit RNG state. This generator is intended for repeatable tests/simulations; it is not a cryptographic generator."
+    ],
+    "path.may": [
+      "Operations are lexical; they do not resolve symlinks or access the filesystem. path_relative requires matching roots and returns `.` for identical paths."
+    ],
+    "functional.may": [
+      "Memoization keys use str(arg); distinct arguments with identical display strings share a cached result."
+    ],
+    "test.may": [
+      "Assertions record failures and keep running. Call test_summary to fail the program when any assertion failed. Counters are shared module state."
+    ],
+    "net.may": [
+      "Requires the full Linux x86-64 native or clang-llvm runtime; core/raw builds do not support this module.",
+      "No DNS, IPv6, TLS or HTTP. Use dotted IPv4 or localhost; ports are 0..65535, but peer port zero is invalid.",
+      "Default timeout is 30000 ms; -1 means unlimited, 0 means immediate, maximum finite value is 2147483647.",
+      "Sockets share descriptor ownership through aliases. Close explicitly or use with_socket; no automatic finalizer.",
+      "Binary payloads may contain NUL and invalid UTF-8. TCP receive allocation is at most 16 MiB; UDP payload is at most 65507 bytes.",
+      "Errors have kind network, message, operation and positive Linux errno. Timeout=110, invalid input=22, closed socket=9, oversize UDP=90, early exact-read EOF=0."
+    ],
+    "ml/tensor.may": [
+      "Tensors use row-major flat numeric data and a copied shape list. Arithmetic allocates new tensors; constructor and reshape retain input data references.",
+      "Strict equal-shape operations and broadcasting operations have separate names; matrix multiplication is tensor_matmul."
+    ],
+    "ml/nn.may": [
+      "Layers contain weights, bias, activation, input/output dimensions, forward caches and gradients. Training mutates these maps.",
+      "Supported dense activations are linear, relu, sigmoid, tanh and row-wise softmax.",
+      "nn_predict updates caches; nn_predict_one performs cache-free single-row inference."
+    ],
+    "ml/model.may": [
+      "Loss names are mse, binary_cross_entropy and cross_entropy. Construct the network before loading compatible saved layer states.",
+      "Training requires matching nonempty feature/label rows, nonnegative epochs and positive batch size."
+    ],
+    "ml/optim.may": [
+      "Optimizer state is mutable and belongs to a particular network shape. Update only after computing gradients."
+    ],
+    "ml/fixed.may": [
+      "Parameters are output-major weights followed by biases for each layer. Inputs, parameters and outputs use the chosen integer scale."
+    ],
+    "ml/classical.may": [
+      "These algorithms use pure Maylang loops, without GPU or BLAS support. Keep feature rows rectangular and predictions compatible with the trained width."
+    ],
+    "ml/loss.may": [
+      "Use matching nonempty rectangular prediction/target rows with valid probability outputs; validation is incomplete in several gradient/BCE helpers.",
+      "Confusion matrix rows are actual classes and columns are predicted classes. Binary single-output labels use threshold 0.5 only when class_count is 2."
+    ],
+    "core": [
+      "See [arena ownership and allocation growth](../../docs/CORE_MEMORY.md). Core has no collector; ordinary strings/lists and the arena itself retain process-lifetime storage."
+    ]
+  },
+  "details": {
+    "native.may:get": [
+      "The implementation treats a nil lookup as absent, so a present nil value returns the fallback."
+    ],
+    "native.may:extern_c": [
+      "The wrapper has six positional parameters and returns a raw integer C result; use ccall for a list of up to six integer arguments."
+    ],
+    "native.may:range_step": [
+      "Step zero returns an empty list; the stop is exclusive in either direction."
+    ],
+    "native.may:json_parse": [
+      "Returns dynamic maps/lists/scalars; rejects trailing content and malformed strings. See the implementation for supported Unicode escape behavior."
+    ],
+    "native.may:round": [
+      "Integer return; the source uses floor(x + 0.5), including negative halfway cases."
+    ],
+    "net.may:tcp_receive": [
+      "Require 1..16777216 maximum bytes. An empty result means orderly TCP EOF."
+    ],
+    "net.may:tcp_receive_exact": [
+      "Require 0..16777216 bytes; zero returns an empty string without a read; premature EOF raises."
+    ],
+    "net.may:udp_receive_from": [
+      "Require 1..65535 maximum bytes; an oversized packet is consumed and raises errno 90. Empty datagrams are valid."
+    ],
+    "native.may:json_stringify": [
+      "Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values."
+    ]
+  },
+  "runtime_extra": {
+    "mkdir": [
+      "mkdir(path) -> Nil",
+      "Create a directory with Linux mode 0755; raise an I/O error on failure."
+    ],
+    "exec": [
+      "exec(argv) -> Int",
+      "Start a child using fork/execve and return its PID; argv is a nonempty list of argument strings."
+    ],
+    "wait": [
+      "wait(pid) -> Int",
+      "Wait for a child and return its decoded exit status; failures raise; signal termination is encoded as 128 plus signal number."
+    ],
+    "system": [
+      "system(command) -> Int",
+      "Run /bin/sh -c and wait for its exit status."
+    ],
+    "type": [
+      "type(value) -> Str",
+      "Return a tagged runtime type name: Int, Float, Str, Bool, Nil, List or Map."
+    ],
+    "trunc": [
+      "trunc(x) -> Int",
+      "Truncate a numeric value toward zero."
+    ],
+    "ln": [
+      "ln(x) -> Float",
+      "Natural logarithm; use positive numeric inputs."
+    ],
+    "log2": [
+      "log2(x) -> Float",
+      "Base-two logarithm; use positive numeric inputs."
+    ],
+    "log10": [
+      "log10(x) -> Float",
+      "Base-ten logarithm; use positive numeric inputs."
+    ],
+    "exp": [
+      "exp(x) -> Float",
+      "Base-e exponential."
+    ],
+    "pow": [
+      "pow(base, exponent) -> Float",
+      "Floating power; the ** operator also supports native integer dispatch."
+    ],
+    "cmp": [
+      "cmp(a, b) -> Int",
+      "Return a negative, zero or positive comparison result."
+    ],
+    "char_at": [
+      "char_at(s, index) -> Int",
+      "Read a string codepoint as an integer; require a valid codepoint index."
+    ],
+    "char_from": [
+      "char_from(code) -> Str",
+      "Encode a character code as a one-character string."
+    ],
+    "to_map": [
+      "to_map(pairs) -> Map",
+      "Create a runtime map from a list of key/value pairs."
+    ],
+    "str_of": [
+      "str_of(value) -> Str",
+      "Internal native display conversion used by str."
+    ],
+    "int_to_str": [
+      "int_to_str(value) -> Str",
+      "Convert an integer to its decimal display string."
+    ],
+    "str_cmp": [
+      "str_cmp(a, b) -> Int",
+      "Compare strings, returning a signed ordering result."
+    ],
+    "value_eq": [
+      "value_eq(a, b) -> Bool",
+      "Native value equality used by assertions and dynamic comparisons."
+    ],
+    "value_tag": [
+      "value_tag(value) -> Int",
+      "Inspect runtime tags: Int=0, Str=1, Nil=2, false=3, true=4, List=5, Float=6, Map=7; implementation support API."
+    ],
+    "map_keys": [
+      "map_keys(map) -> List<Any>",
+      "Return runtime map keys; native keys delegates here."
+    ],
+    "map_values": [
+      "map_values(map) -> List<Any>",
+      "Return runtime map values; native values delegates here."
+    ],
+    "map_has": [
+      "map_has(map, key) -> Bool",
+      "Test runtime map key presence."
+    ],
+    "rt_raise": [
+      "rt_raise(error) -> Any",
+      "Internal structured-error raise used by native and network helpers; unwinds to a may handler."
+    ]
+  }
+}
