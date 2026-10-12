@@ -102,6 +102,9 @@ def execute(directory, target):
             subprocess.run(['sudo', 'log', 'show', '--last', '2m', '--style', 'compact',
                             '--predicate', 'process == "kernel" AND (eventMessage CONTAINS "exec" OR eventMessage CONTAINS "signature" OR eventMessage CONTAINS "macho")'],
                            timeout=30)
+            subprocess.run(['lldb', '--batch', '-o', 'run', '-o', 'process status', str(binary)], timeout=30)
+            for path in (Path.home() / 'Library/Logs/DiagnosticReports').glob(f'{binary.name}*.ips'):
+                print(path.read_text(errors='replace')[:20000], flush=True)
         assert result.returncode == fixture['status'], case
         assert result.stdout == fixture['stdout'].encode() and not result.stderr, case
     print(f'PASS {target}: real loader, console, heap, calls and exits', flush=True)
