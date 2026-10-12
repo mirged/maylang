@@ -5,6 +5,8 @@ Released 2026-10-12. Everyday workspaces and the first native desktop UI toolkit
 ## Everyday ergonomics
 
 - One shared CLI/editor formatter, including Unicode strings and nested comments.
+  Organize-imports actions sort only complete lexical directives, preserving
+  attached statements and import-looking text inside comments/strings.
 - Nested `/* ... */` source comments and comment/string-aware import scanning.
   Statements and additional imports after a same-line import are preserved,
   including their original diagnostic columns.
@@ -43,7 +45,8 @@ Released 2026-10-12. Everyday workspaces and the first native desktop UI toolkit
 
 ## Current limits
 
-Tool hosts and interactive UI require Linux x86-64. Native UI needs a C compiler,
+Tool hosts and interactive UI require Linux x86-64. UI uses the direct native
+backend; experimental LLVM currently has no C `extern` support. UI needs a C compiler,
 X11 development headers, a trusted TrueType font, and X11/XWayland for windows.
 The toolkit currently supports one window, plain single-line text and whole-input
 selection; it has no accessibility bridge or GPU rendering. Dependencies are

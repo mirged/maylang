@@ -357,7 +357,16 @@ fun ls_actions(doc: Any, p: Any) -> Any {
     let edits: Any = []; let lines: Any = ls_split(doc.text, "\n"); push(lines, ""); mut offset: Any = 0; let block: Any = []; mut start: Any = 0;
     for line: Any in lines {
         let trimmed: Any = ls_trim(line);
-        let isImport: Any = (ls_starts(trimmed, "import \"") or ls_starts(trimmed, "from \"")) and ls_ends(trimmed, ";");
+        mut isImport: Any = false;
+        if ((ls_starts(trimmed, "import \"") or ls_starts(trimmed, "from \"")) and ls_ends(trimmed, ";")) {
+            // Sort only a complete lexical directive. Inline statements and
+            // import-looking text inside strings/comments must retain order.
+            for imp: Any in doc.imports {
+                if (imp.start >= offset and imp.end <= offset + ls_bytes(line) and ls_trim(ls_slice(doc.text, offset, imp.start)) == "" and ls_trim(ls_slice(doc.text, imp.end, offset + ls_bytes(line))) == "") {
+                    isImport = true; break;
+                }
+            }
+        }
         if (isImport) { if (len(block) == 0) { start = offset; } push(block, line); }
         else if (len(block) > 0) {
             let replacement: Any = join(sort(block), "\n") + "\n";
