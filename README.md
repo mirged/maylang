@@ -9,7 +9,7 @@
 
 ### A language that compiles itself. Because apparently one compiler wasn't enough.
 
-![Version](https://img.shields.io/badge/mayc-0.10.0%20Aster-8b5cf6)
+![Version](https://img.shields.io/badge/mayc-0.11.0%20Bramble-8b5cf6)
 ![Self hosted](https://img.shields.io/badge/self--hosted-Maylang-06b6d4)
 ![Native output](https://img.shields.io/badge/output-native%20machine%20code-f97316)
 ![Status](https://img.shields.io/badge/status-experimental-facc15)

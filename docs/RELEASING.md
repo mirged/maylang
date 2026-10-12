@@ -1,11 +1,11 @@
 # Release names
 
 Maylang uses numeric versions for tools and nature codenames for people:
-**0.10.0 “Aster”** is tagged `v0.10.0`. `mayc --version` prints the numeric
+**0.11.0 “Bramble”** is tagged `v0.11.0`. `mayc --version` prints the numeric
 version, so scripts and bundle paths do not need to parse a codename.
 
 Each minor series gets the next alphabetical nature name. Aster starts the
-convention; suggested successors are Bramble and Clover. Patch releases keep
+convention; Bramble names 0.11 and Clover is the suggested next series. Patch releases keep
 their series name: 0.10.1 is still Aster. A new small feature normally advances
 the minor version; fixes advance the patch. While Maylang is below 1.0, minor
 versions can also contain breaking changes, which must be described in notes.

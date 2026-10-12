@@ -1,3 +1,56 @@
+# Maylang 0.11.0 — Bramble
+
+Released 2026-10-12. Everyday workspaces and the first native desktop UI toolkit.
+
+## Everyday ergonomics
+
+- One shared CLI/editor formatter, including Unicode strings and nested comments.
+- Nested `/* ... */` source comments and comment/string-aware import scanning.
+- `may` workspaces replace source guessing with an explicit `may.json` graph of
+  applications, executable test groups, native build recipes and action tasks.
+- Content-addressed artifact verification, atomic publication, source-change
+  detection, build serialization, local dependency content pins and dev/release
+  profiles. Commands receive literal argument arrays without shell expansion.
+- `may dev` reloads after successful builds, preserves the running app after a
+  failed edit, and reaps replaced processes. `may migrate` preserves legacy
+  `mayproj.json`; `maypkg` remains available.
+
+## Native UI and a complete application
+
+- Typed Maylang widget trees, row/column flex layout, buttons, checkboxes,
+  codepoint-safe single-line inputs, focus, clipboard, clipped scrolling and
+  virtual lists. A small X11/CPU drawing adapter supplies the platform boundary.
+- `may new DIRECTORY --ui` creates a runnable desktop project with a declared
+  native adapter prerequisite. Headless rendering supports PNG snapshots.
+- Mayboard provides task creation, editing, completion, deletion, search and
+  filters. It validates task files, locks out competing writers, synchronizes
+  private atomic saves, and preserves corrupt input. A demo mode stores changes
+  in memory; native X11 tests cover input and persistent reopen behavior.
+
+## Runtime and tooling confidence
+
+- Seeded 4 MiB GC stress uses an independent graph model plus heap/free-bin
+  invariants. Injected corruption verifies that the checkers detect failures;
+  lists, maps, Unicode copied strings, closures and suspended fibers retain
+  their values through collection pressure.
+- Workspace diagnostics isolate imported graphs within a source budget. Worker
+  stdout cannot contaminate JSON, and crashes report the actual exit/signal.
+- Bundles include `may`, `mayfmt`, the UI adapter sources, editor tools and
+  checksums. Extracted installations build a UI scaffold and render a PNG.
+
+## Current limits
+
+Tool hosts and interactive UI require Linux x86-64. Native UI needs a C compiler,
+X11 development headers, a trusted TrueType font, and X11/XWayland for windows.
+The toolkit currently supports one window, plain single-line text and whole-input
+selection; it has no accessibility bridge or GPU rendering. Dependencies are
+local paths with content pins; there is no central registry or host-toolchain
+lock. The original sustained-GC report (#2) remains unreproduced; bounded stress
+coverage does not prove arbitrary programs correct. See the linked tool/library
+READMEs for supported behavior.
+
+---
+
 # Maylang 0.10.0 — Aster
 
 Released 2026-10-12. A fresh starting point after the 0.9.0 line, with verified
