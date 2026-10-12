@@ -1,0 +1,180 @@
+import "src/workspace.may" as workspace;
+import "src/process.may" as proc;
+import "src/build.may" as build;
+import "../maypkg/src/fs.may" as fs;
+import "../shared/format.may" as formatting;
+
+fun usage() -> Nil {
+    print("may — Maylang workspace runner\n\n  may new DIRECTORY     Create an explicit workspace\n  may migrate           Import an existing mayproj.json\n  may tasks             Show named targets and dependencies\n  may build [TARGET]    Build into the verified artifact store\n  may run [TARGET] -- ARGS\n  may test [GROUP]      Compile/run discovered .test.may files\n  may dev [TARGET]     Watch inputs and restart successful builds\n  may check [TARGET]    Run the compiler type checker\n  may fmt [--check]     Format workspace sources\n  may lock              Pin local dependency contents\n  may doctor            Report compiler/library configuration\n  may clean             Remove generated workspace artifacts\n\n  --profile NAME        Select dev or release (or a named profile)\n  --all                 Select all applicable targets\n\nWorkspaces use may.json; builds never rewrite it. Native recipes take argument arrays, and dependencies form an explicit task graph.");
+    return;
+}
+fun create(directory: Str) -> Nil {
+    let root: Str = workspace.absolute(fs.cwd(), directory);
+    if (file_exists(root)) { fail("may: destination already exists: " + root); }
+    fs.mkdirs(root + "/src"); fs.mkdirs(root + "/tests");
+    let name: Str = fs.basename(root);
+    write_file(root + "/may.json", json_stringify({"schema": 1, "name": name, "default": "app",
+        "targets": {"app": {"kind": "app", "entry": "src/main.may"}, "tests": {"kind": "test", "root": "tests"}}, "dependencies": {}}) + "\n");
+    write_file(root + "/src/main.may", "print(" + json_stringify("Hello from " + name + "!") + ");\n");
+    write_file(root + "/tests/smoke.test.may", "import \"test\" as test;\ntest.assert_equal(6 * 7, 42, \"arithmetic\");\ntest.test_summary();\n");
+    write_file(root + "/.gitignore", ".may/\n"); print("created", root); return;
+}
+fun migrate() -> Nil {
+    let root: Str = fs.cwd();
+    if (file_exists(root + "/may.json")) { fail("may: may.json already exists"); }
+    let old: Any = json_parse(read_file(root + "/mayproj.json"));
+    let spec: Any = {"kind": "app", "entry": old.entry ?? "main.may", "flags": old.flags ?? []};
+    if (old.target != nil and old.target != "host") { spec.target = old.target; }
+    if (old.runtime != nil and old.runtime != "auto") { spec.runtime = old.runtime; }
+    if (old.strict == false) { push(spec.flags, "--legacy"); }
+    let config: Any = {"schema": 1, "name": old.name ?? fs.basename(root), "default": "app", "targets": {"app": spec}, "dependencies": {}};
+    if (old.compiler != nil and old.compiler != "") { config.compiler = old.compiler; }
+    fs.write_atomic(root + "/may.json", json_stringify(config) + "\n");
+    print("created may.json; original mayproj.json is preserved");
+    if (len(keys(old.deps ?? ({}))) > 0) { print("declare local dependency paths in may.json, then run may lock"); }
+    return;
+}
+fun check_target(ws: Any, name: Str) -> Int {
+    if (not has(ws.config.targets, name)) { fail("may: unknown target: " + name); }
+    let spec: Any = ws.config.targets[name]; let entries: List<Str> = [];
+    if (spec.kind == "app") { push(entries, workspace.absolute(ws.root, spec.entry)); }
+    else if (spec.kind == "test") {
+        for file: Str in workspace.files(workspace.absolute(ws.root, spec.root)) { if (ends_with(file, ".test.may")) { push(entries, file); } }
+    } else { return 0; }
+    mut status: Int = 0;
+    for entry: Str in entries {
+        let command: List<Str> = [ws.compiler, "--check", "--target", spec.target, "--runtime", spec.runtime];
+        for flag: Str in ws.config.profiles[ws.profile].flags { push(command, flag); }
+        for flag: Str in spec.flags { push(command, flag); }
+        push(command, entry);
+        if (proc.run(command, ws.root, build.variables(ws)) != 0) { status = 1; }
+    }
+    return status;
+}
+fun dev_build(ws: Any, name: Str) -> Any {
+    let descriptor: Int = build.acquire(ws);
+    return may { let result: Any = build.target(ws, name); syscall(3, descriptor); result }
+        otherwise { syscall(3, descriptor); fail(err.message); nil };
+}
+fun dev(ws: Any, name: Str, arguments: List<Str>, once: Bool) -> Int {
+    let built: Any = dev_build(ws, name);
+    if (built.kind != "app") { fail("may: dev requires an application target"); }
+    let command: List<Str> = [built.directory + "/" + name] + arguments;
+    mut fingerprint: Str = build.snapshot(ws, name); mut failed: Str = "";
+    mut child: Int = proc.spawn(command, ws.root, build.variables(ws));
+    build.log("watch " + name + "; complete builds replace the running application");
+    while (true) {
+        if (child > 0) {
+            let state: Any = proc.observe(child);
+            if (not state.running) { child = 0; if (once) { return state.exit; } }
+        }
+        sleep(400);
+        let current: Str = may { build.snapshot(ws, name) } otherwise {
+            if (err.message != failed) { build.log(err.message); failed = err.message; }
+            fingerprint
+        };
+        if (current == fingerprint) { continue; }
+        fingerprint = current;
+        may {
+            let next: Any = workspace.load(); next.profile = ws.profile;
+            workspace.verify_dependencies(next);
+            let compiled: Any = dev_build(next, name);
+            proc.stop(child);
+            child = proc.spawn([compiled.directory + "/" + name] + arguments, next.root, build.variables(next));
+            ws = next; failed = "";
+        } otherwise { build.log(err.message); failed = err.message; }
+    }
+    return 0;
+}
+fun main_cli(argv: List<Str>) -> Int {
+    let sub: Str = if (len(argv) > 1) { argv[1] } else { "help" };
+    if (has(["help", "--help", "-h"], sub)) { usage(); exit(0); }
+    if (has(["version", "--version"], sub)) { print("may workspace runner (schema 1)"); exit(0); }
+    if (sub == "new") { if (len(argv) != 3) { usage(); exit(2); } create(argv[2]); exit(0); }
+    if (sub == "migrate") { migrate(); exit(0); }
+    let ws: Any = workspace.load();
+    mut name: Str = ""; mut all: Bool = false; mut fmt_check: Bool = false; mut forward: Bool = false; mut once: Bool = false;
+    let arguments: List<Str> = []; mut index: Int = 2;
+    while (index < len(argv)) {
+        let option: Str = argv[index];
+        if (forward) { push(arguments, option); }
+        else if (option == "--") { forward = true; }
+        else if (option == "--all") { all = true; }
+        else if (option == "--check" and sub == "fmt") { fmt_check = true; }
+        else if (option == "--once" and sub == "dev") { once = true; }
+        else if (option == "--profile") {
+            index += 1; if (index >= len(argv)) { fail("may: --profile requires a name"); }
+            ws.profile = argv[index];
+        } else if (starts_with(option, "--") or name != "") { fail("may: unknown or unexpected argument: " + option); }
+        else { name = option; }
+        index += 1;
+    }
+    if (not has(ws.config.profiles, ws.profile)) { fail("may: unknown profile: " + ws.profile); }
+    if (sub == "lock") { workspace.lock(ws); exit(0); }
+    if (sub == "tasks") {
+        for target_name: Str in sort(keys(ws.config.targets)) {
+            let spec: Any = ws.config.targets[target_name]; print(target_name, spec.kind, join(spec.depends, " -> "));
+        }
+        exit(0);
+    }
+    if (sub == "doctor") {
+        print("workspace", ws.root); print("compiler", ws.compiler); print("stdlib", ws.stdlib); print("profile", ws.profile);
+        exit(proc.run([ws.compiler, "--version"], ws.root, []));
+    }
+    if (sub == "fmt") {
+        mut changed: Bool = false;
+        for path: Str in workspace.files(ws.root) {
+            if (not ends_with(path, ".may")) { continue; }
+            let source: Str = read_file(path); let formatted: Str = formatting.format_source(source, 4, true);
+            if (source != formatted) {
+                changed = true;
+                if (fmt_check) { print("needs formatting:", path); } else { fs.write_atomic(path, formatted); }
+            }
+        }
+        exit(if (fmt_check and changed) { 1 } else { 0 });
+    }
+    if (sub == "clean") { exit(proc.run(["rm", "-rf", "--", ws.root + "/.may"], ws.root, [])); }
+    if (not has(["build", "run", "test", "check", "dev"], sub)) { fail("may: unknown command: " + sub); }
+    workspace.verify_dependencies(ws);
+    mut lock_fd: Int = build.acquire(ws);
+    mut status: Int = 0;
+    may {
+        if (sub == "dev") {
+            syscall(3, lock_fd); lock_fd = -1;
+            status = dev(ws, if (name == "") { ws.config.default } else { name }, arguments, once);
+        } else if (sub == "test") {
+            if (name != "") {
+                if (not has(ws.config.targets, name) or ws.config.targets[name].kind != "test") { fail("may: target is not a test group: " + name); }
+                status = build.tests(ws, name);
+            } else {
+                mut groups: Int = 0;
+                for target_name: Str in sort(keys(ws.config.targets)) {
+                    if (ws.config.targets[target_name].kind == "test") { groups += 1; if (build.tests(ws, target_name) != 0) { status = 1; } }
+                }
+                if (groups == 0) { fail("may: workspace declares no test groups"); }
+            }
+        } else if (sub == "check") {
+            if (all) {
+                for target_name: Str in sort(keys(ws.config.targets)) { if (check_target(ws, target_name) != 0) { status = 1; } }
+            } else { status = check_target(ws, if (name == "") { ws.config.default } else { name }); }
+        } else {
+            if (all and sub == "run") { fail("may: run requires one target"); }
+            if (all) {
+                for target_name: Str in sort(keys(ws.config.targets)) {
+                    if (ws.config.targets[target_name].kind == "app" or ws.config.targets[target_name].kind == "native") { build.target(ws, target_name); }
+                }
+            } else {
+                let selected: Str = if (name == "") { ws.config.default } else { name };
+                let compiled: Any = build.target(ws, selected);
+                syscall(3, lock_fd); lock_fd = -1;
+                if (sub == "run" and compiled.kind == "app") {
+                    status = proc.run([compiled.directory + "/" + selected] + arguments, ws.root, build.variables(ws));
+                }
+            }
+        }
+        if (lock_fd >= 0) { syscall(3, lock_fd); }
+    } otherwise { if (lock_fd >= 0) { syscall(3, lock_fd); } build.log(err.message); status = 1; }
+    return status;
+}
+let result: Int = may { main_cli(args()) } otherwise { build.log(err.message); 2 };
+exit(result);

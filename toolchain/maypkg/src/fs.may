@@ -11,7 +11,24 @@ pub fun cwd() -> Any {
     let count: Any = syscall(79, buffer, 4096);
     if (count <= 0) { syscall(11, buffer, 4096); fail("cannot read current directory"); }
     mut result: Any = "";
-    for i: Any in 0..count - 1 { result = result + chr(load8(buffer + i)); }
+    mut i: Any = 0;
+    while (i < count - 1) {
+        let first: Any = load8(buffer + i); mut codepoint: Any = first; mut width: Any = 1;
+        if (first >= 194 and first <= 223) { codepoint = first % 32; width = 2; }
+        else if (first >= 224 and first <= 239) { codepoint = first % 16; width = 3; }
+        else if (first >= 240 and first <= 244) { codepoint = first % 8; width = 4; }
+        else if (first >= 128) { syscall(11, buffer, 4096); fail("current directory is not valid UTF-8"); }
+        if (i + width > count - 1) { syscall(11, buffer, 4096); fail("truncated UTF-8 current directory"); }
+        for offset: Any in 1..width {
+            let byte: Any = load8(buffer + i + offset);
+            if (byte < 128 or byte > 191) { syscall(11, buffer, 4096); fail("invalid UTF-8 current directory"); }
+            codepoint = codepoint * 64 + byte % 64;
+        }
+        if ((width == 3 and codepoint < 2048) or (width == 4 and codepoint < 65536) or (codepoint >= 55296 and codepoint <= 57343) or codepoint > 1114111) {
+            syscall(11, buffer, 4096); fail("invalid UTF-8 current directory");
+        }
+        result = result + chr(codepoint); i += width;
+    }
     syscall(11, buffer, 4096); return result;
 }
 pub fun home() -> Any { return env("HOME") ?? "."; }

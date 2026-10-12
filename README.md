@@ -74,6 +74,27 @@ those paths; copying just the underlying executable elsewhere is insufficient.
 See the [compiler guide](toolchain/mayc/README.md) for the build pipeline,
 runtime selection, benchmarks, and detailed verification commands.
 
+## Everyday project workflow
+
+The new [May workspace runner](toolchain/may/README.md) keeps named applications,
+real executable tests and native build recipes in an explicit `may.json` graph.
+It verifies content-addressed build artifacts, pins local dependencies, forwards
+arguments directly, and reloads applications after successful edits.
+
+```sh
+toolchain/mayc/mayc_new toolchain/may/main.may -o /tmp/may
+export MAYC="$PWD/toolchain/mayc/mayc_new"
+/tmp/may new /tmp/hello-workspace
+cd /tmp/hello-workspace
+/tmp/may run
+/tmp/may test
+/tmp/may fmt --check
+```
+
+`maypkg` remains available for existing projects; `may migrate` preserves the old
+manifest while creating a workspace. The [shared formatter](toolchain/mayfmt/README.md)
+also serves editor formatting. Source comments support nested `/* ... */` blocks.
+
 ## What's in the language?
 
 - **Strict checking:** typed parameters, inferred local bindings and function

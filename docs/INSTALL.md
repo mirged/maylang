@@ -22,7 +22,7 @@ launcher caches its generated compiler; after changing compiler sources, run
 `sh toolchain/rust/build.sh` again. Packaging does not silently refresh a compiler
 explicitly supplied with `--compiler`.
 
-The archive contains `bin/mayc`, `bin/maypkg`, `bin/maylsp`, runtime sidecars and
+The archive contains `bin/mayc`, `bin/may`, `bin/mayfmt`, `bin/maypkg`, `bin/maylsp`, runtime sidecars and
 `stdlib`. It also contains `VERSION`, `provenance.json` (source commit, dirty
 state, host and compiler digest) and `SHA256SUMS`. The adjacent `.sha256` file
 checks the archive itself. Archive timestamps are deterministic for the source
@@ -50,9 +50,9 @@ old one and update `PATH`. This also makes rollback a path change.
 
 ```sh
 mayc --version
-maypkg new /tmp/hello
+may new /tmp/hello
 cd /tmp/hello
-maypkg run
+may run
 ```
 
 Compiler selection is `MAYC`, then the manifest's `compiler`, then `mayc` beside
@@ -110,3 +110,6 @@ tested with an emulator and with real macOS/Windows loaders in the
 [native target suite](NATIVE_TARGETS.md). LLVM output is experimental and
 excludes fibers and typed extern functions. See the
 [compiler target matrix](../toolchain/mayc/README.md#cross-compilation).
+
+New projects use [May workspaces](../toolchain/may/README.md). Run `may test`,
+`may fmt --check`, and `may dev` from the workspace or a subdirectory.

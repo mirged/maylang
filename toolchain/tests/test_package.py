@@ -44,6 +44,14 @@ def main():
         run(str(bundle/'bin/maypkg'),'build')
         assert b'up to date' in run(str(bundle/'bin/maypkg'),'build')
         assert run(str(project/'project')) == b'42\n'
+        run(str(bundle / 'bin/may'), 'new', 'workspace')
+        result = subprocess.run([str(bundle / 'bin/may'), 'run'], cwd=project / 'workspace',
+                                env=env, capture_output=True, timeout=120)
+        assert result.returncode == 0 and result.stdout == b'Hello from workspace!\n', result
+        result = subprocess.run([str(bundle / 'bin/may'), 'test'], cwd=project / 'workspace',
+                                env=env, capture_output=True, timeout=120)
+        assert result.returncode == 0 and b'PASS smoke.test.may' in result.stdout, result
+        run(str(bundle / 'bin/mayfmt'), '--check', str(project / 'workspace/src/main.may'))
         message=json.dumps({'jsonrpc':'2.0','id':1,'method':'initialize','params':{}}).encode()
         wire=f'Content-Length: {len(message)}\r\n\r\n'.encode()+message
         result=subprocess.run([str(bundle/'bin/maylsp')],input=wire,cwd=project,env=env,capture_output=True,timeout=20)

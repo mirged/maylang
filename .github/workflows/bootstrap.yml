@@ -55,6 +55,7 @@ jobs:
         run: |
           toolchain/mayc/mayc_new toolchain/maypkg/main.may -o /tmp/maypkg
           python3 toolchain/maypkg/tests/test_workflows.py --binary /tmp/maypkg
+          python3 toolchain/may/tests/run.py
           python3 toolchain/maylsp/tests/test_lsp.py
       - name: Build and test an extracted release
         run: |
