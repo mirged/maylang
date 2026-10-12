@@ -1,0 +1,91 @@
+import "../../maypkg/src/fs.may" as fs;
+struct KernelVector { pointer: Ptr, size: Int, copies: List<Ptr> }
+
+fun vector(values: List<Str>) -> KernelVector {
+    let size: Int = (len(values) + 1) * 8;
+    let address: Int = syscall(9, 0, size, 3, 34, -1, 0);
+    if (address < 0) { fail("may: cannot allocate command arguments"); }
+    let result: KernelVector = KernelVector(ptr(address), size, []);
+    for i: Int in 0..len(values) {
+        let copy: Ptr = cstr(values[i]);
+        push(result.copies, copy); store64(result.pointer + i * 8, int(copy));
+    }
+    store64(result.pointer + len(values) * 8, 0);
+    return result;
+}
+
+pub fun executable(name: Str) -> Str {
+    if (contains(name, "/")) {
+        let path: Str = fs.normpath(if (starts_with(name, "/")) { name } else { fs.join_path(fs.cwd(), name) });
+        if (not file_exists(path)) { fail("may: executable not found: " + path); }
+        return path;
+    }
+    for directory: Str in split(env("PATH") ?? "", ":") {
+        let path: Str = fs.join_path(if (directory == "") { fs.cwd() } else { directory }, name);
+        if (file_exists(path)) { return fs.normpath(if (starts_with(path, "/")) { path } else { fs.join_path(fs.cwd(), path) }); }
+    }
+    fail("may: executable not found on PATH: " + name); return "";
+}
+pub fun command(argv: List<Str>, variables: List<Str>) -> List<Str> {
+    if (len(argv) == 0) { fail("may: command requires an executable"); }
+    let result: List<Str> = [executable("env")];
+    for variable: Str in variables { push(result, variable); }
+    push(result, executable(argv[0]));
+    for i: Int in 1..len(argv) { push(result, argv[i]); }
+    return result;
+}
+fun launch(argv: List<Str>, directory: Str, variables: List<Str>, output_fd: Int) -> Int {
+    let absolute_args: List<Str> = slice(argv, 0, len(argv));
+    if (len(absolute_args) > 0 and contains(absolute_args[0], "/") and not starts_with(absolute_args[0], "/")) {
+        absolute_args[0] = fs.normpath(directory + "/" + absolute_args[0]);
+    }
+    let prepared: List<Str> = command(absolute_args, variables);
+    let inherited: List<Str> = [];
+    for variable: Str in split(read_file("/proc/self/environ"), chr(0)) {
+        if (variable != "") { push(inherited, variable); }
+    }
+    let arguments: KernelVector = vector(prepared);
+    let environment: KernelVector = vector(inherited);
+    let parent: Int = syscall(39);
+    let child: Int = syscall(57);
+    if (child < 0) { fail("may: cannot fork command"); }
+    if (child == 0) {
+        syscall(109, 0, 0);
+        syscall(157, 1, 15, 0, 0, 0);
+        if (syscall(110) != parent) { exit(125); }
+        if (output_fd >= 0) { if (syscall(33, output_fd, 1) < 0) { exit(2); } syscall(3, output_fd); }
+        if (syscall(80, cstr(directory)) != 0) { exit(2); }
+        syscall(59, arguments.copies[0], arguments.pointer, environment.pointer);
+        exit(127);
+    }
+    syscall(11, arguments.pointer, arguments.size); syscall(11, environment.pointer, environment.size);
+    return child;
+}
+pub fun spawn(argv: List<Str>, directory: Str, variables: List<Str>) -> Int {
+    return launch(argv, directory, variables, -1);
+}
+pub fun run(argv: List<Str>, directory: Str, variables: List<Str>) -> Int {
+    return wait(spawn(argv, directory, variables));
+}
+pub fun capture(argv: List<Str>, directory: Str, variables: List<Str>, output: Str) -> Int {
+    let fd: Int = syscall(2, cstr(output), 524865, 384);
+    if (fd < 0) { fail("may: cannot create command output: " + output); }
+    let child: Int = launch(argv, directory, variables, fd);
+    syscall(3, fd); return wait(child);
+}
+pub fun observe(pid: Int) -> Any {
+    let buffer: Ptr = ptr(syscall(9, 0, 4096, 3, 34, -1, 0));
+    let waited: Int = syscall(61, pid, buffer, 1);
+    let status: Int = load32(buffer); syscall(11, buffer, 4096);
+    return {"running": waited == 0, "exit": if (status % 128 != 0) { 128 + status % 128 } else { status / 256 % 256 }};
+}
+pub fun stop(pid: Int) -> Nil {
+    if (pid <= 0) { return; }
+    syscall(62, 0 - pid, 15); syscall(62, pid, 15);
+    syscall(61, pid, 0, 0, 0); return;
+}
+pub fun require(argv: List<Str>, directory: Str, variables: List<Str>) -> Nil {
+    let status: Int = run(argv, directory, variables);
+    if (status != 0) { fail("may: command failed with status " + str(status) + ": " + argv[0]); }
+    return;
+}

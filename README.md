@@ -9,7 +9,7 @@
 
 ### A language that compiles itself. Because apparently one compiler wasn't enough.
 
-![Version](https://img.shields.io/badge/mayc-0.10.0%20Aster-8b5cf6)
+![Version](https://img.shields.io/badge/mayc-0.11.0%20Bramble-8b5cf6)
 ![Self hosted](https://img.shields.io/badge/self--hosted-Maylang-06b6d4)
 ![Native output](https://img.shields.io/badge/output-native%20machine%20code-f97316)
 ![Status](https://img.shields.io/badge/status-experimental-facc15)
@@ -73,6 +73,45 @@ Keep the compiler with its runtime sidecars. The `mayc_new` launcher wires up
 those paths; copying just the underlying executable elsewhere is insufficient.
 See the [compiler guide](toolchain/mayc/README.md) for the build pipeline,
 runtime selection, benchmarks, and detailed verification commands.
+
+## Everyday project workflow
+
+The new [May workspace runner](toolchain/may/README.md) keeps named applications,
+real executable tests and native build recipes in an explicit `may.json` graph.
+It verifies content-addressed build artifacts, pins local dependencies, forwards
+arguments directly, and reloads applications after successful edits.
+
+```sh
+toolchain/mayc/mayc_new toolchain/may/main.may -o /tmp/may
+export MAYC="$PWD/toolchain/mayc/mayc_new"
+/tmp/may new /tmp/hello-workspace
+cd /tmp/hello-workspace
+/tmp/may run
+/tmp/may test
+/tmp/may fmt --check
+```
+
+`maypkg` remains available for existing projects; `may migrate` preserves the old
+manifest while creating a workspace. The [shared formatter](toolchain/mayfmt/README.md)
+also serves editor formatting. Source comments support nested `/* ... */` blocks.
+
+## Write a desktop application
+
+The [native UI library](stdlib/ui/README.md) provides Maylang layout, widgets,
+Unicode text inputs, keyboard focus and virtual scrolling, backed by X11.
+`may new my-app --ui` creates a runnable desktop project. The complete
+[Mayboard task board](example_projects/apps/mayboard/README.md) adds editing,
+search, filters and persistent local storage:
+
+```sh
+cd example_projects/apps/mayboard
+may run
+may test
+```
+
+Install a C compiler, X11 development headers and DejaVu fonts; interactive
+windows require X11/XWayland. Use `may run -- --demo --snapshot /tmp/mayboard.png`
+for a display-free PNG preview.
 
 ## What's in the language?
 

@@ -52,8 +52,8 @@
 - **Records** — `struct Point { x: Int, y: Int }`; construct positionally with `Point(3, 4)`; read/write typed fields; constructors validate their argument types.
 - Records are tagged maps in the full runtime; nominal type identity includes the defining module; use `library.Point` for a namespaced imported record.
 - **Enums** — `enum Shape { Empty, Circle(radius: Float) }`; variants construct tagged values with a `tag` field and payload fields.
-- Match on `value.tag` when selecting enum variants; strict enum-payload pattern destructuring is not currently supported.
-- **Matching** — `match (value) { 1 => "one", n if n > 1 => "many", _ => "other" }` produces the first matching arm's value.
+- Match typed variants directly: `match (shape) { Circle(radius) => radius, Rect(width, height) => width * height, Empty() => 0 }`. Payload bindings have their declared types; use `_` to ignore one. Enum/Result matches require exhaustiveness, and guarded arms do not cover a whole variant.
+- **Matching** — `match (value) { 1 => "one", n if n > 1 => "many", _ => "other" }` produces the first matching arm's value. Typed results support `Ok(value)` and `Err(error)` patterns.
 - Patterns include literals, negative numeric literals, identifier bindings and `_`; guards add Boolean tests.
 - Strict Bool matches must cover true and false or contain an unguarded wildcard/binding. Other nonexhaustive matches can raise a runtime fault.
 - **Modules** — `import "math";` or `import "math.may";` imports exported names; `import "math" as math;` provides qualified access; `from "math" import gcd, lcm;` imports selected names.
@@ -81,3 +81,4 @@
 - **Implementation boundaries** — closures, maps/records, floats, fault handling, fibers and FFI require the full runtime. Core/raw support a smaller language/runtime subset; see the compiler reference.
 - Full-runtime GC has a documented corruption issue during sustained allocation workloads; core allocation retains chunks until process exit. These implementation limits are described in the existing compiler guide.
 - Read [syntax catalog](SYNTAX.md), [runtime API](RUNTIME.md), [library APIs](STDLIB.md) and [compiler reference](TOOLCHAIN.md) for complete inventories and commands.
+- Comments: `//` continues to the end of a line; `/* ... */` block comments nest. Import-looking lines inside comments or multiline strings are ignored by module loading.

@@ -1,0 +1,25 @@
+import "../src/model.may" as model;
+import "../src/store.may" as store;
+import "test" as test;
+let board: model.Model = model.create();
+test.assert_equal(model.add(board, "  "), false, "empty task rejected");
+test.assert_equal(model.add(board, " café λ "), true, "Unicode task added");
+test.assert_equal(board.tasks[0].title, "café λ", "title trimmed");
+model.add(board, "Another idea"); model.toggle(board, 1);
+test.assert_equal(model.completed(board), 1, "completion count");
+board.filter = "active"; test.assert_equal(len(model.visible(board)), 1, "active filter");
+board.filter = "done"; test.assert_equal(model.visible(board)[0].id, 1, "done filter");
+board.filter = "all"; board.search = "IDEA"; test.assert_equal(len(model.visible(board)), 1, "case-insensitive ASCII search");
+model.begin_edit(board, 2); board.edit_text = ""; test.assert_equal(model.commit_edit(board), false, "empty edit rejected");
+board.edit_text = "Edited task"; test.assert_equal(model.commit_edit(board), true, "valid edit");
+let loaded: model.Model = store.decode(store.encode(board));
+test.assert_equal(loaded.tasks[0].title, "café λ", "Unicode persistence");
+test.assert_equal(loaded.tasks[0].done, true, "completion persistence");
+test.assert_equal(loaded.next_id, 3, "next identity recovered");
+model.remove(loaded, 2); model.add(loaded, "new"); test.assert_equal(loaded.tasks[1].id, 3, "IDs never collide after deletion");
+model.clear_completed(loaded); test.assert_equal(len(loaded.tasks), 1, "clear only completed");
+for invalid: Str in ["{}", "{\"schema\":2,\"tasks\":[]}", "{\"schema\":1,\"tasks\":[{\"id\":1,\"title\":\"\",\"done\":false}]}", "{\"schema\":1,\"tasks\":[{\"id\":1,\"title\":\"x\",\"done\":\"false\"}]}", "{\"schema\":1,\"tasks\":[{\"id\":1,\"title\":\"x\",\"done\":false},{\"id\":1,\"title\":\"y\",\"done\":true}]}"] {
+    let rejected: Bool = may { store.decode(invalid); false } otherwise { true };
+    test.assert_equal(rejected, true, "invalid task data rejected");
+}
+test.test_summary();

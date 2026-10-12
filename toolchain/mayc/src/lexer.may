@@ -213,6 +213,17 @@ fun punct(b: Any, i: Any) -> Any {
     return i + 1;
 }
 
+fun lex_block_end(start: Any, end: Any) -> Any {
+    mut i: Any = start + 2; mut depth: Any = 1;
+    while (i < end and depth > 0) {
+        if (i + 1 < end and load8(SRC + i) == 47 and load8(SRC + i + 1) == 42) { depth += 1; i += 2; }
+        else if (i + 1 < end and load8(SRC + i) == 42 and load8(SRC + i + 1) == 47) { depth -= 1; i += 2; }
+        else { i += 1; }
+    }
+    if (depth != 0) { lex_error(start, 2, "unterminated block comment"); }
+    return i;
+}
+
 fun lex_run(a: Any, e: Any) -> Any {
     mut i: Any = a;
     while (i < e) {
@@ -227,6 +238,8 @@ fun lex_run(a: Any, e: Any) -> Any {
                     if (load8(SRC + i) == 10) { break; }
                     i = i + 1;
                 }
+            } else if (i + 1 < e and load8(SRC + i + 1) == 42) {
+                i = lex_block_end(i, e);
             } else {
                 i = punct(b, i);
             }
@@ -294,7 +307,11 @@ fun lex_run(a: Any, e: Any) -> Any {
                         mut depth: Any = 1;
                         while (j < e  and  depth > 0) {
                             let d: Any = load8(SRC + j);
-                            if (d == 123) { depth = depth + 1; j = j + 1; }
+                            if (d == 47 and load8(SRC + j + 1) == 42) { j = lex_block_end(j, e); }
+                            else if (d == 47 and load8(SRC + j + 1) == 47) {
+                                while (j < e and load8(SRC + j) != 10) { j += 1; }
+                            }
+                            else if (d == 123) { depth = depth + 1; j = j + 1; }
                             else if (d == 125) { depth = depth - 1; j = j + 1; }
                             else if (d == 34) {
                                 j = j + 1;

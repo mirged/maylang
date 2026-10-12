@@ -1,0 +1,61 @@
+- **ui.may** — Native Linux desktop widget trees, layout, Unicode inputs, focus, scrolling, virtual lists and headless PNG snapshots; requires the May UI X11 adapter.
+- Availability: full Linux x86-64 runtime.
+- Import: `import "ui" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: only declarations marked `pub` are exported.
+- Source: [implementation](../../stdlib/ui.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../stdlib/CONTRACTS.md).
+- **Widget** — `pub struct Widget { kind: Str, id: Str, text: Str, hint: Str, children: List<Widget>, width: Int, height: Int, grow: Int, pad: Int, gap: Int, background: Int, foreground: Int, font: Int, radius: Int, checked: Bool }` — Widget tree node; construct with label, button, entry, checkbox or containers.
+- **Window** — `pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Any>, root: Any, active: Bool }` — Persistent window interaction state. Keep it while rebuilding views.
+- **Event** — `pub struct Event { kind: Str, id: Str, text: Str, width: Int, height: Int }` — Action kind is click, toggle, edit, submit, close, resize, repaint or idle.
+- **node** — `fun node(kind: Str, id: Str, text: Str, children: List<Widget>) -> Widget` — Construct an internal widget with shared defaults.
+- `node`: private implementation helper; unavailable to importing modules.
+- **label** — `pub fun label(text: Str) -> Widget` — Single-line text, clipped to available width.
+- **button** — `pub fun button(id: Str, text: Str) -> Widget` — Clickable action with a stable, unique identifier.
+- **entry** — `pub fun entry(id: Str, text: Str) -> Widget` — Unicode text input; applications apply edit events to their model.
+- **placeholder** — `pub fun placeholder(item: Widget, hint: Str) -> Widget` — Set an entry hint shown only while its value is empty.
+- `placeholder` explicit fault strings: `"ui: placeholder requires an entry"`; runtime/callback faults can also propagate.
+- **checkbox** — `pub fun checkbox(id: Str, text: Str, checked: Bool) -> Widget` — Boolean action; toggle events report the next value as true or false.
+- **row** — `pub fun row(children: List<Widget>) -> Widget` — Horizontal container; flexible children share remaining width.
+- **column** — `pub fun column(children: List<Widget>) -> Widget` — Vertical container; flexible children share remaining height.
+- **spacer** — `pub fun spacer(size: Int) -> Widget` — Empty fixed space, or flexible space when used with flex.
+- **scroller** — `pub fun scroller(id: Str, child: Widget) -> Widget` — Vertical viewport; scroll offset belongs to the stable identifier.
+- **size** — `pub fun size(item: Widget, width: Int, height: Int) -> Widget` — Set requested dimensions; zero uses the measured content size.
+- `size` explicit fault strings: `"ui: negative widget size"`; runtime/callback faults can also propagate.
+- **flex** — `pub fun flex(item: Widget, weight: Int) -> Widget` — Set a positive share of a container's remaining space.
+- `flex` explicit fault strings: `"ui: flex weight must be positive"`; runtime/callback faults can also propagate.
+- **spacing** — `pub fun spacing(item: Widget, padding: Int, gap: Int) -> Widget` — Set inset and child separation in pixels.
+- `spacing` explicit fault strings: `"ui: negative spacing"`; runtime/callback faults can also propagate.
+- **style** — `pub fun style(item: Widget, background: Int, foreground: Int, font: Int, radius: Int) -> Widget` — Set RGB colors, pixel font size and corner radius. Background -1 is transparent.
+- `style` explicit fault strings: `"ui: invalid style"`; runtime/callback faults can also propagate.
+- **surface_active** — `mut surface_active: Bool = false;` — Track the single active native surface.
+- `surface_active`: private implementation helper; unavailable to importing modules.
+- **open** — `pub fun open(title: Str, width: Int, height: Int, headless: Bool) -> Window` — Open one window, or a display-free raster surface for snapshots/tests.
+- `open` explicit fault strings: `"ui: close the existing window before opening another"`, `"ui: window dimensions must be 1..8192"`, `"ui: cannot create surface/load font; set MAYUI_FONT to a trusted TrueType font"`, `"ui: cannot open X11 display; check DISPLAY"`; runtime/callback faults can also propagate.
+- **close** — `pub fun close(window: Window) -> Nil` — Release native window, font and raster memory. Close is idempotent.
+- **focus** — `pub fun focus(window: Window, id: Str) -> Nil` — Focus a stable input/action identifier; caret starts at the end.
+- **natural** — `fun natural(item: Widget, horizontal: Bool) -> Int` — Measure content on one axis before assigning flex space.
+- `natural`: private implementation helper; unavailable to importing modules.
+- **intersect** — `fun intersect(a: Any, b: Any) -> Any` — Intersect two rectangles for drawing and hit clipping.
+- `intersect`: private implementation helper; unavailable to importing modules.
+- **inside** — `fun inside(rect: Any, x: Int, y: Int) -> Bool` — Test whether a point lies within a rectangle.
+- `inside`: private implementation helper; unavailable to importing modules.
+- **clip** — `fun clip(rect: Any) -> Nil` — Set the native drawing clip to the visible rectangle.
+- `clip`: private implementation helper; unavailable to importing modules.
+- **draw** — `fun draw(window: Window, item: Widget, rect: Any, viewport: Any, ids: Map<Str, Bool>) -> Nil` — Lay out and paint one subtree, recording visible input regions.
+- `draw`: private implementation helper; unavailable to importing modules.
+- `draw` explicit fault strings: `"ui: duplicate widget id: "`, `"ui: interactive widgets need an id"`; runtime/callback faults can also propagate.
+- **present** — `pub fun present(window: Window, root: Widget) -> Nil` — Paint/layout a view, replacing hit regions but retaining focus and scroll state.
+- `present` explicit fault strings: `"ui: window is closed"`, `"ui: surface resize failed"`; runtime/callback faults can also propagate.
+- **virtual_list** — `pub fun virtual_list(window: Window, id: Str, count: Int, row_height: Int, make: Fn(Int) -> Widget) -> Widget` — Render only visible fixed-height rows and spacers within a vertical scroller.
+- `virtual_list` explicit fault strings: `"ui: invalid virtual list dimensions"`; runtime/callback faults can also propagate.
+- **action** — `fun action(kind: Str, id: Str, text: Str, window: Window) -> Event` — Construct a semantic application event.
+- `action`: private implementation helper; unavailable to importing modules.
+- **activate** — `fun activate(item: Widget, window: Window) -> Event` — Translate a button or checkbox activation.
+- `activate`: private implementation helper; unavailable to importing modules.
+- **dispatch** — `pub fun dispatch(window: Window, kind: Int, a: Int, b: Int, modifiers: Int, text: Str) -> Event` — Handle one raw input event; useful for deterministic display-free interaction tests.
+- **poll** — `pub fun poll(window: Window) -> Event` — Wait for one X11 event (up to 50 ms) and translate it to a Maylang action.
+- **snapshot** — `pub fun snapshot(window: Window, path: Str) -> Nil` — Write the current surface to PNG without needing a display.
+- `snapshot` explicit fault strings: `"ui: PNG snapshot failed: "`; runtime/callback faults can also propagate.
+- **pixel** — `pub fun pixel(window: Window, x: Int, y: Int) -> Int` — Read a raster RGB value, or -1 outside the surface, for rendering tests.
+- `pixel` explicit fault strings: `"ui: window is closed"`; runtime/callback faults can also propagate.

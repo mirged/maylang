@@ -26,7 +26,8 @@
     "ml/nn.may": "Dense neural layers, inference, backpropagation and snapshots.",
     "ml/optim.may": "SGD, momentum and Adam optimizer state and updates.",
     "ml/tensor.may": "Dense row-major tensors, broadcasting, reductions and matrix operations.",
-    "core": "Portable core library, including typed scratch arenas and basic list/string/integer helpers."
+    "core": "Portable core library, including typed scratch arenas and basic list/string/integer helpers.",
+    "ui.may": "Native Linux desktop widget trees, layout, Unicode inputs, focus, scrolling, virtual lists and headless PNG snapshots; requires the May UI X11 adapter."
   },
   "symbols": {
     "identity": "Return the argument unchanged.",

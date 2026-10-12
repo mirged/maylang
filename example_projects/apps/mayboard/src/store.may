@@ -1,0 +1,64 @@
+import "model.may" as model;
+fun parent(path: Str) -> Str { let parts: List<Str> = split(path, "/"); pop(parts); return join(parts, "/"); }
+fun directories(path: Str) -> Nil {
+    if (path == "" or path == "/") { return; }
+    directories(parent(path));
+    let code: Int = syscall(83, cstr(path), 448);
+    if (code != 0 and code != -17) { fail("Cannot create data directory: " + path); }
+    return;
+}
+pub fun default_path() -> Str {
+    let home: Str = env("HOME") ?? ""; let xdg: Str = env("XDG_DATA_HOME") ?? "";
+    if (xdg != "") { return xdg + "/mayboard/tasks.json"; }
+    if (home == "") { fail("Set --data PATH, XDG_DATA_HOME or HOME"); }
+    return home + "/.local/share/mayboard/tasks.json";
+}
+pub fun decode(text: Str) -> model.Model {
+    let value: Any = json_parse(text);
+    if (type(value) != "Map" or value.schema != 1 or type(value.tasks) != "List" or len(value.tasks) > 10000) { fail("Invalid task file (expected schema 1, up to 10000 tasks)"); }
+    let board: model.Model = model.create(); let ids: Map<Str, Bool> = {};
+    for item: Any in value.tasks {
+        if (type(item) != "Map" or type(item.id) != "Int" or item.id < 1 or item.id > 1000000000 or type(item.title) != "Str" or trim(item.title) == "" or len(item.title) > 2048 or type(item.done) != "Bool" or has(ids, str(item.id))) { fail("Invalid or duplicate task record"); }
+        push(board.tasks, model.Task(item.id, item.title, item.done)); ids[str(item.id)] = true; board.next_id = int(max(board.next_id, item.id + 1));
+    }
+    board.message = "All changes saved locally"; return board;
+}
+pub fun encode(board: model.Model) -> Str {
+    let records: List<Any> = [];
+    for task: model.Task in board.tasks { push(records, {"id": task.id, "title": task.title, "done": task.done}); }
+    return json_stringify({"schema": 1, "tasks": records}) + "\n";
+}
+pub fun load(path: Str) -> model.Model { return if (file_exists(path)) { decode(read_file(path)) } else { model.create() }; }
+pub fun acquire(path: Str) -> Int {
+    directories(parent(path));
+    let descriptor: Int = syscall(2, cstr(path + ".lock"), 655426, 384);
+    if (descriptor < 0) { fail("Cannot open task lock: " + path); }
+    if (syscall(73, descriptor, 6) != 0) { syscall(3, descriptor); fail("Another Mayboard instance is using this task file"); }
+    return descriptor;
+}
+pub fun save(path: Str, board: model.Model) -> Nil {
+    if (len(board.tasks) > 10000) { fail("Task limit is 10000; remove some tasks before saving"); }
+    directories(parent(path));
+    let temporary: Str = path + ".tmp-" + str(syscall(39));
+    // Exclusive creation avoids following a pre-existing temporary-file symlink.
+    mut descriptor: Int = syscall(2, cstr(temporary), 655553, 384);
+    if (descriptor < 0) { fail("Cannot create exclusive task file: " + temporary); }
+    may {
+        let text: Str = encode(board); let buffer: Ptr = cstr(text);
+        let bytes: Int = load64(addr(text) - 8); mut written: Int = 0;
+        while (written < bytes) {
+            let count: Int = syscall(1, descriptor, buffer + written, bytes - written);
+            if (count == -4) { continue; }
+            if (count <= 0) { fail("Cannot write complete task file"); }
+            written += count;
+        }
+        if (syscall(74, descriptor) != 0) { fail("Cannot synchronize task file"); }
+        syscall(3, descriptor); descriptor = -1;
+        if (syscall(82, cstr(temporary), cstr(path)) != 0) { fail("Cannot replace task file"); }
+        let directory: Int = syscall(2, cstr(if (parent(path) == "") { "." } else { parent(path) }), 589824, 0);
+        if (directory < 0) { fail("Cannot open task directory"); }
+        let synced: Int = syscall(74, directory); syscall(3, directory);
+        if (synced != 0) { fail("Cannot synchronize task directory"); }
+    } otherwise { if (descriptor >= 0) { syscall(3, descriptor); } syscall(87, cstr(temporary)); fail(err.message); }
+    board.dirty = false; board.message = "All changes saved locally"; return;
+}

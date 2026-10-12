@@ -1,0 +1,41 @@
+fun make_sample(number: Int) -> Any {
+    let values: List<Int> = [number, number + 1, number + 2];
+    let text: Str = "λ" + str(number);
+    let callback: Fn(Int) -> Int = fun(extra: Int) -> Int { return sum(values) + extra; };
+    return {"number": number, "values": values, "text": text, "pointer": cstr(text), "callback": callback};
+}
+fun verify_samples(samples: List<Any>) -> Nil {
+    for sample: Any in samples {
+        let number: Int = sample.number;
+        let callback: Fn(Int) -> Int = sample.callback;
+        if (callback(5) != number * 3 + 8) { fail("GC lost a captured list or closure"); }
+        if (sample.values[0] != number or sample.values[2] != number + 2) { fail("GC changed list values"); }
+        if (sample.text != "λ" + str(number)) { fail("GC changed retained Unicode text"); }
+        if (load8(sample.pointer) != 206 or load8(sample.pointer + 1) != 187) { fail("GC lost an encoded cstr root"); }
+        let byte_count: Int = load64(addr(sample.text) - 8);
+        if (load8(sample.pointer + byte_count) != 0) { fail("GC changed copied-string termination"); }
+    }
+    return;
+}
+let samples: List<Any> = [];
+for number: Int in 0..24 { push(samples, make_sample(number)); }
+spawn(fun() -> Nil {
+    // These values are reachable only from a suspended fiber's stack/cells.
+    let private_samples: List<Any> = [];
+    for number: Int in 30..42 { push(private_samples, make_sample(number)); }
+    for round: Int in 0..120 { verify_samples(private_samples); yield(); }
+    return;
+});
+spawn(fun() -> Nil {
+    for round: Int in 0..120 {
+        for garbage: Int in 0..12 {
+            let discarded: Any = {"text": repeat("garbage🙂", 4096), "values": [round, garbage, round + garbage]};
+            if (len(discarded.text) != 32768) { fail("incorrect allocation-pressure fixture"); }
+        }
+        verify_samples(samples); yield();
+    }
+    return;
+});
+run();
+verify_samples(samples);
+print("PASS GC lists/maps/closures, Unicode cstr copies and suspended-fiber roots");

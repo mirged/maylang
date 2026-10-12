@@ -23,7 +23,7 @@ jobs:
       - name: Install bootstrap requirements
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc binutils clang llvm python3
+          sudo apt-get install -y gcc binutils clang llvm python3 libx11-dev fonts-dejavu-core xvfb xdotool
           rustup toolchain install stable --profile minimal
           rustup default stable
       - name: Build and validate tagged source
@@ -36,6 +36,10 @@ jobs:
           python3 toolchain/maylsp/docs/generate.py --check
           python3 reference/generate.py --check
           python3 toolchain/tests/documentation.py
+          python3 toolchain/mayfmt/tests/run.py
+          python3 toolchain/may/tests/run.py
+          python3 toolchain/maylsp/tests/test_lsp.py
+          python3 toolchain/mayui/tests/run.py --require-x11
       - name: Package twice and verify extracted installation
         env:
           RELEASE_TAG: ${{ github.ref_name }}

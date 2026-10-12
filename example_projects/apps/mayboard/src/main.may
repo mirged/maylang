@@ -1,0 +1,60 @@
+import "ui" as ui;
+import "model.may" as model;
+import "store.may" as store;
+import "view.may" as view;
+fun application() -> Nil {
+    mut path: Str = ""; mut demo: Bool = false; mut snapshot: Str = "";
+    let argv: List<Str> = args(); mut index: Int = 1;
+    while (index < len(argv)) {
+        if (argv[index] == "--demo") { demo = true; }
+        else if ((argv[index] == "--data" or argv[index] == "--snapshot") and index + 1 < len(argv)) {
+            if (argv[index] == "--data") { path = argv[index + 1]; } else { snapshot = argv[index + 1]; } index += 1;
+        } else if (argv[index] == "--help") { print("Mayboard: --data PATH | --demo | --snapshot PNG\nTask data defaults to $XDG_DATA_HOME/mayboard/tasks.json or ~/.local/share/mayboard/tasks.json."); return; }
+        else { fail("Unknown or incomplete option: " + argv[index]); }
+        index += 1;
+    }
+    if (path == "" and not demo) { path = store.default_path(); }
+    let lock: Int = if (demo or snapshot != "") { -1 } else { store.acquire(path) };
+    mut read_only: Bool = false;
+    let board: model.Model = if (demo) { model.demo() } else { may { store.load(path) } otherwise { let fallback: model.Model = model.create(); fallback.message = "Data error: " + err.message + " (file preserved; restart after repair)"; read_only = true; fallback } };
+    let window: ui.Window = ui.open("Mayboard · Maylang", 900, 760, snapshot != "");
+    ui.focus(window, "draft");
+    may {
+        ui.present(window, view.render(board, window));
+        if (snapshot != "") { ui.snapshot(window, snapshot); }
+        else {
+            mut running: Bool = true;
+            while (running) {
+                let event: ui.Event = ui.poll(window);
+                if (event.kind == "close") { running = false; continue; }
+                if (event.kind == "idle") { continue; }
+                if (event.kind == "edit") {
+                    if (event.id == "draft") { board.draft = event.text; }
+                    if (event.id == "search") { board.search = event.text; window.scroll["tasks"] = 0; }
+                    if (event.id == "edit-title") { board.edit_text = event.text; }
+                }
+                if (event.kind == "click" or event.kind == "submit" or event.kind == "toggle") {
+                    let id: Str = event.id;
+                    if (id == "add" or (id == "draft" and event.kind == "submit")) { model.add(board, board.draft); ui.focus(window, "draft"); window.scroll["tasks"] = 0; }
+                    else if (id == "save-edit" or (id == "edit-title" and event.kind == "submit")) { model.commit_edit(board); ui.focus(window, "draft"); }
+                    else if (id == "cancel-edit") { board.editing = 0; ui.focus(window, "draft"); }
+                    else if (id == "clear") { model.clear_completed(board); }
+                    else if (id == "retry-save") { board.dirty = true; }
+                    else if (starts_with(id, "filter:")) { board.filter = substring(id, 7, len(id) - 7); window.scroll["tasks"] = 0; }
+                    else if (starts_with(id, "toggle:")) { model.toggle(board, int(substring(id, 7, len(id) - 7))); }
+                    else if (starts_with(id, "delete:")) { model.remove(board, int(substring(id, 7, len(id) - 7))); }
+                    else if (starts_with(id, "edit:")) { model.begin_edit(board, int(substring(id, 5, len(id) - 5))); ui.focus(window, "edit-title"); }
+                }
+                if (board.dirty) {
+                    if (read_only) { board.message = "Data file needs repair before saving; original preserved."; }
+                    else if (demo) { board.dirty = false; board.message = "Demo workspace · changes stay in memory"; }
+                    else { may { store.save(path, board); } otherwise { board.message = "Save failed: " + err.message + " · click Save to retry"; } }
+                }
+                ui.present(window, view.render(board, window));
+            }
+            if (board.dirty and not demo and not read_only) { store.save(path, board); }
+        }
+    } otherwise { ui.close(window); if (lock >= 0) { syscall(3, lock); } fail(err.message); }
+    ui.close(window); if (lock >= 0) { syscall(3, lock); } return;
+}
+may { application(); } otherwise { print(err.message); exit(1); }

@@ -217,6 +217,14 @@ def run(binary, work):
         c.send("textDocument/didChange", {"textDocument": {"uri": uri, "version": 10}, "contentChanges": [{"text": sorted_imports}]})
         actions = c.result("textDocument/codeAction", {**doc, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}}, "context": {"diagnostics": [], "only": ["source.organizeImports"]}})
         assert actions[0]["edit"]["changes"][uri][0]["newText"].startswith('import "a.may";'), actions
+        for version, protected in enumerate([
+            'import "z.may"; print("first");\nimport "a.may"; print("second");\n',
+            'let text: Str = "start\nimport \"z.may\";\nimport \"a.may\";\nend";\n',
+            '/* outer\nimport "z.may";\nimport "a.may";\n*/\n',
+        ], 11):
+            c.send("textDocument/didChange", {"textDocument": {"uri": uri, "version": version}, "contentChanges": [{"text": protected}]})
+            actions = c.result("textDocument/codeAction", {**doc, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}}, "context": {"diagnostics": [], "only": ["source.organizeImports"]}})
+            assert actions == [], (protected, actions)
         c.send("textDocument/didClose", doc)
         assert c.diagnostics(uri)["diagnostics"] == [], c.diagnostics(uri)
         assert c.result("textDocument/hover", pos(1, 19)) is not None  # disk restored

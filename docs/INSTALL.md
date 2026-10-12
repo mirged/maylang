@@ -3,8 +3,9 @@
 The compiler, project manager and language server currently run on Linux
 x86-64. Building from source requires Rust, GCC or Clang, Python 3 and binutils.
 LLVM output additionally requires Clang. The packaged tools need no Rust or C
-compiler for normal direct native compilation. `maypkg` uses a POSIX shell and
-the `sha256sum` command from coreutils.
+compiler for normal direct native compilation. `may` needs the `sha256sum` command from coreutils. Native UI recipes additionally
+need a C compiler, X11 development headers and a TrueType font. `maypkg` retains
+its POSIX shell workflow for existing projects.
 
 ## Build and verify a bundle
 
@@ -22,8 +23,9 @@ launcher caches its generated compiler; after changing compiler sources, run
 `sh toolchain/rust/build.sh` again. Packaging does not silently refresh a compiler
 explicitly supplied with `--compiler`.
 
-The archive contains `bin/mayc`, `bin/maypkg`, `bin/maylsp`, runtime sidecars and
-`stdlib`. It also contains `VERSION`, `provenance.json` (source commit, dirty
+The archive contains `bin/mayc`, `bin/may`, `bin/mayfmt`, `bin/maypkg`, `bin/maylsp`, runtime sidecars and
+`stdlib`, plus the complete Mayboard source workspace at
+`example_projects/apps/mayboard`. It also contains `VERSION`, `provenance.json` (source commit, dirty
 state, host and compiler digest) and `SHA256SUMS`. The adjacent `.sha256` file
 checks the archive itself. Archive timestamps are deterministic for the source
 commit; `SOURCE_DATE_EPOCH` can override them.
@@ -50,15 +52,15 @@ old one and update `PATH`. This also makes rollback a path change.
 
 ```sh
 mayc --version
-maypkg new /tmp/hello
+may new /tmp/hello
 cd /tmp/hello
-maypkg run
+may run
 ```
 
-Compiler selection is `MAYC`, then the manifest's `compiler`, then `mayc` beside
-`maypkg`, then `PATH`. Relative configured paths resolve from the project root.
+For `may`, compiler selection uses the manifest's `compiler`, then `MAYC`,
+then `mayc` beside `may`, then `PATH`. Relative configured paths resolve from the project root.
 `MAYLANG_STDLIB` supplies colon-separated library overrides before normal
-discovery. See [maypkg configuration](../toolchain/maypkg/README.md).
+discovery. See [May workspace configuration](../toolchain/may/README.md).
 
 ## Editor
 
@@ -110,3 +112,6 @@ tested with an emulator and with real macOS/Windows loaders in the
 [native target suite](NATIVE_TARGETS.md). LLVM output is experimental and
 excludes fibers and typed extern functions. See the
 [compiler target matrix](../toolchain/mayc/README.md#cross-compilation).
+
+New projects use [May workspaces](../toolchain/may/README.md). Run `may test`,
+`may fmt --check`, and `may dev` from the workspace or a subdirectory.

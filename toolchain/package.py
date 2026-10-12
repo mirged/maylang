@@ -74,12 +74,14 @@ def main():
             shutil.copy2(source, bin_dir/name)
         shutil.copytree(ROOT/'toolchain/mayc/runtime', bin_dir/'runtime', ignore=shutil.ignore_patterns('build', '__pycache__'))
         shutil.copytree(ROOT/'stdlib', bundle/'stdlib', ignore=shutil.ignore_patterns('build', '__pycache__'))
-        for tool in ('maypkg', 'maylsp'):
+        shutil.copytree(ROOT / 'example_projects/apps/mayboard', bundle / 'example_projects/apps/mayboard',
+                        ignore=shutil.ignore_patterns('.may', 'build', '__pycache__'))
+        for tool in ('maypkg', 'maylsp', 'may', 'mayfmt'):
             subprocess.run([str(compiler), str(ROOT/f'toolchain/{tool}/main.may'), '-o', str(bin_dir/tool)], cwd=ROOT, check=True, timeout=180)
         (bundle/'VERSION').write_text(version+'\n')
         shutil.copy2(ROOT / 'RELEASE.json', bundle / 'RELEASE.json')
         shutil.copy2(ROOT / 'CHANGELOG.md', bundle / 'CHANGELOG.md')
-        (bundle/'README.txt').write_text('Add this bundle\'s bin directory to PATH. Keep the entire bundle together.\nCompiler host: Linux x86-64. Full runtime: Linux x86-64 only.\nUse mayc --help, maypkg help, and maylsp with an LSP-capable editor.\nUpgrade by extracting a new bundle and changing PATH.\n')
+        (bundle/'README.txt').write_text('Add this bundle\'s bin directory to PATH. Keep the entire bundle together.\nCompiler host: Linux x86-64. Full runtime: Linux x86-64 only.\nUse mayc --help, may help, mayfmt file.may and maylsp with an LSP-capable editor.\nmaypkg remains available for older projects.\nRun the complete desktop app: cd example_projects/apps/mayboard && may run.\nUI needs a C compiler, X11 headers and a TrueType font; windows need X11/XWayland.\nUse may run -- --demo --snapshot /tmp/mayboard.png for a headless preview.\nUpgrade by extracting a new bundle and changing PATH.\n')
         (bundle/'provenance.json').write_text(json.dumps({
             'version':version, 'commit':commit, 'tag':tag,
             'release':metadata,
@@ -97,7 +99,7 @@ def main():
             for path in [bundle, *sorted(bundle.rglob('*'))]:
                 info = archive.gettarinfo(str(path), arcname=str(path.relative_to(bundle.parent)))
                 info.uid=info.gid=0; info.uname=info.gname=''; info.mtime=epoch
-                info.mode = 0o755 if path.is_dir() or path.parent == bin_dir and path.name in ('mayc','maypkg','maylsp') else 0o644
+                info.mode = 0o755 if path.is_dir() or path.parent == bin_dir and path.name in ('mayc','maypkg','maylsp','may','mayfmt') else 0o644
                 if path.is_file():
                     with path.open('rb') as content: archive.addfile(info, content)
                 else: archive.addfile(info)
