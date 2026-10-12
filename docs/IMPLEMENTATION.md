@@ -207,9 +207,9 @@ Tagged releases now require a clean checkout, version-matched tag and exact
 source commit; provenance records compiler and bootstrap tools. The workflow
 compares two archives, tests an extracted installation, packages a checksummed
 VSIX and attaches all assets to a draft before publication. The source-contract
-regressions and deterministic/extracted archive tests pass locally. First
-publication remains a release-lifecycle step; branch CI artifacts are not
-described as published release assets.
+regressions and deterministic/extracted archive tests pass locally. The first [nightly prerelease](https://github.com/mirged/maylang/releases/tag/v0.9.0-2026-10-10-nightly)
+is now published by the successful tagged-release workflow, with a complete
+Linux bundle and VSIX plus adjacent checksums.
 
 Local final validation also passes compiler verification **94/0**, compliance
 **69/0**, offline Rust workspace tests, source bootstrap with byte-identical

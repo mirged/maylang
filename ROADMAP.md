@@ -6,7 +6,7 @@ This is a living plan. Community needs, reproducible failures, contributor avail
 
 ## Starting point
 
-The current project has a self-hosted compiler running on Linux x86-64, several native output targets, a Maylang language server, a package manager, a standard library and example projects. A minimal Rust → C bootstrap builds the compiler entirely from source. The documented gaps include full-runtime GC corruption under sustained allocation and native macOS/Windows execution that still needs verification. The linked issues capture the starting assumptions; verify them against current code before implementation.
+The current project has a self-hosted compiler running on Linux x86-64, several native output targets, a Maylang language server, a package manager, a standard library and example projects. A minimal Rust → C bootstrap builds the compiler entirely from source. The remaining reported gap is full-runtime GC corruption under sustained allocation; native macOS/Windows core checks now pass. The linked issues capture the starting assumptions; verify them against current code before implementation.
 
 ## Milestones at a glance
 
@@ -126,7 +126,7 @@ Deliver complete installations and validate the platforms advertised to users. C
 
 ### Initiative 4. Package reproducible releases with runtime sidecars
 
-**Status:** in progress
+**Status:** completed
 **Initial priority:** P1  
 **GitHub:** [Issue #4](https://github.com/mirged/maylang/issues/4)  
 **Relevant paths:** `toolchain/mayc/mayc_new`, `toolchain/mayc/README.md`, `toolchain/maylsp/Makefile`
@@ -134,11 +134,11 @@ Deliver complete installations and validate the platforms advertised to users. C
 The compiler requires runtime sidecars, so copying its executable alone is insufficient.
 
 - [x] Define a bundle layout for compiler, launcher, runtime, stdlib and LSP.
-- [ ] Build from tagged source and record version/bootstrap provenance.
+- [x] Build from tagged source and record version/bootstrap provenance.
 - [x] Publish checksums and verify an extracted bundle outside the checkout.
-- [ ] Document installation, PATH and upgrades with binaries distributed as release assets.
+- [x] Document installation, PATH and upgrades with binaries distributed as release assets.
 
-PR #21 defines complete deterministic archives, records commit/version/bootstrap provenance, publishes checksummed CI artifacts and verifies extracted installations. Tagged-source releases now have a version-matched, clean-source publication workflow with deterministic archive comparison and extracted-install tests. Publishing the first source tag/assets remains pending.
+PR #21 defines complete deterministic archives, records commit/version/bootstrap provenance, publishes checksummed CI artifacts and verifies extracted installations. Tagged-source releases now have a version-matched, clean-source publication workflow with deterministic archive comparison and extracted-install tests. The first [checksummed tagged prerelease](https://github.com/mirged/maylang/releases/tag/v0.9.0-2026-10-10-nightly) is published; its clean source provenance, deterministic packaging and extracted installation pass the release workflow.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 
@@ -149,7 +149,7 @@ PR #21 defines complete deterministic archives, records commit/version/bootstrap
 **GitHub:** [Issue #5](https://github.com/mirged/maylang/issues/5)  
 **Relevant paths:** `toolchain/mayc/src/formats/macho.may`, `toolchain/mayc/tests/core_runtime.py`
 
-The compiler guide says native macOS launches and signing are not yet verified.
+The original compiler guide required native macOS launch and signing verification.
 
 - [x] Cross-emit ARM64 Mach-O fixtures on the supported compiler host.
 - [x] Sign and execute fixtures on Apple Silicon.
@@ -166,7 +166,7 @@ Native validation: [successful Windows/macOS run](https://github.com/mirged/mayl
 **GitHub:** [Issue #6](https://github.com/mirged/maylang/issues/6)  
 **Relevant paths:** `toolchain/mayc/src/formats/pe.may`, `toolchain/mayc/tests/core_runtime.py`
 
-Windows execution is emulated; native loader behavior still needs validation.
+The original Windows checks used emulation; native loader behavior is now verified.
 
 - [x] Cross-emit x86-64 PE fixtures for a Windows runner.
 - [x] Exercise kernel32 imports, allocation, output and exit status.
@@ -432,3 +432,4 @@ The roadmap is open to directions beyond these twenty issues. Proposals might ad
 - 2026-10-02: Converted the initial twenty-issue TODO into five outcome-based milestones, retained implementation checklists, and added a community process for revising priorities and scope.
 
 - 2026-10-12: Added native Windows/macOS execution and corrected loader defects; implemented core scratch arenas, library boundary fixes, tagged release automation and the generated reference migration. Fixed a reproducible encoded-cstr GC root defect; the original sustained ecosystem report still lacks a matching reproducer.
+- 2026-10-12: [PR #26](https://github.com/mirged/maylang/pull/26) completes native hosts, explicit core arenas, library contracts and the reference migration. The tagged-source release workflow published the first verified prerelease; the original sustained GC report remains open.
