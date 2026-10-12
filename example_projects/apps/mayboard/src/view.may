@@ -1,0 +1,39 @@
+import "ui" as ui;
+import "model.may" as model;
+fun caption(text: Str) -> ui.Widget { return ui.style(ui.label(text), -1, 7305350, 16, 0); }
+fun accent(item: ui.Widget) -> ui.Widget { return ui.style(item, 6727794, 16777215, 17, 10); }
+fun statistic(title: Str, value: Int, color: Int) -> ui.Widget {
+    return ui.flex(ui.style(ui.spacing(ui.column([caption(title), ui.style(ui.label(str(value)), -1, color, 30, 0)]), 16, 4), 16777215, 2171941, 18, 12), 1);
+}
+fun task_row(task: model.Task) -> ui.Widget {
+    let check: ui.Widget = ui.flex(ui.checkbox("toggle:" + str(task.id), task.title, task.done), 1);
+    if (task.done) { ui.style(check, -1, 8226961, 18, 8); }
+    let content: ui.Widget = ui.style(ui.spacing(ui.row([check, ui.size(ui.button("edit:" + str(task.id), "Edit"), 64, 40), ui.style(ui.size(ui.button("delete:" + str(task.id), "Delete"), 78, 40), 16577269, 11094865, 16, 8)]), 12, 8), 16777215, 2171941, 18, 12);
+    return ui.spacing(ui.column([ui.size(content, 0, 56), ui.spacer(8)]), 0, 0);
+}
+pub fun render(board: model.Model, window: ui.Window) -> ui.Widget {
+    let done: Int = model.completed(board); let tasks: List<model.Task> = model.visible(board);
+    let brand: ui.Widget = accent(ui.spacing(ui.label("M"), 12, 0)); ui.size(brand, 48, 48);
+    let title: ui.Widget = ui.style(ui.label("Mayboard"), -1, 2171941, 30, 0);
+    let header: ui.Widget = ui.size(ui.row([brand, ui.flex(ui.column([title, caption("A little space for what comes next.")]), 1), caption("MADE WITH MAYLANG")]), 0, 58);
+    let stats: ui.Widget = ui.size(ui.row([statistic("ALL TASKS", len(board.tasks), 2171941), statistic("IN PROGRESS", len(board.tasks) - done, 6727794), statistic("COMPLETED", done, 4756824)]), 0, 94);
+    let add: ui.Widget = ui.row([ui.flex(ui.placeholder(ui.entry("draft", board.draft), "Write your next task…"), 1), ui.size(accent(ui.button("add", "Add task")), 112, 44)]);
+    let filters: List<ui.Widget> = [];
+    for option: Str in ["all", "active", "done"] {
+        let text: Str = if (option == "all") { "All" } else if (option == "active") { "Active" } else { "Done" };
+        let tab: ui.Widget = ui.size(ui.button("filter:" + option, text), 68, 38);
+        if (board.filter == option) { accent(tab); }
+        push(filters, tab);
+    }
+    push(filters, ui.flex(ui.placeholder(ui.entry("search", board.search), "Search tasks…"), 1));
+    let list: ui.Widget = if (len(tasks) == 0) {
+        ui.flex(ui.style(ui.spacing(ui.column([ui.style(ui.label(if (board.search != "") { "No matching tasks" } else { "Room for a new idea" }), -1, 2171941, 24, 0), caption(if (board.search != "") { "Try another search or filter." } else { "Type a task above and press Enter." })]), 28, 12), 16777215, 2171941, 18, 12), 1)
+    } else {
+        ui.virtual_list(window, "tasks", len(tasks), 64, fun(index: Int) -> ui.Widget { return task_row(tasks[index]); })
+    };
+    let children: List<ui.Widget> = [header, stats, caption("WHAT WOULD YOU LIKE TO DO?"), add, ui.row(filters)];
+    if (board.editing > 0) { push(children, ui.row([ui.flex(ui.entry("edit-title", board.edit_text), 1), accent(ui.button("save-edit", "Save")), ui.button("cancel-edit", "Cancel")])); }
+    push(children, list);
+    push(children, ui.size(ui.row([ui.flex(caption(board.message), 1), ui.button("retry-save", "Save"), ui.button("clear", "Clear done")]), 0, 40));
+    return ui.style(ui.spacing(ui.column(children), if (window.width < 620) { 16 } else { 28 }, 16), 15922420, 2171941, 18, 0);
+}

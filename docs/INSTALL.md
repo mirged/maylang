@@ -3,8 +3,9 @@
 The compiler, project manager and language server currently run on Linux
 x86-64. Building from source requires Rust, GCC or Clang, Python 3 and binutils.
 LLVM output additionally requires Clang. The packaged tools need no Rust or C
-compiler for normal direct native compilation. `maypkg` uses a POSIX shell and
-the `sha256sum` command from coreutils.
+compiler for normal direct native compilation. `may` needs the `sha256sum` command from coreutils. Native UI recipes additionally
+need a C compiler, X11 development headers and a TrueType font. `maypkg` retains
+its POSIX shell workflow for existing projects.
 
 ## Build and verify a bundle
 
@@ -55,10 +56,10 @@ cd /tmp/hello
 may run
 ```
 
-Compiler selection is `MAYC`, then the manifest's `compiler`, then `mayc` beside
-`maypkg`, then `PATH`. Relative configured paths resolve from the project root.
+For `may`, compiler selection uses the manifest's `compiler`, then `MAYC`,
+then `mayc` beside `may`, then `PATH`. Relative configured paths resolve from the project root.
 `MAYLANG_STDLIB` supplies colon-separated library overrides before normal
-discovery. See [maypkg configuration](../toolchain/maypkg/README.md).
+discovery. See [May workspace configuration](../toolchain/may/README.md).
 
 ## Editor
 

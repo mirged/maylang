@@ -1,0 +1,46 @@
+pub struct Task { id: Int, title: Str, done: Bool }
+pub struct Model { tasks: List<Task>, next_id: Int, filter: Str, search: Str, draft: Str, editing: Int, edit_text: Str, message: Str, dirty: Bool }
+pub fun create() -> Model { return Model([], 1, "all", "", "", 0, "", "Ready", false); }
+pub fun add(board: Model, title: Str) -> Bool {
+    let clean: Str = trim(title);
+    if (clean == "" or len(clean) > 2048) { board.message = "Write a task first (up to 2048 characters)."; return false; }
+    push(board.tasks, Task(board.next_id, clean, false)); board.next_id += 1; board.draft = ""; board.dirty = true; board.message = "Task added"; return true;
+}
+pub fun toggle(board: Model, id: Int) -> Bool {
+    for task: Task in board.tasks { if (task.id == id) { task.done = not task.done; board.dirty = true; board.message = if (task.done) { "Task completed" } else { "Task reopened" }; return true; } }
+    return false;
+}
+pub fun remove(board: Model, id: Int) -> Bool {
+    let kept: List<Task> = []; mut found: Bool = false;
+    for task: Task in board.tasks { if (task.id == id) { found = true; } else { push(kept, task); } }
+    if (found) { board.tasks = kept; if (board.editing == id) { board.editing = 0; } board.dirty = true; board.message = "Task deleted"; }
+    return found;
+}
+pub fun begin_edit(board: Model, id: Int) -> Bool {
+    for task: Task in board.tasks { if (task.id == id) { board.editing = id; board.edit_text = task.title; return true; } }
+    return false;
+}
+pub fun commit_edit(board: Model) -> Bool {
+    let title: Str = trim(board.edit_text);
+    if (title == "" or len(title) > 2048) { board.message = "A task needs a title (up to 2048 characters)."; return false; }
+    for task: Task in board.tasks { if (task.id == board.editing) { task.title = title; board.editing = 0; board.dirty = true; board.message = "Task updated"; return true; } }
+    return false;
+}
+pub fun clear_completed(board: Model) -> Bool {
+    let kept: List<Task> = []; for task: Task in board.tasks { if (not task.done) { push(kept, task); } }
+    if (len(kept) == len(board.tasks)) { return false; }
+    board.tasks = kept; board.editing = 0; board.dirty = true; board.message = "Completed tasks cleared"; return true;
+}
+pub fun completed(board: Model) -> Int { mut count: Int = 0; for task: Task in board.tasks { if (task.done) { count += 1; } } return count; }
+pub fun visible(board: Model) -> List<Task> {
+    let result: List<Task> = []; let query: Str = to_lower(trim(board.search));
+    for task: Task in board.tasks {
+        if ((board.filter == "all" or (board.filter == "active" and not task.done) or (board.filter == "done" and task.done)) and (query == "" or contains(to_lower(task.title), query))) { push(result, task); }
+    }
+    return result;
+}
+pub fun demo() -> Model {
+    let board: Model = create();
+    for title: Str in ["Ship something small and useful", "Sketch the next language idea", "Take a walk, bring a notebook", "Try Unicode: café, λ, 日本語", "Make the tests tell a good story", "Leave room for a little curiosity"] { add(board, title); }
+    toggle(board, 2); toggle(board, 5); board.dirty = false; board.message = "Demo workspace · changes stay in memory"; return board;
+}

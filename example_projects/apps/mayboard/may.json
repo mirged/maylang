@@ -1,0 +1,39 @@
+{
+    "schema": 1,
+    "name": "mayboard",
+    "default": "mayboard",
+    "targets": {
+        "ui": {
+            "kind": "native",
+            "inputs": [
+                "{stdlib}/ui/native"
+            ],
+            "outputs": [
+                "libmayui.so"
+            ],
+            "command": [
+                "cc",
+                "-O2",
+                "-fPIC",
+                "-shared",
+                "{stdlib}/ui/native/draw.c",
+                "{stdlib}/ui/native/window.c",
+                "-o",
+                "{out}/libmayui.so",
+                "-lX11",
+                "-lm"
+            ]
+        },
+        "mayboard": {
+            "kind": "app",
+            "entry": "src/main.may",
+            "depends": [
+                "ui"
+            ]
+        },
+        "tests": {
+            "kind": "test",
+            "root": "tests"
+        }
+    }
+}

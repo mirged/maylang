@@ -63,7 +63,22 @@ def main():
         assert 'words 6  unique 3  avg 3.66' in lines and 'longest fish' in lines,lines
         rows=[line.split() for line in lines if line.startswith(('fish ','red ','blue '))]
         assert rows==[['fish','3','###'],['red','2','##'],['blue','1','#']],rows
-        print('PASS extracted checksums, version, standalone compilation, stdlib, maypkg and LSP initialization')
+        assert (bundle / 'stdlib/ui/native/draw.c').is_file()
+        run(str(bundle / 'bin/may'), 'new', 'desktop', '--ui')
+        result = subprocess.run([str(bundle / 'bin/may'), 'build'], cwd=project / 'desktop',
+                                env=env, capture_output=True, timeout=180)
+        assert result.returncode == 0, result
+        native_outputs = list((project / 'desktop/.may/store').glob('*/libmayui.so'))
+        assert len(native_outputs) == 1
+        source = project / 'snapshot.may'
+        source.write_text('import "ui" as ui; let w: ui.Window = ui.open("Installed UI", 400, 300, true); ui.present(w, ui.label("Installed native UI")); ui.snapshot(w, "installed.png"); ui.close(w);')
+        run(str(bundle / 'bin/mayc'), str(source), '-o', 'snapshot')
+        ui_env = dict(env, LD_LIBRARY_PATH=str(native_outputs[0].parent))
+        result = subprocess.run([str(project / 'snapshot')], cwd=project, env=ui_env,
+                                capture_output=True, timeout=20)
+        assert result.returncode == 0 and (project / 'installed.png').read_bytes().startswith(b'\x89PNG'), result
+        print('PASS extracted checksums, version, standalone compilation, stdlib, workspace/formatter, legacy maypkg and LSP initialization')
+        print('PASS installed UI scaffold builds and a headless application renders PNG')
         print('PASS installed compiler builds and runs the typed textstats application')
 
 

@@ -95,6 +95,24 @@ cd /tmp/hello-workspace
 manifest while creating a workspace. The [shared formatter](toolchain/mayfmt/README.md)
 also serves editor formatting. Source comments support nested `/* ... */` blocks.
 
+## Write a desktop application
+
+The [native UI library](stdlib/ui/README.md) provides Maylang layout, widgets,
+Unicode text inputs, keyboard focus and virtual scrolling, backed by X11.
+`may new my-app --ui` creates a runnable desktop project. The complete
+[Mayboard task board](example_projects/apps/mayboard/README.md) adds editing,
+search, filters and persistent local storage:
+
+```sh
+cd example_projects/apps/mayboard
+may run
+may test
+```
+
+Install a C compiler, X11 development headers and DejaVu fonts; interactive
+windows require X11/XWayland. Use `may run -- --demo --snapshot /tmp/mayboard.png`
+for a display-free PNG preview.
+
 ## What's in the language?
 
 - **Strict checking:** typed parameters, inferred local bindings and function
