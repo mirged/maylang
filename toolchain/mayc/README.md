@@ -140,6 +140,10 @@ runtime only. `tests/backends.py`, `tests/core_runtime.py` and `tests/llvm.py`
 exercise accepted capabilities and reject unsupported combinations before
 writing an executable. The raw ABI and platform limits are described below.
 
+The [native target workflow](../../docs/NATIVE_TARGETS.md) cross-emits fixtures
+on Linux and executes them with real Windows and Apple Silicon macOS loaders,
+recording host versions, signing results, console output and exit status.
+
 ```sh
 toolchain/mayc/mayc_new --target arm64-linux examples/hello.may -o hello-arm64
 toolchain/mayc/mayc_new --target riscv64-linux examples/hello.may -o hello-riscv64

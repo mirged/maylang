@@ -1,0 +1,63 @@
+name: Native core targets
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  emit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the compiler from source
+        run: sh toolchain/rust/build.sh
+      - name: Cross-emit checksummed target fixtures and verify Linux execution
+        run: |
+          python3 toolchain/mayc/tests/native_targets.py --emit --directory /tmp/native-targets
+          python3 toolchain/mayc/tests/native_targets.py --run x86_64-linux --directory /tmp/native-targets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-target-fixtures
+          path: |
+            /tmp/native-targets/manifest.json
+            /tmp/native-targets/arm64-macos/
+            /tmp/native-targets/x86_64-windows/
+  execute:
+    needs: emit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: arm64-macos
+          - runner: macos-15
+            target: arm64-macos
+          - runner: windows-2022
+            target: x86_64-windows
+          - runner: windows-2025
+            target: x86_64-windows
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-target-fixtures
+          path: native-targets
+      - name: Execute with the native OS loader
+        run: python toolchain/mayc/tests/native_targets.py --run ${{ matrix.target }} --directory native-targets
+      - name: Upload host versions, output and exit-status evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-target-report-${{ matrix.runner }}
+          path: native-targets/*-report.json
+          if-no-files-found: ignore
