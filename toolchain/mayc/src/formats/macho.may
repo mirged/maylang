@@ -35,7 +35,7 @@ fun build_macho(ctx: Any) -> Any {
     store32(image, 4277009103); // MH_MAGIC_64
     store32(image + 4, ctx.target.machine); store32(image + 8, 0);
     store32(image + 12, 2); // MH_EXECUTE
-    store32(image + 16, 9); store32(image + 20, MACH_SEGMENT_SIZE * 5 + MACH_THREAD_SIZE + 24 + 32 + 56);
+    store32(image + 16, 10); store32(image + 20, MACH_SEGMENT_SIZE * 5 + MACH_THREAD_SIZE + 24 + 32 + 56 + 48);
     store32(image + 24, 2097157); // MH_NOUNDEFS | MH_DYLDLINK | MH_PIE
     let commands: Any = image + MACH_HEADER_SIZE;
     macho_segment(commands, "__PAGEZERO", 0, layout.base, 0, 0, 0);
@@ -60,6 +60,10 @@ fun build_macho(ctx: Any) -> Any {
     store32(library + 16, 65536); store32(library + 20, 65536);
     let systemLibrary: Any = "/usr/lib/libSystem.B.dylib";
     image_copy(library + 24, addr(systemLibrary), len(systemLibrary));
+    // All references are PC-relative and there are no imported function slots.
+    // Explicit empty dyld info avoids its legacy relocation-table fallback.
+    let dyldInfo: Any = library + 56;
+    store32(dyldInfo, 2147483682); store32(dyldInfo + 4, 48); // LC_DYLD_INFO_ONLY
     image_copy(image + layout.codeOffset, ctx.code.data, ctx.code.length);
     image_copy(image + layout.dataOffset, ctx.data.data, ctx.data.length);
     return 0;
