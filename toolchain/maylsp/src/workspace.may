@@ -111,7 +111,7 @@ fun ls_workspace_compute(job: Any) -> Any {
         ls_write(ls_json({"files": files}) + "\n");
     }
     ls_navigation_restore(base);
-    let end: Any = min(job.offset + 32, len(files));
+    mut end: Any = min(job.offset + 32, len(files)); mut sourceBytes: Any = 0;
     let documents: Any = {}; let pending: Any = []; let single: Any = {}; let ready: Any = {};
     for index: Any in job.offset..end {
         let uri: Any = files[index];
@@ -122,9 +122,18 @@ fun ls_workspace_compute(job: Any) -> Any {
         let doc: Any = if (job.previous[uri] == resultId or cached != nil) {
             if (LS_DOCS[uri]?.open == true or file_exists(ls_path(uri))) { ({"uri": uri, "version": LS_DOCS[uri]?.version}) } else { nil }
         } else { ls_document(uri) };
+        // Imported entries can pull in an entire compiler/library. Combining
+        // unrelated graphs into one AST also produces duplicate declarations
+        // and forces expensive per-entry retries. Give these a fresh worker;
+        // small independent files still share the fast 32-entry batch.
+        let expensive: Any = doc != nil and doc.text != nil and (len(doc.imports ?? []) > 0 or ls_bytes(doc.text) > 32768);
+        let bytes: Any = if (doc != nil and doc.text != nil) { ls_bytes(doc.text) } else { 0 };
+        if (index > job.offset and (expensive or sourceBytes + bytes > 32768)) { end = index; break; }
+        sourceBytes += bytes;
         documents[uri] = doc;
         if (doc != nil and cached != nil) { ready[uri] = ls_parse_json(cached); }
         else if (doc != nil and job.previous[uri] != resultId) { push(pending, doc); }
+        if (expensive) { end = index + 1; break; }
     }
     mut clean: Any = true;
     if (len(pending) > 0) {
@@ -177,7 +186,9 @@ fun ls_workspace_start(job: Any, now: Any) -> Any {
         syscall(3, readFd);
         if (LS_BACKGROUND_FD >= 0) { syscall(3, LS_BACKGROUND_FD); }
         if (LS_NAVIGATION_FD >= 0) { syscall(3, LS_NAVIGATION_FD); }
-        syscall(33, writeFd, 1); LS_OUTPUT_FD = writeFd; LS_DIAGNOSTIC_PUBLISH = false;
+        // Only ls_write may publish worker records. Runtime failures and debug
+        // prints belong on stderr, never inside the JSON report stream.
+        syscall(33, 2, 1); LS_OUTPUT_FD = writeFd; LS_DIAGNOSTIC_PUBLISH = false;
         may { ls_workspace_compute(job); }
         otherwise { ls_write(ls_json({"failure": err.message}) + "\n"); }
         syscall(3, writeFd); syscall(60, 0); exit(0);
@@ -252,7 +263,16 @@ fun ls_workspace_tick(now: Any) -> Any {
                 may { ls_workspace_event(ls_parse_json(line), now); }
                 otherwise { ls_workspace_abort(-32803, "Workspace diagnostic worker failed: " + err.message); }
             }
-            if (closed and LS_WORKSPACE_JOB != nil) { ls_workspace_abort(-32803, "Workspace diagnostic worker failed"); }
+            if (closed and LS_WORKSPACE_JOB != nil) {
+                mut waited: Any = syscall(61, LS_WORKSPACE_PID, LS_WORKSPACE_IO, 0, 0);
+                while (waited == -4) { waited = syscall(61, LS_WORKSPACE_PID, LS_WORKSPACE_IO, 0, 0); }
+                let status: Any = load32(LS_WORKSPACE_IO);
+                LS_WORKSPACE_PID = 0;
+                let message: Any = if (status % 128 != 0) {
+                    "Workspace diagnostic worker terminated by signal " + str(status % 128)
+                } else { "Workspace diagnostic worker exited with status " + str(status / 256 % 256) + " before completing its report" };
+                ls_workspace_abort(-32803, message);
+            }
         }
     }
     if (LS_WORKSPACE_PID == 0 and LS_WORKSPACE_JOB != nil) { ls_workspace_start(LS_WORKSPACE_JOB, now); }

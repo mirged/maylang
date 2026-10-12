@@ -7,6 +7,46 @@ from pathlib import Path
 from test_lsp import Client
 
 
+def run_workspace_memory(binary, work):
+    # A fixed 32-entry worker used to combine 4,800 typed functions into one
+    # AST, exhaust its heap, then parse the fatal stdout as a JSON number.
+    folder = work / 'diagnostic-heavy-imports'
+    folder.mkdir()
+    for module in range(12):
+        (folder / f'lib{module}.may').write_text('\n'.join(
+            f'pub fun function_{module}_{i}(value: Int) -> Int {{ return value + {i}; }}'
+            for i in range(400)))
+        (folder / f'app{module}.may').write_text(
+            f'import "lib{module}.may" as lib;\nprint(lib.function_{module}_0(42));\n')
+    client = Client(binary)
+    try:
+        client.result('initialize', {'rootUri': folder.as_uri(),
+                                     'initializationOptions': {'strict': True}})
+        pending = client.send('workspace/diagnostic', {'previousResultIds': [],
+                              'partialResultToken': 'heavy'}, request=True)
+        reports = {}
+        while True:
+            message = client.receive(timeout=120)
+            if message.get('method') == '$/progress' and message['params']['token'] == 'heavy':
+                for report in message['params']['value']['items']:
+                    assert report['uri'] not in reports, report
+                    assert report['kind'] == 'full' and not report['items'], report
+                    reports[report['uri']] = report
+            if message.get('id') == pending:
+                assert message.get('result') == {'items': []}, message
+                break
+        assert len(reports) == 24, len(reports)
+        previous = [{'uri': uri, 'value': item['resultId']} for uri, item in reports.items()]
+        unchanged = client.result('workspace/diagnostic', {'previousResultIds': previous})
+        assert len(unchanged['items']) == 24 and all(row['kind'] == 'unchanged' for row in unchanged['items'])
+        client.stop()
+        assert not client.process.stderr.read()
+        print('PASS imported workspace memory bounds: 4,800 functions, complete reports and cached reuse', flush=True)
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+
+
 def run_large_diagnostic_frames(binary, work):
     folder = work / 'diagnostic-frames'
     folder.mkdir()
@@ -259,7 +299,9 @@ def run_workspace_diagnostics(binary, work):
         finally:
             os.close(descriptor)
         os.kill(worker[0], signal.SIGKILL)
-        assert replies({pending})[pending]['error']['code'] == -32803
+        failure = replies({pending})[pending]['error']
+        assert failure['code'] == -32803 and 'signal 9' in failure['message'], failure
+        assert 'invalid JSON' not in failure['message'], failure
         assert by_uri(pull(previous(retry)))[source.as_uri()]['kind'] == 'unchanged'
         pending = client.send('workspace/diagnostic', {'previousResultIds': []}, request=True)
         hover_barrier(pending)
@@ -276,7 +318,7 @@ def run_workspace_diagnostics(binary, work):
         assert sum(r.get('error', {}).get('code') == -32803 for r in result.values()) == 4
         assert sum(r.get('error', {}).get('code') == -32800 for r in result.values()) == 9
         client.send('exit'); client.process.wait(timeout=5)
-        assert client.process.returncode == 0 and not client.process.stderr.read()
+        assert client.process.returncode == 0 and client.process.stderr.read() == b'out of memory\n'
         assert all(not Path(f'/proc/{pid}').exists() for pid in active)
         print('PASS workspace diagnostics: unopened files, IDs, progress, dirty imports, deletion, folders, cancellation, stale results and bounded workers', flush=True)
     finally:

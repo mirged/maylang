@@ -179,10 +179,15 @@ The report formats follow [LSP 3.17 pull diagnostics](https://microsoft.github.i
 
 One workspace worker runs at a time, with eight queued requests and at most
 10,000 selected files. Each worker checks at most 32 entries before being
-reaped and replaced. Clean entries share a compiler check; any batch error
+reaped and replaced. Importing entries and files over 32 KiB receive their
+own worker; independent entries share at most 32 KiB of direct source per
+batch. This keeps large repository pulls from combining whole compiler/library
+graphs into one AST. Clean entries share a compiler check; any batch error
 triggers separate checks so lexer failures and recovery limits cannot mask
 other files. Reports drain at most 32 per event-loop turn. Requests are limited
 to 16 MiB of worker output, 30 seconds without a report and five minutes total.
+Worker protocol writes use a dedicated pipe; raw runtime output goes to stderr.
+Unexpected exits report their status or signal instead of a JSON parse error.
 Workspace IDs encode their session and snapshot. Full reports are cached as
 encoded JSON in a 16 MiB mapping with at most 10,000 entries; snapshot changes
 clear it. Matching reports check only existence and version; changed files

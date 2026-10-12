@@ -860,7 +860,8 @@ def main():
         run_strict_checks(binary, work)
         run_semantic_deltas(binary, work)
         run_diagnostic_ids(binary, work)
-        from workspace_diagnostics import run_workspace_diagnostics, run_workspace_batch_errors, run_diagnostic_restart, run_large_diagnostic_frames
+        from workspace_diagnostics import run_workspace_diagnostics, run_workspace_batch_errors, run_diagnostic_restart, run_large_diagnostic_frames, run_workspace_memory
+        run_workspace_memory(binary, work)
         run_workspace_diagnostics(binary, work)
         run_workspace_batch_errors(binary, work)
         run_diagnostic_restart(binary, work)
