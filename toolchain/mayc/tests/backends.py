@@ -194,6 +194,8 @@ def main():
         assert struct.unpack_from('<IIIIII', image, thread + 288) == (50, 24, 1, 11 << 16, 11 << 16, 0)
         assert struct.unpack_from('<I', image, 24)[0] == 0x200005
         assert image[thread + 288 + 24 + 12:thread + 288 + 24 + 26] == b'/usr/lib/dyld\0'
+        library = thread + 288 + 24 + 32
+        assert image[library + 24:library + 51] == b'/usr/lib/libSystem.B.dylib\0'
         if have_emulation:
             emulate(image, 'arm64', macos=True)
             emulate(image, 'arm64', macos=True, slide=0x12000000)

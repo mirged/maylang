@@ -58,7 +58,8 @@ fun build_macho(ctx: Any) -> Any {
     let library: Any = linker + 32;
     store32(library, 12); store32(library + 4, 56); store32(library + 8, 24); // LC_LOAD_DYLIB
     store32(library + 16, 65536); store32(library + 20, 65536);
-    image_copy(library + 24, addr("/usr/lib/libSystem.B.dylib"), 25);
+    let systemLibrary: Any = "/usr/lib/libSystem.B.dylib";
+    image_copy(library + 24, addr(systemLibrary), len(systemLibrary));
     image_copy(image + layout.codeOffset, ctx.code.data, ctx.code.length);
     image_copy(image + layout.dataOffset, ctx.data.data, ctx.data.length);
     return 0;
