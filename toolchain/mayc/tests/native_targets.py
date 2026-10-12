@@ -97,6 +97,11 @@ def execute(directory, target):
         report['cases'].append(case)
         (directory / f'{target}-report.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(case), flush=True)
+        if system == 'Darwin' and result.returncode != fixture['status']:
+            subprocess.run(['codesign', '--display', '--verbose=4', str(binary)], timeout=30)
+            subprocess.run(['sudo', 'log', 'show', '--last', '2m', '--style', 'compact',
+                            '--predicate', 'process == "kernel" AND (eventMessage CONTAINS "exec" OR eventMessage CONTAINS "signature" OR eventMessage CONTAINS "macho")'],
+                           timeout=30)
         assert result.returncode == fixture['status'], case
         assert result.stdout == fixture['stdout'].encode() and not result.stderr, case
     print(f'PASS {target}: real loader, console, heap, calls and exits', flush=True)
