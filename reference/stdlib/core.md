@@ -1,0 +1,27 @@
+- **core** — Portable core library, including typed scratch arenas and basic list/string/integer helpers.
+- Availability: portable core on all five direct targets; auto-loaded with `--runtime core`.
+- Import: automatically injected; do not import the sidecar.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../toolchain/mayc/runtime/corelib.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../stdlib/CONTRACTS.md).
+- See [arena ownership and allocation growth](../../docs/CORE_MEMORY.md). Core has no collector; ordinary strings/lists and the arena itself retain process-lifetime storage.
+- **str** — `fun str(value: Any) -> Str` — Convert a value to its textual representation.
+- **alloc** — `fun alloc(bytes: Int) -> Ptr` — Allocate raw process-lifetime bytes; return a Ptr. Core heap exhaustion terminates with status 70.
+- **arena_new** — `fun arena_new(bytes: Int) -> Ptr` — Allocate one process-lifetime scratch arena with capacity rounded up to eight bytes; negative or oversized capacities terminate with status 70.
+- **arena_alloc** — `fun arena_alloc(arena: Ptr, bytes: Int) -> Ptr` — Reserve an eight-byte-aligned scratch span; negative requests or capacity exhaustion terminate with status 70.
+- **arena_reset** — `fun arena_reset(arena: Ptr) -> Nil` — Reset the cursor without clearing bytes or returning pages; invalidate every previously returned span. Callers must discard all aliases before resetting.
+- **arena_used** — `fun arena_used(arena: Ptr) -> Int` — Read consumed scratch bytes including alignment padding.
+- **arena_capacity** — `fun arena_capacity(arena: Ptr) -> Int` — Read rounded scratch capacity in bytes.
+- **core_heap_retained** — `fun core_heap_retained() -> Int` — Read total mapped core chunk bytes, including ordinary allocations and arenas.
+- **memcpy** — `fun memcpy(destination: Ptr, source: Ptr, bytes: Int) -> Nil` — Copy raw bytes between valid, nonoverlapping caller-owned pointer spans.
+- **substring** — `fun substring(s: Str, start: Int, count: Int) -> Str` — Return a string starting at codepoint index start and containing count codepoints; require indices within the source string.
+- **str_concat** — `fun str_concat(a: Str, b: Str) -> Str` — Concatenate through the dynamic `+` operator.
+- **range** — `fun range(start: Int, stop: Int) -> List<Int>` — Return an eager list of integers from inclusive a to exclusive b; the full-runtime source function takes exactly two arguments.
+- **sum** — `fun sum(values: Any) -> Int` — Sum integer elements with checked arithmetic.
+- **clamp** — `fun clamp(value: Int, low: Int, high: Int) -> Int` — Bound an integer between low and high; callers provide low <= high.
+- **gcd** — `fun gcd(a: Int, b: Int) -> Int` — Return the nonnegative greatest common divisor of two integers.
+- **lcm** — `fun lcm(a: Int, b: Int) -> Int` — Return the nonnegative least common multiple, or zero if either input is zero; overflow terminates with status 70.
+- **is_space_code** — `fun is_space_code(c: Int) -> Bool` — Test ASCII space, tab, line feed or carriage return character codes.
+- **trim** — `fun trim(s: Str) -> Str` — Remove whitespace from the beginning and end of a string.
+- **repeat** — `fun repeat(s: Str, n: Int) -> Str` — Return a string repeated n times; nonpositive counts produce an empty string.

@@ -1,0 +1,21 @@
+- **ml/classical.may** — kNN, k-means, linear and logistic regression.
+- Availability: full Linux x86-64 runtime; experimental API.
+- Import: `import "ml/classical" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../stdlib/ml/classical.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
+- These algorithms use pure Maylang loops, without GPU or BLAS support. Keep feature rows rectangular and predictions compatible with the trained width.
+- **ml_distance** — `fun ml_distance(a: Any, b: Any) -> Any` — Return Euclidean distance between equal-width numeric feature vectors.
+- `ml_distance` explicit fault strings: `"feature vectors must have equal width"`; runtime/callback faults can also propagate.
+- **ml_knn_predict** — `fun ml_knn_predict(train_x: Any, train_y: Any, query: Any, k: Any) -> Any` — Return the majority label among k nearest training rows; require nonempty matching data and k within the training set size; votes use stringified label keys.
+- `ml_knn_predict` explicit fault strings: `"kNN needs nonempty matching training data"`, `"kNN k must be within the training set size"`; runtime/callback faults can also propagate.
+- **ml_kmeans** — `fun ml_kmeans(rows: Any, k: Any, iterations: Any, rng: Any) -> Any` — Return `{centers, labels, inertia}` after up to `iterations` assignment/update rounds; use random initial rows and retain centers for empty clusters.
+- `ml_kmeans` explicit fault strings: `"k-means needs at least k rows, positive k and positive iterations"`, `"k-means rows must have equal width"`; runtime/callback faults can also propagate.
+- **ml_linear_fit** — `fun ml_linear_fit(xs: Any, ys: Any, epochs: Any, learning_rate: Any) -> Any` — Train zero-initialized linear weights by batch gradient descent; return `{weights, bias}`.
+- `ml_linear_fit` explicit fault strings: `"linear fit needs matching nonempty data"`, `"linear fit epochs and learning rate are invalid"`, `"linear fit feature widths must match"`; runtime/callback faults can also propagate.
+- **ml_linear_predict** — `fun ml_linear_predict(model: Any, rows: Any) -> Any` — Return linear predictions for input rows using `{weights, bias}`.
+- **ml_classical_sigmoid** — `fun ml_classical_sigmoid(x: Any) -> Any` — Return sigmoid after clamping input to [-60, 60].
+- **ml_logistic_fit** — `fun ml_logistic_fit(xs: Any, ys: Any, epochs: Any, learning_rate: Any) -> Any` — Train binary logistic regression by batch gradient descent; labels must be 0 or 1; return `{weights, bias}`.
+- `ml_logistic_fit` explicit fault strings: `"logistic fit needs matching nonempty data"`, `"logistic fit epochs and learning rate are invalid"`, `"logistic labels must be 0 or 1"`, `"logistic feature widths must match"`; runtime/callback faults can also propagate.
+- **ml_logistic_predict** — `fun ml_logistic_predict(model: Any, rows: Any) -> Any` — Return probabilities for each feature row using the trained logistic model.

@@ -1,8 +1,10 @@
 # Maylang Grammar (EBNF)
 
-This grammar describes the legacy Rust toolchain. In self-hosted `mayc`,
-parameter, variable and loop annotations and function result types are required,
-and function bodies must use explicit `return`. See [strict syntax](STRICT.md).
+This grammar and its example fragments describe the historical Rust toolchain.
+The fragments can reference undeclared example bindings; they are not standalone
+strict programs. In self-hosted `mayc`, parameters require annotations, local
+and loop bindings can infer types, and function bodies use explicit `return`.
+See [strict syntax](STRICT.md) and the [tested current examples](../reference/EXAMPLES.md).
 
 Notation: `{ x }` = zero or more, `[ x ]` = optional, `|` = alternative,
 `"..."` = terminal, `(* ... *)` = comment.

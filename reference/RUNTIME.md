@@ -1,0 +1,344 @@
+- **Runtime API** — built-ins and automatically available full-runtime functions for self-hosted mayc.
+- These signatures describe calls; dynamic values may have several runtime types. Read [native module](stdlib/native.md) for exact source-defined signatures and additional automatically loaded helpers.
+- Availability: full Linux x86-64 runtime unless a core/raw subset explicitly provides the operation. Fibers and C calls are unavailable in clang-llvm.
+- String method syntax forwards the receiver as the first argument: `s.trim()` = `trim(s)`, `s.split(",")` = `split(s, ",")`; the same convention applies to library helpers.
+- Errors: I/O, parsing, arithmetic, type, indexing and callback faults may propagate; catch recoverable failures with `may ... otherwise`.
+- Pointer operations use integer machine addresses; syscall results/ABI and memory validity remain the caller’s responsibility.
+- **print** — `print(values...)` — Write values to standard output, separated by spaces, followed by a newline.
+- `print` parameter `values...`: Values to display, converted using runtime formatting.
+- `print` returns: Used for its output side effect; the native runtime currently produces zero.
+- `print` example: `print("answer:", 42);`.
+- **len** — `len(value)` — Count list elements, map entries, or Unicode characters in a string.
+- `len` parameter `value`: The string, list, or map to measure.
+- `len` returns: An integer count.
+- `len` example: `print(len("héllo"));`.
+- **str** — `str(value)` — Convert a value to its textual representation.
+- `str` parameter `value`: The value to format.
+- `str` returns: A string.
+- `str` example: `print(str(42));`.
+- **int** — `int(value)` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; invalid text raises a catchable failure.
+- `int` parameter `value`: A number or a trimmed decimal string with optional sign.
+- `int` returns: An integer.
+- `int` example: `print(int(" 42 ")); print(int(3.9));`.
+- **float** — `float(value)` — Convert a number or numeric string to a floating-point value.
+- `float` parameter `value`: A number or numeric string.
+- `float` returns: A floating-point number.
+- `float` example: `print(float("3.5"));`.
+- **to_float** — `to_float(value)` — Convert a value using the native floating-point conversion helper.
+- `to_float` parameter `value`: The numeric value or string to convert.
+- `to_float` returns: A floating-point number.
+- `to_float` example: `print(to_float(3));`.
+- **bool** — `bool(value)` — Convert a value to its truth value. Only `nil` and `false` are false; zero, empty strings, and empty collections are true.
+- `bool` parameter `value`: The value whose truthiness is tested.
+- `bool` returns: `true` or `false`.
+- `bool` example: `print(bool(0));`.
+- **push** — `push(xs, value)` — Append one item to the existing list. All aliases of that list observe the mutation.
+- `push` parameter `xs`: The list to modify.
+- `push` parameter `value`: The item to append.
+- `push` returns: The modified list.
+- `push` example: `let xs: Any = [1]; push(xs, 2); print(xs);`.
+- **pop** — `pop(xs)` — Remove and return the last item of the existing list.
+- `pop` parameter `xs`: The list to modify.
+- `pop` returns: The removed item, or `nil` when empty.
+- `pop` example: `let xs: Any = [1, 2]; print(pop(xs));`.
+- **map** — `map(xs, f)` — Call a function once for each list item and collect the returned values. The input list is preserved.
+- `map` parameter `xs`: The input list.
+- `map` parameter `f`: A function taking one item and returning its replacement.
+- `map` returns: A new list of transformed values.
+- `map` example: `print(map([1, 2, 3], |x: Any| -> Any { return x * 2; }));`.
+- **filter** — `filter(xs, f)` — Collect input items for which the predicate returns the boolean `true`.
+- `filter` parameter `xs`: The input list.
+- `filter` parameter `f`: A function taking one item and returning a boolean.
+- `filter` returns: A new list containing matching items.
+- `filter` example: `print(filter([1, 2, 3], |x: Any| -> Any { return x > 1; }));`.
+- **reduce** — `reduce(xs, f, init)` — Fold a list from left to right, passing the accumulator and current item to the function.
+- `reduce` parameter `xs`: The input list.
+- `reduce` parameter `f`: A function taking (accumulator, item).
+- `reduce` parameter `init`: The initial accumulator.
+- `reduce` returns: The final accumulator, or `init` for an empty list.
+- `reduce` example: `print(reduce([1, 2, 3], |acc: Any, x: Any| -> Any { return acc + x; }, 0));`.
+- **sum** — `sum(xs)` — Add the numeric values in a list.
+- `sum` parameter `xs`: A list of numbers.
+- `sum` returns: The total; zero for an empty list.
+- `sum` example: `print(sum([1, 2, 3]));`.
+- **any** — `any(xs, f)` — Test whether at least one item makes the predicate return `true`. Stop at the first match.
+- `any` parameter `xs`: The input list.
+- `any` parameter `f`: A predicate returning a boolean.
+- `any` returns: A boolean; `false` for an empty list.
+- `any` example: `print(any([1, 2, 3], |x: Any| -> Any { return x > 2; }));`.
+- **all** — `all(xs, f)` — Test whether every item makes the predicate return `true`. Stop at the first nonmatching item.
+- `all` parameter `xs`: The input list.
+- `all` parameter `f`: A predicate returning a boolean.
+- `all` returns: A boolean; `true` for an empty list.
+- `all` example: `print(all([1, 2, 3], |x: Any| -> Any { return x > 0; }));`.
+- **min** — `min(a, b)` — Return the lesser of two comparable values.
+- `min` parameter `a`: The first value.
+- `min` parameter `b`: The second value.
+- `min` returns: One of the two values.
+- `min` example: `print(min(3, 8));`.
+- **max** — `max(a, b)` — Return the greater of two comparable values.
+- `max` parameter `a`: The first value.
+- `max` parameter `b`: The second value.
+- `max` returns: One of the two values.
+- `max` example: `print(max(3, 8));`.
+- **abs** — `abs(x)` — Return the nonnegative magnitude of a number.
+- `abs` parameter `x`: The input number.
+- `abs` returns: A numeric absolute value.
+- `abs` example: `print(abs(-4));`.
+- **sort** — `sort(xs)` — Return the items in ascending order using the standard comparison function. The input list is preserved.
+- `sort` parameter `xs`: A list of comparable values.
+- `sort` returns: A new sorted list.
+- `sort` example: `print(sort([3, 1, 2]));`.
+- **reverse** — `reverse(xs)` — Build a list with the input items in reverse order.
+- `reverse` parameter `xs`: The input list.
+- `reverse` returns: A new list.
+- `reverse` example: `print(reverse([1, 2, 3]));`.
+- **slice** — `slice(xs, start, stop)` — Copy a contiguous section of a list. Bounds are clamped to the list length; the stop index is exclusive.
+- `slice` parameter `xs`: The input list.
+- `slice` parameter `start`: The zero-based inclusive starting index.
+- `slice` parameter `stop`: The exclusive ending index.
+- `slice` returns: A new list; empty if stop is not greater than start.
+- `slice` example: `print(slice([10, 20, 30, 40], 1, 3));`.
+- **keys** — `keys(m)` — Collect the keys of a map.
+- `keys` parameter `m`: The input map.
+- `keys` returns: A list of keys.
+- `keys` example: `print(keys({"a": 1}));`.
+- **values** — `values(m)` — Collect the values of a map.
+- `values` parameter `m`: The input map.
+- `values` returns: A list of values.
+- `values` example: `print(values({"a": 1}));`.
+- **has** — `has(x, key)` — Check for a map key, a matching list item, or a substring within a string.
+- `has` parameter `x`: The map, list, or string to search.
+- `has` parameter `key`: The key, item, or substring to find.
+- `has` returns: A boolean.
+- `has` example: `print(has({"name": "Ada"}, "name"));`.
+- **map_get** — `map_get(m, key)` — Look up a map entry without changing the map.
+- `map_get` parameter `m`: The input map.
+- `map_get` parameter `key`: The key to look up.
+- `map_get` returns: The stored value, or `nil` if missing.
+- `map_get` example: `print(map_get({"a": 1}, "a"));`.
+- **map_set** — `map_set(m, key, value)` — Insert or replace an entry in the existing map.
+- `map_set` parameter `m`: The map to modify.
+- `map_set` parameter `key`: The key to assign.
+- `map_set` parameter `value`: The value to store.
+- `map_set` returns: The assigned value.
+- `map_set` example: `let m: Any = {}; map_set(m, "a", 1); print(m.a);`.
+- **remove** — `remove(m, key)` — Copy a map while omitting one key. The original map is preserved.
+- `remove` parameter `m`: The input map.
+- `remove` parameter `key`: The key to omit.
+- `remove` returns: A new map.
+- `remove` example: `let m: Any = {"a": 1, "b": 2}; let smaller: Any = remove(m, "a");`.
+- **merge** — `merge(a, b)` — Combine two maps into a new map. Entries from the second map replace matching keys from the first.
+- `merge` parameter `a`: The first map.
+- `merge` parameter `b`: The second map, which takes precedence.
+- `merge` returns: A new combined map.
+- `merge` example: `print(merge({"a": 1}, {"a": 2, "b": 3}));`.
+- **read_file** — `read_file(path)` — Read a file into a string. An I/O failure can be caught with `may` / `otherwise`.
+- `read_file` parameter `path`: The filesystem path to read.
+- `read_file` returns: The file contents as a string.
+- `read_file` example: `let text: Any = may { read_file("notes.txt") } otherwise { "" };`.
+- **write_file** — `write_file(path, text)` — Write a string to a file, creating it or replacing its existing contents. I/O failures are catchable.
+- `write_file` parameter `path`: The filesystem path to write.
+- `write_file` parameter `text`: The contents to store.
+- `write_file` returns: `nil`.
+- `write_file` example: `write_file("notes.txt", "hello\n");`.
+- **read_dir** — `read_dir(path)` — List names in a directory, excluding `.` and `..`. Names are relative to the supplied directory.
+- `read_dir` parameter `path`: The directory to inspect.
+- `read_dir` returns: A list of names; empty if the directory cannot be read.
+- `read_dir` example: `print(read_dir("."));`.
+- **file_exists** — `file_exists(path)` — Test whether a filesystem path exists.
+- `file_exists` parameter `path`: The file or directory path to test.
+- `file_exists` returns: A boolean.
+- `file_exists` example: `print(file_exists("notes.txt"));`.
+- **json_parse** — `json_parse(s)` — Decode a JSON string into Maylang strings, numbers, booleans, lists, maps, and `nil`.
+- `json_parse` parameter `s`: The JSON text.
+- `json_parse` returns: The decoded value.
+- `json_parse` example: `let value: Any = json_parse("{\"name\":\"Ada\"}"); print(value.name);`.
+- **json_stringify** — `json_stringify(v)` — Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.
+- `json_stringify` parameter `v`: The value to encode.
+- `json_stringify` returns: A JSON string.
+- `json_stringify` example: `print(json_stringify({"name": "Ada", "ready": true}));`.
+- **input** — `input(prompt)` — Display a prompt and read one line from standard input. The trailing newline is removed.
+- `input` parameter `prompt`: The text to display before reading; `nil` suppresses it.
+- `input` returns: A string, or `nil` at end of input.
+- `input` example: `let name: Any = input("Name: ");`.
+- **read_stdin** — `read_stdin()` — Read standard input until end of file. This waits for EOF, so it is suitable for piped data.
+- `read_stdin` returns: The collected input as a string.
+- `read_stdin` example: `let text: Any = read_stdin(); print(len(text));`.
+- **clock** — `clock()` — Read the wall clock as fractional seconds since the Unix epoch.
+- `clock` returns: A floating-point timestamp.
+- `clock`: This is a wall clock, so clock adjustments can change elapsed-time measurements.
+- `clock` example: `let before: Any = clock(); print(clock() - before);`.
+- **time** — `time()` — Read the current Unix timestamp in milliseconds.
+- `time` returns: An integer timestamp in milliseconds.
+- `time` example: `print(time());`.
+- **sleep** — `sleep(ms)` — Pause the calling thread for a duration measured in milliseconds.
+- `sleep` parameter `ms`: The nonnegative duration in milliseconds.
+- `sleep` returns: `nil`.
+- `sleep` example: `sleep(100);`.
+- **spawn** — `spawn(f)` — Register a zero-argument function as a cooperative fiber. Call `run()` to execute scheduled fibers.
+- `spawn` parameter `f`: A zero-argument function to schedule.
+- `spawn` returns: A runtime fiber handle.
+- `spawn` example: `spawn(fun() -> Any { return print("worker"); }); run();`.
+- **yield** — `yield()` — Suspend the current cooperative fiber so another scheduled fiber can run. Outside a fiber it has no scheduling effect.
+- `yield` returns: A runtime scheduling result.
+- `yield` example: `spawn(fun() -> Any { print("first"); yield(); return print("again"); }); run();`.
+- **run** — `run()` — Execute scheduled cooperative fibers until they finish. Fibers yield explicitly with `yield()`.
+- `run` returns: A runtime scheduling result.
+- `run` example: `spawn(fun() -> Any { return print("hello"); }); run();`.
+- **fail** — `fail(message)` — Raise a runtime failure. A surrounding `may` block can catch it and access `err.message`.
+- `fail` parameter `message`: The failure description.
+- `fail` returns: Does not return normally.
+- `fail` example: `may { fail("bad input"); } otherwise { print(err.message); };`.
+- **exit** — `exit(status)` — Terminate the process with an exit status. Zero conventionally indicates success.
+- `exit` parameter `status`: The process exit code.
+- `exit` returns: Does not return.
+- `exit` example: `exit(0);`.
+- **syscall** — `syscall(number, arguments...)` — Invoke a Linux system call directly, with up to six integer arguments. This bypasses normal file and memory helpers.
+- `syscall` parameter `number`: The Linux x86-64 syscall number.
+- `syscall` parameter `arguments...`: Raw integer arguments in syscall order.
+- `syscall` returns: The raw integer result; failures usually return a negative errno.
+- `syscall` example: `let pid: Any = syscall(39);`.
+- **addr** — `addr(s)` — Return the address of a string’s UTF-8 bytes. Keep the string alive while using the address.
+- `addr` parameter `s`: The string whose byte storage is addressed.
+- `addr` returns: An integer address.
+- `addr` example: `let s: Any = "abc"; print(load8(addr(s)));`.
+- **cstr** — `cstr(s)` — Create a NUL-terminated representation of a string for a native API.
+- `cstr` parameter `s`: The string to pass to native code.
+- `cstr` returns: An integer address to NUL-terminated bytes.
+- `cstr` example: `let path: Any = cstr("notes.txt");`.
+- **load8** — `load8(p)` — Read 8 bits from a raw memory address. This operation performs no bounds or lifetime checks.
+- `load8` parameter `p`: A valid readable address with enough remaining bytes.
+- `load8` returns: The loaded integer value.
+- `load8` example: `let s: Any = "abcdefgh"; let value: Any = load8(addr(s));`.
+- **store8** — `store8(p, value)` — Write 8 bits to a raw memory address. This operation performs no bounds or lifetime checks.
+- `store8` parameter `p`: A valid writable address with enough remaining bytes.
+- `store8` parameter `value`: The integer bits to write.
+- `store8` returns: A raw runtime result.
+- `store8` example: `store8(p, 0);`.
+- **load16** — `load16(p)` — Read 16 bits from a raw memory address. This operation performs no bounds or lifetime checks.
+- `load16` parameter `p`: A valid readable address with enough remaining bytes.
+- `load16` returns: The loaded integer value.
+- `load16` example: `let s: Any = "abcdefgh"; let value: Any = load16(addr(s));`.
+- **store16** — `store16(p, value)` — Write 16 bits to a raw memory address. This operation performs no bounds or lifetime checks.
+- `store16` parameter `p`: A valid writable address with enough remaining bytes.
+- `store16` parameter `value`: The integer bits to write.
+- `store16` returns: A raw runtime result.
+- `store16` example: `store16(p, 0);`.
+- **load32** — `load32(p)` — Read 32 bits from a raw memory address. This operation performs no bounds or lifetime checks.
+- `load32` parameter `p`: A valid readable address with enough remaining bytes.
+- `load32` returns: The loaded integer value.
+- `load32` example: `let s: Any = "abcdefgh"; let value: Any = load32(addr(s));`.
+- **store32** — `store32(p, value)` — Write 32 bits to a raw memory address. This operation performs no bounds or lifetime checks.
+- `store32` parameter `p`: A valid writable address with enough remaining bytes.
+- `store32` parameter `value`: The integer bits to write.
+- `store32` returns: A raw runtime result.
+- `store32` example: `store32(p, 0);`.
+- **load64** — `load64(p)` — Read 64 bits from a raw memory address. This operation performs no bounds or lifetime checks.
+- `load64` parameter `p`: A valid readable address with enough remaining bytes.
+- `load64` returns: The loaded integer value.
+- `load64` example: `let s: Any = "abcdefgh"; let value: Any = load64(addr(s));`.
+- **store64** — `store64(p, value)` — Write 64 bits to a raw memory address. This operation performs no bounds or lifetime checks.
+- `store64` parameter `p`: A valid writable address with enough remaining bytes.
+- `store64` parameter `value`: The integer bits to write.
+- `store64` returns: A raw runtime result.
+- `store64` example: `store64(p, 0);`.
+- **ccall** — `ccall(fn, args)` — Call machine code at a raw address with up to six integer arguments using the native calling convention.
+- `ccall` parameter `fn`: The native function address.
+- `ccall` parameter `args`: A list of at most six integer arguments.
+- `ccall` returns: The native integer return value.
+- `ccall` example: `let result: Any = ccall(fn, [1, 2]);`.
+- **extern_c** — `extern_c(fn)` — Wrap a native function address as a callable Maylang function accepting six integer arguments.
+- `extern_c` parameter `fn`: The native function address.
+- `extern_c` returns: A callable wrapper.
+- `extern_c` example: `let call: Any = extern_c(fn); let result: Any = call(1, 2, 0, 0, 0, 0);`.
+- **sqrt** — `sqrt(x)` — Compute a number’s square root.
+- `sqrt` parameter `x`: The number to evaluate; trigonometric angles use radians.
+- `sqrt` returns: A floating-point result.
+- `sqrt` example: `print(sqrt(9.0));`.
+- **floor** — `floor(x)` — Round a number down to an integer-valued numeric result.
+- `floor` parameter `x`: The number to evaluate; trigonometric angles use radians.
+- `floor` returns: The rounded value.
+- `floor` example: `print(floor(2.9));`.
+- **ceil** — `ceil(x)` — Round a number up to an integer-valued numeric result.
+- `ceil` parameter `x`: The number to evaluate; trigonometric angles use radians.
+- `ceil` returns: The rounded value.
+- `ceil` example: `print(ceil(2.1));`.
+- **sin** — `sin(x)` — Compute the sine of an angle in radians.
+- `sin` parameter `x`: The number to evaluate; trigonometric angles use radians.
+- `sin` returns: A floating-point result.
+- `sin` example: `print(sin(0.0));`.
+- **cos** — `cos(x)` — Compute the cosine of an angle in radians.
+- `cos` parameter `x`: The number to evaluate; trigonometric angles use radians.
+- `cos` returns: A floating-point result.
+- `cos` example: `print(cos(0.0));`.
+- **tan** — `tan(x)` — Compute the tangent of an angle in radians.
+- `tan` parameter `x`: The number to evaluate; trigonometric angles use radians.
+- `tan` returns: A floating-point result.
+- `tan` example: `print(tan(0.0));`.
+- **env** — `env(name)` — Look up an environment variable in the current process.
+- `env` parameter `name`: The environment variable name.
+- `env` returns: The variable’s string value, or `nil` if missing.
+- `env` example: `print(env("HOME") ?? "unset");`.
+- **args** — `args()` — Read the process’s command-line arguments, including the executable name as the first item.
+- `args` returns: A list of argument strings.
+- `args` example: `print(args());`.
+- **substring** — `substring(s, start, count)` — Return a string starting at codepoint index start and containing count codepoints; require indices within the source string.
+- `substring` parameter `s`: The input string.
+- `substring` parameter `start`: The zero-based starting character index.
+- `substring` parameter `count`: The number of characters to copy.
+- `substring` returns: A string.
+- `substring` example: `print(substring("hello", 1, 3));`.
+- **split** — `split(s, sep)` — Split by a literal delimiter, preserving empty fields; an empty delimiter returns a one-element list containing the original string.
+- `split` parameter `s`: The input string.
+- `split` parameter `sep`: The separator string.
+- `split` returns: A list of string segments.
+- `split` example: `print(split("a,b,c", ","));`.
+- **join** — `join(xs, sep)` — Convert items to strings and combine them with a separator between neighboring items.
+- `join` parameter `xs`: The values to combine.
+- `join` parameter `sep`: The text inserted between items.
+- `join` returns: The combined string.
+- `join` example: `print(join(["a", "b"], ","));`.
+- **trim** — `trim(s)` — Remove whitespace from the beginning and end of a string.
+- `trim` parameter `s`: The input string.
+- `trim` returns: A string.
+- `trim` example: `print(trim("  hello  "));`.
+- **repeat** — `repeat(s, n)` — Return a string repeated n times; nonpositive counts produce an empty string.
+- `repeat` parameter `s`: The string to repeat.
+- `repeat` parameter `n`: The nonnegative number of copies.
+- `repeat` returns: The repeated string.
+- `repeat` example: `print(repeat("ab", 3));`.
+- **range** — `range(a: Any, b: Any) -> Any` — Return an eager list of integers from inclusive a to exclusive b; the full-runtime source function takes exactly two arguments.
+- `range` parameter `a`: The inclusive starting value.
+- `range` parameter `b`: The exclusive stop value.
+- `range` returns: A list of integers.
+- `range` example: `print(range(0, 3));` produces `[0, 1, 2]`.
+- **err** — handler-scoped structured error value, not a callable function; fields include kind, message and stack.
+- **mkdir** — `mkdir(path) -> Nil` — Create a directory with Linux mode 0755; raise an I/O error on failure.
+- **exec** — `exec(argv) -> Int` — Start a child using fork/execve and return its PID; argv is a nonempty list of argument strings.
+- **wait** — `wait(pid) -> Int` — Wait for a child and return its decoded exit status; failures raise; signal termination is encoded as 128 plus signal number.
+- **system** — `system(command) -> Int` — Run /bin/sh -c and wait for its exit status.
+- **type** — `type(value) -> Str` — Return a tagged runtime type name: Int, Float, Str, Bool, Nil, List or Map.
+- **trunc** — `trunc(x) -> Int` — Truncate a numeric value toward zero.
+- **ln** — `ln(x) -> Float` — Natural logarithm; use positive numeric inputs.
+- **log2** — `log2(x) -> Float` — Base-two logarithm; use positive numeric inputs.
+- **log10** — `log10(x) -> Float` — Base-ten logarithm; use positive numeric inputs.
+- **exp** — `exp(x) -> Float` — Base-e exponential.
+- **pow** — `pow(base, exponent) -> Float` — Floating power; the ** operator also supports native integer dispatch.
+- **cmp** — `cmp(a, b) -> Int` — Return a negative, zero or positive comparison result.
+- **char_at** — `char_at(s, index) -> Int` — Read a string codepoint as an integer; require a valid codepoint index.
+- **char_from** — `char_from(code) -> Str` — Encode a character code as a one-character string.
+- **to_map** — `to_map(pairs) -> Map` — Create a runtime map from a list of key/value pairs.
+- **str_of** — `str_of(value) -> Str` — Internal native display conversion used by str.
+- **int_to_str** — `int_to_str(value) -> Str` — Convert an integer to its decimal display string.
+- **str_cmp** — `str_cmp(a, b) -> Int` — Compare strings, returning a signed ordering result.
+- **value_eq** — `value_eq(a, b) -> Bool` — Native value equality used by assertions and dynamic comparisons.
+- **value_tag** — `value_tag(value) -> Int` — Inspect runtime tags: Int=0, Str=1, Nil=2, false=3, true=4, List=5, Float=6, Map=7; implementation support API.
+- **map_keys** — `map_keys(map) -> List<Any>` — Return runtime map keys; native keys delegates here.
+- **map_values** — `map_values(map) -> List<Any>` — Return runtime map values; native values delegates here.
+- **map_has** — `map_has(map, key) -> Bool` — Test runtime map key presence.
+- **rt_raise** — `rt_raise(error) -> Any` — Internal structured-error raise used by native and network helpers; unwinds to a may handler.
+- Additional automatic helpers: [native API](stdlib/native.md) includes pi/e, hyperbolic functions, chr/ord, sign, parse_int/parse_float, range_step, Result/Option constructors, list utilities and error/JSON support.
+- Low-level C: `ccall(fn, args)` reads at most six integer arguments; `extern_c(fn)` creates a wrapper with exactly six positional parameters. Typed extern declarations handle supported scalar C signatures instead.
+- Compiler intrinsic implementation names beginning with `__` are reserved support machinery: host allocation/write/exit, floating-point operations, stack/unwind operations and fiber entry/switch. They are not user-level APIs.
+- Full-runtime `range` takes two arguments; `input` takes a prompt (use nil to suppress it). Source-defined helpers in native.may override historical shorthand from older toolchains.

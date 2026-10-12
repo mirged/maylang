@@ -1,8 +1,9 @@
 # Maylang Standard Library
 
-The standard library is written **in Maylang itself** wherever possible, and
-supplemented by Rust built-ins for the few operations that need to be fast or
-precise (transcendental math, file I/O, JSON, the OS).
+The standard library and active self-hosted runtime are written in Maylang.
+The source [API inventory](../reference/STDLIB.md) records public signatures and runtime/platform
+support; [contracts](CONTRACTS.md) describe mutation, errors, Unicode, numeric
+limits and tested edge cases. ML APIs are experimental.
 
 Import a module by name; the loader first looks next to the importing file,
 then across the standard-library search path (see below).
@@ -40,8 +41,8 @@ print(quick_sort([3, 1, 2]));  // [1, 2, 3]
 
 ## Runtime primitives
 
-These low-level operations are exposed by the native runtime in
-`crates/may_native`; higher-level helpers are written in Maylang:
+These low-level operations are exposed by `toolchain/mayc/runtime.may` and its
+native sidecar; higher-level helpers are ordinary library functions:
 
 * **Math**: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`,
   `cosh`, `tanh`, `ln`, `log2`, `log10`, `exp`, `sqrt`, `cbrt`, `pow`,
@@ -76,10 +77,18 @@ The loader looks for modules in:
 ## Running the tour
 
 ```sh
-maylang run examples/stdlib_tour.may
-maylang run examples/stdlib_expanded.may
-maylang run examples/ml_xor.may
+toolchain/mayc/mayc_new examples/stdlib_tour.may -o /tmp/stdlib-tour
+/tmp/stdlib-tour
+toolchain/mayc/mayc_new examples/stdlib_expanded.may -o /tmp/stdlib-expanded
+/tmp/stdlib-expanded
+toolchain/mayc/mayc_new examples/ml_xor.may -o /tmp/ml-xor
+/tmp/ml-xor
 ```
 
 The ML toolkit's API and supported model scope are documented in
 [`ml/README.md`](ml/README.md).
+
+These examples run in compiler verification. Update API signatures and `///`
+comments in the source, regenerate with `python3 reference/generate.py`, and
+commit the generated module pages and `reference/inventory.json`. CI checks generation with `--check` and runs
+the boundary suite on native and LLVM output.

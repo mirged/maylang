@@ -1,0 +1,19 @@
+- **ml/optim.may** — SGD, momentum and Adam optimizer state and updates.
+- Availability: full Linux x86-64 runtime; experimental API.
+- Import: `import "ml/optim" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../stdlib/ml/optim.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
+- Optimizer state is mutable and belongs to a particular network shape. Update only after computing gradients.
+- **ml_sgd** — `fun ml_sgd(learning_rate: Any) -> Any` — Construct an SGD optimizer with positive learning rate and zero momentum.
+- `ml_sgd` explicit fault strings: `"learning rate must be positive"`; runtime/callback faults can also propagate.
+- **ml_sgd_momentum** — `fun ml_sgd_momentum(learning_rate: Any, momentum: Any) -> Any` — Construct SGD state with positive learning rate and momentum in [0,1).
+- `ml_sgd_momentum` explicit fault strings: `"invalid SGD learning rate or momentum"`; runtime/callback faults can also propagate.
+- **ml_adam** — `fun ml_adam(learning_rate: Any, beta1: Any, beta2: Any, epsilon: Any) -> Any` — Construct Adam state; require positive learning rate/epsilon and betas in [0,1).
+- `ml_adam` explicit fault strings: `"invalid Adam hyperparameters"`; runtime/callback faults can also propagate.
+- **ml_adam_default** — `fun ml_adam_default(learning_rate: Any) -> Any` — Construct Adam using beta1=0.9, beta2=0.999 and epsilon=1e-8.
+- **ml_zero_matrix_like** — `fun ml_zero_matrix_like(matrix: Any) -> Any` — Return a same-shaped nested matrix of 0.0 entries.
+- **ml_adam_matrix** — `fun ml_adam_matrix(param: Any, grad: Any, first: Any, second: Any, opt: Any) -> Any` — Return updated `{param, first, second}` matrices using bias-corrected Adam moments and the current optimizer powers.
+- **ml_adam_vector** — `fun ml_adam_vector(param: Any, grad: Any, first: Any, second: Any, opt: Any) -> Any` — Return updated `{param, first, second}` vectors using bias-corrected Adam moments.
+- **ml_optimizer_step** — `fun ml_optimizer_step(opt: Any, model: Any) -> Any` — Update dense model parameters and optimizer velocity/moments in place; return model. Run backward first.

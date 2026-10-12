@@ -1,0 +1,15 @@
+- **validate.may** — Input predicates and structured rule/field validation.
+- Availability: full Linux x86-64 runtime.
+- Import: `import "validate" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../stdlib/validate.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../stdlib/CONTRACTS.md).
+- **validate_nonempty** — `fun validate_nonempty(s: Any) -> Any` — True for a string with non-whitespace content after trimming.
+- **validate_in_range** — `fun validate_in_range(x: Any, lo: Any, hi: Any) -> Any` — True for an Int/Float within the inclusive bounds; false for other types.
+- **validate_email** — `fun validate_email(s: Any) -> Any` — Apply a simple @/domain-dot heuristic; this is not a complete email parser.
+- **validate_url** — `fun validate_url(s: Any) -> Any` — True for strings beginning with `http://` or `https://`.
+- **validate_all** — `fun validate_all(value: Any, rules: Any) -> Any` — Apply rules shaped `{check: unary predicate, message: string}` and return `{ok, errors, value}`.
+- **validate_required_fields** — `fun validate_required_fields(value: Any, fields: Any) -> Any` — Return `{ok, missing}`; absent keys and nil-valued fields are missing.
+- **validate_int_string** — `fun validate_int_string(s: Any) -> Any` — Check a nonempty string by attempting trimmed integer conversion and catching faults.
+- **validate_float_string** — `fun validate_float_string(s: Any) -> Any` — Validate signed decimal syntax with optional dot and exponent; exponent digits are required.

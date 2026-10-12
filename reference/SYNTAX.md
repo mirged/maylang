@@ -1,0 +1,140 @@
+- **Language catalog** — syntax, types and operators for the strict self-hosted compiler.
+- Read [language guide](LANGUAGE.md) for semantics and implementation restrictions; signatures and examples here come from the maintained editor catalog.
+- **Keywords**.
+- **fun** — `fun name(arg: Type) -> ReturnType { return value; }` — Declare a function with typed parameters. Its return type may be written explicitly or inferred from return statements. Every path must return; functions capture surrounding bindings.
+- `fun` example: `fun double(x: Int) -> Int { return x * 2 } print(double(3));`.
+- **let** — `let name: Type = expression;` — Declare an immutable binding. Mayc infers its type from the initializer when the annotation is omitted. Lists and maps stored in a let binding may still be mutated; their element types are checked.
+- `let` example: `let count: Int = 10; let items: List<Int> = []; push(items, count);`.
+- **mut** — `mut name: Type = expression;` — Declare a mutable binding. Mayc infers its type from the initializer when the annotation is omitted. Later assignments must match that type.
+- `mut` example: `mut total: Int = 0; total += 5;`.
+- **if** — `if (condition) { value } else { alternative }` — Evaluate a branch based on the condition. An `if` expression produces the chosen branch value.
+- `if` example: `let label: Str = if (true) { "ready" } else { "waiting" };`.
+- **else** — `if (condition) { ... } else { ... }` — Provide the alternative branch of an `if` or `unless`. Chain `else if` for additional conditions.
+- `else` example: `let sign: Int = if (3 > 0) { 1 } else if (3 < 0) { -1 } else { 0 };`.
+- **while** — `while (condition) { body }` — Repeat a body while its condition is true. `break` stops the loop and `continue` skips to its next iteration.
+- `while` example: `mut i: Int = 0; while (i < 3) { print(i); i += 1; }`.
+- **for** — `for item in iterable { body }` — Iterate over values or an integer range. Mayc infers the loop variable type from the iterable; an explicit type may be added as a checked constraint.
+- `for` example: `for i: Int in 0..3 { print(i); } let squares: List<Int> = [x * x for x: Int in [1, 2, 3]];`.
+- **in** — `for item in iterable { ... }` — Connect a loop or comprehension binding to its iterable. Range upper bounds use `..` for exclusive and `..=` for inclusive.
+- `in` example: `let evens: List<Int> = [x for x: Int in 0..6 if (x % 2 == 0)];`.
+- **return** — `return expression;` — Exit the enclosing function with a value of its declared return type. A bare return yields nil. Strict functions require explicit return on every path.
+- `return` example: `fun first(xs: Any) -> Any { unless (len(xs) > 0) return nil; return xs[0]; }`.
+- **break** — `break;` — Stop the innermost loop immediately. Execution resumes after the loop.
+- `break` example: `for x: Any in [1, 2, 3] { if (x == 2) { break; } print(x); }`.
+- **continue** — `continue;` — Skip the remaining body of the innermost loop and advance to its next iteration.
+- `continue` example: `for x: Any in 0..4 { if (x == 2) { continue; } print(x); }`.
+- **unless** — `unless (condition) statement` — Execute the body when the condition is false. Useful for guard clauses; an `else` branch is also supported.
+- `unless` example: `fun head(xs: Any) -> Any { unless (len(xs) > 0) return nil; return xs[0] }`.
+- **match** — `match (value) { pattern => expression, ... }` — Choose the first matching arm. Literal patterns, name bindings and the wildcard _ are supported by mayc.
+- `match` example: `let label: Any = match (2) { 1 => "one", 2 => "two", _ => "other" };`.
+- **may** — `may { expression } otherwise { recovery }` — Catch a runtime failure within the block and evaluate a recovery expression. Inside `otherwise`, `err` contains the failure information.
+- `may`: Without `otherwise`, a caught failure produces `nil`.
+- `may` example: `let value: Any = may { int("oops") } otherwise { print(err.message); 0 };`.
+- **otherwise** — `may { ... } otherwise { ... }` — Handle a failure from the preceding `may` block. `err.message` describes it and `err.kind` identifies its category.
+- `otherwise` example: `may { fail("missing item"); } otherwise { print(err.kind, err.message); };`.
+- **struct** — `struct Name { field: Type, ... }` — Declare a record type with named fields. Construct values by calling the type name and access fields with `.`.
+- `struct` example: `struct Point { x: Int, y: Int } let p: Point = Point(2, 3); print(p.x);`.
+- **enum** — `enum Name { Variant, Variant(Type), ... }` — Declare tagged variants, optionally carrying values. Match variants to select behavior and bind their payloads.
+- `enum` example: `enum Color { Red, Green, Blue } let color: Any = Red();`.
+- **pub** — `pub fun name(...) { ... }` — Export a top-level declaration from its module. When a module contains explicit public declarations, private declarations are hidden from importers.
+- `pub` example: `pub fun answer() -> Any { return 42 }`.
+- **extern** — `extern fun name(parameters);` — Declare a foreign function for native linking. This requires an actual external symbol and suitable compiler/linker setup.
+- `extern` example: `extern fun puts(s: Ptr) -> Any;`.
+- **import** — `import "module" as alias;` — Load a module relative to the current source file, then search the standard library. The `.may` suffix is optional. Use an alias for qualified access.
+- `import` example: `import "math" as math; print(math.square(3));`.
+- **from** — `from "module" import name;` — Import selected public declarations into the current scope. Unselected names remain unavailable.
+- `from` example: `from "math" import square; print(square(4));`.
+- **as** — `import "module" as alias;` — Give an imported module a local namespace. Access its public declarations with `alias.name`.
+- `as` example: `import "string" as strings; print(strings.words("hello world"));`.
+- **and** — `left and right` — Evaluate logical conjunction with short circuiting. The right expression is skipped when the left expression is false.
+- `and` example: `let ok: Any = len([1]) > 0 and [1][0] == 1;`.
+- **or** — `left or right` — Evaluate logical disjunction with short circuiting. The right expression is skipped when the left expression is true.
+- `or` example: `let accepted: Any = true or false;`.
+- **not** — `not expression` — Negate the truth value of an expression. `!` is the symbolic spelling.
+- `not` example: `print(not false);`.
+- **true** — `true` — The boolean true value. Returned by successful comparisons and predicates.
+- `true` example: `let enabled: Bool = true;`.
+- **false** — `false` — The boolean false value. Together with `nil`, it is false in condition tests.
+- `false` example: `let enabled: Bool = false;`.
+- **nil** — `nil` — Represent the absence of a value. Missing map lookups and empty `pop` calls produce `nil`; `??` supplies a fallback.
+- `nil` example: `let missing: Any = map_get({}, "name"); print(missing ?? "anonymous");`.
+- **Types**.
+- **Int8** — `Int8` — Signed 8 bit integer
+- `Int8` example: `let small: Int8 = 12;`.
+- **Int16** — `Int16` — Signed 16 bit integer
+- `Int16` example: `let small: Int16 = 1200;`.
+- **Int32** — `Int32` — Signed 32 bit integer
+- `Int32` example: `let count: Int32 = 100000;`.
+- **Int64** — `Int64` — Signed 64 bit integer
+- `Int64` example: `let count: Int64 = 10000000000;`.
+- **UInt8** — `UInt8` — Unsigned 8 bit integer, also named Byte
+- `UInt8` example: `let byte: UInt8 = 255;`.
+- **UInt16** — `UInt16` — Unsigned 16 bit integer
+- `UInt16` example: `let value: UInt16 = 500;`.
+- **UInt32** — `UInt32` — Unsigned 32 bit integer
+- `UInt32` example: `let value: UInt32 = 50000;`.
+- **UInt64** — `UInt64` — Unsigned 64 bit integer
+- `UInt64` example: `let value: UInt64 = 5000000;`.
+- **Float32** — `Float32` — 32 bit floating point number, also named F32
+- `Float32` example: `let ratio: Float32 = 0.5;`.
+- **Float64** — `Float64` — 64 bit floating point number, also named F64
+- `Float64` example: `let ratio: Float64 = 0.5;`.
+- **Slice** — `Slice` — Borrowed view of a sequence with element type T
+- `Slice` example: `let part: Slice<Int> = values[0..2];`.
+- **Tuple** — `Tuple` — Tuple type containing the listed element types
+- `Tuple` example: `let pair: Tuple<Int, Str> = (1, "one");`.
+- **Result** — `Result` — Result type with success and error types
+- `Result` example: `let outcome: Result<Int, Str> = value;`.
+- **Array** — `Array` — Fixed length array type with element type T
+- `Array` example: `let values: [Int; 3] = [1, 2, 3];`.
+- **Never** — `Never` — Type of an expression that cannot return normally
+- `Never` example: `fun stop() -> Never { fail("stop"); }`.
+- **Byte** — `Byte` — Alias for UInt8
+- `Byte` example: `let byte: Byte = 255;`.
+- **RawPtr** — `RawPtr` — Alias for Ptr, used for untyped native addresses
+- `RawPtr` example: `let address: RawPtr = addr("data");`.
+- **Option** — `Option` — Alias for Optional<T>
+- `Option` example: `let item: Option<Int> = nil;`.
+- **F32** — `F32` — Alias for Float32
+- `F32` example: `let ratio: F32 = 0.5;`.
+- **F64** — `F64` — Alias for Float64
+- `F64` example: `let ratio: F64 = 0.5;`.
+- **Void** — `Void` — Alias for Nil
+- `Void` example: `fun finish() -> Void { return; }`.
+- **Int** — `Int` — A signed 61-bit integer used for whole numbers, indexes, and system call arguments.
+- `Int` example: `let answer: Int = 42;`.
+- **Float** — `Float` — A 64-bit floating-point number.
+- `Float` example: `let ratio: Float = 0.5;`.
+- **Str** — `Str` — A UTF-8 string. Indexing and len use Unicode character positions.
+- `Str` example: `let greeting: Str = "hello";`.
+- **Bool** — `Bool` — A boolean value, either true or false.
+- `Bool` example: `let ready: Bool = true;`.
+- **List** — `List<T>` — An ordered mutable collection whose elements have type T.
+- `List` example: `let values: List<Int> = [1, 2, 3];`.
+- **Map** — `Map<K, V>` — A mutable key-value collection with key type K and value type V.
+- `Map` example: `let names: Map<Str, Int> = {"Ada": 1};`.
+- **Any** — `Any` — A dynamic value that can hold any runtime type.
+- `Any` example: `let value: Any = "dynamic";`.
+- **Nil** — `Nil` — The type of the absence value nil.
+- `Nil` example: `let missing: Nil = nil;`.
+- **Ptr** — `Ptr` — A raw memory address used by native operations and syscalls.
+- `Ptr` example: `let address: Ptr = addr("data");`.
+- **Optional** — `Optional<T>` — A value of type T or nil.
+- `Optional` example: `let value: Optional<Int> = nil;`.
+- **Operators**.
+- **??** — `value ?? fallback` — Return the fallback only when the left value is `nil`. Values such as `0` and `false` are preserved.
+- `??` example: `print(false ?? true);`.
+- **?.** — `value?.field` — Access a field only if the receiver is present. A `nil` receiver yields `nil` instead of a field access failure.
+- `?.` example: `let person: Any = nil; print(person?.name ?? "anonymous");`.
+- **|>** — `value |> function(extraArguments)` — Pass the left value as the first argument of the function on the right. Pipelines can be chained.
+- `|>` example: `print([1, 2, 3] |> map(|x: Any| -> Any { return x * 2; }) |> sum);`.
+- **..** — `start..stop` — An integer range with an exclusive upper endpoint, suitable for loops and comprehensions.
+- `..` example: `for i: Any in 0..3 { print(i); }`.
+- **..=** — `start..=stop` — An integer range that includes its upper endpoint.
+- `..=` example: `for i: Any in 1..=3 { print(i); }`.
+- **=>** — `parameter => expression` — Separate a match pattern from its result. Legacy code also uses this for short lambdas; strict lambdas require typed parameters, a return type and an explicit return.
+- `=>` example: `print(map([1, 2], |x: Any| -> Any { return x + 1; }));`.
+- **->** — `fun name(...) -> Type { ... }` — Declare the required return type of a named or anonymous function. Use explicit return statements in its body.
+- `->` example: `fun answer() -> Int { return 42 }`.
+- ****** — `base ** exponent` — Raise a number to a power. Integer and floating-point operands are supported by the native runtime.
+- `**` example: `print(2 ** 3);`.

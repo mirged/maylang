@@ -1,0 +1,72 @@
+- **ml/tensor.may** — Dense row-major tensors, broadcasting, reductions and matrix operations.
+- Availability: full Linux x86-64 runtime; experimental API.
+- Import: `import "ml/tensor" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../stdlib/ml/tensor.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
+- Tensors use row-major flat numeric data and a copied shape list. Arithmetic allocates new tensors; constructor and reshape retain input data references.
+- Strict equal-shape operations and broadcasting operations have separate names; matrix multiplication is tensor_matmul.
+- **tensor_size** — `fun tensor_size(shape: Any) -> Any` — Return the product of dimensions; an empty shape has scalar size one.
+- **tensor** — `fun tensor(data: Any, shape: Any) -> Any` — Return `{data, shape}` after checking nonnegative integer dimensions and matching element count; retain the data list reference and copy the shape list.
+- `tensor` explicit fault strings: `"tensor dimensions must be nonnegative integers"`, `"tensor data length does not match shape"`; runtime/callback faults can also propagate.
+- **tensor_scalar** — `fun tensor_scalar(x: Any) -> Any` — Wrap a scalar as a tensor with one element and empty shape.
+- **tensor_vector** — `fun tensor_vector(xs: Any) -> Any` — Return a shallow-copied rank-one tensor from a list.
+- **tensor_matrix** — `fun tensor_matrix(rows: Any) -> Any` — Validate rectangular rows and flatten into a rank-two tensor; empty rows produce shape [0,0].
+- `tensor_matrix` explicit fault strings: `"tensor_matrix rows must have equal length"`; runtime/callback faults can also propagate.
+- **tensor_zeros** — `fun tensor_zeros(shape: Any) -> Any` — Return a tensor of floating zeros with the requested shape.
+- **tensor_ones** — `fun tensor_ones(shape: Any) -> Any` — Return a tensor of floating ones with the requested shape.
+- **tensor_full** — `fun tensor_full(shape: Any, value: Any) -> Any` — Return a tensor filled with the supplied value.
+- **tensor_arange** — `fun tensor_arange(start: Any, stop: Any, step: Any) -> Any` — Return a rank-one exclusive-stop arithmetic sequence; step cannot be zero; support positive and negative steps.
+- `tensor_arange` explicit fault strings: `"tensor_arange step cannot be zero"`; runtime/callback faults can also propagate.
+- **tensor_eye** — `fun tensor_eye(n: Any) -> Any` — Return an n-by-n floating identity matrix tensor.
+- **tensor_rank** — `fun tensor_rank(t: Any) -> Any` — Return the number of shape dimensions.
+- **tensor_numel** — `fun tensor_numel(t: Any) -> Any` — Return the stored data length.
+- **tensor_reshape** — `fun tensor_reshape(t: Any, shape: Any) -> Any` — Return a new tensor wrapper sharing data after validating the new shape's element count.
+- **tensor_at** — `fun tensor_at(t: Any, index: Any) -> Any` — Return an element by flat index using list indexing rules.
+- **tensor_at2** — `fun tensor_at2(t: Any, row: Any, col: Any) -> Any` — Return the element at row/column in a rank-two tensor; validate rank and coordinates.
+- `tensor_at2` explicit fault strings: `"tensor_at2 requires rank 2"`, `"tensor index out of bounds"`; runtime/callback faults can also propagate.
+- **tensor_map** — `fun tensor_map(t: Any, f: Any) -> Any` — Return a tensor of mapped data with the same shape.
+- **tensor_same_shape** — `fun tensor_same_shape(a: Any, b: Any) -> Any` — Compare two shape lists and return Bool; different ranks/dimensions return false without raising.
+- **tensor_broadcast_shape** — `fun tensor_broadcast_shape(a: Any, b: Any) -> Any` — Return the compatible trailing-dimension broadcast shape; dimensions must match or be one.
+- `tensor_broadcast_shape` explicit fault strings: `"tensor shapes are not broadcast-compatible"`; runtime/callback faults can also propagate.
+- **tensor_broadcast_to** — `fun tensor_broadcast_to(t: Any, shape: Any) -> Any` — Return a tensor expanded to the requested compatible shape using row-major coordinate mapping.
+- `tensor_broadcast_to` explicit fault strings: `"cannot broadcast tensor to lower rank"`, `"tensor shapes are not broadcast-compatible"`; runtime/callback faults can also propagate.
+- **tensor_broadcast_zip** — `fun tensor_broadcast_zip(a: Any, b: Any, f: Any) -> Any` — Broadcast two tensors to a common shape and combine entries with a binary callback.
+- **tensor_add_broadcast** — `fun tensor_add_broadcast(a: Any, b: Any) -> Any` — Return elementwise addition after trailing-dimension broadcasting.
+- **tensor_sub_broadcast** — `fun tensor_sub_broadcast(a: Any, b: Any) -> Any` — Return elementwise subtraction after trailing-dimension broadcasting.
+- **tensor_mul_broadcast** — `fun tensor_mul_broadcast(a: Any, b: Any) -> Any` — Return elementwise multiplication after trailing-dimension broadcasting.
+- **tensor_div_broadcast** — `fun tensor_div_broadcast(a: Any, b: Any) -> Any` — Return elementwise division after trailing-dimension broadcasting; numeric division faults propagate.
+- **tensor_zip** — `fun tensor_zip(a: Any, b: Any, f: Any) -> Any` — Combine equally shaped tensors with a binary callback; reject shape mismatches.
+- `tensor_zip` explicit fault strings: `"tensor shapes must match"`; runtime/callback faults can also propagate.
+- **tensor_add** — `fun tensor_add(a: Any, b: Any) -> Any` — Return equal-shape elementwise addition.
+- **tensor_sub** — `fun tensor_sub(a: Any, b: Any) -> Any` — Return equal-shape elementwise subtraction.
+- **tensor_mul** — `fun tensor_mul(a: Any, b: Any) -> Any` — Return equal-shape elementwise multiplication.
+- **tensor_scale** — `fun tensor_scale(t: Any, factor: Any) -> Any` — Return each element multiplied by a scalar factor.
+- **tensor_add_scalar** — `fun tensor_add_scalar(t: Any, value: Any) -> Any` — Return each element plus a scalar value.
+- **tensor_abs** — `fun tensor_abs(t: Any) -> Any` — Return elementwise absolute values.
+- **tensor_sqrt** — `fun tensor_sqrt(t: Any) -> Any` — Return elementwise square roots.
+- **tensor_exp** — `fun tensor_exp(t: Any) -> Any` — Return elementwise exponential values.
+- **tensor_log** — `fun tensor_log(t: Any) -> Any` — Return elementwise natural logarithms.
+- **tensor_clip** — `fun tensor_clip(t: Any, lo: Any, hi: Any) -> Any` — Return elements clamped to inclusive [lo,hi].
+- **tensor_sum** — `fun tensor_sum(t: Any) -> Any` — Return the sum of all tensor elements.
+- **tensor_mean** — `fun tensor_mean(t: Any) -> Any` — Return the floating element mean, or nil for an empty tensor.
+- **tensor_dot** — `fun tensor_dot(a: Any, b: Any) -> Any` — Return the dot product of equal-length rank-one tensors.
+- `tensor_dot` explicit fault strings: `"tensor_dot requires equal-length vectors"`; runtime/callback faults can also propagate.
+- **tensor_transpose** — `fun tensor_transpose(t: Any) -> Any` — Return the row-major transpose of a rank-two tensor.
+- `tensor_transpose` explicit fault strings: `"tensor_transpose requires rank 2"`; runtime/callback faults can also propagate.
+- **tensor_sum_axis** — `fun tensor_sum_axis(t: Any, axis: Any) -> Any` — Reduce a matrix on axis 0 or 1; negative axes normalize by rank; return a vector tensor.
+- `tensor_sum_axis` explicit fault strings: `"cannot reduce scalar tensor along an axis"`, `"tensor axis out of bounds"`; runtime/callback faults can also propagate.
+- **tensor_mean_axis** — `fun tensor_mean_axis(t: Any, axis: Any) -> Any` — Return axis sums divided by the reduced dimension; reject an empty reduced dimension.
+- `tensor_mean_axis` explicit fault strings: `"tensor axis out of bounds"`, `"cannot take mean of an empty tensor axis"`; runtime/callback faults can also propagate.
+- **tensor_softmax_rows** — `fun tensor_softmax_rows(t: Any) -> Any` — Return a rank-two tensor with stabilized softmax independently in each row.
+- `tensor_softmax_rows` explicit fault strings: `"tensor_softmax_rows expects a matrix"`; runtime/callback faults can also propagate.
+- **tensor_concat_vectors** — `fun tensor_concat_vectors(a: Any, b: Any) -> Any` — Concatenate two rank-one tensors into a vector tensor.
+- `tensor_concat_vectors` explicit fault strings: `"tensor_concat_vectors requires vectors"`; runtime/callback faults can also propagate.
+- **tensor_rows** — `fun tensor_rows(t: Any, start: Any, stop: Any) -> Any` — Return a copied rank-two row interval [start,stop); validate the bounds.
+- `tensor_rows` explicit fault strings: `"invalid tensor row slice"`; runtime/callback faults can also propagate.
+- **tensor_matmul** — `fun tensor_matmul(a: Any, b: Any) -> Any` — Return a rank-two matrix product; require matching inner dimensions.
+- `tensor_matmul` explicit fault strings: `"tensor_matmul expects [m,k] and [k,n] matrices"`; runtime/callback faults can also propagate.
+- **tensor_argmax** — `fun tensor_argmax(t: Any) -> Any` — Return the first flat index of the largest element, or -1 for an empty tensor.
+- **tensor_softmax** — `fun tensor_softmax(t: Any) -> Any` — Return stabilized softmax for a rank-one tensor; empty input returns an empty vector.
+- `tensor_softmax` explicit fault strings: `"tensor_softmax currently expects a vector"`; runtime/callback faults can also propagate.

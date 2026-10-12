@@ -34,6 +34,8 @@ jobs:
           python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
           python3 toolchain/tests/test_release.py
           python3 toolchain/maylsp/docs/generate.py --check
+          python3 reference/generate.py --check
+          python3 toolchain/tests/documentation.py
       - name: Package twice and verify extracted installation
         env:
           RELEASE_TAG: ${{ github.ref_name }}

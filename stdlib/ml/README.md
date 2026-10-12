@@ -1,8 +1,9 @@
 # Maylang ML
 
-A dependency-free, pure-Maylang toolkit for small and medium tabular models.
-It is designed to be readable and portable across Maylang's interpreter and
-native compiler, not to replace optimized BLAS/GPU frameworks.
+An experimental, dependency-free, pure-Maylang toolkit for small and medium
+tabular models, using the full Linux x86-64 runtime. It is designed to be
+readable; it does not replace optimized BLAS/GPU frameworks. The active language
+compiles programs to native executables and has no interpreter.
 
 ```may
 import "random.may";
@@ -48,3 +49,8 @@ splits, one-hot labels, feature scaling, accuracy, and JSON model snapshots.
 See `examples/ml_xor.may` for a complete training run, and
 [Artificial Ecosystem](../../example_projects/simulations/ecosystem/README.md) for evolved neural
 controllers and a reproducible 100,000-generation experiment.
+
+Compiler verification builds and runs the XOR example; the
+[library boundary suite](../../toolchain/mayc/tests/stdlib_contracts.py) checks
+fixed inference and shape failures on native and LLVM. See the
+[public signatures](../../reference/STDLIB.md) and [runtime contracts](../CONTRACTS.md).
