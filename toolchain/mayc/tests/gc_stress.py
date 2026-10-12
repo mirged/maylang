@@ -11,6 +11,16 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 INVARIANTS = r'''
+fun stress_node(ledger: Any, index: Any, value: Any, first: Any, second: Any) -> Any {
+    let node: Any = load64(ledger + index * 8);
+    stress_assert(rt_candidate(node) == node and load64(node) == index and load64(node + 8) == value, 33);
+    stress_assert(load64(node + 40) == 32 and load64(node + 48) == 5124095576638253 and rt_candidate(node + 56) == 0, 34);
+    let copy: Any = load64(node + 32) / 8;
+    stress_assert(load8(copy) == 112 and load8(copy + 12) == 187 and load8(copy + 13) == 0, 35);
+    if (first >= 0) { stress_assert(load64(node + 16) == load64(ledger + first * 8), 36); }
+    if (second >= 0) { stress_assert(load64(node + 24) == load64(ledger + second * 8), 36); }
+    return 0;
+}
 fun stress_assert(condition: Any, code: Any) -> Any {
     if (condition == 0) { syscall(60, code); }
     return 0;
@@ -63,6 +73,7 @@ def program(seed, steps):
     output = ['fun stress_main() -> Any {', 'STACKTOP = __sp(); rt_init();',
               f'let ledger: Any = syscall(9, 0, {(steps + 16) * 8}, 3, 34, -1, 0);',
               'let roots: Any = syscall(9, 0, 4096, 3, 34, -1, 0);',
+              'let zeros: Any = syscall(9, 0, 135168, 3, 34, -1, 0);',
               'mut slot: Any = 0; while (slot < 8) { rt_gc_root(roots + slot * 8); slot += 1; }']
 
     def reachable():
@@ -74,13 +85,18 @@ def program(seed, steps):
                 pending.extend(nodes[index]['edges'])
         return sorted(found)
 
+    # Bound each IR body; the independent oracle remains Python-generated.
+    functions = []
+    main = output
     for step in range(steps):
+        main.append(f'stress_step_{step}(ledger, roots, zeros);')
+        output = [f'fun stress_step_{step}(ledger: Any, roots: Any, zeros: Any) -> Any {{']
         index = len(nodes)
         live = reachable()
         edges = [rng.choice(live) for _ in range(2)] if live else []
         value = rng.randrange(1, 1 << 28)
         nodes[index] = {'value': value, 'edges': edges}
-        output += ['{', 'let node: Any = rt_alloc(80);', f'store64(node, {index}); store64(node + 8, {value});',
+        output += ['{', 'let node: Any = rt_alloc(80); rt_copy(node, zeros, 80);', f'store64(node, {index}); store64(node + 8, {value});',
                    f'store64(ledger + {index * 8}, node);']
         for field, child in enumerate(edges):
             output.append(f'store64(node + {16 + field * 8}, load64(ledger + {child * 8}));')
@@ -99,22 +115,20 @@ def program(seed, steps):
             child = rng.choice(reachable())
             nodes[changed]['edges'] = [child] + nodes[changed]['edges'][1:]
             output.append(f'store64(load64(ledger + {changed * 8}) + 16, load64(ledger + {child * 8}));')
-        output += ['{ mut garbage: Any = 0;', 'while (garbage < 12) { rt_alloc(131072 + garbage * 32); garbage += 1; }', '}']
+        # Clear raw garbage so old allocator links cannot retain unrelated
+        # allocations through the runtime's intentionally conservative scan.
+        output += ['{ mut garbage: Any = 0;', 'while (garbage < 12) { let size: Any = 131072 + garbage * 32; let discarded: Any = rt_alloc(size); rt_copy(discarded, zeros, size); garbage += 1; }', '}']
         if step % 7 == 0 or step == steps - 1:
             output += ['rt_gc(); stress_heap_check();']
             for live_id in reachable():
                 model = nodes[live_id]
-                output += ['{', f'let node: Any = load64(ledger + {live_id * 8});',
-                           f'stress_assert(rt_candidate(node) == node and load64(node) == {live_id} and load64(node + 8) == {model["value"]}, 33);',
-                           'stress_assert(load64(node + 40) == 32 and load64(node + 48) == 5124095576638253 and rt_candidate(node + 56) == 0, 34);',
-                           'let copy: Any = load64(node + 32) / 8;',
-                           'stress_assert(load8(copy) == 112 and load8(copy + 12) == 187 and load8(copy + 13) == 0, 35);']
-                for field, child in enumerate(model['edges']):
-                    output.append(f'stress_assert(load64(node + {16 + field * 8}) == load64(ledger + {child * 8}), 36);')
-                output.append('}')
+                edges = model['edges'] + [-1, -1]
+                output.append(f'stress_node(ledger, {live_id}, {model["value"]}, {edges[0]}, {edges[1]});')
+        functions.extend(output + ['return 0;', '}'])
+    output = main
     forced = sum(step % 7 == 0 or step == steps - 1 for step in range(steps))
     output += [f'stress_assert(GCCOUNT > {forced}, 37); return 0;', '}', 'stress_main();']
-    return '\n'.join(output)
+    return '\n'.join(functions + output)
 
 
 def main():
@@ -135,16 +149,25 @@ def main():
         for seed in args.seeds:
             source = work / 'stress.may'; binary = work / 'stress'
             source.write_text(runtime + INVARIANTS + program(seed, args.steps))
-            compiled = subprocess.run([str(args.compiler.resolve()), '--raw', '--legacy', str(source), '-o', str(binary)],
-                                      env=env, capture_output=True, timeout=120)
-            assert compiled.returncode == 0, compiled.stderr
-            result = subprocess.run([str(binary)], capture_output=True, timeout=45)
-            if result.returncode != 0:
+            stage = 'compile'
+            try:
+                result = subprocess.run([str(args.compiler.resolve()), '--raw', '--legacy', str(source), '-o', str(binary)],
+                                        env=env, capture_output=True, timeout=120)
+                if result.returncode == 0:
+                    stage = 'execute'
+                    result = subprocess.run([str(binary)], capture_output=True, timeout=45)
+                failure = result.returncode != 0
+                metadata = {'seed': seed, 'steps': args.steps, 'stage': stage, 'exit': result.returncode,
+                            'stdout': result.stdout.decode(errors='replace'), 'stderr': result.stderr.decode(errors='replace')}
+            except subprocess.TimeoutExpired as error:
+                failure = True
+                metadata = {'seed': seed, 'steps': args.steps, 'stage': stage, 'timeout': error.timeout,
+                            'stdout': (error.stdout or b'').decode(errors='replace'), 'stderr': (error.stderr or b'').decode(errors='replace')}
+            if failure:
                 args.failure_dir.mkdir(parents=True, exist_ok=True)
                 (args.failure_dir / f'seed-{seed}.may').write_bytes(source.read_bytes())
-                (args.failure_dir / f'seed-{seed}.json').write_text(json.dumps({'seed': seed, 'steps': args.steps,
-                    'exit': result.returncode, 'stdout': result.stdout.decode(errors='replace'), 'stderr': result.stderr.decode(errors='replace')}, indent=2))
-            assert result.returncode == 0, (seed, result.returncode, result.stdout, result.stderr)
+                (args.failure_dir / f'seed-{seed}.json').write_text(json.dumps(metadata, indent=2) + '\n')
+                raise AssertionError(metadata)
             results.append({'seed': seed, 'steps': args.steps, 'passed': True})
             print(f'PASS GC seed {seed}: live-graph oracle, encoded roots and heap/free-bin invariants', flush=True)
         if args.self_test:

@@ -40,7 +40,10 @@ python3 toolchain/mayc/tests/gc_stress.py --seeds 42 --steps 256
 
 The bounded default uses seeds 1, 42 and 2026 in a 4 MiB heap. A separate Python
 graph model predicts reachable identities, links and values after root/edge
-mutations. Generated programs combine automatic allocation pressure with explicit
+mutations. Each generated step has a bounded function body, so longer runs do
+not create one oversized compiler IR block. Artificial garbage payloads are
+cleared: stale free-list pointers in uninitialized raw memory can legitimately
+cause conservative retention and exhaust a tiny test heap. Generated programs combine automatic allocation pressure with explicit
 collections and verify allocation-start identity, physical heap boundaries,
 coalescing, free counts and size-bin membership. Injected identity, free-count
 and payload corruption must each fail its checker.
@@ -48,6 +51,7 @@ and payload corruption must each fail its checker.
 A second executable retains nested lists/maps, Unicode copied strings and
 captured closures across allocations and suspended fibers. Failures preserve
 the generated source and seed metadata under the selected `--failure-dir`;
+compile/timeout failures also retain stage, exit status, stdout and stderr;
 replay with the recorded seed and step count. Native compiler verification runs
 this bounded suite. Additional seeds broaden coverage without proving arbitrary
 programs correct. The original sustained-collection report in issue #2 remains
