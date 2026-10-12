@@ -41,6 +41,6 @@ pub fun visible(board: Model) -> List<Task> {
 }
 pub fun demo() -> Model {
     let board: Model = create();
-    for title: Str in ["Ship something small and useful", "Sketch the next language idea", "Take a walk, bring a notebook", "Try Unicode: café, λ, 日本語", "Make the tests tell a good story", "Leave room for a little curiosity"] { add(board, title); }
+    for title: Str in ["Ship something small and useful", "Sketch the next language idea", "Take a walk, bring a notebook", "Try Unicode: café, λ, naïve", "Make the tests tell a good story", "Leave room for a little curiosity"] { add(board, title); }
     toggle(board, 2); toggle(board, 5); board.dirty = false; board.message = "Demo workspace · changes stay in memory"; return board;
 }

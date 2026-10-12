@@ -15,7 +15,7 @@ pub fun render(board: model.Model, window: ui.Window) -> ui.Widget {
     let done: Int = model.completed(board); let tasks: List<model.Task> = model.visible(board);
     let brand: ui.Widget = accent(ui.spacing(ui.label("M"), 12, 0)); ui.size(brand, 48, 48);
     let title: ui.Widget = ui.style(ui.label("Mayboard"), -1, 2171941, 30, 0);
-    let header: ui.Widget = ui.size(ui.row([brand, ui.flex(ui.column([title, caption("A little space for what comes next.")]), 1), caption("MADE WITH MAYLANG")]), 0, 58);
+    let header: ui.Widget = ui.size(ui.row([brand, ui.flex(ui.column([title, caption("A little space for what comes next.")]), 1), caption("YOUR LOCAL WORKSPACE")]), 0, 58);
     let stats: ui.Widget = ui.size(ui.row([statistic("ALL TASKS", len(board.tasks), 2171941), statistic("IN PROGRESS", len(board.tasks) - done, 6727794), statistic("COMPLETED", done, 4756824)]), 0, 94);
     let add: ui.Widget = ui.row([ui.flex(ui.placeholder(ui.entry("draft", board.draft), "Write your next task…"), 1), ui.size(accent(ui.button("add", "Add task")), 112, 44)]);
     let filters: List<ui.Widget> = [];
