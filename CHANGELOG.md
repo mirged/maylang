@@ -37,7 +37,8 @@ Released 2026-10-12. Everyday workspaces and the first native desktop UI toolkit
   their values through collection pressure.
 - Workspace diagnostics isolate imported graphs within a source budget. Worker
   stdout cannot contaminate JSON, and crashes report the actual exit/signal.
-- Bundles include `may`, `mayfmt`, the UI adapter sources, editor tools and
+- Bundles include `may`, `mayfmt`, the complete Mayboard workspace, UI adapter
+  sources, editor tools and
   checksums. Extracted installations build a UI scaffold and render a PNG.
 
 ## Current limits

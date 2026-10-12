@@ -77,6 +77,14 @@ def main():
         result = subprocess.run([str(project / 'snapshot')], cwd=project, env=ui_env,
                                 capture_output=True, timeout=20)
         assert result.returncode == 0 and (project / 'installed.png').read_bytes().startswith(b'\x89PNG'), result
+        board = bundle / 'example_projects/apps/mayboard'
+        result = subprocess.run([str(bundle / 'bin/may'), 'run', '--', '--demo', '--snapshot', str(work / 'mayboard.png')],
+                                cwd=board, env=env, capture_output=True, timeout=180)
+        assert result.returncode == 0 and (work / 'mayboard.png').read_bytes().startswith(b'\x89PNG'), result
+        result = subprocess.run([str(bundle / 'bin/may'), 'test'], cwd=board, env=env,
+                                capture_output=True, timeout=120)
+        assert result.returncode == 0 and b'PASS model.test.may' in result.stdout, result
+        print('PASS bundled Mayboard renders a demo PNG and its model tests pass')
         print('PASS extracted checksums, version, standalone compilation, stdlib, workspace/formatter, legacy maypkg and LSP initialization')
         print('PASS installed UI scaffold builds and a headless application renders PNG')
         print('PASS installed compiler builds and runs the typed textstats application')

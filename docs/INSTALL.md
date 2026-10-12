@@ -24,7 +24,8 @@ launcher caches its generated compiler; after changing compiler sources, run
 explicitly supplied with `--compiler`.
 
 The archive contains `bin/mayc`, `bin/may`, `bin/mayfmt`, `bin/maypkg`, `bin/maylsp`, runtime sidecars and
-`stdlib`. It also contains `VERSION`, `provenance.json` (source commit, dirty
+`stdlib`, plus the complete Mayboard source workspace at
+`example_projects/apps/mayboard`. It also contains `VERSION`, `provenance.json` (source commit, dirty
 state, host and compiler digest) and `SHA256SUMS`. The adjacent `.sha256` file
 checks the archive itself. Archive timestamps are deterministic for the source
 commit; `SOURCE_DATE_EPOCH` can override them.
