@@ -188,13 +188,12 @@ def main():
         assert offset == len(image) and offset % 16384 == 0 and memory == size == 0
         assert address == 4294967296 + offset
         assert struct.unpack_from('<Q', image, 32 + 32)[0] == 4294967296
-        thread = 32 + 72 * 5
-        assert struct.unpack_from('<IIII', image, thread) == (5, 288, 6, 68)
-        assert struct.unpack_from('<Q', image, thread + 16 + 256)[0] == 4294967296 + 16384
-        assert struct.unpack_from('<IIIIII', image, thread + 288) == (50, 24, 1, 11 << 16, 11 << 16, 0)
+        entry = 32 + 72 * 5
+        assert struct.unpack_from('<IIQQ', image, entry) == (0x80000028, 24, 16384, 0)
+        assert struct.unpack_from('<IIIIII', image, entry + 24) == (50, 24, 1, 11 << 16, 11 << 16, 0)
         assert struct.unpack_from('<I', image, 24)[0] == 0x200005
-        assert image[thread + 288 + 24 + 12:thread + 288 + 24 + 26] == b'/usr/lib/dyld\0'
-        library = thread + 288 + 24 + 32
+        assert image[entry + 24 + 24 + 12:entry + 24 + 24 + 26] == b'/usr/lib/dyld\0'
+        library = entry + 24 + 24 + 32
         assert image[library + 24:library + 51] == b'/usr/lib/libSystem.B.dylib\0'
         assert struct.unpack_from('<12I', image, library + 56) == (0x80000022, 48, *([0] * 10))
         if have_emulation:

@@ -4,7 +4,7 @@ import "bytes.may";
 // The output must be ad-hoc signed on macOS before executing on Apple Silicon.
 let MACH_HEADER_SIZE: Any = 32;
 let MACH_SEGMENT_SIZE: Any = 72;
-let MACH_THREAD_SIZE: Any = 288;
+let MACH_ENTRY_SIZE: Any = 24;
 
 fun macho_layout(ctx: Any) -> Any {
     // ARM64's native loader requires an inaccessible lower 4 GiB page zero.
@@ -35,7 +35,7 @@ fun build_macho(ctx: Any) -> Any {
     store32(image, 4277009103); // MH_MAGIC_64
     store32(image + 4, ctx.target.machine); store32(image + 8, 0);
     store32(image + 12, 2); // MH_EXECUTE
-    store32(image + 16, 10); store32(image + 20, MACH_SEGMENT_SIZE * 5 + MACH_THREAD_SIZE + 24 + 32 + 56 + 48);
+    store32(image + 16, 10); store32(image + 20, MACH_SEGMENT_SIZE * 5 + MACH_ENTRY_SIZE + 24 + 32 + 56 + 48);
     store32(image + 24, 2097157); // MH_NOUNDEFS | MH_DYLDLINK | MH_PIE
     let commands: Any = image + MACH_HEADER_SIZE;
     macho_segment(commands, "__PAGEZERO", 0, layout.base, 0, 0, 0);
@@ -43,12 +43,11 @@ fun build_macho(ctx: Any) -> Any {
     macho_segment(commands + MACH_SEGMENT_SIZE * 2, "__DATA", layout.dataAddress, ctx.rodataOffset, layout.dataOffset, ctx.rodataOffset, 3);
     macho_segment(commands + MACH_SEGMENT_SIZE * 3, "__CONST", layout.base + roOffset, image_align(roSize, layout.alignment), roOffset, roSize, 1);
     macho_segment(commands + MACH_SEGMENT_SIZE * 4, "__LINKEDIT", layout.base + linkeditOffset, 0, linkeditOffset, 0, 1);
-    let thread: Any = commands + MACH_SEGMENT_SIZE * 5;
-    store32(thread, 5); store32(thread + 4, MACH_THREAD_SIZE); // LC_UNIXTHREAD
-    store32(thread + 8, 6); store32(thread + 12, 68); // ARM_THREAD_STATE64
-    store64(thread + 16 + 256, layout.codeAddress);
+    let entry: Any = commands + MACH_SEGMENT_SIZE * 5;
+    store32(entry, 2147483688); store32(entry + 4, MACH_ENTRY_SIZE); // LC_MAIN
+    store64(entry + 8, layout.codeOffset);
     // Identify a native macOS 11+ ARM64 executable to the loader and signer.
-    let version: Any = thread + MACH_THREAD_SIZE;
+    let version: Any = entry + MACH_ENTRY_SIZE;
     store32(version, 50); store32(version + 4, 24); // LC_BUILD_VERSION
     store32(version + 8, 1); // PLATFORM_MACOS
     store32(version + 12, 720896); store32(version + 16, 720896); // min/sdk 11.0
