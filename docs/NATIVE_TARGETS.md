@@ -35,3 +35,20 @@ The runner rejects the wrong OS/architecture and checks fixture hashes before
 signing/execution. Python 3.10 or later is required. GitHub job logs and uploaded
 JSON reports provide the tested OS patch versions; support claims must follow
 successful execution results, not merely the presence of this workflow.
+
+## Recorded native validation
+
+[Run 38255666274](https://github.com/mirged/maylang/actions/runs/38255666274)
+passed on 2026-10-12: macOS 14.8.9 and 15.7.9 on ARM64, Windows Server 2022
+10.0.20348 and Server 2025 10.0.26100 on AMD64. All core/arena/error/limit
+fixtures passed; both Windows hosts also accepted the raw entry-return fixture.
+The reports include exact byte output and exit statuses.
+
+Native validation found and corrected defects absent from the emulator's loader:
+an empty trailing PE section, missing Mach-O signature storage, insufficient
+page-zero protection, static ARM64 output rejected by production kernels, and
+missing platform/dyld/entry metadata. Mach-O now declares macOS 11+, a 4 GiB
+page-zero region, dyld/libSystem loading, empty binding/rebase streams and
+`LC_MAIN`. ARM64 data references use ADRP/ADD and pass a relocated-image test.
+The generated program still exits through target syscalls; libSystem supplies
+the initialization that the native dynamic loader expects.

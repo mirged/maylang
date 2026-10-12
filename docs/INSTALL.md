@@ -104,7 +104,7 @@ python3 toolchain/tests/test_package.py /tmp/maylang-linux-x86_64.tar.gz
 Full runtime applications run on Linux x86-64. The core runtime emits Linux
 ARM64/RISC-V64, macOS ARM64 and Windows x86-64 programs, with fewer language and
 OS features and a bounded process-lifetime heap. Cross-target core execution is
-tested with an emulator; macOS signing and real Windows/macOS host behavior
-still require testing on those systems. LLVM output is experimental and
+tested with an emulator and with real macOS/Windows loaders in the
+[native target suite](NATIVE_TARGETS.md). LLVM output is experimental and
 excludes fibers and typed extern functions. See the
 [compiler target matrix](../toolchain/mayc/README.md#cross-compilation).

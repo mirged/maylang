@@ -173,6 +173,46 @@ Exact validation runs and measurements are recorded in the linked PR.
 
 ## Remaining limits
 
+## Open-issue follow-up (2026-10-12)
+
+Native core/raw loader validation now passes on Apple Silicon macOS 14.8.9 and
+15.7.9 and Windows Server 2022/2025. The suite exposed actual PE/Mach-O defects
+that emulation missed; fixes include omitting an empty PE section, Mach-O
+signature storage, 4 GiB page zero, platform/build metadata, dyld/libSystem
+loading, empty binding/rebase streams, LC_MAIN and ASLR-safe ADRP/ADD references.
+[Native host evidence](NATIVE_TARGETS.md) links the successful Actions run.
+
+Core has explicit, owned raw scratch arenas. A reset invalidates its spans and
+reclaims usable capacity without returning pages to the OS. Tests request 1 GiB
+cumulatively while retaining only 1,052,672 bytes, across all five emulated
+targets and native Windows/macOS. Ordinary strings/lists retain their existing
+process lifetime and 256 MiB cap. See [lifetime rules](CORE_MEMORY.md).
+
+The GC audit found a separate deterministic encoded-cstr root defect. Its
+regression fails with exit 6 before the change: the only copied-buffer address
+is encoded as `address * 8`, which the collector previously ignored. Decoded
+candidates now pass the same allocation-start identity checks. The regression
+preserves the copy and growing live graph through 100 forced collections.
+An uninterrupted ecosystem run completed 20,000 generations before this fix;
+that remains evidence against this workload reproducing the original report,
+not proof that the original sustained-corruption issue is resolved.
+
+Library regressions cover empty stacks/queues, queue compaction and reference
+release, invalid chunk/window sizes, empty padding, ASCII whitespace, Unicode
+strings, lexical roots/relative paths, numeric boundaries and fixed ML inference
+on native and LLVM. The user-selected guide migration is preserved as a
+dependency-free Markdown reference: 447 declarations include exact signatures,
+visibility, runtime/platform and experimental status. Both reference generators
+pass `--check`, and 24 actual documentation examples compile and execute.
+
+Tagged releases now require a clean checkout, version-matched tag and exact
+source commit; provenance records compiler and bootstrap tools. The workflow
+compares two archives, tests an extracted installation, packages a checksummed
+VSIX and attaches all assets to a draft before publication. The source-contract
+regressions and deterministic/extracted archive tests pass locally. First
+publication remains a release-lifecycle step; branch CI artifacts are not
+described as published release assets.
+
 The issue acceptance audit additionally covers atomic successful-build state
 publication under concurrent readers and failed rename cleanup, actionable LSP
 startup errors, nested/selective import and Unicode diagnostic locations, and
@@ -185,9 +225,10 @@ interior-header bug is fixed, but the existing worker workaround and warning
 remain until the original failing workload can be reproduced and verified.
 The collector remains conservative, nonmoving and limited to a fixed heap.
 
-Core memory is retained until process exit and capped at 256 MiB. Full runtime
-and toolchain hosting remain Linux x86-64; emulation does not verify real macOS
-signing or Windows/macOS loader behavior. LLVM still excludes fibers and typed
+Core chunks are retained until process exit and capped at 256 MiB; explicit
+scratch arenas reclaim reusable capacity. Full runtime and toolchain hosting
+remain Linux x86-64; native Windows/macOS core/raw loaders now have separate
+successful host checks. LLVM still excludes fibers and typed
 externs. Int64/UInt64 do not provide full-width payloads, and mutable dynamic
 aliases can bypass collection invariants until a typed boundary is checked.
 Recovery is bounded to independent parser/type errors; some frontend stages

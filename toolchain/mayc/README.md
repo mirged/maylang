@@ -164,6 +164,11 @@ Core heap chunks live until process exit, with a 256 MiB retained-heap cap.
 Exhausting it prints `core heap limit exceeded` and exits with status 70. Use
 the full collecting runtime for allocation-intensive, long-running programs.
 
+For repeated raw-memory work, `arena_new`, `arena_alloc`, `arena_reset`,
+`arena_used` and `arena_capacity` provide reusable scratch storage; resets
+invalidate all pointers returned by that arena. `core_heap_retained` reports
+mapped chunk bytes. See [ownership rules and measured growth](../../docs/CORE_MEMORY.md).
+
 Core allocation uses native heap chunks of at least 1 MiB, retained until
 process exit. It has no garbage collector or individual free operation.
 Closures, maps/records, floats, exceptions, fibers and FFI still require the
@@ -175,11 +180,6 @@ compiler along with its full-runtime sidecars.
 ARM64/RISC-V raw targets support integers, literal strings, globals and locals,
 conditionals, loops, direct calls and tail self-calls, `addr`/`cstr`/literal `len`,
 `ptr`, `load8/16/32/64`, `store8/16/32/64`, `exit`, and native `syscall`.
-For repeated raw-memory work, `arena_new`, `arena_alloc`, `arena_reset`,
-`arena_used` and `arena_capacity` provide reusable scratch storage; resets
-invalidate all pointers returned by that arena. `core_heap_retained` reports
-mapped chunk bytes. See [ownership rules and measured growth](../../docs/CORE_MEMORY.md).
-
 They currently allow eight function parameters, six syscall arguments and a
 2000-byte frame. `syscall` numbers and flags are those of the **selected target**:
 Linux ARM64/RISC-V use write=64, mmap=222, exit=93; Darwin uses write=4, exit=1.
@@ -378,6 +378,8 @@ The source-only workflow keeps source convergence, compiler/library checks,
 project workflows, LSP, extracted installation and compliance in `bootstrap`.
 Editor packaging runs in `editor`. Cross-target execution runs separately in
 the optional `core-emulation` job using the checksummed bootstrap artifact.
+The separate `Native core targets` workflow runs required real-loader checks
+on Windows Server 2022/2025 and Apple Silicon macOS 14/15.
 Both optional jobs use `continue-on-error`; a failing emulator installation or
 performance measurement does not fail the required checks. Native core checks
 remain in compiler verification. Branch protection can require `bootstrap` and
