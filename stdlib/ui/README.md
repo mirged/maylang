@@ -8,7 +8,8 @@ trusted TrueType font metrics and PNG output. It has no widget or application
 state. Its X11 presentation/input code follows the existing maybrowser adapter;
 vendored stb headers retain their embedded MIT/public-domain license notices.
 
-Requires the full Linux x86-64 runtime, a C compiler, X11 development headers and
+Uses the direct `x86_64-linux` native backend and full runtime. The experimental
+LLVM backend currently has no C `extern` support. Requires a C compiler, X11 development headers and
 a readable TrueType font. Interactive windows need X11 or XWayland. Debian/Ubuntu:
 `sudo apt-get install build-essential libx11-dev fonts-dejavu-core`.
 `MAYUI_FONT` selects a trusted local font; DejaVu Sans is the default.
