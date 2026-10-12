@@ -18,10 +18,23 @@ def run(*args):
     return subprocess.check_output([str(arg) for arg in args], cwd=ROOT).decode().strip()
 
 
+def release_provenance(tag, version, commit):
+    if tag is None:
+        return None
+    if tag != 'v' + version:
+        raise ValueError(f'release tag {tag!r} must match compiler version v{version}')
+    if run('git', 'rev-parse', f'refs/tags/{tag}^{{commit}}') != commit:
+        raise ValueError('release tag must point to the checked-out source commit')
+    if run('git', 'status', '--porcelain'):
+        raise ValueError('release packaging requires a clean source checkout')
+    return tag
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--compiler', type=Path, help='use an already verified source-built compiler')
+    parser.add_argument('--release-tag', help='require a clean checkout at v<compiler-version>')
     args = parser.parse_args()
     if args.compiler is None:
         subprocess.run(['sh', 'toolchain/rust/build.sh'], cwd=ROOT, check=True)
@@ -32,6 +45,7 @@ def main():
             compiler = ROOT/'toolchain/mayc/build/bin/mayc_new'
     version = run(compiler, '--version').removeprefix('mayc ')
     commit = run('git', 'rev-parse', 'HEAD')
+    tag = release_provenance(args.release_tag, version, commit)
     epoch = int(os.environ.get('SOURCE_DATE_EPOCH', run('git', 'show', '-s', '--format=%ct', 'HEAD')))
     output = args.output.resolve(); output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='maylang-package-') as directory:
@@ -49,8 +63,11 @@ def main():
         (bundle/'VERSION').write_text(version+'\n')
         (bundle/'README.txt').write_text('Add this bundle\'s bin directory to PATH. Keep the entire bundle together.\nCompiler host: Linux x86-64. Full runtime: Linux x86-64 only.\nUse mayc --help, maypkg help, and maylsp with an LSP-capable editor.\nUpgrade by extracting a new bundle and changing PATH.\n')
         (bundle/'provenance.json').write_text(json.dumps({
-            'version':version, 'commit':commit, 'dirty':bool(run('git','status','--porcelain')),
+            'version':version, 'commit':commit, 'tag':tag,
+            'dirty':bool(run('git','status','--porcelain')),
             'host':'x86_64-linux', 'bootstrap':'Rust -> C -> self-hosted native',
+            'bootstrap_tools': {'rustc': run('rustc', '--version'),
+                                'cc': run(os.environ.get('CC', 'cc'), '--version').splitlines()[0]},
             'source_date_epoch':epoch,
             'compiler_sha256':hashlib.sha256(compiler.read_bytes()).hexdigest(),
         }, indent=2)+'\n')

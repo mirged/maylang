@@ -49,6 +49,7 @@ jobs:
           python3 toolchain/maylsp/tests/test_lsp.py
       - name: Build and test an extracted release
         run: |
+          python3 toolchain/tests/test_release.py
           python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --output /tmp/maylang.tar.gz
           python3 toolchain/tests/test_package.py /tmp/maylang.tar.gz
       - name: Upload complete toolchain bundle
