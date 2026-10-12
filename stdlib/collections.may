@@ -12,7 +12,7 @@ fun stack_push(st: Any, value: Any) -> Any { push(st.items, value); return st; }
 fun stack_pop(st: Any) -> Any { return pop(st.items); }
 
 /// The top of `st` without removing it.
-fun stack_peek(st: Any) -> Any { let xs: Any = st.items; return xs[len(xs) - 1]; }
+fun stack_peek(st: Any) -> Any { let xs: Any = st.items; return if (len(xs) == 0) { nil } else { xs[len(xs) - 1] }; }
 
 /// Number of items on `st`.
 fun stack_size(st: Any) -> Any { return len(st.items); }
@@ -32,7 +32,12 @@ fun queue_push(q: Any, value: Any) -> Any { push(q.items, value); return q; }
 fun queue_pop(q: Any) -> Any {
     if (q.head >= len(q.items)) { return nil; }
     let value: Any = q.items[q.head];
+    q.items[q.head] = nil;
     q.head = q.head + 1;
+    if (q.head == len(q.items)) { q.items = []; q.head = 0; }
+    else if (q.head >= 64 and q.head * 2 >= len(q.items)) {
+        q.items = slice(q.items, q.head, len(q.items)); q.head = 0;
+    }
     return value;
 }
 

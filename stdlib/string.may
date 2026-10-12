@@ -19,9 +19,10 @@ pub fun capitalize(s: Any) -> Any {
     return out;
 }
 
-/// Split on whitespace, dropping empty pieces.
+/// Split on ASCII space/tab/newline/carriage return, dropping empty pieces.
 pub fun words(s: Any) -> Any {
-    return filter(s.trim().split(" "), |w: Any| -> Any { return len(w) > 0; });
+    let normalized: Any = replace(replace(replace(s, "\t", " "), "\n", " "), "\r", " ");
+    return filter(normalized.split(" "), |w: Any| -> Any { return len(w) > 0; });
 }
 
 /// The lines of `s`.
@@ -35,6 +36,7 @@ pub fun reverse_str(s: Any) -> Any { return reverse(s); }
 
 /// Left-pad `s` with `ch` until it is `width` characters wide.
 pub fun pad_left(s: Any, width: Any, ch: Any) -> Any {
+    if (len(ch) == 0 and len(s) < width) { fail("padding must not be empty"); }
     mut out: Any = s;
     while (len(out) < width) { out = ch + out; }
     return out;
@@ -42,6 +44,7 @@ pub fun pad_left(s: Any, width: Any, ch: Any) -> Any {
 
 /// Right-pad `s` with `ch` until it is `width` characters wide.
 pub fun pad_right(s: Any, width: Any, ch: Any) -> Any {
+    if (len(ch) == 0 and len(s) < width) { fail("padding must not be empty"); }
     mut out: Any = s;
     while (len(out) < width) { out = out + ch; }
     return out;

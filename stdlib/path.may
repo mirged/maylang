@@ -45,8 +45,14 @@ fun path_stem(p: Any) -> Any {
     return if (ext == "") { base } else { path_substr(base, 0, len(base) - len(ext) - 1) };
 }
 fun path_relative(base_path: Any, target_path: Any) -> Any {
-    let a: Any = split(path_normalize(base_path), "/"); let b: Any = split(path_normalize(target_path), "/");
+    let base: Any = path_normalize(base_path); let target: Any = path_normalize(target_path);
+    let base_root: Any = if (path_is_absolute(base)) { if (base[0] == "/") { "/" } else { path_substr(base, 0, 2) } } else { "" };
+    let target_root: Any = if (path_is_absolute(target)) { if (target[0] == "/") { "/" } else { path_substr(target, 0, 2) } } else { "" };
+    if (base_root != target_root) { fail("relative paths must have the same root"); }
+    let a: Any = filter(split(base, "/"), |part: Any| -> Any { return part != "" and part != "."; });
+    let b: Any = filter(split(target, "/"), |part: Any| -> Any { return part != "" and part != "."; });
     mut i: Any = 0;
     while (i < len(a) && i < len(b) && a[i] == b[i]) { i = i + 1; }
-    return join([".." for _: Any in i..len(a)] + slice(b, i, len(b)), "/");
+    let relative: Any = join([".." for _: Any in i..len(a)] + slice(b, i, len(b)), "/");
+    return if (relative == "") { "." } else { relative };
 }

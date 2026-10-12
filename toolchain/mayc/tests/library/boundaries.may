@@ -1,0 +1,75 @@
+import "../../../../stdlib/collections.may" as collections;
+import "../../../../stdlib/algo.may" as algo;
+import "../../../../stdlib/iter.may" as iter;
+import "../../../../stdlib/string.may" as strings;
+import "../../../../stdlib/path.may" as path;
+import "../../../../stdlib/math.may" as numbers;
+import "../../../../stdlib/ml/fixed.may" as fixed;
+
+fun expect(actual: Any, expected: Any, label: Str) -> Nil {
+    if json_stringify(actual) != json_stringify(expected) { fail("${label}: expected ${expected}, got ${actual}"); }
+    return;
+}
+let stack: Any = collections.stack();
+expect(collections.stack_pop(stack), nil, "line 14");
+expect(collections.stack_peek(stack), nil, "line 15");
+collections.stack_push(stack, "λ");
+expect(collections.stack_peek(stack), "λ", "line 17");
+expect(collections.stack_pop(stack), "λ", "line 18");
+expect(collections.stack_empty(stack), true, "line 19");
+let queue: Any = collections.queue();
+for n: Any in 0..200 { collections.queue_push(queue, n); }
+for n: Any in 0..200 { expect(collections.queue_pop(queue), n, "line 22"); }
+expect(collections.queue_pop(queue), nil, "line 23");
+expect(collections.queue_size(queue), 0, "line 24");
+expect(len(queue.items), 0, "line 25");
+collections.queue_push(queue, 42);
+expect(collections.queue_pop(queue), 42, "line 27");
+let set: Any = collections.set_new();
+collections.set_add(set, "a"); collections.set_add(set, "a");
+let removed: Any = collections.set_remove(set, "a");
+expect(collections.set_has(set, "a"), true, "line 31");
+expect(collections.set_size(removed), 0, "line 32");
+expect(algo.chunk([], 1), [], "line 33");
+expect(algo.chunk([1, 2, 3], 2), [[1, 2], [3]], "line 34");
+expect(may { algo.chunk([1], 0) } otherwise { err.message }, "chunk size must be positive", "line 35");
+expect(may { algo.chunk([], -1) } otherwise { err.message }, "chunk size must be positive", "line 36");
+expect(algo.take([1], -2), [], "line 37");
+expect(algo.drop([1], -2), [1], "line 38");
+expect(algo.binary_search([], 1), -1, "line 39");
+expect(iter.windows([], 1), [], "line 40");
+expect(iter.windows([1, 2], 2), [[1, 2]], "line 41");
+expect(may { iter.windows([1], 0) } otherwise { err.message }, "windows width must be positive", "line 42");
+expect(strings.words(" \tα\nβ\r🙂  "), ["α", "β", "🙂"], "line 43");
+expect(strings.words("\t\n"), [], "line 44");
+expect(strings.count_occurrences("abc", ""), 0, "line 45");
+expect(strings.count_occurrences("aaaa", "aa"), 2, "line 46");
+expect(strings.reverse_str("aλ🙂"), "🙂λa", "line 47");
+expect(strings.pad_left("λ", 3, "🙂"), "🙂🙂λ", "line 48");
+expect(strings.pad_right("λ", 3, "🙂"), "λ🙂🙂", "line 49");
+expect(strings.pad_left("abc", 1, ""), "abc", "line 50");
+expect(may { strings.pad_left("", 1, "") } otherwise { err.message }, "padding must not be empty", "line 51");
+expect(may { strings.pad_right("", 1, "") } otherwise { err.message }, "padding must not be empty", "line 52");
+expect(path.path_normalize(""), ".", "line 53");
+expect(path.path_normalize("/../../a/./b/.."), "/a", "line 54");
+expect(path.path_normalize("C:\\a\\..\\b"), "C:/b", "line 55");
+expect(path.path_join("/a", "/b"), "/b", "line 56");
+expect(path.path_dirname("/a"), "/", "line 57");
+expect(path.path_dirname("C:/a"), "C:/", "line 58");
+expect(path.path_extension(".profile"), "", "line 59");
+expect(path.path_extension("a.tar.gz"), "gz", "line 60");
+expect(path.path_relative("/", "/a"), "a", "line 61");
+expect(path.path_relative(".", "a"), "a", "line 62");
+expect(path.path_relative("/a", "/a"), ".", "line 63");
+expect(path.path_relative("/a/b", "/a/c"), "../c", "line 64");
+expect(may { path.path_relative("C:/a", "D:/b") } otherwise { err.message }, "relative paths must have the same root", "line 65");
+expect(may { path.path_relative("a", "/a") } otherwise { err.message }, "relative paths must have the same root", "line 66");
+expect(numbers.gcd(-18, 12), 6, "line 67");
+expect(numbers.lcm(0, 8), 0, "line 68");
+expect(numbers.factorial(0), 1, "line 69");
+expect(numbers.fibonacci(0), 0, "line 70");
+expect(numbers.is_prime(1), false, "line 71");
+let network: Any = fixed.nn_fixed_model([1, 1], [1024, 0], 1024);
+expect(fixed.nn_fixed_predict(network, [1024]), [512], "line 73");
+expect(may { fixed.nn_fixed_model([1, 1], [0], 1024) } otherwise { err.message }, "fixed neural parameter count mismatch", "invalid fixed parameters");
+print("PASS collection/string/path/numeric/experimental ML boundaries");
