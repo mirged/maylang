@@ -81,8 +81,10 @@ The [Tagged release workflow](../.github/workflows/release.yml) runs when a
 maintainer pushes `v<compiler-version>`. Set `MAYC_VERSION` in
 `toolchain/mayc/main.may` before tagging. Packaging rejects a different version,
 a tag pointing at another commit, or a dirty checkout. For example, the
-compiler version `0.9.0-2026-10-10-nightly` requires the exact source tag
-`v0.9.0-2026-10-10-nightly`. Annotated tags are recommended.
+compiler version `0.10.0` requires the exact source tag `v0.10.0`. Annotated
+tags are recommended. Keep `RELEASE.json` synchronized with the compiler; it
+records the codename (**Aster**) and release date (**2026-10-12**). See the
+[release convention](RELEASING.md) for future versions.
 
 The workflow bootstraps from tagged source, checks compiler generations and
 contracts, packages twice and compares the archives byte for byte, then tests
@@ -95,7 +97,7 @@ branch CI continues to upload artifacts without creating a release or tag.
 To enforce the same source contract locally from a clean tagged checkout:
 
 ```sh
-python3 toolchain/package.py --release-tag v0.9.0-2026-10-10-nightly --output /tmp/maylang-linux-x86_64.tar.gz
+python3 toolchain/package.py --release-tag v0.10.0 --output /tmp/maylang-linux-x86_64.tar.gz
 python3 toolchain/tests/test_package.py /tmp/maylang-linux-x86_64.tar.gz
 ```
 

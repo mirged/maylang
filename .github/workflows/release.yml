@@ -51,12 +51,23 @@ jobs:
           npm exec --yes --package @vscode/vsce@3.6.2 -- vsce package --out /tmp/maylang-vscode.vsix
           cd /tmp
           sha256sum maylang-vscode.vsix > maylang-vscode.vsix.sha256
+      - name: Read verified release identity
+        id: identity
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          metadata = json.loads(Path('RELEASE.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('codename=' + metadata['codename'] + '\n')
+          PY
       - name: Publish verified assets from the existing source tag
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_CODENAME: ${{ steps.identity.outputs.codename }}
         run: |
-          gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes --title "Maylang $RELEASE_TAG"
+          gh release create "$RELEASE_TAG" --verify-tag --draft --notes-file CHANGELOG.md --title "Maylang $RELEASE_TAG — $RELEASE_CODENAME"
           gh release upload "$RELEASE_TAG" /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-linux-x86_64.tar.gz.sha256 /tmp/maylang-vscode.vsix /tmp/maylang-vscode.vsix.sha256
           if [[ "$RELEASE_TAG" == *-* ]]; then
             gh release edit "$RELEASE_TAG" --prerelease --draft=false

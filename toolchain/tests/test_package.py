@@ -25,6 +25,9 @@ def main():
             assert hashlib.sha256((bundle/name).read_bytes()).hexdigest() == digest, name
         provenance=json.loads((bundle/'provenance.json').read_text())
         assert provenance['version'] == (bundle/'VERSION').read_text().strip()
+        metadata = json.loads((bundle / 'RELEASE.json').read_text())
+        assert metadata == provenance['release'] and metadata['version'] == provenance['version']
+        assert metadata['codename'] in (bundle / 'CHANGELOG.md').read_text()
         env=os.environ.copy(); env['PATH']=str(bundle/'bin')+os.pathsep+env.get('PATH','')
         for variable in ('MAYC','MAYLANG_STDLIB','MAYPKG_MANIFEST','MAYPKG_ENTRY'): env.pop(variable,None)
         project=work/'project';project.mkdir()
@@ -34,6 +37,8 @@ def main():
             assert result.returncode == 0,(command,result)
             return result.stdout
         assert run(str(bundle/'bin/mayc'),'--version').decode().strip() == 'mayc '+provenance['version']
+        targets = run(str(bundle / 'bin/mayc'), '--list-targets').decode()
+        assert 'arm64-macos\tmacho\tcore' in targets and 'clang-llvm\tllvm\tfull' in targets
         run(str(bundle/'bin/mayc'),'main.may','-o','hello')
         assert run(str(project/'hello')) == b'42\n'
         run(str(bundle/'bin/maypkg'),'build')
