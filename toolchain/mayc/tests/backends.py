@@ -190,6 +190,7 @@ def main():
         thread = 32 + 72 * 5
         assert struct.unpack_from('<IIII', image, thread) == (5, 288, 6, 68)
         assert struct.unpack_from('<Q', image, thread + 16 + 256)[0] == 4294967296 + 16384
+        assert struct.unpack_from('<IIIIII', image, thread + 288) == (50, 24, 1, 11 << 16, 11 << 16, 0)
         if have_emulation:
             emulate(image, 'arm64', macos=True)
         print('PASS ARM64 Mach-O layout and Darwin syscall ABI (native signing not tested)', flush=True)
