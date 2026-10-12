@@ -95,7 +95,7 @@ def execute(directory, target):
             raise
         report['cases'].append(case)
         (directory / f'{target}-report.json').write_text(json.dumps(report, indent=2) + '\n')
-        print(json.dumps(case, ensure_ascii=False), flush=True)
+        print(json.dumps(case), flush=True)
         assert result.returncode == fixture['status'], case
         assert result.stdout == fixture['stdout'].encode() and not result.stderr, case
     print(f'PASS {target}: real loader, console, heap, calls and exits', flush=True)

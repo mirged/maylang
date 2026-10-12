@@ -180,8 +180,13 @@ def main():
         source.write_text(raw[:raw.index('let memory:')] + 'syscall(4, 1, addr("target-ok\\n"), 10);\nexit(42);\n')
         image = compile_source(compiler, source, work / 'darwin', '--raw', '--target', 'arm64-macos')
         assert struct.unpack_from('<IIII', image) == (0xfeedfacf, 0x100000c, 0, 2)
-        assert len(list(macho_segments(image))) == 3
-        thread = 32 + 72 * 4
+        assert len(list(macho_segments(image))) == 4
+        linkedit = 32 + 72 * 4
+        assert image[linkedit + 8:linkedit + 18] == b'__LINKEDIT'
+        address, memory, offset, size = struct.unpack_from('<QQQQ', image, linkedit + 24)
+        assert offset == len(image) and offset % 16384 == 0 and memory == size == 0
+        assert address == 4194304 + offset
+        thread = 32 + 72 * 5
         assert struct.unpack_from('<IIII', image, thread) == (5, 288, 6, 68)
         assert struct.unpack_from('<Q', image, thread + 16 + 256)[0] == 4194304 + 16384
         if have_emulation:

@@ -25,19 +25,23 @@ fun build_macho(ctx: Any) -> Any {
     let layout: Any = ctx.layout;
     let roOffset: Any = layout.dataOffset + ctx.rodataOffset;
     let roSize: Any = ctx.data.length - ctx.rodataOffset;
-    ctx.image.length = roOffset + roSize;
+    // Apple's signer requires __LINKEDIT to end exactly at EOF. Reserve an
+    // empty, page-aligned segment for codesign_allocate's signature payload.
+    let linkeditOffset: Any = image_align(roOffset + roSize, layout.alignment);
+    ctx.image.length = linkeditOffset;
     sink_require(ctx.image, ctx.image.length);
     let image: Any = ctx.image.data;
     store32(image, 4277009103); // MH_MAGIC_64
     store32(image + 4, ctx.target.machine); store32(image + 8, 0);
     store32(image + 12, 2); // MH_EXECUTE
-    store32(image + 16, 5); store32(image + 20, MACH_SEGMENT_SIZE * 4 + MACH_THREAD_SIZE);
+    store32(image + 16, 6); store32(image + 20, MACH_SEGMENT_SIZE * 5 + MACH_THREAD_SIZE);
     let commands: Any = image + MACH_HEADER_SIZE;
     macho_segment(commands, "__PAGEZERO", 0, layout.base, 0, 0, 0);
     macho_segment(commands + MACH_SEGMENT_SIZE, "__TEXT", layout.base, layout.dataOffset, 0, layout.dataOffset, 5);
     macho_segment(commands + MACH_SEGMENT_SIZE * 2, "__DATA", layout.dataAddress, ctx.rodataOffset, layout.dataOffset, ctx.rodataOffset, 3);
     macho_segment(commands + MACH_SEGMENT_SIZE * 3, "__CONST", layout.base + roOffset, image_align(roSize, layout.alignment), roOffset, roSize, 1);
-    let thread: Any = commands + MACH_SEGMENT_SIZE * 4;
+    macho_segment(commands + MACH_SEGMENT_SIZE * 4, "__LINKEDIT", layout.base + linkeditOffset, 0, linkeditOffset, 0, 1);
+    let thread: Any = commands + MACH_SEGMENT_SIZE * 5;
     store32(thread, 5); store32(thread + 4, MACH_THREAD_SIZE); // LC_UNIXTHREAD
     store32(thread + 8, 6); store32(thread + 12, 68); // ARM_THREAD_STATE64
     store64(thread + 16 + 256, layout.codeAddress);
