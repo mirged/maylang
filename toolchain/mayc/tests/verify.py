@@ -171,6 +171,8 @@ def main():
         record("runtime hash tables and allocation bins", maps.returncode == 0, (maps.stdout + maps.stderr).decode())
         gc = run(["python3", COMPILER / "tests/gc.py", "--compiler", compiler], timeout=180)
         record("GC allocation identity and repeated collections", gc.returncode == 0, (gc.stdout + gc.stderr).decode())
+        stress = run(["python3", COMPILER / "tests/gc_stress.py", "--compiler", compiler, "--self-test"], timeout=180)
+        record("seeded GC graph oracle, heap invariants and suspended closures", stress.returncode == 0, (stress.stdout + stress.stderr).decode())
         libraries = run(["python3", COMPILER / "tests/stdlib_contracts.py", "--compiler", compiler], timeout=180)
         record("typed standard-library contracts", libraries.returncode == 0, (libraries.stdout + libraries.stderr).decode())
         processes = run(["python3", COMPILER / "tests/processes.py", "--compiler", compiler], timeout=180)
