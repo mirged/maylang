@@ -76,9 +76,9 @@ fun parse_extern(ctx: Any) -> Any {
     return 0;
 }
 
-fun ffi_prepare(ctx: Any) -> Any {
-    if (len(FOREIGN_DECLS) == 0) { return 0; }
+fun ffi_prepare(ctx: Any, declarations: Any) -> Any {
+    if (len(declarations) == 0) { return 0; }
     ctx.ffiStartSlot = dalloc(ctx, 8);
-    for rec: Any in FOREIGN_DECLS { rec.ffiSlot = dalloc(ctx, 8); }
+    for rec: Any in declarations { rec.ffiSlot = dalloc(ctx, 8); }
     return 0;
 }

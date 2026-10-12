@@ -33,6 +33,7 @@ jobs:
       - name: Verify direct Maylang LLVM backend
         run: |
           python3 toolchain/mayc/tests/llvm.py
+          python3 toolchain/mayc/tests/reachability.py --llvm
       - name: Verify native compiler and current entrypoints
         run: python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
       - name: Verify contracts and error traces through LLVM

@@ -4,6 +4,7 @@ import "../ast.may";
 import "../lexer.may";
 import "../symbols.may";
 import "../sema.may";
+import "../emitter.may";
 // LLVM lowering owns its state and consumes the same linear IR as native targets.
 // Values retain Maylang's tagged representation. Runtime functions are lowered
 // as raw i64 operations; no source-to-C bridge or Rust compiler is involved.
@@ -53,6 +54,7 @@ fun llvm_name(s: Any, name: Any) -> Any {
     }
     if (has(s.unit.ctx.functionIndex, name)) {
         mut rec: Any = s.unit.ctx.functionIndex[name];
+        emission_reference(s.unit.ctx, rec.lab);
         return llvm_call(s, "rt_closure3", ["ptrtoint (ptr @f${rec.lab} to i64)", "0", str(rec.pc)]);
     }
     die_str("mayc: LLVM unknown name `${name}`\n"); return "0";
@@ -60,6 +62,7 @@ fun llvm_name(s: Any, name: Any) -> Any {
 fun llvm_call(s: Any, name: Any, values: Any) -> Any {
     if (not has(s.unit.ctx.functionIndex, name)) { die_str("mayc: LLVM missing function `${name}`\n"); }
     mut rec: Any = s.unit.ctx.functionIndex[name];
+    emission_reference(s.unit.ctx, rec.lab);
     if (rec.pc > s.unit.argCount) { die_str("mayc: LLVM argument capacity exceeded\n"); }
     for i: Any in 0..rec.pc {
         mut value: Any = "2"; if (s.raw) { value = "0"; }
@@ -263,6 +266,7 @@ fun llvm_operation(s: Any, op: Any, n: Any) -> Any {
     if (op == E_ICALL) { return llvm_apply(s,llvm_value(s,n.callee),llvm_args(s,n.args)); }
     if (op == E_CAPVAR) { return llvm_memory(s,llvm_capture(s,n.index)); }
     if (op == E_CLOSURE) {
+        emission_reference(s.unit.ctx, n.label);
         mut caps: Any = []; mut cap: Any = n.captures;
         while (cap != 0) {
             mut name: Any = symbol_name(cap.name,cap.length); mut value: Any = "0";
@@ -391,6 +395,7 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
 }
 fun llvm_emit(ctx: Any) -> Any {
     if (len(ctx.foreign) > 0) { die_str("mayc: LLVM does not yet support extern functions\n"); }
+    emission_begin(ctx);
     mut unit: Any = {"ctx":ctx,"globals":{},"strings":[],"argCount":8};
     for g: Any in ctx.globals { unit.globals[symbol_name(g.p,g.l)] = "@g${len(unit.globals)}"; }
     for rec: Any in ctx.functions {
@@ -404,9 +409,16 @@ fun llvm_emit(ctx: Any) -> Any {
         }
     }
     mut bodies: Any = [];
-    for rec: Any in ctx.functions { push(bodies,llvm_function(unit,rec,false)); }
     mut main: Any = {"ir":ctx.mainIR,"mode":0,"boxed":ctx.mainBoxed,"parr":[],"pc":0,"caparr":[]};
     push(bodies,llvm_function(unit,main,true));
+    // may_throw has an implicit edge to the uncaught-error handler.
+    emission_reference(ctx, ctx.functionIndex["rt_die_uncaught"].lab);
+    mut next: Any = 0;
+    while (next < len(ctx.reachability.queue)) {
+        let rec: Any = ctx.reachability.queue[next]; next += 1;
+        push(bodies,llvm_function(unit,rec,false));
+    }
+    emission_finish(ctx);
     mut header: Any = ["; Maylang direct LLVM backend\ntarget triple = \"x86_64-unknown-linux-gnu\"\n@may_handlers = internal global [64 x [256 x i8]] zeroinitializer, align 16\ndeclare ptr @llvm.stacksave.p0()\ndeclare ptr @llvm.frameaddress.p0(i32 immarg)\ndeclare void @llvm.trap() cold noreturn nounwind\ndeclare i32 @_setjmp(ptr) returns_twice\ndeclare void @longjmp(ptr, i32) noreturn"];
     for fn: Any in ["sqrt","floor","ceil","nearbyint","trunc","sin","cos","tan","log","log2","log10","exp","fabs"] { push(header,"declare double @${fn}(double)"); }
     push(header,"declare double @pow(double, double)");

@@ -198,12 +198,36 @@ small reusable blocks in size bins. Repetition uses binary doubling, and image
 copying moves 32-bit words without losing bits through tagged integers.
 
 After checking all source functions, IR lowering follows reachable direct calls
-and closure labels, skipping unused library and user functions. Raw runtime
-functions remain conservative roots because backends call helpers implicitly.
-Function lookup uses a per-emission-context index. These changes reduce repeated
-allocation, linear searches and emission work without adding a build cache.
+and closure labels, skipping unused library and user functions. Runtime IR stays
+available for implicit backend calls, but emission starts at main and follows a
+deduplicated function worklist. Native code relocations and LLVM calls/function
+addresses retain exactly the helpers they reference, including GC, exceptions,
+closures and ABI trampolines. Unused functions, their literals and ELF symbols
+are omitted. The native fiber switch is emitted only when referenced.
 
-The saved [build measurement](tests/backend/build-performance.json) uses
+Unused foreign declarations receive normal type/name checks but do not allocate
+loader slots or introduce library/symbol dependencies. Top-level and imported
+initialization still execute, and every declaration is checked before pruning.
+Function lookup uses a per-emission-context index; original function labels use
+constant-time worklist membership. This reduces emission work without a build
+cache or a duplicate table of implicit runtime dependencies.
+
+The [reachability measurement](tests/backend/reachability-performance.json)
+records identical sidecars, three sequential samples and matching program output:
+
+| Program | Before image | Pruned image | Reduction |
+| --- | ---: | ---: | ---: |
+| Hello, full runtime | 252,864 bytes | 133,088 bytes | 47.4% |
+| Features, full runtime | 314,072 bytes | 207,216 bytes | 34.0% |
+
+Observed compilation medians were 1.063s -> 0.608s for hello and 0.983s -> 0.762s
+for features. These are local measurements without timing gates. This comparison
+uses `--skip-rebuild`: the older compiler exhausted its fixed runtime heap when
+rebuilding the updated compiler source, so no rebuild speedup is claimed. The
+updated compiler rebuilds successfully and the default benchmark still measures
+and executes a full rebuild.
+
+The earlier [build measurement](tests/backend/build-performance.json) uses
 identical runtime/library sidecars for both compilers, measures complete
 processes, compares functional output and runs each rebuilt compiler:
 
@@ -225,6 +249,8 @@ python3 toolchain/mayc/tests/build_benchmark.py --compiler toolchain/mayc/mayc_n
 ```
 
 Omit `--baseline` to record the current compiler's timings without a comparison.
+Use `--skip-rebuild` with a baseline to compare example codegen only; the report
+records zero rebuild samples and excludes a compiler rebuild speedup.
 The report also records compiler/sidecar hashes and image sizes. The optional
 `performance` CI job runs this mode on manual workflow dispatches and uploads
 `build-benchmark.json`; timings do not gate pull requests.
@@ -232,6 +258,11 @@ The report also records compiler/sidecar hashes and image sizes. The optional
 `tests/runtime_maps.py` checks real string-hash collisions, ordered iteration,
 replacement/removal, mixed key types, forced collections, byte copying and
 symbol-cache behavior.
+
+`tests/reachability.py --llvm` executes native/LLVM retained calls, function values,
+captures, recursion, initialization and errors, checks unused code/literals and
+foreign loader entries, and inspects stripping across all core targets and raw
+Linux targets. Native verification runs the non-LLVM cases; CI also runs LLVM.
 
 ## Runtime performance
 

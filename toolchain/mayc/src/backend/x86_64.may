@@ -1549,8 +1549,11 @@ fun cg_program(ctx: Any) -> Any {
     store32(ctx.code.data + fp, frame);
     ctx.allocation = 0;
 
-    // fiber context-switch routine
-    if (ctx.dynamic == 1) {
+    return 0;
+}
+
+fun x86_emit_fiber(ctx: Any) -> Any {
+    // Only programs using fibers need the context-switch routine.
     placelab(ctx, ctx.fiberLabel);
     e8(ctx, 85);
     e8(ctx, 83);
@@ -1567,12 +1570,6 @@ fun cg_program(ctx: Any) -> Any {
     e8(ctx, 91);
     e8(ctx, 93);
     e8(ctx, 195);
-    }
-
-    // user functions (runtime functions, mode 1, were emitted earlier)
-    for r: Any in ctx.functions {
-        if (r.mode == 0) { cg_func(ctx, r); }
-    }
     return 0;
 }
 
@@ -1604,10 +1601,17 @@ fun patch_all(ctx: Any) -> Any {
 }
 
 fun x86_emit(ctx: Any) -> Any {
+    emission_begin(ctx);
     if (ctx.dynamic == 1) {
-        jmp(ctx, 0);
         ctx.fiberLabel = newlab(ctx);
-        for rec: Any in ctx.functions { if (rec.mode == 1) { cg_func(ctx, rec); } }
     }
-    return cg_program(ctx);
+    cg_program(ctx);
+    mut next: Any = 0;
+    while (next < len(ctx.reachability.queue)) {
+        let rec: Any = ctx.reachability.queue[next]; next += 1;
+        cg_func(ctx, rec);
+    }
+    if (ctx.reachability.fiber) { x86_emit_fiber(ctx); }
+    emission_finish(ctx);
+    return 0;
 }

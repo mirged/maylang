@@ -205,13 +205,19 @@ fun raw_function(ctx: Any, emitter: Any, block: Any, rec: Any) -> Any {
 }
 
 fun raw_program(ctx: Any, emitter: Any) -> Any {
+    emission_begin(ctx);
     placelab(ctx, 0);
     (emitter.jump)(ctx, 1, true);
     (emitter.immediate)(ctx, 0, 0);
     (emitter.immediate)(ctx, if (ctx.target.os == "macos") { 1 } else { 93 }, 3);
     (emitter.trap)(ctx);
     raw_function(ctx, emitter, ctx.mainIR, 0);
-    for rec: Any in ctx.functions { raw_function(ctx, emitter, rec.ir, rec); }
+    mut next: Any = 0;
+    while (next < len(ctx.reachability.queue)) {
+        let rec: Any = ctx.reachability.queue[next]; next += 1;
+        raw_function(ctx, emitter, rec.ir, rec);
+    }
+    emission_finish(ctx);
     return 0;
 }
 

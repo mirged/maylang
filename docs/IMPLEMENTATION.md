@@ -69,6 +69,33 @@ On Linux x86-64, 2026-10-10:
 - Seed 731 passes 48 frontend mutations plus cyclic/alternate import paths.
   A real ecosystem workload runs 5000 generations successfully.
 
+## Codegen reachability follow-up
+
+On Linux x86-64, 2026-10-11, emission starts with main and follows actual code
+references through a deduplicated worklist. Native label relocations include
+implicit runtime calls and closure addresses; LLVM records calls, function
+values, closure labels and its uncaught-error helper. Unused functions, literals,
+ELF symbols and native fiber-switch code are omitted. Foreign declarations are
+checked normally, but only reachable bindings allocate loader slots or introduce
+library/symbol dependencies. Imported and top-level initialization remain roots.
+Runtime IR is still prepared before emission; this change strips generated code
+rather than claiming to eliminate all frontend work.
+
+The reachability suite passes native and LLVM execution for direct/indirect
+calls, captures, mutual recursion, initialization, handlers, numeric operations
+and unused externs. It also checks live foreign calls/function values, pruned
+loader entries, stripped core/raw output and diagnostics in unused declarations.
+Portable core tests execute all five targets through Unicorn, including numeric
+errors and bounded retained-heap exhaustion.
+
+[Recorded codegen measurements](../toolchain/mayc/tests/backend/reachability-performance.json)
+reduce hello from 252,864 to 133,088 bytes (47.4%) and features from 314,072 to
+207,216 bytes (34.0%), with identical sidecars and matching output. Example
+compilation uses three samples and no timing gate. The comparison explicitly
+skips compiler rebuilds because the older compiler exhausted its fixed heap on
+the updated source; the updated compiler passes the default benchmark's rebuild
+and version execution. No comparative rebuild speedup is claimed.
+
 ## Project workflow follow-up
 
 [PR #22](https://github.com/mirged/maylang/pull/22) completes issues #3 and #18.
