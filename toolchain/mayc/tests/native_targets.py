@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 from backends import compile_source, compiler_binary
-from core_runtime import EXPECTED
+from core_runtime import ARENA_EXPECTED, EXPECTED
 
 HERE = Path(__file__).resolve().parent
 TARGETS = ('x86_64-linux', 'arm64-macos', 'x86_64-windows')
@@ -30,6 +30,7 @@ def emit(compiler, directory):
                                  status=status, sha256=hashlib.sha256(image).hexdigest()))
 
         fixture('core', HERE / 'backend/core.may', EXPECTED.decode(), 42, '--runtime', 'core')
+        fixture('arena', HERE / 'backend/arena.may', ARENA_EXPECTED.decode(), 0, '--runtime', 'core')
         for name, body, message in [
             ('overflow', 'let n: Any = int("1152921504606846975"); print(n + 1);', 'integer overflow\n'),
             ('divide', 'let n: Any = 3; print(n / 0);', 'division by zero\n'),

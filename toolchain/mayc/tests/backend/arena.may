@@ -1,0 +1,24 @@
+// Literal diagnostics and integer loop state survive every reset. All scratch
+// pointers stay inside each iteration; neither the handle nor outside storage
+// contains pointers into a previous iteration's payload.
+let retained_before: Int = core_heap_retained();
+let arena: Ptr = arena_new(1048576);
+let retained: Int = core_heap_retained();
+if arena_capacity(arena) != 1048576 or arena_used(arena) != 0 { exit(1); }
+let guard: Ptr = alloc(8);
+store64(guard, 991);
+mut round: Int = 0;
+while round < 1024 {
+    let first: Ptr = arena_alloc(arena, 7);
+    let rest: Ptr = arena_alloc(arena, 1048568);
+    store64(first, round);
+    store64(rest, round + 1);
+    if load64(first) != round or load64(rest) != round + 1 { exit(2); }
+    if arena_used(arena) != 1048576 { exit(3); }
+    arena_reset(arena);
+    if arena_used(arena) != 0 or load64(guard) != 991 { exit(4); }
+    if core_heap_retained() != retained { exit(5); }
+    round += 1;
+}
+print("arena", 1024, "iterations", 1073741824, "scratch bytes", retained - retained_before, "retained bytes");
+exit(0);

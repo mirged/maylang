@@ -22,6 +22,7 @@ EXPECTED = (
     'heap 73 73\n'
     '[-2, -1, 0, 1] true [1, 2, 3] heλ HEλ\n'
 ).encode()
+ARENA_EXPECTED = b'arena 1024 iterations 1073741824 scratch bytes 1052672 retained bytes\n'
 
 
 def emulate(image, target, expected=EXPECTED, status=42):
@@ -159,6 +160,14 @@ def main():
             if have_emulation:
                 emulate(image, target)
             print(f'PASS {target}: core strings/lists/math/heap/console' + ('' if have_emulation else ' (emulation skipped)'), flush=True)
+            image = compile_source(options.compiler, HERE / 'backend/arena.may', binary,
+                                   '--runtime', 'core', '--target', target)
+            if target == 'x86_64-linux':
+                result = subprocess.run([str(binary)], capture_output=True, timeout=10)
+                assert result.returncode == 0 and result.stdout == ARENA_EXPECTED and not result.stderr, result
+            if have_emulation:
+                emulate(image, target, ARENA_EXPECTED, 0)
+            print(f'PASS {target}: 1 GiB of cumulative arena scratch with constant retained heap', flush=True)
         for body in ['print(1.5);', 'print({"a": 1});', 'let f: Any = |n: Int| -> Int { return n; }; print(f(1));']:
             source = work / 'unsupported.may'; source.write_text(body)
             binary = work / 'unsupported'
@@ -169,6 +178,9 @@ def main():
             ('let n: Any = int("1152921504606846975"); print(n + 1);', b'integer overflow\n'),
             ('let n: Any = int("-1152921504606846976"); print(n / -1);', b'integer overflow\n'),
             ('let n: Any = 3; print(n / 0);', b'division by zero\n'),
+            ('let a: Ptr = arena_new(8); arena_alloc(a, 9);', b'arena capacity exceeded\n'),
+            ('let a: Ptr = arena_new(8); arena_alloc(a, -1);', b'arena capacity exceeded\n'),
+            ('arena_new(-1);', b'invalid arena capacity\n'),
         ]
         for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
             for body, message in failures:
