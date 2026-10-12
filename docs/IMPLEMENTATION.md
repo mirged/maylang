@@ -171,8 +171,6 @@ The manual CI performance job repeats it on the extracted bundle and publishes
 `diagnostic-benchmark.json` alongside compiler and navigation measurements.
 Exact validation runs and measurements are recorded in the linked PR.
 
-## Remaining limits
-
 ## Open-issue follow-up (2026-10-12)
 
 Native core/raw loader validation now passes on Apple Silicon macOS 14.8.9 and
@@ -212,6 +210,8 @@ VSIX and attaches all assets to a draft before publication. The source-contract
 regressions and deterministic/extracted archive tests pass locally. First
 publication remains a release-lifecycle step; branch CI artifacts are not
 described as published release assets.
+
+## Remaining limits
 
 The issue acceptance audit additionally covers atomic successful-build state
 publication under concurrent readers and failed rename cleanup, actionable LSP
