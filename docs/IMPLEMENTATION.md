@@ -191,9 +191,16 @@ regression fails with exit 6 before the change: the only copied-buffer address
 is encoded as `address * 8`, which the collector previously ignored. Decoded
 candidates now pass the same allocation-start identity checks. The regression
 preserves the copy and growing live graph through 100 forced collections.
-An uninterrupted ecosystem run completed 20,000 generations before this fix;
-that remains evidence against this workload reproducing the original report,
-not proof that the original sustained-corruption issue is resolved.
+The audit also reproduced a global-root registry overflow: registration 131,073
+overwrote the next allocation header. The runtime now exits 70 before this
+write; the regression fills all 131,072 entries and verifies the adjacent
+header before exercising the guard.
+
+A before/after comparison completed 100,000 ecosystem generations with both
+runtimes, using the same compiler, workload and library sources. Both exited
+zero with identical normalized simulation summaries and byte-identical genome
+outputs. This workload still does not reproduce the original sustained
+corruption report, so that issue remains open.
 
 Library regressions cover empty stacks/queues, queue compaction and reference
 release, invalid chunk/window sizes, empty padding, ASCII whitespace, Unicode
@@ -225,8 +232,9 @@ bounded CPU/address-space use with seeded import-graph mutations. The roadmap
 records the exact completed and remaining issue scope against PR #21.
 
 The original sustained ecosystem corruption report is not conclusively resolved:
-the 5000-generation workload also passed with the old runtime. The proven
-interior-header bug is fixed, but the existing worker workaround and warning
+the 100,000-generation comparison also passed with the old runtime. Proven
+allocation-identity, encoded-pointer and root-table bugs are fixed, but the
+existing worker workaround and warning
 remain until the original failing workload can be reproduced and verified.
 The collector remains conservative, nonmoving and limited to a fixed heap.
 

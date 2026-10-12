@@ -234,6 +234,9 @@ fun rt_scan_word(w: Any) -> Any {
 // Register the address of a global as a GC root (called once per global at
 // program start; DATA offsets are not contiguous once literals are interned).
 fun rt_gc_root(a: Any) -> Any {
+    if (GCOUNT >= 131072) {
+        rt_write(addr("GC global root table exhausted\n"), 31); syscall(60, 70);
+    }
     if (GROOTS == 0) { GROOTS = rt_alloc(1048576); }
     store64(GROOTS + GCOUNT * 8, a);
     GCOUNT = GCOUNT + 1;
