@@ -83,7 +83,7 @@ def emulate(image, arch, macos=False, windows=False):
             if memory:
                 cpu.mem_map(address, (memory + 4095) // 4096 * 4096)
                 cpu.mem_write(address, image[file:file + disk])
-        entry = 4194304 + 16384 if macos else struct.unpack_from('<Q', image, 24)[0]
+        entry = 4294967296 + 16384 if macos else struct.unpack_from('<Q', image, 24)[0]
     cpu.mem_map(0x10000000, 0x100000)
     cpu.reg_write(sp, 0x10100000 - (8 if windows else 0))
     output, status = bytearray(), []
@@ -185,10 +185,11 @@ def main():
         assert image[linkedit + 8:linkedit + 18] == b'__LINKEDIT'
         address, memory, offset, size = struct.unpack_from('<QQQQ', image, linkedit + 24)
         assert offset == len(image) and offset % 16384 == 0 and memory == size == 0
-        assert address == 4194304 + offset
+        assert address == 4294967296 + offset
+        assert struct.unpack_from('<Q', image, 32 + 32)[0] == 4294967296
         thread = 32 + 72 * 5
         assert struct.unpack_from('<IIII', image, thread) == (5, 288, 6, 68)
-        assert struct.unpack_from('<Q', image, thread + 16 + 256)[0] == 4194304 + 16384
+        assert struct.unpack_from('<Q', image, thread + 16 + 256)[0] == 4294967296 + 16384
         if have_emulation:
             emulate(image, 'arm64', macos=True)
         print('PASS ARM64 Mach-O layout and Darwin syscall ABI (native signing not tested)', flush=True)
@@ -196,7 +197,7 @@ def main():
         source.write_text('fun add(a: Any, b: Any) -> Any { return a + b; }\nmut n: Any = 0; while n < 10 { n = add(n, 1); }\n')
         image = compile_source(compiler, source, work / 'windows.exe', '--raw', '--target', 'x86_64-windows')
         assert image[:2] == b'MZ' and image[128:132] == b'PE\0\0'
-        assert struct.unpack_from('<HH', image, 132) == (0x8664, 3)
+        assert struct.unpack_from('<HH', image, 132) == (0x8664, 2)
         objdump = subprocess.run(['objdump', '-p', str(work / 'windows.exe')], capture_output=True)
         assert objdump.returncode == 0 and b'pei-x86-64' in objdump.stdout, objdump.stderr
         if have_emulation:

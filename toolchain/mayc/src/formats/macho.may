@@ -7,7 +7,8 @@ let MACH_SEGMENT_SIZE: Any = 72;
 let MACH_THREAD_SIZE: Any = 288;
 
 fun macho_layout(ctx: Any) -> Any {
-    let base: Any = 4194304;
+    // ARM64's native loader requires an inaccessible lower 4 GiB page zero.
+    let base: Any = 4294967296;
     let offset: Any = ctx.target.alignment;
     return ImageLayout(base, offset, base + offset, offset + ctx.code.length, base + offset + ctx.code.length, ctx.target.alignment);
 }

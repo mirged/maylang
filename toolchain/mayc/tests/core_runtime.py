@@ -108,7 +108,7 @@ def emulate(image, target, expected=EXPECTED, status=42):
             if memory:
                 cpu.mem_map(address, (memory + 4095) // 4096 * 4096)
                 cpu.mem_write(address, image[file:file + disk])
-        entry = 4194304 + 16384 if macos else struct.unpack_from('<Q', image, 24)[0]
+        entry = 4294967296 + 16384 if macos else struct.unpack_from('<Q', image, 24)[0]
 
         def syscall(uc, *unused):
             call = uc.reg_read(number)
