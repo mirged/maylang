@@ -25,7 +25,7 @@ EXPECTED = (
 ARENA_EXPECTED = b'arena 1024 iterations 1073741824 scratch bytes 1052672 retained bytes\n'
 
 
-def emulate(image, target, expected=EXPECTED, status=42):
+def emulate(image, target, expected=EXPECTED, status=42, slide=0):
     import unicorn as u
     from unicorn import arm64_const as arm, riscv_const as rv, x86_const as x86
     windows, macos = target.endswith('windows'), target.endswith('macos')
@@ -107,9 +107,10 @@ def emulate(image, target, expected=EXPECTED, status=42):
         segments = macho_segments(image) if macos else elf_segments(image)
         for address, memory, file, disk in segments:
             if memory:
-                cpu.mem_map(address, (memory + 4095) // 4096 * 4096)
-                cpu.mem_write(address, image[file:file + disk])
+                cpu.mem_map(address + slide, (memory + 4095) // 4096 * 4096)
+                cpu.mem_write(address + slide, image[file:file + disk])
         entry = 4294967296 + 16384 if macos else struct.unpack_from('<Q', image, 24)[0]
+        entry += slide
 
         def syscall(uc, *unused):
             call = uc.reg_read(number)
@@ -159,6 +160,8 @@ def main():
                 assert result.returncode == 42 and result.stdout == EXPECTED and not result.stderr, result
             if have_emulation:
                 emulate(image, target)
+                if target == 'arm64-macos':
+                    emulate(image, target, slide=0x12000000)
             print(f'PASS {target}: core strings/lists/math/heap/console' + ('' if have_emulation else ' (emulation skipped)'), flush=True)
             image = compile_source(options.compiler, HERE / 'backend/arena.may', binary,
                                    '--runtime', 'core', '--target', target)

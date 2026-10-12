@@ -1,6 +1,6 @@
 import "../emitter.may";
 import "bytes.may";
-// Freestanding ARM64 Mach-O. LC_UNIXTHREAD supplies the initial PC.
+// ARM64 Mach-O. macOS requires a PIE executable launched through dyld.
 // The output must be ad-hoc signed on macOS before executing on Apple Silicon.
 let MACH_HEADER_SIZE: Any = 32;
 let MACH_SEGMENT_SIZE: Any = 72;
@@ -35,7 +35,8 @@ fun build_macho(ctx: Any) -> Any {
     store32(image, 4277009103); // MH_MAGIC_64
     store32(image + 4, ctx.target.machine); store32(image + 8, 0);
     store32(image + 12, 2); // MH_EXECUTE
-    store32(image + 16, 7); store32(image + 20, MACH_SEGMENT_SIZE * 5 + MACH_THREAD_SIZE + 24);
+    store32(image + 16, 9); store32(image + 20, MACH_SEGMENT_SIZE * 5 + MACH_THREAD_SIZE + 24 + 32 + 56);
+    store32(image + 24, 2097157); // MH_NOUNDEFS | MH_DYLDLINK | MH_PIE
     let commands: Any = image + MACH_HEADER_SIZE;
     macho_segment(commands, "__PAGEZERO", 0, layout.base, 0, 0, 0);
     macho_segment(commands + MACH_SEGMENT_SIZE, "__TEXT", layout.base, layout.dataOffset, 0, layout.dataOffset, 5);
@@ -51,6 +52,13 @@ fun build_macho(ctx: Any) -> Any {
     store32(version, 50); store32(version + 4, 24); // LC_BUILD_VERSION
     store32(version + 8, 1); // PLATFORM_MACOS
     store32(version + 12, 720896); store32(version + 16, 720896); // min/sdk 11.0
+    let linker: Any = version + 24;
+    store32(linker, 14); store32(linker + 4, 32); store32(linker + 8, 12); // LC_LOAD_DYLINKER
+    image_copy(linker + 12, addr("/usr/lib/dyld"), 13);
+    let library: Any = linker + 32;
+    store32(library, 12); store32(library + 4, 56); store32(library + 8, 24); // LC_LOAD_DYLIB
+    store32(library + 16, 65536); store32(library + 20, 65536);
+    image_copy(library + 24, addr("/usr/lib/libSystem.B.dylib"), 25);
     image_copy(image + layout.codeOffset, ctx.code.data, ctx.code.length);
     image_copy(image + layout.dataOffset, ctx.data.data, ctx.data.length);
     return 0;

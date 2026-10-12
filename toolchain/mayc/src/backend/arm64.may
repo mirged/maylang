@@ -101,12 +101,15 @@ fun arm64_patch(ctx: Any) -> Any {
     for fixup: Any in ctx.fixups {
         let pointer: Any = ctx.code.data + fixup.off;
         if (fixup.kind == 101) {
-            mut value: Any = ctx.layout.dataAddress + fixup.tgt;
-            for half: Any in 0..4 {
-                let opcode: Any = if (half == 0) { 3531603968 } else { 4068474880 };
-                store32(pointer + half * 4, opcode + half * 2097152 + (value % 65536) * 32 + 9);
-                value = value / 65536;
-            }
+            let value: Any = ctx.layout.dataAddress + fixup.tgt;
+            let pc: Any = ctx.layout.codeAddress + fixup.off;
+            let pages: Any = value / 4096 - pc / 4096;
+            if (pages < -1048576 or pages >= 1048576) { die_str("mayc: ARM64 data address out of range\n"); }
+            let encoded: Any = (pages + 2097152) % 2097152;
+            // ADRP/ADD follow an ASLR slide; absolute MOVZ/MOVK addresses do not.
+            store32(pointer, 2415919104 + (encoded % 4) * 536870912 + (encoded / 4) * 32 + 9);
+            store32(pointer + 4, 2432696320 + (value % 4096) * 1024 + 9 * 32 + 9);
+            store32(pointer + 8, 3573751839); store32(pointer + 12, 3573751839);
         } else {
             let delta: Any = lab_off(ctx, fixup.tgt) - fixup.off;
             let limit: Any = if (fixup.kind == 100) { 134217728 } else { 1048576 };

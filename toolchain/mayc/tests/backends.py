@@ -56,7 +56,7 @@ def macho_segments(image):
         offset += size
 
 
-def emulate(image, arch, macos=False, windows=False):
+def emulate(image, arch, macos=False, windows=False, slide=0):
     import unicorn as u
     from unicorn import arm64_const as arm, riscv_const as rv, x86_const as x86
     if arch == 'arm64':
@@ -81,9 +81,10 @@ def emulate(image, arch, macos=False, windows=False):
         segments = list(macho_segments(image) if macos else elf_segments(image))
         for address, memory, file, disk in segments:
             if memory:
-                cpu.mem_map(address, (memory + 4095) // 4096 * 4096)
-                cpu.mem_write(address, image[file:file + disk])
+                cpu.mem_map(address + slide, (memory + 4095) // 4096 * 4096)
+                cpu.mem_write(address + slide, image[file:file + disk])
         entry = 4294967296 + 16384 if macos else struct.unpack_from('<Q', image, 24)[0]
+        entry += slide
     cpu.mem_map(0x10000000, 0x100000)
     cpu.reg_write(sp, 0x10100000 - (8 if windows else 0))
     output, status = bytearray(), []
@@ -191,8 +192,11 @@ def main():
         assert struct.unpack_from('<IIII', image, thread) == (5, 288, 6, 68)
         assert struct.unpack_from('<Q', image, thread + 16 + 256)[0] == 4294967296 + 16384
         assert struct.unpack_from('<IIIIII', image, thread + 288) == (50, 24, 1, 11 << 16, 11 << 16, 0)
+        assert struct.unpack_from('<I', image, 24)[0] == 0x200005
+        assert image[thread + 288 + 24 + 12:thread + 288 + 24 + 26] == b'/usr/lib/dyld\0'
         if have_emulation:
             emulate(image, 'arm64', macos=True)
+            emulate(image, 'arm64', macos=True, slide=0x12000000)
         print('PASS ARM64 Mach-O layout and Darwin syscall ABI (native signing not tested)', flush=True)
         source = work / 'windows.may'
         source.write_text('fun add(a: Any, b: Any) -> Any { return a + b; }\nmut n: Any = 0; while n < 10 { n = add(n, 1); }\n')
