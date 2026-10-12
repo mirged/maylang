@@ -140,7 +140,7 @@ fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
 // ------------------------------------------------------------- Driver Entry
 
 fun cli_usage() -> Any {
-    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in full-runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in full-runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
     syscall(1, 1, addr(message), len(message));
     syscall(60, 0);
     return 0;
@@ -159,6 +159,21 @@ fun cli_default_output(pointer: Any, length: Any) -> Any {
     while (j < suffixLength) { store8(result + baseLength + j, load8(addr(suffix) + j)); j = j + 1; }
     store8(result + baseLength + suffixLength, 0);
     return [result, baseLength + suffixLength];
+}
+
+fun cli_list_targets() -> Any {
+    let header: Str = "target\tformat\tdefault-runtime\n";
+    syscall(1, 1, addr(header), len(header));
+    for name: Str in ["x86_64-linux", "arm64-linux", "riscv64-linux", "arm64-macos", "x86_64-windows", "clang-llvm"] {
+        let target: Any = target_select(name);
+        let runtime: Str = if (target.runtime) { "full" } else { "core" };
+        let line: Str = "${name}\t${target.format}\t${runtime}\n";
+        syscall(1, 1, addr(line), len(line));
+    }
+    let note: Str = "Compiler host: Linux x86-64; clang-llvm is experimental.\n";
+    syscall(1, 1, addr(note), len(note));
+    syscall(60, 0);
+    return 0;
 }
 
 fun main2() -> Any {
@@ -203,6 +218,8 @@ fun main2() -> Any {
             let version: Str = "mayc " + MAYC_VERSION + "\n";
             syscall(1, 1, addr(version), len(version));
             syscall(60, 0);
+        } else if (name_eq(ap, al, addr("--list-targets"), 14) == 1) {
+            cli_list_targets();
         } else if (name_eq(ap, al, addr("-o"), 2) == 1 or name_eq(ap, al, addr("--output"), 8) == 1) {
             k = k + 1;
             if (k >= len(argv)) { die_str("mayc: -o/--output requires a path\n"); }
