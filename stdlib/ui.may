@@ -1,0 +1,254 @@
+// Native Linux UI: Maylang owns the widget tree, layout, focus and editing.
+extern "libmayui.so" {
+    fun mui_surface(w: Int, h: Int) -> Int;
+    fun mui_release() -> Void;
+    fun mui_clip(x: Int, y: Int, w: Int, h: Int) -> Void;
+    fun mui_rect(x: Int, y: Int, w: Int, h: Int, radius: Int, color: Int) -> Void;
+    fun mui_text(x: Int, y: Int, text: Str, size: Int, color: Int) -> Void;
+    fun mui_measure(text: Str, size: Int) -> Int;
+    fun mui_present() -> Void;
+    fun mui_snapshot(path: Str) -> Int;
+    fun mui_pixel(x: Int, y: Int) -> Int;
+    fun mui_window_open(w: Int, h: Int, title: Str) -> Int;
+    fun mui_window_close() -> Void;
+    fun mui_window_cursor(kind: Int) -> Void;
+    fun mui_window_event() -> Ptr;
+    fun mui_window_text() -> Str;
+    fun mui_window_copy(text: Str) -> Void;
+    fun mui_window_paste() -> Str;
+}
+
+/// Widget tree node; construct with label, button, entry, checkbox or containers.
+pub struct Widget { kind: Str, id: Str, text: Str, hint: Str, children: List<Widget>, width: Int, height: Int, grow: Int, pad: Int, gap: Int, background: Int, foreground: Int, font: Int, radius: Int, checked: Bool }
+/// Persistent window interaction state. Keep it while rebuilding views.
+pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Any>, root: Any, active: Bool }
+/// Action kind is click, toggle, edit, submit, close, resize, repaint or idle.
+pub struct Event { kind: Str, id: Str, text: Str, width: Int, height: Int }
+/// Construct an internal widget with shared defaults.
+fun node(kind: Str, id: Str, text: Str, children: List<Widget>) -> Widget {
+    return Widget(kind, id, text, "", children, 0, 0, 0, 0, 10, -1, 2171941, 18, 8, false);
+}
+/// Single-line text, clipped to available width.
+pub fun label(text: Str) -> Widget { return node("label", "", text, []); }
+/// Clickable action with a stable, unique identifier.
+pub fun button(id: Str, text: Str) -> Widget { let item: Widget = node("button", id, text, []); item.height = 40; item.pad = 14; item.background = 15198956; return item; }
+/// Unicode text input; applications apply edit events to their model.
+pub fun entry(id: Str, text: Str) -> Widget { let item: Widget = node("entry", id, text, []); item.height = 44; item.pad = 12; item.background = 16777215; item.width = 220; return item; }
+/// Set an entry hint shown only while its value is empty.
+pub fun placeholder(item: Widget, hint: Str) -> Widget { if (item.kind != "entry") { fail("ui: placeholder requires an entry"); } item.hint = hint; return item; }
+/// Boolean action; toggle events report the next value as true or false.
+pub fun checkbox(id: Str, text: Str, checked: Bool) -> Widget { let item: Widget = node("checkbox", id, text, []); item.height = 40; item.checked = checked; return item; }
+/// Horizontal container; flexible children share remaining width.
+pub fun row(children: List<Widget>) -> Widget { return node("row", "", "", children); }
+/// Vertical container; flexible children share remaining height.
+pub fun column(children: List<Widget>) -> Widget { return node("column", "", "", children); }
+/// Empty fixed space, or flexible space when used with flex.
+pub fun spacer(size: Int) -> Widget { let item: Widget = node("spacer", "", "", []); item.width = size; item.height = size; return item; }
+/// Vertical viewport; scroll offset belongs to the stable identifier.
+pub fun scroller(id: Str, child: Widget) -> Widget { let item: Widget = node("scroll", id, "", [child]); item.grow = 1; return item; }
+/// Set requested dimensions; zero uses the measured content size.
+pub fun size(item: Widget, width: Int, height: Int) -> Widget { if (width < 0 or height < 0) { fail("ui: negative widget size"); } item.width = width; item.height = height; return item; }
+/// Set a positive share of a container's remaining space.
+pub fun flex(item: Widget, weight: Int) -> Widget { if (weight < 1) { fail("ui: flex weight must be positive"); } item.grow = weight; return item; }
+/// Set inset and child separation in pixels.
+pub fun spacing(item: Widget, padding: Int, gap: Int) -> Widget { if (padding < 0 or gap < 0) { fail("ui: negative spacing"); } item.pad = padding; item.gap = gap; return item; }
+/// Set RGB colors, pixel font size and corner radius. Background -1 is transparent.
+pub fun style(item: Widget, background: Int, foreground: Int, font: Int, radius: Int) -> Widget {
+    if (background < -1 or background > 16777215 or foreground < 0 or foreground > 16777215 or font < 6 or font > 96 or radius < 0) { fail("ui: invalid style"); }
+    item.background = background; item.foreground = foreground; item.font = font; item.radius = radius; return item;
+}
+/// Track the single active native surface.
+mut surface_active: Bool = false;
+/// Open one window, or a display-free raster surface for snapshots/tests.
+pub fun open(title: Str, width: Int, height: Int, headless: Bool) -> Window {
+    if (surface_active) { fail("ui: close the existing window before opening another"); }
+    if (width < 1 or height < 1 or width > 8192 or height > 8192) { fail("ui: window dimensions must be 1..8192"); }
+    if (mui_surface(width, height) == 0) { fail("ui: cannot create surface/load font; set MAYUI_FONT to a trusted TrueType font"); }
+    if (not headless and mui_window_open(width, height, title) == 0) { mui_release(); fail("ui: cannot open X11 display; check DISPLAY"); }
+    surface_active = true;
+    return Window(width, height, headless, "", 0, false, -1, -1, {}, [], nil, true);
+}
+/// Release native window, font and raster memory. Close is idempotent.
+pub fun close(window: Window) -> Nil { if (window.active) { mui_window_close(); mui_release(); window.active = false; surface_active = false; } return; }
+/// Focus a stable input/action identifier; caret starts at the end.
+pub fun focus(window: Window, id: Str) -> Nil { window.focus = id; window.caret = 2147483647; window.selected = false; return; }
+/// Measure content on one axis before assigning flex space.
+fun natural(item: Widget, horizontal: Bool) -> Int {
+    let explicit: Int = if (horizontal) { item.width } else { item.height };
+    if (explicit > 0) { return explicit; }
+    if (item.kind == "scroll") { return if (horizontal) { 200 } else { 120 }; }
+    if (len(item.children) == 0) {
+        return if (horizontal) { mui_measure(item.text, item.font) + item.pad * 2 + if (item.kind == "checkbox") { 36 } else { 0 } } else { item.font + item.pad * 2 + 4 };
+    }
+    let along: Bool = (item.kind == "row") == horizontal;
+    mut result: Int = 0;
+    for child: Widget in item.children {
+        let measured: Int = natural(child, horizontal);
+        result = if (along) { result + measured } else { int(max(result, measured)) };
+    }
+    return result + item.pad * 2 + if (along) { item.gap * int(max(0, len(item.children) - 1)) } else { 0 };
+}
+/// Intersect two rectangles for drawing and hit clipping.
+fun intersect(a: Any, b: Any) -> Any {
+    let x: Int = int(max(a.x, b.x)); let y: Int = int(max(a.y, b.y));
+    return {"x": x, "y": y, "w": int(max(0, min(a.x + a.w, b.x + b.w) - x)), "h": int(max(0, min(a.y + a.h, b.y + b.h) - y))};
+}
+/// Test whether a point lies within a rectangle.
+fun inside(rect: Any, x: Int, y: Int) -> Bool { return x >= rect.x and y >= rect.y and x < rect.x + rect.w and y < rect.y + rect.h; }
+/// Set the native drawing clip to the visible rectangle.
+fun clip(rect: Any) -> Nil { mui_clip(rect.x, rect.y, rect.w, rect.h); return; }
+/// Lay out and paint one subtree, recording visible input regions.
+fun draw(window: Window, item: Widget, rect: Any, viewport: Any, ids: Map<Str, Bool>) -> Nil {
+    let visible: Any = intersect(rect, viewport); if (visible.w <= 0 or visible.h <= 0) { return; }
+    clip(visible);
+    if (item.id != "") { if (has(ids, item.id)) { fail("ui: duplicate widget id: " + item.id); } ids[item.id] = true; }
+    if (item.background >= 0) { mui_rect(rect.x, rect.y, rect.w, rect.h, item.radius, item.background); }
+    if (item.kind == "scroll") {
+        let content: Int = natural(item.children[0], false); let limit: Int = int(max(0, content - rect.h));
+        let offset: Int = int(max(0, min(window.scroll[item.id] ?? 0, limit))); window.scroll[item.id] = offset;
+        push(window.hits, {"item": item, "rect": visible, "full": rect, "limit": limit});
+        draw(window, item.children[0], {"x": rect.x, "y": rect.y - offset, "w": int(max(0, rect.w - 10)), "h": int(max(content, rect.h))}, visible, ids);
+        if (limit > 0) { clip(visible); let thumb: Int = int(max(24, rect.h * rect.h / content)); mui_rect(rect.x + rect.w - 5, rect.y + offset * (rect.h - thumb) / limit, 4, thumb, 2, 11515079); }
+        return;
+    }
+    if (len(item.children) > 0) {
+        let horizontal: Bool = item.kind == "row"; let length: Int = if (horizontal) { rect.w } else { rect.h };
+        mut used: Int = item.pad * 2 + item.gap * int(max(0, len(item.children) - 1)); mut weights: Int = 0;
+        for child: Widget in item.children { if (child.grow > 0) { weights += child.grow; } else { used += natural(child, horizontal); } }
+        let available: Int = int(max(0, length - used)); mut cursor: Int = item.pad;
+        for child: Widget in item.children {
+            let span: Int = if (child.grow > 0) { available * child.grow / weights } else { natural(child, horizontal) };
+            let next: Any = if (horizontal) { {"x": rect.x + cursor, "y": rect.y + item.pad, "w": span, "h": int(max(0, rect.h - item.pad * 2))} }
+                else { {"x": rect.x + item.pad, "y": rect.y + cursor, "w": int(max(0, rect.w - item.pad * 2)), "h": span} };
+            draw(window, child, next, visible, ids); cursor += span + item.gap;
+        }
+        return;
+    }
+    let actionable: Bool = has(["button", "entry", "checkbox"], item.kind);
+    if (actionable) {
+        if (item.id == "") { fail("ui: interactive widgets need an id"); }
+        push(window.hits, {"item": item, "rect": visible, "full": rect});
+        let border: Int = if (window.focus == item.id) { 6727794 } else { 14081243 };
+        if (item.kind == "entry" or window.focus == item.id or inside(visible, window.mouse_x, window.mouse_y)) {
+            mui_rect(rect.x, rect.y, rect.w, rect.h, item.radius, border);
+            mui_rect(rect.x + 2, rect.y + 2, int(max(0, rect.w - 4)), int(max(0, rect.h - 4)), item.radius, if (item.background >= 0) { item.background } else { 16448250 });
+        }
+    }
+    mut tx: Int = rect.x + item.pad; let ty: Int = rect.y + (rect.h - item.font) / 2;
+    if (item.kind == "button") { tx = rect.x + int(max(6, (rect.w - mui_measure(item.text, item.font)) / 2)); }
+    if (item.kind == "checkbox") {
+        mui_rect(tx + 1, rect.y + (rect.h - 22) / 2, 22, 22, 6, if (item.checked) { 6727794 } else { 14081243 });
+        if (item.checked) { mui_text(tx + 5, rect.y + (rect.h - 18) / 2, "✓", 18, 16777215); }
+        tx += 36;
+    }
+    if (item.kind == "entry") {
+        clip(intersect(visible, {"x": rect.x + item.pad, "y": rect.y + 3, "w": int(max(0, rect.w - item.pad * 2)), "h": rect.h - 6}));
+        let caret: Int = int(max(0, min(window.caret, len(item.text))));
+        let advance: Int = mui_measure(substring(item.text, 0, caret), item.font);
+        let shift: Int = if (window.focus == item.id) { int(max(0, advance - rect.w + item.pad * 2 + 3)) } else { 0 }; tx -= shift;
+        if (window.focus == item.id and window.selected) { mui_rect(tx, ty, mui_measure(item.text, item.font), item.font + 2, 0, 14347259); }
+        mui_text(tx, ty, if (item.text == "") { item.hint } else { item.text }, item.font, if (item.text == "") { 8226961 } else { item.foreground });
+        if (window.focus == item.id) { mui_rect(tx + advance, ty, 1, item.font + 2, 0, 6727794); }
+    } else { mui_text(tx, ty, item.text, item.font, item.foreground); }
+    return;
+}
+/// Paint/layout a view, replacing hit regions but retaining focus and scroll state.
+pub fun present(window: Window, root: Widget) -> Nil {
+    if (not window.active) { fail("ui: window is closed"); }
+    if (mui_surface(window.width, window.height) == 0) { fail("ui: surface resize failed"); }
+    mui_rect(0, 0, window.width, window.height, 0, 16448250);
+    window.hits = []; window.root = root;
+    draw(window, root, {"x": 0, "y": 0, "w": window.width, "h": window.height}, {"x": 0, "y": 0, "w": window.width, "h": window.height}, {});
+    if (not window.headless) { mui_present(); }
+    return;
+}
+/// Render only visible fixed-height rows and spacers within a vertical scroller.
+pub fun virtual_list(window: Window, id: Str, count: Int, row_height: Int, make: Fn(Int) -> Widget) -> Widget {
+    if (count < 0 or count > 1000000 or row_height < 1 or row_height > 4096) { fail("ui: invalid virtual list dimensions"); }
+    let offset: Int = window.scroll[id] ?? 0; let start: Int = int(max(0, min(count, offset / row_height - 1)));
+    let stop: Int = int(min(count, start + window.height / row_height + 4)); let rows: List<Widget> = [];
+    if (start > 0) { push(rows, size(spacer(0), 0, start * row_height)); }
+    for index: Int in start..stop { push(rows, size(make(index), 0, row_height)); }
+    if (stop < count) { push(rows, size(spacer(0), 0, (count - stop) * row_height)); }
+    return scroller(id, spacing(column(rows), 0, 0));
+}
+/// Construct a semantic application event.
+fun action(kind: Str, id: Str, text: Str, window: Window) -> Event { return Event(kind, id, text, window.width, window.height); }
+/// Translate a button or checkbox activation.
+fun activate(item: Widget, window: Window) -> Event {
+    return action(if (item.kind == "checkbox") { "toggle" } else { "click" }, item.id, if (item.kind == "checkbox") { str(not item.checked) } else { "" }, window);
+}
+/// Handle one raw input event; useful for deterministic display-free interaction tests.
+pub fun dispatch(window: Window, kind: Int, a: Int, b: Int, modifiers: Int, text: Str) -> Event {
+    if (kind == 1) { return action("close", "", "", window); }
+    if (kind == 3) { window.width = int(max(1, min(8192, a))); window.height = int(max(1, min(8192, b))); return action("resize", "", "", window); }
+    if (kind == 2) { return action("repaint", "", "", window); }
+    if (kind == 4) { window.mouse_x = a; window.mouse_y = b; return action("repaint", "", "", window); }
+    if (kind == 6) {
+        for hit: Any in window.hits { if (hit.item.kind == "scroll" and inside(hit.rect, window.mouse_x, window.mouse_y)) { window.scroll[hit.item.id] = int(max(0, min(hit.limit, (window.scroll[hit.item.id] ?? 0) + a * 48))); return action("repaint", "", "", window); } }
+    }
+    if (kind == 5 and modifiers == 1) {
+        window.mouse_x = a; window.mouse_y = b;
+        for hit: Any in window.hits {
+            let item: Widget = hit.item;
+            if (item.kind == "scroll" or not inside(hit.rect, a, b)) { continue; }
+            focus(window, item.id);
+            if (item.kind == "entry") {
+                window.caret = len(item.text);
+                for index: Int in 0..len(item.text) + 1 { if (mui_measure(substring(item.text, 0, index), item.font) >= a - hit.full.x - item.pad) { window.caret = index; break; } }
+                return action("repaint", "", "", window);
+            }
+            return activate(item, window);
+        }
+    }
+    if (kind == 7) {
+        if (modifiers / 4 % 2 != 0 and (a == 113 or a == 81)) { return action("close", "", "", window); }
+        let controls: List<Any> = []; mut selected: Int = -1;
+        for hit: Any in window.hits { if (hit.item.kind != "scroll") { if (hit.item.id == window.focus) { selected = len(controls); } push(controls, hit); } }
+        if (a == 65289 or a == 65056) {
+            if (len(controls) > 0) { let reverse: Bool = a == 65056 or (modifiers % 2) != 0; let next: Int = if (reverse) { if (selected < 0) { len(controls) - 1 } else { (selected - 1 + len(controls)) % len(controls) } } else { (selected + 1) % len(controls) }; focus(window, controls[next].item.id); }
+            return action("repaint", "", "", window);
+        }
+        if (selected >= 0) {
+            let item: Widget = controls[selected].item;
+            if (item.kind != "entry") { if (a == 65293 or a == 32) { return activate(item, window); } }
+            else {
+                if (a == 65293) { return action("submit", item.id, item.text, window); }
+                if (a == 65307) { window.selected = false; return action("repaint", "", "", window); }
+                mut caret: Int = int(max(0, min(window.caret, len(item.text)))); let ctrl: Bool = (modifiers / 4 % 2) != 0;
+                if (ctrl and (a == 97 or a == 65)) { window.selected = true; return action("repaint", "", "", window); }
+                if (ctrl and (a == 99 or a == 67)) { mui_window_copy(item.text); return action("idle", "", "", window); }
+                if (a == 65361 or a == 65363 or a == 65360 or a == 65367) {
+                    window.caret = if (a == 65360) { 0 } else if (a == 65367) { len(item.text) } else { int(max(0, min(len(item.text), caret + if (a == 65361) { -1 } else { 1 }))) };
+                    window.selected = false; return action("repaint", "", "", window);
+                }
+                mut before: Str = substring(item.text, 0, caret); mut after: Str = substring(item.text, caret, len(item.text) - caret); mut insert: Str = text;
+                if (window.selected) { before = ""; after = ""; caret = 0; }
+                if (ctrl and (a == 118 or a == 86)) { insert = mui_window_paste(); }
+                else if (ctrl and (a == 120 or a == 88)) { mui_window_copy(item.text); before = ""; after = ""; caret = 0; insert = ""; }
+                else if (a == 65288) { if (not window.selected and caret > 0) { before = substring(before, 0, caret - 1); caret -= 1; } insert = ""; }
+                else if (a == 65535) { if (not window.selected and len(after) > 0) { after = substring(after, 1, len(after) - 1); } insert = ""; }
+                else if (ctrl) { return action("idle", "", "", window); }
+                else if (insert == "") { return action("idle", "", "", window); }
+                insert = replace(replace(insert, "\n", " "), "\r", " ");
+                if (len(before) + len(insert) + len(after) > 2048) { return action("idle", "", "", window); }
+                window.caret = caret + len(insert); window.selected = false;
+                return action("edit", item.id, before + insert + after, window);
+            }
+        }
+    }
+    return action("idle", "", "", window);
+}
+/// Wait for one X11 event (up to 50 ms) and translate it to a Maylang action.
+pub fun poll(window: Window) -> Event {
+    if (window.headless or not window.active) { return action("idle", "", "", window); }
+    let raw: Ptr = mui_window_event();
+    let result: Event = dispatch(window, load64(raw), load64(raw + 8), load64(raw + 16), load64(raw + 24), mui_window_text());
+    mut cursor: Int = 0;
+    for hit: Any in window.hits { if (hit.item.kind != "scroll" and inside(hit.rect, window.mouse_x, window.mouse_y)) { cursor = if (hit.item.kind == "entry") { 2 } else { 1 }; } }
+    mui_window_cursor(cursor); return result;
+}
+/// Write the current surface to PNG without needing a display.
+pub fun snapshot(window: Window, path: Str) -> Nil { if (not window.active or mui_snapshot(path) == 0) { fail("ui: PNG snapshot failed: " + path); } return; }
+/// Read a raster RGB value, or -1 outside the surface, for rendering tests.
+pub fun pixel(window: Window, x: Int, y: Int) -> Int { if (not window.active) { fail("ui: window is closed"); } return mui_pixel(x, y); }

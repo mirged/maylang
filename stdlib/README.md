@@ -92,3 +92,7 @@ These examples run in compiler verification. Update API signatures and `///`
 comments in the source, regenerate with `python3 reference/generate.py`, and
 commit the generated module pages and `reference/inventory.json`. CI checks generation with `--check` and runs
 the boundary suite on native and LLVM output.
+
+[Native UI](ui/README.md) provides typed desktop widgets and virtual lists.
+The [Mayboard application](../example_projects/apps/mayboard/README.md) demonstrates
+real application state, editing, search and persistent storage.

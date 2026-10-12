@@ -17,6 +17,10 @@ cd my-project
 Installed bundles place `may` beside `mayc`; compiler and stdlib discovery then
 work without an environment override. The current tool host is Linux x86-64.
 
+`may new my-desktop-app --ui` creates a runnable [native UI](../../stdlib/ui/README.md)
+application and its explicit native adapter prerequisite. It needs a C compiler,
+X11 development headers, a font and X11/XWayland for interactive windows.
+
 ## Workspace model
 
 ```json

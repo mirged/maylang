@@ -5,17 +5,25 @@ import "../maypkg/src/fs.may" as fs;
 import "../shared/format.may" as formatting;
 
 fun usage() -> Nil {
-    print("may — Maylang workspace runner\n\n  may new DIRECTORY     Create an explicit workspace\n  may migrate           Import an existing mayproj.json\n  may tasks             Show named targets and dependencies\n  may build [TARGET]    Build into the verified artifact store\n  may run [TARGET] -- ARGS\n  may test [GROUP]      Compile/run discovered .test.may files\n  may dev [TARGET]     Watch inputs and restart successful builds\n  may check [TARGET]    Run the compiler type checker\n  may fmt [--check]     Format workspace sources\n  may lock              Pin local dependency contents\n  may doctor            Report compiler/library configuration\n  may clean             Remove generated workspace artifacts\n\n  --profile NAME        Select dev or release (or a named profile)\n  --all                 Select all applicable targets\n\nWorkspaces use may.json; builds never rewrite it. Native recipes take argument arrays, and dependencies form an explicit task graph.");
+    print("may — Maylang workspace runner\n\n  may new DIRECTORY [--ui]  Create an explicit workspace\n  may migrate           Import an existing mayproj.json\n  may tasks             Show named targets and dependencies\n  may build [TARGET]    Build into the verified artifact store\n  may run [TARGET] -- ARGS\n  may test [GROUP]      Compile/run discovered .test.may files\n  may dev [TARGET]     Watch inputs and restart successful builds\n  may check [TARGET]    Run the compiler type checker\n  may fmt [--check]     Format workspace sources\n  may lock              Pin local dependency contents\n  may doctor            Report compiler/library configuration\n  may clean             Remove generated workspace artifacts\n\n  --profile NAME        Select dev or release (or a named profile)\n  --all                 Select all applicable targets\n\nWorkspaces use may.json; builds never rewrite it. Native recipes take argument arrays, and dependencies form an explicit task graph.");
     return;
 }
-fun create(directory: Str) -> Nil {
+fun create(directory: Str, with_ui: Bool) -> Nil {
     let root: Str = workspace.absolute(fs.cwd(), directory);
     if (file_exists(root)) { fail("may: destination already exists: " + root); }
     fs.mkdirs(root + "/src"); fs.mkdirs(root + "/tests");
     let name: Str = fs.basename(root);
-    write_file(root + "/may.json", json_stringify({"schema": 1, "name": name, "default": "app",
-        "targets": {"app": {"kind": "app", "entry": "src/main.may"}, "tests": {"kind": "test", "root": "tests"}}, "dependencies": {}}) + "\n");
+    let targets: Any = {"app": {"kind": "app", "entry": "src/main.may"}, "tests": {"kind": "test", "root": "tests"}};
+    if (with_ui) {
+        targets.ui = {"kind": "native", "inputs": ["{stdlib}/ui/native"], "outputs": ["libmayui.so"],
+            "command": ["cc", "-O2", "-fPIC", "-shared", "{stdlib}/ui/native/draw.c", "{stdlib}/ui/native/window.c", "-o", "{out}/libmayui.so", "-lX11", "-lm"]};
+        targets.app.depends = ["ui"];
+    }
+    write_file(root + "/may.json", json_stringify({"schema": 1, "name": name, "default": "app", "targets": targets, "dependencies": {}}) + "\n");
     write_file(root + "/src/main.may", "print(" + json_stringify("Hello from " + name + "!") + ");\n");
+    if (with_ui) {
+        write_file(root + "/src/main.may", "import \"ui\" as ui;\nlet window: ui.Window = ui.open(" + json_stringify(name) + ", 640, 420, false);\nmut count: Int = 0;\nmut running: Bool = true;\nwhile (running) {\n    ui.present(window, ui.spacing(ui.column([ui.label(\"Hello from Maylang\"), ui.label(\"Clicks: \" + str(count)), ui.button(\"count\", \"Count a click\"), ui.button(\"quit\", \"Close\")]), 24, 12));\n    let event: ui.Event = ui.poll(window);\n    if (event.kind == \"close\" or (event.kind == \"click\" and event.id == \"quit\")) { running = false; }\n    if (event.kind == \"click\" and event.id == \"count\") { count += 1; }\n}\nui.close(window);\n");
+    }
     write_file(root + "/tests/smoke.test.may", "import \"test\" as test;\ntest.assert_equal(6 * 7, 42, \"arithmetic\");\ntest.test_summary();\n");
     write_file(root + "/.gitignore", ".may/\n"); print("created", root); return;
 }
@@ -90,7 +98,7 @@ fun main_cli(argv: List<Str>) -> Int {
     let sub: Str = if (len(argv) > 1) { argv[1] } else { "help" };
     if (has(["help", "--help", "-h"], sub)) { usage(); exit(0); }
     if (has(["version", "--version"], sub)) { print("may workspace runner (schema 1)"); exit(0); }
-    if (sub == "new") { if (len(argv) != 3) { usage(); exit(2); } create(argv[2]); exit(0); }
+    if (sub == "new") { if (len(argv) != 3 and not (len(argv) == 4 and argv[3] == "--ui")) { usage(); exit(2); } create(argv[2], len(argv) == 4); exit(0); }
     if (sub == "migrate") { migrate(); exit(0); }
     let ws: Any = workspace.load();
     mut name: Str = ""; mut all: Bool = false; mut fmt_check: Bool = false; mut forward: Bool = false; mut once: Bool = false;
