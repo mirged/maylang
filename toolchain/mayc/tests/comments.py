@@ -27,6 +27,22 @@ with tempfile.TemporaryDirectory(prefix='mayc-comments-') as directory:
     assert result.returncode == 0, result.stderr
     result = subprocess.run([str(binary)], capture_output=True, timeout=30)
     assert result.returncode == 0 and result.stdout == b'42\n3\nstart\nimport hidden;\nend\n', result
+    source.write_text('import "library.may" as library; import "math" as math; print(library.answer() + math.gcd(6, 9));\n')
+    result = subprocess.run([str(args.compiler.resolve()), *options, str(source), '-o', str(binary)], env=env, capture_output=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    result = subprocess.run([str(binary)], capture_output=True, timeout=30)
+    assert result.returncode == 0 and result.stdout == b'45\n', result
+    source.write_text('from "library.may" import answer; print(answer());\n')
+    result = subprocess.run([str(args.compiler.resolve()), *options, str(source), '-o', str(binary)], env=env, capture_output=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert subprocess.check_output([str(binary)], timeout=30) == b'42\n'
+    broken = 'import "library.may" as library; let broken: Int = "text";\n'
+    source.write_text(broken)
+    result = subprocess.run([str(args.compiler.resolve()), *options, '--diagnostics', 'json', '--check', str(source)], env=env, capture_output=True, timeout=30)
+    report = json.loads(result.stderr)
+    assert result.returncode != 0 and 'expected Int, found Str' in str(report), result
+    diagnostic = report['diagnostics'][0]
+    assert diagnostic['range']['start'] == {'line': 1, 'column': broken.index('let') + 1}, diagnostic
     source.write_text('print(1);\n/* unterminated /* nested */\n')
     result = subprocess.run([str(args.compiler.resolve()), *options, '--diagnostics', 'json', '--check', str(source)],
                             env=env, capture_output=True, timeout=30)

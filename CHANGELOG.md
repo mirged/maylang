@@ -6,6 +6,8 @@ Released 2026-10-12. Everyday workspaces and the first native desktop UI toolkit
 
 - One shared CLI/editor formatter, including Unicode strings and nested comments.
 - Nested `/* ... */` source comments and comment/string-aware import scanning.
+  Statements and additional imports after a same-line import are preserved,
+  including their original diagnostic columns.
 - `may` workspaces replace source guessing with an explicit `may.json` graph of
   applications, executable test groups, native build recipes and action tasks.
 - Content-addressed artifact verification, atomic publication, source-change

@@ -159,6 +159,26 @@ fun module_scan_line(text: Any, start: Any, end: Any, scan_state: Any) -> Any {
     return 0;
 }
 
+// A semicolon terminates only the import; following source stays on its line.
+fun module_import_end(text: Any, start: Any, end: Any) -> Any {
+    mut i: Any = start; mut depth: Any = 0;
+    while (i < end) {
+        let c: Any = load8(text + i);
+        let next: Any = if (i + 1 < end) { load8(text + i + 1) } else { 0 };
+        if (depth > 0) {
+            if (c == 47 and next == 42) { depth += 1; i += 2; }
+            else if (c == 42 and next == 47) { depth -= 1; i += 2; }
+            else { i += 1; }
+        } else {
+            if (c == 47 and next == 47) { return end; }
+            if (c == 47 and next == 42) { depth = 1; i += 2; continue; }
+            if (c == 59) { return i + 1; }
+            i += 1;
+        }
+    }
+    return end;
+}
+
 fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
     let canonical: Any = module_file(symbol_name(pp, pl));
     // Imports, source origins and visibility maps use this same final path.
@@ -190,22 +210,34 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
             i = i + 1;
         }
         let le: Any = i;
-        let directive: Any = lexical.block == 0 and len(lexical.stack) == 0 and import_line(text, ls, le) == 1;
-        module_scan_line(text, ls, le, lexical);
-        if (directive) {
-            let q1: Any = findq(text, ls, le, 0);
-            let q2: Any = findq(text, ls, le, 1);
-            if (q1 < 0 or q2 <= q1 + 1) { die_str("${sourcePath}:${sourceLine}: invalid import path\n"); }
-            mut imported: Any = symbol_name(text + q1 + 1, q2 - q1 - 1);
-            let parts: Any = split(imported, "/");
-            if (not contains(parts[len(parts) - 1], ".")) { imported = imported + ".may"; }
-            let candidate: Any = if (starts_with(imported, "/")) { imported } else { symbol_name(pp, dl) + imported };
-            let target: Any = if (file_ok(addr(candidate)) == 1) { module_file(candidate) } else { module_file("stdlib/" + imported) };
-            register_import(sourcePath, target, text, ls, le, q2);
-            off = append_file(addr(target), len(target), buf, off);
-        } else {
-            push(EXPAND_ORIGINS, SourceOrigin(off, sourcePath, sourceLine));
-            off = emit_line(text, ls, le, buf, off);
+        mut segment: Any = ls;
+        // An empty physical line still belongs to the source-origin mapping.
+        if (segment == le) { push(EXPAND_ORIGINS, SourceOrigin(off, sourcePath, sourceLine)); off = emit_line(text, ls, le, buf, off); }
+        while (segment < le) {
+            let directive: Any = lexical.block == 0 and len(lexical.stack) == 0 and import_line(text, segment, le) == 1;
+            if (directive) {
+                let q1: Any = findq(text, segment, le, 0);
+                let q2: Any = findq(text, segment, le, 1);
+                if (q1 < 0 or q2 <= q1 + 1) { die_str("${sourcePath}:${sourceLine}: invalid import path\n"); }
+                let finish: Any = module_import_end(text, q2 + 1, le);
+                module_scan_line(text, segment, finish, lexical);
+                mut imported: Any = symbol_name(text + q1 + 1, q2 - q1 - 1);
+                let parts: Any = split(imported, "/");
+                if (not contains(parts[len(parts) - 1], ".")) { imported = imported + ".may"; }
+                let candidate: Any = if (starts_with(imported, "/")) { imported } else { symbol_name(pp, dl) + imported };
+                let target: Any = if (file_ok(addr(candidate)) == 1) { module_file(candidate) } else { module_file("stdlib/" + imported) };
+                register_import(sourcePath, target, text, segment, finish, q2);
+                off = append_file(addr(target), len(target), buf, off);
+                segment = finish;
+            } else {
+                module_scan_line(text, segment, le, lexical);
+                push(EXPAND_ORIGINS, SourceOrigin(off, sourcePath, sourceLine));
+                // Preserve original columns for code after one or more imports.
+                mut padding: Any = ls;
+                while (padding < segment) { store8(buf + off, 32); off += 1; padding += 1; }
+                off = emit_line(text, segment, le, buf, off);
+                segment = le;
+            }
         }
         i = i + 1;
         sourceLine = sourceLine + 1;
