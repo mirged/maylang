@@ -6,6 +6,7 @@
 - Default output removes a final `.may` suffix; other suffixes receive `.out`.
 - `-h`, `--help` — print command-line help and exit.
 - `-V`, `--version` — print the compiler identity/version.
+- `--list-targets` — list supported target names, executable formats and default runtimes without a source file; the compiler host remains Linux x86-64.
 - `-o PATH`, `--output PATH` — select output path.
 - `--check` — expand imports, parse, strictly check and resolve names without producing an executable.
 - `--strict` — enable strict checking, the default.

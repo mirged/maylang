@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Release provenance checks against real lightweight/annotated Git tags."""
 import importlib.util
+import json
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +13,28 @@ SPEC.loader.exec_module(package)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_release_identity(self):
+        with tempfile.TemporaryDirectory(prefix='maylang-identity-') as directory:
+            previous = package.ROOT
+            package.ROOT = Path(directory)
+            try:
+                path = package.ROOT / 'RELEASE.json'
+                valid = {'version': '0.10.0', 'codename': 'Aster', 'date': '2026-10-12'}
+                path.write_text(json.dumps(valid))
+                self.assertEqual(package.release_metadata('0.10.0'), valid)
+                invalid = [
+                    {'version': '0.9.0'}, {'codename': 'aster'},
+                    {'codename': 'Aster\nextra'}, {'date': '2026-02-29'},
+                    {'date': '20261012'}, {'date': '2026-10-12-nightly'},
+                ]
+                for replacement in invalid:
+                    with self.subTest(replacement=replacement):
+                        path.write_text(json.dumps(valid | replacement))
+                        with self.assertRaises(ValueError):
+                            package.release_metadata('0.10.0')
+            finally:
+                package.ROOT = previous
+
     def test_release_source_contract(self):
         with tempfile.TemporaryDirectory(prefix='maylang-release-') as directory:
             previous = package.ROOT

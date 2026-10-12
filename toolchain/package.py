@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Build a complete Linux x86-64 toolchain archive with provenance/checksums."""
 import argparse
+from datetime import date
 import gzip
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -30,6 +32,19 @@ def release_provenance(tag, version, commit):
     return tag
 
 
+def release_metadata(version):
+    metadata = json.loads((ROOT / 'RELEASE.json').read_text())
+    if metadata.get('version') != version:
+        raise ValueError('RELEASE.json version must match the compiler version')
+    if not re.fullmatch(r'[A-Z][a-z]+', metadata.get('codename', '')):
+        raise ValueError('release codename must be a capitalized word')
+    stamp = metadata.get('date', '')
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', stamp):
+        raise ValueError('release date must use YYYY-MM-DD')
+    date.fromisoformat(stamp)
+    return metadata
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
@@ -44,6 +59,7 @@ def main():
         if compiler.name == 'mayc_new' and compiler.parent == ROOT/'toolchain/mayc':
             compiler = ROOT/'toolchain/mayc/build/bin/mayc_new'
     version = run(compiler, '--version').removeprefix('mayc ')
+    metadata = release_metadata(version)
     commit = run('git', 'rev-parse', 'HEAD')
     tag = release_provenance(args.release_tag, version, commit)
     epoch = int(os.environ.get('SOURCE_DATE_EPOCH', run('git', 'show', '-s', '--format=%ct', 'HEAD')))
@@ -61,9 +77,12 @@ def main():
         for tool in ('maypkg', 'maylsp'):
             subprocess.run([str(compiler), str(ROOT/f'toolchain/{tool}/main.may'), '-o', str(bin_dir/tool)], cwd=ROOT, check=True, timeout=180)
         (bundle/'VERSION').write_text(version+'\n')
+        shutil.copy2(ROOT / 'RELEASE.json', bundle / 'RELEASE.json')
+        shutil.copy2(ROOT / 'CHANGELOG.md', bundle / 'CHANGELOG.md')
         (bundle/'README.txt').write_text('Add this bundle\'s bin directory to PATH. Keep the entire bundle together.\nCompiler host: Linux x86-64. Full runtime: Linux x86-64 only.\nUse mayc --help, maypkg help, and maylsp with an LSP-capable editor.\nUpgrade by extracting a new bundle and changing PATH.\n')
         (bundle/'provenance.json').write_text(json.dumps({
             'version':version, 'commit':commit, 'tag':tag,
+            'release':metadata,
             'dirty':bool(run('git','status','--porcelain')),
             'host':'x86_64-linux', 'bootstrap':'Rust -> C -> self-hosted native',
             'bootstrap_tools': {'rustc': run('rustc', '--version'),
