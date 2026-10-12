@@ -28,6 +28,12 @@ fun gc_regression() -> Any {
     if (rt_candidate(owner) != owner) { syscall(60, 2); }
     let graph: Any = rt_list_new(4);
     store64(roots + 8, graph); rt_gc_root(roots + 8);
+    // cstr returns an address encoded as a user Ptr/Int (raw address * 8).
+    // Keeping only that value must preserve its independently allocated copy.
+    let copied: Any = rt_cstr(rt_from(addr("persistent"), 10));
+    rt_scan_word(copied);
+    if (load64(copied / 8 - 16) % 2 != 1) { syscall(60, 6); }
+    store64(roots + 16, copied); rt_gc_root(roots + 16);
     mut round: Any = 0;
     while (round < 100) {
         let text: Any = rt_from(addr("persistent"), 10);
@@ -42,6 +48,8 @@ fun gc_regression() -> Any {
             index += 1;
         }
         if (load64(owner + 16) != 32) { syscall(60, 4); }
+        let bytes: Any = load64(roots + 16) / 8;
+        if (load8(bytes) != 112 or load8(bytes + 10) != 0) { syscall(60, 7); }
         round += 1;
     }
     if (GCCOUNT != 100) { syscall(60, 5); }

@@ -19,7 +19,11 @@ fiber roots are traced, including runtime metadata. Mark-stack exhaustion
 terminates with exit 70 instead of silently losing live descendants.
 
 `python3 toolchain/mayc/tests/gc.py` checks header-shaped interior bytes and
-100 forced collections with a retained, growing graph. The existing map suite
+100 forced collections with a retained, growing graph. It also verifies that
+encoded user addresses (`address * 8`) preserve the allocation returned by
+`cstr`; both decoded and direct candidates must pass allocation-start identity
+validation. Holding an `addr` into a string's interior still requires keeping
+the source string alive. The existing map suite
 also forces automatic collection in a reduced heap. Conservative retention,
 fixed heap capacity and nonmoving fragmentation remain limitations.
 
