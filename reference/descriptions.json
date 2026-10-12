@@ -342,7 +342,7 @@
     "core:arena_reset": "Reset the cursor without clearing bytes or returning pages; invalidate every previously returned span. Callers must discard all aliases before resetting.",
     "core:arena_used": "Read consumed scratch bytes including alignment padding.",
     "core:arena_capacity": "Read rounded scratch capacity in bytes.",
-    "core:core_heap_retained": "Read total mapped core chunk bytes, including ordinary allocations and arenas.",
+    "core:core_heap_retained": "Read total requested native chunk bytes, including ordinary allocations and arenas.",
     "core:alloc": "Allocate raw process-lifetime bytes; return a Ptr. Core heap exhaustion terminates with status 70.",
     "core:memcpy": "Copy raw bytes between valid, nonoverlapping caller-owned pointer spans.",
     "core:gcd": "Return the nonnegative greatest common divisor of two integers.",

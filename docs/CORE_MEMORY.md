@@ -15,7 +15,7 @@ x86-64/ARM64/RISC-V64, macOS ARM64 and Windows x86-64:
 | `arena_reset(arena: Ptr) -> Nil` | Reset the cursor without mapping memory or clearing bytes. All previously returned spans become invalid. |
 | `arena_used(arena: Ptr) -> Int` | Current consumed bytes, including alignment padding. |
 | `arena_capacity(arena: Ptr) -> Int` | Rounded capacity in bytes. |
-| `core_heap_retained() -> Int` | Total mapped core chunk bytes, including arena storage and ordinary runtime allocations. |
+| `core_heap_retained() -> Int` | Total requested native chunk bytes, including arena storage and ordinary runtime allocations. |
 
 An arena handle must come from `arena_new`; arbitrary, interior or stale handles
 have undefined behavior, like other raw pointer operations. Keep the handle for
@@ -61,5 +61,5 @@ The [core suite](../toolchain/mayc/tests/core_runtime.py) executes the test
 natively on Linux x86-64 and through Unicorn on all five targets, including
 negative sizes, capacity exhaustion and the ordinary retained-heap limit.
 The [native host suite](NATIVE_TARGETS.md) repeats the workload on Windows and
-Apple Silicon. This is a measurement of mapped core chunk bytes, not RSS:
-resident-page accounting and OS overhead are outside the counter.
+Apple Silicon. This is a measurement of requested chunk bytes, not RSS or exact OS mappings:
+OS page/allocation-granularity rounding, resident-page accounting and other OS overhead are outside the counter. The 256 MiB cap applies to requested chunk bytes.

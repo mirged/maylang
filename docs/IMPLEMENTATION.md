@@ -211,6 +211,11 @@ regressions and deterministic/extracted archive tests pass locally. First
 publication remains a release-lifecycle step; branch CI artifacts are not
 described as published release assets.
 
+Local final validation also passes compiler verification **94/0**, compliance
+**69/0**, offline Rust workspace tests, source bootstrap with byte-identical
+native stages 2/3, the full LLVM suite, runtime-map/GC regressions and all-target
+core emulation. The pinned VSIX packager produces an installable extension.
+
 ## Remaining limits
 
 The issue acceptance audit additionally covers atomic successful-build state

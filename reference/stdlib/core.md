@@ -13,7 +13,7 @@
 - **arena_reset** — `fun arena_reset(arena: Ptr) -> Nil` — Reset the cursor without clearing bytes or returning pages; invalidate every previously returned span. Callers must discard all aliases before resetting.
 - **arena_used** — `fun arena_used(arena: Ptr) -> Int` — Read consumed scratch bytes including alignment padding.
 - **arena_capacity** — `fun arena_capacity(arena: Ptr) -> Int` — Read rounded scratch capacity in bytes.
-- **core_heap_retained** — `fun core_heap_retained() -> Int` — Read total mapped core chunk bytes, including ordinary allocations and arenas.
+- **core_heap_retained** — `fun core_heap_retained() -> Int` — Read total requested native chunk bytes, including ordinary allocations and arenas.
 - **memcpy** — `fun memcpy(destination: Ptr, source: Ptr, bytes: Int) -> Nil` — Copy raw bytes between valid, nonoverlapping caller-owned pointer spans.
 - **substring** — `fun substring(s: Str, start: Int, count: Int) -> Str` — Return a string starting at codepoint index start and containing count codepoints; require indices within the source string.
 - **str_concat** — `fun str_concat(a: Str, b: Str) -> Str` — Concatenate through the dynamic `+` operator.
