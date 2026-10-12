@@ -27,6 +27,15 @@ fun ls_scan(doc: Any, state: Any, interpolation: Any) -> Any {
             while (state.i < ls_bytes(s) and ls_byte(s, state.i) != 10) { state.i += 1; }
             push(doc.comments, ls_token("comment", ls_slice(s, a, state.i), a, state.i, state.scope)); continue;
         }
+        if (c == 47 and ls_byte(s, a + 1) == 42) {
+            state.i += 2; mut depth: Any = 1;
+            while (state.i < ls_bytes(s) and depth > 0) {
+                if (ls_byte(s, state.i) == 47 and ls_byte(s, state.i + 1) == 42) { depth += 1; state.i += 2; }
+                else if (ls_byte(s, state.i) == 42 and ls_byte(s, state.i + 1) == 47) { depth -= 1; state.i += 2; }
+                else { state.i += 1; }
+            }
+            push(doc.comments, ls_token("comment", ls_slice(s, a, state.i), a, state.i, state.scope)); continue;
+        }
         mut kind: Any = "punct";
         if (ls_ident_start(c)) {
             kind = "identifier"; state.i += 1;

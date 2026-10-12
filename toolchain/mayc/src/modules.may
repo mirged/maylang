@@ -127,6 +127,38 @@ fun file_ok(p: Any) -> Any {
     return 1;
 }
 
+// Import-looking lines inside comments or multiline/interpolated strings are
+// source text, not module directives. Carry lexical context across lines.
+fun module_scan_line(text: Any, start: Any, end: Any, scan_state: Any) -> Any {
+    mut i: Any = start;
+    while (i < end) {
+        let c: Any = load8(text + i);
+        let next: Any = if (i + 1 < end) { load8(text + i + 1) } else { 0 };
+        if (scan_state.block > 0) {
+            if (c == 47 and next == 42) { scan_state.block += 1; i += 2; }
+            else if (c == 42 and next == 47) { scan_state.block -= 1; i += 2; }
+            else { i += 1; }
+            continue;
+        }
+        let context: Any = if (len(scan_state.stack) > 0) { scan_state.stack[len(scan_state.stack) - 1] } else { nil };
+        if (context != nil and context.kind == "string") {
+            if (c == 92) { i += 2; continue; }
+            if (c == 34) { pop(scan_state.stack); }
+            else if (c == 36 and next == 123) { push(scan_state.stack, {"kind": "code", "depth": 1}); i += 2; continue; }
+        } else {
+            if (c == 47 and next == 47) { break; }
+            if (c == 47 and next == 42) { scan_state.block = 1; i += 2; continue; }
+            if (c == 34) { push(scan_state.stack, {"kind": "string"}); }
+            else if (context != nil) {
+                if (c == 123) { context.depth += 1; }
+                if (c == 125) { context.depth -= 1; if (context.depth == 0) { pop(scan_state.stack); } }
+            }
+        }
+        i += 1;
+    }
+    return 0;
+}
+
 fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
     let canonical: Any = module_file(symbol_name(pp, pl));
     // Imports, source origins and visibility maps use this same final path.
@@ -150,6 +182,7 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
         k = k + 1;
     }
     mut i: Any = 0;
+    let lexical: Any = {"block": 0, "stack": []};
     while (i < tn) {
         let ls: Any = i;
         while (i < tn) {
@@ -157,7 +190,9 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
             i = i + 1;
         }
         let le: Any = i;
-        if (import_line(text, ls, le) == 1) {
+        let directive: Any = lexical.block == 0 and len(lexical.stack) == 0 and import_line(text, ls, le) == 1;
+        module_scan_line(text, ls, le, lexical);
+        if (directive) {
             let q1: Any = findq(text, ls, le, 0);
             let q2: Any = findq(text, ls, le, 1);
             if (q1 < 0 or q2 <= q1 + 1) { die_str("${sourcePath}:${sourceLine}: invalid import path\n"); }

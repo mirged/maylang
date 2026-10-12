@@ -1,3 +1,4 @@
+import "../../shared/format.may" as formatting;
 import "text.may";
 import "index.may";
 import "protocol.may";
@@ -340,43 +341,11 @@ fun ls_semantic_delta(doc: Any, previous: Any) -> Any {
     return {"resultId": current.resultId, "edits": edits};
 }
 fun ls_format(doc: Any, options: Any) -> Any {
-    let size: Any = options.tabSize ?? 4; let spaces: Any = options.insertSpaces ?? true;
+    let size: Any = options.tabSize ?? 4;
+    let spaces: Any = options.insertSpaces ?? true;
     if (value_tag(size) != 0 or size < 1 or size > 16) { fail("tabSize must be between 1 and 16"); }
-    mut unit: Any = if (spaces) { "" } else { "\t" };
-    if (spaces) { for i: Any in 0..size { unit = unit + " "; } }
-    let lines: Any = ls_split(doc.text, "\n"); let out: Any = []; mut depth: Any = 0; mut offset: Any = 0; mut blank: Any = false; mut cursor: Any = 0;
-    for line: Any in lines {
-        let end: Any = offset + ls_bytes(line); mut trimmed: Any = ls_trim(line); mut leading: Any = 0; mut delta: Any = 0;
-        mut atStart: Any = true; mut literalTail: Any = false;
-        while (cursor < len(doc.tokens) and doc.tokens[cursor].b <= offset) { cursor += 1; }
-        mut scan: Any = cursor; mut inString: Any = false;
-        while (scan < len(doc.tokens) and doc.tokens[scan].a <= end) {
-            let t: Any = doc.tokens[scan];
-            if (t.a >= offset and t.a < end) {
-                if (t.name == "{") { delta += 1; }
-                if (t.name == "}") { delta -= 1; }
-                if (atStart and t.name == "}") { leading += 1; } else { atStart = false; }
-            }
-            if (t.kind == "string" and t.a <= end and t.b > end) { literalTail = true; }
-            if (t.kind == "string" and t.a < offset and t.b > offset) { inString = true; }
-            scan += 1;
-        }
-        if (literalTail) {
-            mut begin: Any = 0; while (begin < ls_bytes(line) and has([32, 9], ls_byte(line, begin))) { begin += 1; }
-            trimmed = ls_slice(line, begin, ls_bytes(line));
-        }
-        // Multiline string contents must remain byte-for-byte unchanged.
-        if (inString) { push(out, line); blank = false; }
-        else if (trimmed == "") { if (not blank and len(out) > 0) { push(out, ""); } blank = true; }
-        else {
-            mut indent: Any = "";
-            for i: Any in 0..max(0, depth - leading) { indent = indent + unit; }
-            push(out, indent + trimmed); blank = false;
-        }
-        depth = max(0, depth + delta); offset = end + 1;
-    }
-    while (len(out) > 0 and out[len(out) - 1] == "") { pop(out); }
-    return ls_join(out, "\n") + "\n";
+    if (value_tag(spaces) != 3 and value_tag(spaces) != 4) { fail("insertSpaces must be a boolean"); }
+    return formatting.format_source(doc.text, size, spaces);
 }
 fun ls_format_edits(doc: Any, p: Any) -> Any {
     let formatted: Any = ls_format(doc, p.options ?? ({}));

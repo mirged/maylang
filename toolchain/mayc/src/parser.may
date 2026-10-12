@@ -1208,7 +1208,11 @@ fun build_interp(ctx: Any, s: Any, l: Any) -> Any {
                 mut depth: Any = 1;
                 while (j < l) {
                     let c: Any = load8(SRC + s + j);
-                    if (c == 34) {
+                    if (c == 47 and load8(SRC + s + j + 1) == 42) { j = lex_block_end(s + j, s + l) - s; }
+                    else if (c == 47 and load8(SRC + s + j + 1) == 47) {
+                        while (j < l and load8(SRC + s + j) != 10) { j += 1; }
+                    }
+                    else if (c == 34) {
                         j = j + 1;
                         while (j < l) {
                             let e2: Any = load8(SRC + s + j);

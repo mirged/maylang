@@ -1,0 +1,21 @@
+import "../shared/format.may" as format;
+let argv: List<Str> = args();
+mut check: Bool = false; mut changed: Bool = false; mut count: Int = 0;
+for i: Int in 1..len(argv) {
+    let path: Str = argv[i];
+    if (path == "--check") { check = true; continue; }
+}
+for i: Int in 1..len(argv) {
+    let path: Str = argv[i];
+    if (path == "--check") { continue; }
+    if (starts_with(path, "--")) { fail("mayfmt: unknown option " + path); }
+    let source: Str = read_file(path);
+    let formatted: Str = format.format_source(source, 4, true);
+    if (source != formatted) {
+        changed = true;
+        if (check) { print("needs formatting:", path); } else { write_file(path, formatted); }
+    }
+    count += 1;
+}
+if (count == 0) { print("usage: mayfmt [--check] file.may ..."); exit(2); }
+exit(if (check and changed) { 1 } else { 0 });

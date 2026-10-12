@@ -41,7 +41,10 @@ jobs:
       - name: Verify native compiler and current entrypoints
         run: python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
       - name: Execute strict documentation examples
-        run: python3 toolchain/tests/documentation.py
+        run: |
+          python3 toolchain/tests/documentation.py
+          python3 toolchain/mayfmt/tests/run.py
+          python3 toolchain/mayc/tests/comments.py --llvm
       - name: Verify contracts and error traces through LLVM
         run: |
           python3 toolchain/mayc/tests/numeric_contracts.py --llvm

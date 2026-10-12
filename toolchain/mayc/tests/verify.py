@@ -155,6 +155,8 @@ def main():
         architecture(compiler)
         cli = run(["python3", COMPILER / "tests/cli.py", "--compiler", compiler], timeout=180)
         record("source-free target discovery and runtime defaults", cli.returncode == 0, (cli.stdout + cli.stderr).decode())
+        comments = run(["python3", COMPILER / "tests/comments.py", "--compiler", compiler], timeout=180)
+        record("nested comments and source-aware import expansion", comments.returncode == 0, (comments.stdout + comments.stderr).decode())
         strict = run(["python3", COMPILER / "tests/strict_types.py", "--compiler", compiler], timeout=180)
         record("strict type contracts", strict.returncode == 0, (strict.stdout + strict.stderr).decode())
         modules = run(["python3", COMPILER / "tests/modules.py", "--compiler", compiler], timeout=180)

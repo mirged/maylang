@@ -1,0 +1,137 @@
+// The CLI and editor share this formatter. Literal/comment bytes stay intact.
+struct FormatToken { text: Str, kind: Str, newline: Bool }
+struct FormatOutput { line: Str, lines: List<Str>, depth: Int, unit: Str }
+
+fun fmt_at(cs: List<Str>, i: Int) -> Str {
+    return if (i >= 0 and i < len(cs)) { cs[i] } else { "" };
+}
+fun fmt_word(c: Str) -> Bool {
+    return c != "" and ((c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9") or c == "_" or ord(c) >= 128);
+}
+fun fmt_block_end(cs: List<Str>, start: Int) -> Int {
+    mut i: Int = start + 2; mut depth: Int = 1;
+    while (i < len(cs) and depth > 0) {
+        if (cs[i] == "/" and fmt_at(cs, i + 1) == "*") { depth += 1; i += 2; }
+        else if (cs[i] == "*" and fmt_at(cs, i + 1) == "/") { depth -= 1; i += 2; }
+        else { i += 1; }
+    }
+    if (depth != 0) { fail("formatter: unterminated block comment"); }
+    return i;
+}
+fun fmt_string(cs: List<Str>, start: Int) -> Int {
+    mut i: Int = start + 1;
+    while (i < len(cs)) {
+        if (cs[i] == "\\") { i += 2; continue; }
+        if (cs[i] == "\"") { return i + 1; }
+        if (cs[i] == "$" and fmt_at(cs, i + 1) == "{") {
+            i += 2; mut depth: Int = 1;
+            while (i < len(cs) and depth > 0) {
+                if (cs[i] == "/" and fmt_at(cs, i + 1) == "*") { i = fmt_block_end(cs, i); continue; }
+                if (cs[i] == "/" and fmt_at(cs, i + 1) == "/") {
+                    while (i < len(cs) and cs[i] != "\n") { i += 1; }
+                    continue;
+                }
+                if (cs[i] == "\"") { i = fmt_string(cs, i); continue; }
+                if (cs[i] == "{") { depth += 1; }
+                if (cs[i] == "}") { depth -= 1; }
+                i += 1;
+            }
+            continue;
+        }
+        i += 1;
+    }
+    fail("formatter: unterminated string"); return start;
+}
+fun fmt_tokens(text: Str) -> List<FormatToken> {
+    let cs: List<Str> = chars(text); let tokens: List<FormatToken> = [];
+    mut i: Int = 0; mut newline: Bool = false;
+    while (i < len(cs)) {
+        if (has([" ", "\t", "\r", "\n"], cs[i])) { if (cs[i] == "\n") { newline = true; } i += 1; continue; }
+        let start: Int = i; mut kind: Str = "code";
+        if (cs[i] == "\"") { i = fmt_string(cs, i); kind = "literal"; }
+        else if (cs[i] == "/" and fmt_at(cs, i + 1) == "/") {
+            while (i < len(cs) and cs[i] != "\n") { i += 1; }
+            kind = "line";
+        } else if (cs[i] == "/" and fmt_at(cs, i + 1) == "*") {
+            i = fmt_block_end(cs, i);
+            kind = "comment";
+        } else if (fmt_word(cs[i])) {
+            let numeric: Bool = cs[i] >= "0" and cs[i] <= "9";
+            i += 1;
+            while (fmt_word(fmt_at(cs, i))) { i += 1; }
+            if (numeric and fmt_at(cs, i) == "." and fmt_at(cs, i + 1) >= "0" and fmt_at(cs, i + 1) <= "9") {
+                i += 1; while (fmt_word(fmt_at(cs, i))) { i += 1; }
+            }
+            if (numeric and has(["+", "-"], fmt_at(cs, i)) and has(["e", "E"], fmt_at(cs, i - 1))) {
+                i += 1; while (fmt_word(fmt_at(cs, i))) { i += 1; }
+            }
+        } else {
+            let pair: Str = cs[i] + fmt_at(cs, i + 1);
+            let triple: Str = pair + fmt_at(cs, i + 2);
+            i += if (has(["...", "..="], triple)) { 3 }
+                else if (has(["==", "!=", "<=", ">=", "&&", "||", "+=", "-=", "*=", "/=", "%=", "=>", "->", "??", "?.", "..", "::", "<<", ">>", "**", "|>"], pair)) { 2 } else { 1 };
+        }
+        push(tokens, FormatToken(join(slice(cs, start, i), ""), kind, newline)); newline = false;
+    }
+    return tokens;
+}
+fun fmt_flush(out: FormatOutput) -> Nil {
+    if (out.line != "") { push(out.lines, out.line); out.line = ""; }
+    return;
+}
+fun fmt_emit(out: FormatOutput, text: Str, space: Bool) -> Nil {
+    if (out.line == "") { out.line = repeat(out.unit, out.depth) + text; }
+    else { out.line = out.line + (if (space and not ends_with(out.line, " ")) { " " } else { "" }) + text; }
+    return;
+}
+pub fun format_source(text: Str, size: Int, spaces: Bool) -> Str {
+    if (size < 1 or size > 16) { fail("tabSize must be between 1 and 16"); }
+    let tokens: List<FormatToken> = fmt_tokens(text);
+    let out: FormatOutput = FormatOutput("", [], 0, if (spaces) { repeat(" ", size) } else { "\t" });
+    let stack: List<Str> = []; let multiline: List<Bool> = []; mut previous: Str = ""; mut angles: Int = 0;
+    for i: Int in 0..len(tokens) {
+        let token: FormatToken = tokens[i]; let t: Str = token.text;
+        let next: Str = if (i + 1 < len(tokens)) { tokens[i + 1].text } else { "" };
+        if (token.kind == "line") { fmt_emit(out, t, true); fmt_flush(out); previous = ""; continue; }
+        if (token.kind == "comment") {
+            fmt_emit(out, t, true); previous = t;
+            if (i + 1 < len(tokens) and tokens[i + 1].newline) { fmt_flush(out); previous = ""; }
+            continue;
+        }
+        if (t == "{") {
+            fmt_emit(out, t, previous != "(" and previous != "["); push(stack, t); push(multiline, false);
+            if (next != "}") { fmt_flush(out); out.depth += 1; }
+        } else if (t == "}") {
+            if (previous != "{") { fmt_flush(out); out.depth = max(0, out.depth - 1); }
+            if (len(stack) == 0 or pop(stack) != "{") { fail("formatter: unbalanced braces"); }
+            pop(multiline);
+            fmt_emit(out, t, false);
+            if (not has([";", ",", ")", "]", ".", "?.", "else", "otherwise", "+", "-", "*", "/", "?", "??"], next)) { fmt_flush(out); }
+        } else if (t == "(" or t == "[") {
+            fmt_emit(out, t, has(["if", "while", "for", "match", "=", "=>", "return", "in"], previous)); push(stack, t);
+            let vertical: Bool = i + 1 < len(tokens) and tokens[i + 1].newline and next != ")" and next != "]";
+            push(multiline, vertical);
+            if (vertical) { fmt_flush(out); out.depth += 1; }
+        } else if (t == ")" or t == "]") {
+            let opening: Str = if (t == ")") { "(" } else { "[" };
+            if (len(stack) == 0 or pop(stack) != opening) { fail("formatter: unbalanced brackets"); }
+            if (pop(multiline) ?? false) { fmt_flush(out); out.depth = max(0, out.depth - 1); }
+            fmt_emit(out, t, false);
+        } else if (t == ";") { fmt_emit(out, t, false); fmt_flush(out); }
+        else if (t == ",") {
+            fmt_emit(out, t, false);
+            if (len(stack) > 0 and (stack[len(stack) - 1] == "{" or multiline[len(multiline) - 1])) { fmt_flush(out); }
+        } else if (has([".", "?.", "::", ":", "?"], t)) { fmt_emit(out, t, false); }
+        else if (t == "<" and previous != "" and next != "" and ((previous[0] >= "A" and previous[0] <= "Z") or (i >= 2 and tokens[i - 2].text == "fun")) and (next[0] >= "A" and next[0] <= "Z" or next == "(" or next == "[")) {
+            fmt_emit(out, t, false); angles += 1;
+        } else if (has([">", ">>"], t) and angles > 0) { fmt_emit(out, t, false); angles = max(0, angles - len(t)); }
+        else {
+            let spaced: Bool = previous != "" and not has(["(", "[", ".", "?.", "::"], previous) and not (previous == "<" and angles > 0);
+            fmt_emit(out, t, spaced);
+        }
+        previous = t;
+    }
+    if (len(stack) != 0) { fail("formatter: unclosed bracket"); }
+    fmt_flush(out);
+    return if (len(out.lines) == 0) { "" } else { join(out.lines, "\n") + "\n" };
+}
