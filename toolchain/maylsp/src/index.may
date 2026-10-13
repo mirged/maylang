@@ -354,7 +354,7 @@ fun ls_document(uri: Any) -> Any {
     let key: Any = ls_uri(ls_path(uri));
     if (has(LS_DOCS, key)) { return LS_DOCS[key]; }
     let path: Any = ls_path(key);
-    if (not file_exists(path)) { return nil; }
+    if (not file_exists(path) or ls_is_directory(path)) { return nil; }
     let doc: Any = {"uri": key, "path": path, "text": read_file(path), "version": nil, "open": false};
     LS_DOCS[key] = doc; ls_index(doc); return doc;
 }
@@ -387,10 +387,10 @@ fun ls_scan_dir(path: Any, depth: Any) -> Any {
     let entries: Any = may { read_dir(path) } otherwise { [] };
     for entry: Any in entries {
         if (len(LS_DOCS) >= 10000) { break; }
-        if (has([".", "..", ".git", "target", "node_modules", ".codex", ".agents", "build"], entry)) { continue; }
+        if (has([".", "..", ".git", ".may", "target", "node_modules", ".codex", ".agents", "build"], entry)) { continue; }
         let child: Any = path + "/" + entry;
-        if (ls_ends(entry, ".may")) { may { ls_document(ls_uri(child)); }; }
-        else { ls_scan_dir(child, depth + 1); }
+        if (ls_is_directory(child)) { ls_scan_dir(child, depth + 1); }
+        else if (ls_ends(entry, ".may")) { may { ls_document(ls_uri(child)); }; }
     }
     return nil;
 }
