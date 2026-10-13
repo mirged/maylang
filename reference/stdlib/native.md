@@ -18,6 +18,8 @@
 - **__op_mul** — `fun __op_mul(a: Any, b: Any) -> Any` — Internal map/record `*` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.
 - **__op_div** — `fun __op_div(a: Any, b: Any) -> Any` — Internal map/record `/` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.
 - **str_concat** — `fun str_concat(a: Any, b: Any) -> Any` — Concatenate through the dynamic `+` operator.
+- **__native_utf8_width** — `fun __native_utf8_width(byte: Any) -> Any` — Native prelude helper: return the byte width of a valid UTF-8 leading byte.
+- **__native_string_bytes** — `fun __native_string_bytes(s: Any, start: Any, count: Any) -> Any` — Native prelude helper: copy an in-range UTF-8 byte slice into a fresh string; the caller must preserve codepoint boundaries.
 - **substring** — `fun substring(s: Any, start: Any, count: Any) -> Any` — Return a string starting at codepoint index start and containing count codepoints; require indices within the source string.
 - **is_space_code** — `fun is_space_code(c: Any) -> Any` — True for ASCII space, tab, LF and CR character codes.
 - **is_upper_code** — `fun is_upper_code(c: Any) -> Any` — True for ASCII uppercase letter codes 65..90.
