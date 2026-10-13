@@ -148,15 +148,15 @@ def main():
         print('PASS modules explicit standard library overrides', flush=True)
         
         # Regression: modules sharing a filename must have unique ELF symbols.
-        collision = work / "duplicate-filename-symbols"
+        collision = work / "duplicate-filename-symbols::λ"
         (collision / "alpha").mkdir(parents=True)
         (collision / "beta").mkdir()
 
         (collision / "alpha/utils.may").write_text(
-            "pub fun value() -> Int { return 11; }\n"
+            "pub let answer: Int = 11;\npub fun value() -> Int { return answer; }\n"
         )
         (collision / "beta/utils.may").write_text(
-            "pub fun value() -> Int { return 22; }\n"
+            "pub let answer: Int = 22;\npub fun value() -> Int { return answer; }\n"
         )
 
         source = collision / "main.may"
@@ -166,6 +166,8 @@ def main():
             'print(a.value(), b.value());\n'
         )
 
+        relocated_project = work / "different-root" / "project"
+        shutil.copytree(collision, relocated_project)
         for mode in ("--strict", "--legacy"):
             binary = collision / f"app-{mode[2:]}"
             result = subprocess.run(
@@ -208,9 +210,21 @@ def main():
                 not name.startswith("/") for name in function_symbols
             ), f"Absolute source path leaked: {function_symbols}"
 
+            moved_binary = relocated_project / f"app-{mode[2:]}"
+            subprocess.run([str(compiler), mode, "main.may", "-o", str(moved_binary)],
+                           cwd=relocated_project, check=True, capture_output=True, timeout=60)
+            assert subprocess.check_output([str(moved_binary)]) == b"11 22\n"
+            moved_symbols = subprocess.check_output(
+                ["nm", "--defined-only", str(moved_binary)], text=True, timeout=10)
+            original_names = sorted(line.split(maxsplit=2)[2] for line in nm.stdout.splitlines())
+            moved_names = sorted(line.split(maxsplit=2)[2] for line in moved_symbols.splitlines())
+            assert len(original_names) == len(set(original_names)), original_names
+            assert original_names == moved_names, (original_names, moved_names)
+            assert all(str(work) not in name for name in original_names), original_names
+
             count += 1
             print(
-                f"PASS modules {mode[2:]} duplicate filename symbols",
+                f"PASS modules {mode[2:]} duplicate filename and relocated symbols",
                 flush=True,
             )
 

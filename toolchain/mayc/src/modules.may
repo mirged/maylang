@@ -5,6 +5,8 @@ import "sema.may";
 mut EXPAND_SEEN: Any = {};
 mut EXPAND_ORIGINS: Any = [];
 mut MODULE_IMPORTS: Any = {};
+// Expansion order identifies modules independently of their filesystem roots.
+mut MODULE_SYMBOLS: Any = {};
 
 // Keep source spelling intact; semantic resolution handles module aliases.
 fun emit_line(t: Any, ls: Any, le: Any, buf: Any, off: Any) -> Any {
@@ -184,10 +186,11 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
     // Imports, source origins and visibility maps use this same final path.
     if (has(EXPAND_SEEN, canonical)) { return off; }
     EXPAND_SEEN[canonical] = true;
+    MODULE_SYMBOLS[canonical] = "module" + str(len(MODULE_SYMBOLS));
     MODULE_IMPORTS[canonical] = [];
 
     pp = addr(canonical);
-    pl = len(canonical);
+    pl = load64(addr(canonical) - 8);
     let text: Any = slurp(pp, pl);
     let tn: Any = LASTLEN;
 
@@ -227,7 +230,7 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
                 let candidate: Any = if (starts_with(imported, "/")) { imported } else { symbol_name(pp, dl) + imported };
                 let target: Any = if (file_ok(addr(candidate)) == 1) { module_file(candidate) } else { module_file("stdlib/" + imported) };
                 register_import(sourcePath, target, text, segment, finish, q2);
-                off = append_file(addr(target), len(target), buf, off);
+                off = append_file(addr(target), load64(addr(target) - 8), buf, off);
                 segment = finish;
             } else {
                 module_scan_line(text, segment, le, lexical);
@@ -248,6 +251,7 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
 fun expand(pp: Any, pl: Any) -> Any {
     EXPAND_SEEN = {};
     MODULE_IMPORTS = {};
+    MODULE_SYMBOLS = {};
     EXPAND_ORIGINS = [];
     let buf: Any = irt_alloc(4194304);
     let off: Any = append_file(pp, pl, buf, 0);

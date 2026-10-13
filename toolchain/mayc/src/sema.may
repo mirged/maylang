@@ -100,7 +100,7 @@ fun sem_declare(pointer: Any, length: Any, writable: Any, category: Any, span: A
     if (owner != 0 or module != "") {
         SEM_SERIAL = SEM_SERIAL + 1;
         let internal: Any = if (module != "") { key } else { "${name}#${SEM_SERIAL}" };
-        length = len(internal);
+        length = load64(addr(internal) - 8);
         pointer = irt_alloc(length + 1);
         mut i: Any = 0;
         while (i < length) { store8(pointer + i, load8(addr(internal) + i)); i = i + 1; }
