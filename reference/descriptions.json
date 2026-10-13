@@ -136,6 +136,8 @@
     "__op_sub": "Internal map/record `-` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.",
     "__op_mul": "Internal map/record `*` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.",
     "__op_div": "Internal map/record `/` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.",
+    "native.may:__native_utf8_width": "Native prelude helper: return the byte width of a valid UTF-8 leading byte.",
+    "native.may:__native_string_bytes": "Native prelude helper: copy an in-range UTF-8 byte slice into a fresh string; the caller must preserve codepoint boundaries.",
     "str_concat": "Concatenate through the dynamic `+` operator.",
     "is_space_code": "True for ASCII space, tab, LF and CR character codes.",
     "is_upper_code": "True for ASCII uppercase letter codes 65..90.",

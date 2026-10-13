@@ -33,15 +33,32 @@ fun __op_div(a: Any, b: Any) -> Any { if (value_tag(a) != 7) { return nil; } let
 
 fun str_concat(a: Any, b: Any) -> Any { return a + b; }
 
-fun substring(s: Any, start: Any, count: Any) -> Any {
-    mut out: Any = "";
-    mut i: Any = start;
-    let stop: Any = start + count;
-    while (i < stop) {
-        out = out + char_from(char_at(s, i));
-        i = i + 1;
-    }
+// All native runtimes store the UTF-8 byte count immediately before addr(s).
+// Walk byte offsets once and copy into a fresh string; indexing s repeatedly
+// rescans every preceding codepoint and makes long paths/environments quadratic.
+fun __native_utf8_width(byte: Any) -> Any {
+    if (byte < 128) { return 1; }
+    if (byte < 224) { return 2; }
+    if (byte < 240) { return 3; }
+    return 4;
+}
+fun __native_string_bytes(s: Any, start: Any, count: Any) -> Any {
+    let out: Any = repeat("\0", count);
+    let source: Any = addr(s); let destination: Any = addr(out);
+    for i: Any in 0..count { store8(destination + i, load8(source + start + i)); }
     return out;
+}
+fun substring(s: Any, start: Any, count: Any) -> Any {
+    let bytes: Any = addr(s); let n: Any = load64(bytes - 8);
+    mut offset: Any = 0; mut index: Any = 0;
+    while (offset < n && index < start) {
+        offset += __native_utf8_width(load8(bytes + offset)); index += 1;
+    }
+    let begin: Any = offset; mut copied: Any = 0;
+    while (offset < n && copied < count) {
+        offset += __native_utf8_width(load8(bytes + offset)); copied += 1;
+    }
+    return __native_string_bytes(s, begin, offset - begin);
 }
 
 fun is_space_code(c: Any) -> Any { return c == 32 || c == 9 || c == 10 || c == 13; }
@@ -105,20 +122,23 @@ fun ends_with(s: Any, suffix: Any) -> Any {
 
 fun split(s: Any, delim: Any) -> Any {
     mut out: Any = [];
-    let m: Any = len(delim);
+    let bytes: Any = addr(s); let separator: Any = addr(delim);
+    let n: Any = load64(bytes - 8); let m: Any = load64(separator - 8);
     if (m == 0) { push(out, s); return out; }
     mut start: Any = 0;
     mut i: Any = 0;
-    while (i + m <= len(s)) {
-        if (substring(s, i, m) == delim) {
-            push(out, substring(s, start, i - start));
+    while (i + m <= n) {
+        mut matched: Any = 0;
+        while (matched < m && load8(bytes + i + matched) == load8(separator + matched)) { matched += 1; }
+        if (matched == m) {
+            push(out, __native_string_bytes(s, start, i - start));
             start = i + m;
             i = start;
         } else {
             i = i + 1;
         }
     }
-    push(out, substring(s, start, len(s) - start));
+    push(out, __native_string_bytes(s, start, n - start));
     return out;
 }
 
@@ -140,7 +160,15 @@ fun replace(s: Any, needle: Any, replacement: Any) -> Any {
     return out + substring(s, start, len(s) - start);
 }
 
-fun chars(s: Any) -> Any { return [char_from(char_at(s, i)) for i: Any in 0..len(s)]; }
+fun chars(s: Any) -> Any {
+    let out: Any = []; let bytes: Any = addr(s); let n: Any = load64(bytes - 8);
+    mut offset: Any = 0;
+    while (offset < n) {
+        let width: Any = __native_utf8_width(load8(bytes + offset));
+        push(out, __native_string_bytes(s, offset, width)); offset += width;
+    }
+    return out;
+}
 fun repeat(s: Any, n: Any) -> Any {
     mut out: Any = ""; mut part: Any = s; mut left: Any = n;
     while (left > 0) {
@@ -609,28 +637,13 @@ fun parse_float(x: Any) -> Any {
 fun env(name: Any) -> Any {
     let blob: Any = may { read_file("/proc/self/environ") } otherwise { nil };
     if (blob == nil) { return nil; }
-    let n: Any = len(blob);
     let target: Any = name + "=";
     let m: Any = len(target);
-    mut i: Any = 0;
-    while (i + m <= n) {
-        // Only match at the start of an entry (`VARN=...`), never inside
-        // another variable's name such as `CARGO_HOME=`.
-        if (i == 0 || char_at(blob, i - 1) == 0) {
-            mut k: Any = 0;
-            mut ok: Any = true;
-            while (k < m) {
-                if (char_at(blob, i + k) != char_at(target, k)) { ok = false; break; }
-                k = k + 1;
-            }
-            if (ok) {
-                let start: Any = i + m;
-                mut j: Any = start;
-                while (j < n && char_at(blob, j) != 0) { j = j + 1; }
-                return substring(blob, start, j - start);
-            }
+    for entry: Any in split(blob, "\0") {
+        // Match a complete name at the beginning of each environment entry.
+        if (starts_with(entry, target)) {
+            return substring(entry, m, len(entry) - m);
         }
-        i = i + 1;
     }
     return nil;
 }

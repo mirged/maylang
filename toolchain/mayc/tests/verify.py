@@ -175,6 +175,8 @@ def main():
         record("seeded GC graph oracle, heap invariants and suspended closures", stress.returncode == 0, (stress.stdout + stress.stderr).decode())
         libraries = run(["python3", COMPILER / "tests/stdlib_contracts.py", "--compiler", compiler], timeout=180)
         record("typed standard-library contracts", libraries.returncode == 0, (libraries.stdout + libraries.stderr).decode())
+        strings = run(["python3", COMPILER / "tests/strings.py", "--compiler", compiler], timeout=180)
+        record("Unicode string operations and long environments", strings.returncode == 0, (strings.stdout + strings.stderr).decode())
         processes = run(["python3", COMPILER / "tests/processes.py", "--compiler", compiler], timeout=180)
         record("process inheritance and exit contracts", processes.returncode == 0, (processes.stdout + processes.stderr).decode())
         for script, name in [("file_io.py", "complete binary file I/O"),

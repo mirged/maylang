@@ -1,7 +1,7 @@
 # Release names
 
 Maylang uses numeric versions for tools and nature codenames for people:
-**0.11.1 “Bramble”** is tagged `v0.11.1`. `mayc --version` prints the numeric
+**0.11.2 “Bramble”** is tagged `v0.11.2`. `mayc --version` prints the numeric
 version, so scripts and bundle paths do not need to parse a codename.
 
 Each minor series gets the next alphabetical nature name. Aster starts the

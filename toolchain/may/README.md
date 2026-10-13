@@ -113,3 +113,25 @@ the default development traces. `maypkg` remains available for existing
 `mayproj.json` projects; new applications use the workspace model.
 
 Validate the workflow with `python3 toolchain/may/tests/run.py`.
+
+## Runner performance
+
+Cached commands still hash input and output bytes. Their overhead should stay
+small even with a long `PATH`, Unicode paths and a large inherited environment.
+The native prelude scans UTF-8 strings by byte ranges for `split`, `chars` and
+`substring`; environment lookup matches complete entries without repeated
+codepoint scans. The shared path helpers also avoid building and joining a list
+of characters for each path slice.
+
+Measure identical cached artifacts with a fixed compiler and environment:
+
+```sh
+python3 toolchain/may/tests/benchmark.py --binary /tmp/may \
+    --baseline /path/to/previous/bin/may --compiler /path/to/bin/mayc \
+    --samples 5 --report /tmp/workspace-benchmark.json
+```
+
+The benchmark checks cache hits, application output and artifact identities,
+and reports wall/user/system time without a CI timing gate. See the
+[measured performance report](PERFORMANCE.md). The optional GitHub performance
+workflow also records measurements for an extracted bundle.
