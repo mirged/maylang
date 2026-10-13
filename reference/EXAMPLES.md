@@ -1,4 +1,4 @@
-- **Strict-mode examples** — each following bullet is a complete program; save the inline source to a .may file and compile from the repository root with `toolchain/mayc/mayc_new file.may -o /tmp` and run it.
+- **Strict-mode examples** — each following bullet is a complete program; save the inline source to a .may file and compile from the repository root with `toolchain/mayc/mayc_new file.may -o /tmp/may-example`.
 - Hello: `print("Hello, Maylang!");` — prints a greeting.
 - Typed function: `fun double(x: Int) -> Int { return x * 2; } let answer: Int = double(21); print(answer);` — prints 42.
 - Mutable accumulator: `mut total: Int = 0; for value in [1, 2, 3] { total += value; } print(total);` — prints 6.
@@ -24,7 +24,7 @@
 - Statistics import: `import "stats" as stats;`.
 - Statistics call: `print(stats.stats_mean([1, 2]));` — prints 1.5, avoiding integer-division truncation in math.average.
 - Result import: `import "result" as result;`.
-- Result call: `let r = result.attempt(fun() -> Any { return int("oops"); }); print(result.unwrap_or(r, 0));` — prints 0.
+- Result call: `let r: Any = result.attempt(fun() -> Any { return int("oops"); }); print(result.unwrap_or(r, 0));` — prints 0.
 - Tensor import: `import "ml/tensor" as tensors;`.
 - Tensor call: `let t: Any = tensors.tensor_matrix([[1.0, 2.0], [3.0, 4.0]]); print(tensors.tensor_sum(t));` — prints 10.0.
 - Validation import: `import "validate" as validate;`.
