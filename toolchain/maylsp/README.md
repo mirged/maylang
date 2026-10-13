@@ -293,3 +293,7 @@ worker fatal-output isolation and shutdown reaping.
 Workspace tests cover unopened files, full/unchanged reports, progress, restart
 IDs, dirty imports, deletion and removed roots, concurrent document requests,
 cancellation, stale snapshots, bounded queues and isolation of failed batches.
+
+Workspace scans exclude `.may/` generated build caches. A directory with another
+`.may` suffix is traversed as a directory, and directory URIs are not source
+documents. This keeps May workspace builds and editor diagnostics compatible.

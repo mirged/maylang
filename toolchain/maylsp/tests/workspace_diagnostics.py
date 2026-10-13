@@ -7,6 +7,39 @@ from pathlib import Path
 from test_lsp import Client
 
 
+def run_workspace_cache_directories(binary, work):
+    folder = work / 'workspace-cache-directories'
+    folder.mkdir()
+    source = folder / 'main.may'
+    source.write_text('print(1);\n')
+    cache = folder / '.may/store'
+    cache.mkdir(parents=True)
+    (cache / 'generated.may').write_text('not valid Maylang')
+    dotted = folder / 'sources.may'
+    dotted.mkdir()
+    nested = dotted / 'nested.may'
+    nested.write_text('let value: Int = "wrong";\n')
+    client = Client(binary)
+    try:
+        client.result('initialize', {'rootUri': folder.as_uri()})
+        client.send('workspace/didCreateFiles', {'files': [{'uri': (folder / '.may').as_uri()}]})
+        result = client.result('workspace/diagnostic', {'previousResultIds': []})
+        reports = {row['uri']: row for row in result['items']}
+        assert set(reports) == {source.as_uri(), nested.as_uri()}, reports
+        assert not reports[source.as_uri()]['items'] and reports[nested.as_uri()]['items'], reports
+        symbols = client.result('workspace/symbol', {'query': 'value'})
+        assert any(row['location']['uri'] == nested.as_uri() for row in symbols), symbols
+        rejected = client.request('textDocument/hover', {'textDocument': {'uri': dotted.as_uri()},
+                                                       'position': {'line': 0, 'character': 0}})
+        assert rejected['error']['code'] == -32602 and rejected['error']['message'] == 'document not found', rejected
+        client.stop()
+        assert not client.process.stderr.read()
+        print('PASS .may build-cache exclusion and source directories ending in .may', flush=True)
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+
+
 def run_workspace_memory(binary, work):
     # A fixed 32-entry worker used to combine 4,800 typed functions into one
     # AST, exhaust its heap, then parse the fatal stdout as a JSON number.

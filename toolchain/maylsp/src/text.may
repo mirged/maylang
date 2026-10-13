@@ -1,5 +1,11 @@
 // Byte offsets internally; UTF-16 code units at the protocol boundary.
 let LS_KEYWORDS: Any = ["fun", "let", "mut", "if", "else", "while", "for", "in", "return", "break", "continue", "unless", "match", "may", "otherwise", "struct", "enum", "pub", "extern", "import", "from", "as", "and", "or", "not", "true", "false", "nil"];
+// File suffixes do not determine filesystem type: .may is also a build cache.
+fun ls_is_directory(path: Any) -> Any {
+    let descriptor: Any = syscall(2, cstr(path), 589824, 0);
+    if (descriptor < 0) { return false; }
+    syscall(3, descriptor); return true;
+}
 fun ls_bytes(s: Any) -> Any { return load64(addr(s) - 8); }
 fun ls_byte(s: Any, i: Any) -> Any { if (i < 0 or i >= ls_bytes(s)) { return 0; } return load8(addr(s) + i); }
 fun ls_width(c: Any) -> Any {
