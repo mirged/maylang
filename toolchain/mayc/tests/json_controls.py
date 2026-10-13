@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Compare JSON control-character escaping with an independent parser."""
+import argparse
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--compiler', type=Path, default=ROOT / 'toolchain/mayc/mayc_new')
+    parser.add_argument('--llvm', action='store_true')
+    args = parser.parse_args()
+    controls = ''.join(chr(index) for index in range(32))
+    text = controls + '"\\λ🙂日本'
+    source_code = r'''
+mut controls: Any = "";
+for index: Int in 0..32 { controls += chr(index); }
+let text: Any = controls + "\"\\λ🙂日本";
+let document: Any = {};
+document[text] = [text, "a\0b", {"nested": text}];
+print(json_stringify(text));
+print(json_stringify(document));
+print(json_stringify(json_parse(json_stringify(document))));
+'''
+    expected = [text, {text: [text, 'a\0b', {'nested': text}]}]
+    with tempfile.TemporaryDirectory(prefix='mayc-json-') as directory:
+        source = Path(directory) / 'json.may'
+        source.write_text(source_code)
+        for target in ['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']:
+            binary = Path(directory) / target
+            subprocess.run([str(args.compiler.resolve()), '--target', target, str(source),
+                            '-o', str(binary)], check=True, capture_output=True, timeout=120)
+            result = subprocess.run([str(binary)], capture_output=True, timeout=20)
+            assert result.returncode == 0 and not result.stderr, result
+            lines = result.stdout.decode().splitlines()
+            assert len(lines) == 3, result.stdout
+            assert [json.loads(line) for line in lines] == expected + expected[1:], result.stdout
+            assert all(byte >= 32 for line in result.stdout.splitlines() for byte in line), result.stdout
+            print(f'PASS JSON U+0000–U+001F, quotes, backslashes, Unicode, keys and roundtrips on {target}', flush=True)
+        # The raw runtime helper is separate from native.may's public API.
+        runtime = (ROOT / 'toolchain/mayc/runtime.may').read_text()
+        source.write_text(runtime + r'''
+fun json_controls() -> Any {
+    STACKTOP = __sp(); rt_init();
+    let bytes: Any = rt_alloc(32);
+    mut index: Any = 0;
+    while (index < 32) { store8(bytes + index, index); index += 1; }
+    let encoded: Any = json_quote(rt_from(bytes, 32));
+    rt_write(encoded + 7, rt_slen(encoded));
+    rt_write(addr("\n"), 1);
+    return 0;
+}
+json_controls();
+''')
+        binary = Path(directory) / 'raw-json'
+        compiled = subprocess.run([str(args.compiler.resolve()), '--raw', '--legacy', str(source),
+                                   '-o', str(binary)], capture_output=True, timeout=120)
+        assert compiled.returncode == 0, compiled.stderr.decode()
+        result = subprocess.run([str(binary)], capture_output=True, timeout=20)
+        assert result.returncode == 0 and not result.stderr, result
+        assert json.loads(result.stdout) == controls, result.stdout
+        print('PASS raw runtime JSON control escaping', flush=True)
+
+
+if __name__ == '__main__':
+    main()

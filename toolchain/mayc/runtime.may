@@ -2189,6 +2189,13 @@ fun json_quote(s: Any) -> Any {
         if (c == 34) { out = rt_concat(out, rt_from(addr("\\\""), 2)); }
         else if (c == 92) { out = rt_concat(out, rt_from(addr("\\\\"), 2)); }
         else if (c == 10) { out = rt_concat(out, rt_from(addr("\\n"), 2)); }
+        else if (c < 32) {
+            let escape: Any = rt_from(addr("\\u0000"), 6);
+            let hex: Any = addr("0123456789abcdef");
+            store8(escape + 7 + 4, load8(hex + c / 16));
+            store8(escape + 7 + 5, load8(hex + c % 16));
+            out = rt_concat(out, escape);
+        }
         else { out = rt_concat(out, rt_from(s + 7 + i, 1)); }
         i = i + 1;
     }

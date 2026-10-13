@@ -65,8 +65,7 @@ def main():
             result = subprocess.run([str(binary)], env=environment, capture_output=True, text=True, timeout=20)
             assert result.returncode == 0 and not result.stderr, result
             lines = result.stdout.splitlines()
-            # The current stringifier writes embedded NUL literally.
-            actual = [json.loads(line.replace('\0', '\\u0000')) for line in lines[:-3]]
+            actual = [json.loads(line) for line in lines[:-3]]
             assert len(actual) == len(expected), (len(actual), len(expected))
             for index, (got, wanted) in enumerate(zip(actual, expected)):
                 assert got == wanted, (target, index, got, wanted)

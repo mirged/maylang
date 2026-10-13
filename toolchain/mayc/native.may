@@ -808,6 +808,10 @@ fun jq_escape(s: Any) -> Any {
         else if (c == 10) { out = out + "\\n"; }
         else if (c == 9) { out = out + "\\t"; }
         else if (c == 13) { out = out + "\\r"; }
+        else if (c < 32) {
+            let hex: Any = "0123456789abcdef";
+            out = out + "\\u00" + hex[c / 16] + hex[c % 16];
+        }
         else { out = out + char_from(c); }
     }
     return out + "\"";
