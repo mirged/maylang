@@ -85,7 +85,7 @@ maintainer pushes `v<compiler-version>`. Set `MAYC_VERSION` in
 a tag pointing at another commit, or a dirty checkout. For example, the
 compiler version `0.10.0` requires the exact source tag `v0.10.0`. Annotated
 tags are recommended. Keep `RELEASE.json` synchronized with the compiler; it
-records the codename (**Aster**) and release date (**2026-10-12**). See the
+records the codename (**Bramble**) and release date (**2026-10-13**). See the
 [release convention](RELEASING.md) for future versions.
 
 The workflow bootstraps from tagged source, checks compiler generations and

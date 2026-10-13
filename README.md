@@ -9,7 +9,7 @@
 
 ### A language that compiles itself. Because apparently one compiler wasn't enough.
 
-![Version](https://img.shields.io/badge/mayc-0.11.1%20Bramble-8b5cf6)
+![Version](https://img.shields.io/badge/mayc-0.11.2%20Bramble-8b5cf6)
 ![Self hosted](https://img.shields.io/badge/self--hosted-Maylang-06b6d4)
 ![Native output](https://img.shields.io/badge/output-native%20machine%20code-f97316)
 ![Status](https://img.shields.io/badge/status-experimental-facc15)
@@ -205,7 +205,7 @@ The compiler version lives in `MAYC_VERSION` near the top of
 [main.may](toolchain/mayc/main.may). Maylang uses immutable `let` bindings for
 constants. Rebuild from source and update the version badge when making a
 versioned release; distribute executables as release assets. The current release
-is **0.10.0 “Aster”** (2026-10-12). See the [changelog](CHANGELOG.md) and
+is **0.11.2 “Bramble”** (2026-10-13). See the [changelog](CHANGELOG.md) and
 [release naming convention](docs/RELEASING.md).
 
 <details>

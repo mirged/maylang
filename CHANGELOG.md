@@ -1,3 +1,33 @@
+# Maylang 0.11.2 — Bramble
+
+Released 2026-10-13 UTC. A patch release for workspace runner performance.
+
+- Remove repeated UTF-8 prefix scans from native `split`, `chars`, `substring`
+  and environment lookup, and simplify shared path slicing. The same changes
+  ship in the compiler, workspace runner, legacy project manager, formatter
+  and language server's native prelude.
+- In five local samples using the same compiler, environment and cached
+  executable, median cached `may run` time fell from 6.10 seconds to 26.6 ms,
+  and cached `may build` from 4.20 seconds to 23.8 ms. The original reported
+  workspace ran in 22 ms after installing the optimized runner. Absolute
+  timings depend on the host and environment; see
+  [the performance report](toolchain/may/PERFORMANCE.md) for raw samples and
+  reproduction instructions.
+- Preserve content hashing, output verification and atomic publication.
+  Regressions cover same-size/same-timestamp source, import, compiler and runtime
+  changes, corrupted outputs, executable permissions, Unicode/NUL strings,
+  large environments and source-only compiler-generation convergence.
+- Keep the C bootstrap's string byte storage compatible with the optimized
+  prelude, and add native/LLVM string checks and an optional CI runner benchmark.
+
+Fixes [#31](https://github.com/mirged/maylang/issues/31) through
+[PR #33](https://github.com/mirged/maylang/pull/33). The existing sustained-GC
+report [#2](https://github.com/mirged/maylang/issues/2) and JSON/NUL serialization
+bug [#32](https://github.com/mirged/maylang/issues/32) remain open. Tool hosts
+remain Linux x86-64; other runtime and native UI limits are unchanged.
+
+---
+
 # Maylang 0.11.1 — Bramble
 
 Released 2026-10-13 UTC. Includes the complete Bramble workspace, GC, formatter,
