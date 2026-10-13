@@ -6,7 +6,11 @@
 - Source: [implementation](../../stdlib/ui.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../stdlib/CONTRACTS.md).
 - **Widget** — `pub struct Widget { kind: Str, id: Str, text: Str, hint: Str, children: List<Widget>, width: Int, height: Int, grow: Int, pad: Int, gap: Int, background: Int, foreground: Int, font: Int, radius: Int, checked: Bool }` — Widget tree node; construct with label, button, entry, checkbox or containers.
-- **Window** — `pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Any>, root: Any, active: Bool }` — Persistent window interaction state. Keep it while rebuilding views.
+- **Rect** — `struct Rect { x: Int, y: Int, w: Int, h: Int }` — Internal integer rectangle used by layout, clipping and hit testing.
+- `Rect`: private implementation helper; unavailable to importing modules.
+- **Hit** — `struct Hit { item: Widget, rect: Rect, full: Rect, limit: Int }` — Internal input region retaining its concrete widget and rectangles.
+- `Hit`: private implementation helper; unavailable to importing modules.
+- **Window** — `pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Hit>, root: Any, active: Bool }` — Persistent window interaction state. Keep it while rebuilding views.
 - **Event** — `pub struct Event { kind: Str, id: Str, text: Str, width: Int, height: Int }` — Action kind is click, toggle, edit, submit, close, resize, repaint or idle.
 - **node** — `fun node(kind: Str, id: Str, text: Str, children: List<Widget>) -> Widget` — Construct an internal widget with shared defaults.
 - `node`: private implementation helper; unavailable to importing modules.
@@ -36,13 +40,13 @@
 - **focus** — `pub fun focus(window: Window, id: Str) -> Nil` — Focus a stable input/action identifier; caret starts at the end.
 - **natural** — `fun natural(item: Widget, horizontal: Bool) -> Int` — Measure content on one axis before assigning flex space.
 - `natural`: private implementation helper; unavailable to importing modules.
-- **intersect** — `fun intersect(a: Any, b: Any) -> Any` — Intersect two rectangles for drawing and hit clipping.
+- **intersect** — `fun intersect(a: Rect, b: Rect) -> Rect` — Intersect two rectangles for drawing and hit clipping.
 - `intersect`: private implementation helper; unavailable to importing modules.
-- **inside** — `fun inside(rect: Any, x: Int, y: Int) -> Bool` — Test whether a point lies within a rectangle.
+- **inside** — `fun inside(rect: Rect, x: Int, y: Int) -> Bool` — Test whether a point lies within a rectangle.
 - `inside`: private implementation helper; unavailable to importing modules.
-- **clip** — `fun clip(rect: Any) -> Nil` — Set the native drawing clip to the visible rectangle.
+- **clip** — `fun clip(rect: Rect) -> Nil` — Set the native drawing clip to the visible rectangle.
 - `clip`: private implementation helper; unavailable to importing modules.
-- **draw** — `fun draw(window: Window, item: Widget, rect: Any, viewport: Any, ids: Map<Str, Bool>) -> Nil` — Lay out and paint one subtree, recording visible input regions.
+- **draw** — `fun draw(window: Window, item: Widget, rect: Rect, viewport: Rect, ids: Map<Str, Bool>) -> Nil` — Lay out and paint one subtree, recording visible input regions.
 - `draw`: private implementation helper; unavailable to importing modules.
 - `draw` explicit fault strings: `"ui: duplicate widget id: "`, `"ui: interactive widgets need an id"`; runtime/callback faults can also propagate.
 - **present** — `pub fun present(window: Window, root: Widget) -> Nil` — Paint/layout a view, replacing hit regions but retaining focus and scroll state.

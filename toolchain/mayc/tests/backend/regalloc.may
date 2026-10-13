@@ -34,7 +34,7 @@ let loop: Any = IRBlock([define(0), Quad(IR_LABEL, 0, 0, 0, 50, 0), use(0),
     define(1), Quad(IR_COPY, value(0), value(1), 0, 0, 0),
     define(2), use(2), Quad(IR_JUMP, 0, 0, 0, 50, 0)], 3);
 let pinned: Any = lsra_allocate(loop, [12]);
-require(pinned.locations[0].pinned and pinned.locations[0].register == -1);
+require(pinned.locations[0].pinned == true and pinned.locations[0].register == -1);
 require(pinned.locations[0].home != pinned.locations[2].home);
 
 let noRegisters: Any = lsra_allocate(IRBlock([define(0), use(0), define(1), use(1)], 2), []);

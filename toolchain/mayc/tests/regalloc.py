@@ -112,7 +112,7 @@ fun take6(a: List<Int>, b: List<Int>, c: List<Int>, d: List<Int>, e: List<Int>, 
 fun churn() -> Int {
     mut n: Int = 0;
     while n < 4096 {
-        let junk: List<Int> = range(0, 2048);
+        let junk: List<Int> = 0..2048;
         if junk[2047] != 2047 { fail("corrupt temporary"); }
         n += 1;
     }

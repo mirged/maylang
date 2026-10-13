@@ -18,6 +18,6 @@
   ],
   "name": "rivet",
   "output": "build/rivet",
-  "target": "linux",
+  "target": "x86_64-linux",
   "version": "0.1.0"
 }

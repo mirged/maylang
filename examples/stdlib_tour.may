@@ -47,6 +47,6 @@ print("pipeline:", pipeline(3, [inc, inc, |x: Any| -> Any { return x * 10; }]));
 print("memoize:", memoize(|n: Any| -> Any { return n * n; })(9));
 
 // --- result -------------------------------------------------------------
-let r: Any = ok(42);
+let r: Result<Int, Never> = ok(42);
 print("unwrap:", unwrap(r), "| map:", map_result(r, inc).value);
 print("attempt:", attempt(fun() -> Any { return 1 / 0; }).error);

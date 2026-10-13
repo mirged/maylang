@@ -1,15 +1,21 @@
 import "../../maypkg/src/fs.may" as fs;
 import "process.may" as proc;
 
-pub fun absolute(root: Str, path: Str) -> Str {
-    return fs.normpath(if (starts_with(path, "/")) { path } else { fs.join_path(root, path) });
+pub struct Workspace {
+    root: Str, config: Any, compiler: Str, stdlib: Str,
+    module_paths: List<Str>, built: Map<Str, Any>, visiting: List<Str>, profile: Str
 }
-fun strings(value: Any, label: Str) -> List<Str> {
+
+pub fun names(value: Any) -> List<Str> { return strings(keys(value), "object keys"); }
+pub fun absolute(root: Str, path: Str) -> Str {
+    return str(fs.normpath(if (starts_with(path, "/")) { path } else { str(fs.join_path(root, path)) }));
+}
+pub fun strings(value: Any, label: Str) -> List<Str> {
     if (type(value) != "List") { fail("may: " + label + " must be an array of strings"); }
     let result: List<Str> = [];
     for item: Any in value {
         if (type(item) != "Str") { fail("may: " + label + " must contain strings"); }
-        push(result, item);
+        push(result, str(item));
     }
     return result;
 }
@@ -22,21 +28,21 @@ pub fun valid_name(name: Str) -> Bool {
 }
 fun fields(value: Any, allowed: List<Str>, label: Str) -> Nil {
     if (type(value) != "Map") { fail("may: " + label + " must be an object"); }
-    for name: Str in keys(value) { if (not has(allowed, name)) { fail("may: unknown " + label + " field: " + name); } }
+    for name: Str in names(value) { if (not has(allowed, name)) { fail("may: unknown " + label + " field: " + name); } }
     return;
 }
 fun visit_target(config: Any, name: Str, seen: Any, stack: List<Str>) -> Nil {
     if (has(stack, name)) { fail("may: target cycle: " + join(stack + [name], " -> ")); }
     if (has(seen, name)) { return; }
     push(stack, name);
-    for dependency: Str in config.targets[name].depends { visit_target(config, dependency, seen, stack); }
+    for dependency: Str in strings(config.targets[name].depends, "target depends") { visit_target(config, dependency, seen, stack); }
     pop(stack); seen[name] = true; return;
 }
-pub fun load() -> Any {
-    mut root: Str = fs.cwd(); mut found: Bool = false;
+pub fun load() -> Workspace {
+    mut root: Str = str(fs.cwd()); mut found: Bool = false;
     for depth: Int in 0..64 {
         if (file_exists(root + "/may.json")) { found = true; break; }
-        let parent: Str = fs.dirname(root);
+        let parent: Str = str(fs.dirname(root));
         if (parent == root) { break; }
         root = parent;
     }
@@ -49,12 +55,12 @@ pub fun load() -> Any {
     if (type(config.dependencies) != "Map") { fail("may: dependencies must be an object"); }
     config.profiles = config.profiles ?? ({"dev": {"flags": ["--debug"]}, "release": {"flags": []}});
     if (type(config.profiles) != "Map") { fail("may: profiles must be an object"); }
-    for name: Str in keys(config.profiles) {
+    for name: Str in names(config.profiles) {
         if (not valid_name(name)) { fail("may: invalid profile name: " + name); }
         fields(config.profiles[name], ["flags"], "profile");
         config.profiles[name].flags = strings(config.profiles[name].flags ?? [], "profile flags");
     }
-    for name: Str in keys(config.targets) {
+    for name: Str in names(config.targets) {
         if (not valid_name(name)) { fail("may: invalid target name: " + name); }
         let spec: Any = config.targets[name];
         fields(spec, ["kind", "entry", "root", "depends", "inputs", "outputs", "command", "target", "runtime", "flags"], "target " + name);
@@ -72,28 +78,30 @@ pub fun load() -> Any {
             if (len(spec.command) == 0) { fail("may: command cannot be empty: " + name); }
             if (spec.kind == "native" and len(spec.outputs) == 0) { fail("may: native target must declare outputs: " + name); }
         }
-        for output: Str in spec.outputs {
+        for output: Str in strings(spec.outputs, "target outputs") {
             if (output == "" or has([".", "..", "artifact.json", "output-hashes"], output) or contains(output, "/")) { fail("may: outputs must be unreserved file names: " + name); }
         }
-        for dependency: Str in spec.depends {
+        for dependency: Str in strings(spec.depends, "target depends") {
             if (not has(config.targets, dependency)) { fail("may: unknown target dependency: " + dependency); }
         }
     }
     let validated: Any = {};
-    for name: Str in keys(config.targets) { visit_target(config, name, validated, []); }
+    for name: Str in names(config.targets) { visit_target(config, name, validated, []); }
     config.default = config.default ?? keys(config.targets)[0];
     if (type(config.default) != "Str" or not has(config.targets, config.default)) { fail("may: default must name a target"); }
-    let chosen: Str = config.compiler ?? env("MAYC") ?? "";
+    let choice: Any = config.compiler ?? env("MAYC") ?? "";
+    if (type(choice) != "Str") { fail("may: compiler must be a string"); }
+    let chosen: Str = str(choice);
     mut compiler_path: Str = chosen;
     if (chosen == "") {
-        let adjacent: Str = fs.dirname(absolute(fs.cwd(), args()[0])) + "/mayc";
+        let adjacent: Str = str(fs.dirname(absolute(str(fs.cwd()), args()[0]))) + "/mayc";
         compiler_path = if (file_exists(adjacent)) { adjacent } else { "mayc" };
     } else if (contains(chosen, "/")) { compiler_path = absolute(root, chosen); }
     compiler_path = proc.executable(compiler_path);
     fs.use_compiler(compiler_path, root);
-    let stdlib: Str = fs.stdlib_path();
+    let stdlib: Str = str(fs.stdlib_path());
     if (stdlib == "") { fail("may: cannot locate stdlib beside the selected compiler; set MAYLANG_STDLIB"); }
-    return {"root": root, "config": config, "compiler": compiler_path, "stdlib": stdlib, "module_paths": [stdlib], "built": {}, "visiting": [], "profile": "dev"};
+    return Workspace(root, config, compiler_path, stdlib, [stdlib], {}, [], "dev");
 }
 fun scan_files(path: Str, depth: Int, output: List<Str>) -> Nil {
     if (depth > 32) { fail("may: directory nesting exceeds 32: " + path); }
@@ -112,7 +120,7 @@ pub fun files(path: Str) -> List<Str> {
     let result: List<Str> = []; scan_files(path, 0, result); return result;
 }
 mut DIGEST_COUNTER: Int = 0;
-pub fun digest(ws: Any, inputs: List<Str>, salt: Str) -> Str {
+pub fun digest(ws: Workspace, inputs: List<Str>, salt: Str) -> Str {
     fs.mkdirs(ws.root + "/.may/tmp"); DIGEST_COUNTER += 1;
     let temporary: Str = ws.root + "/.may/tmp/hash-" + str(syscall(39)) + "-" + str(DIGEST_COUNTER);
     let command: List<Str> = ["sha256sum", "--zero", "--"];
@@ -128,15 +136,15 @@ pub fun digest(ws: Any, inputs: List<Str>, salt: Str) -> Str {
     syscall(87, cstr(temporary)); syscall(87, cstr(temporary + ".result"));
     return hash;
 }
-pub fun dependency_state(ws: Any) -> Any {
+pub fun dependency_state(ws: Workspace) -> Any {
     let result: Any = {}; ws.module_paths = [];
-    for name: Str in sort(keys(ws.config.dependencies)) {
+    for name: Str in sort(names(ws.config.dependencies)) {
         if (not valid_name(name)) { fail("may: invalid dependency name: " + name); }
         let dependency: Any = ws.config.dependencies[name];
         fields(dependency, ["path", "modules"], "dependency " + name);
         if (type(dependency.path) != "Str" or dependency.path == "") { fail("may: dependencies need explicit local paths: " + name); }
-        let path: Str = absolute(ws.root, dependency.path);
-        let modules: Str = absolute(path, dependency.modules ?? ".");
+        let path: Str = absolute(ws.root, str(dependency.path));
+        let modules: Str = absolute(path, str(dependency.modules ?? "."));
         if (not file_exists(modules)) { fail("may: dependency module directory missing: " + name); }
         DIGEST_COUNTER += 1; fs.mkdirs(ws.root + "/.may/tmp");
         let temporary: Str = ws.root + "/.may/tmp/dependency-" + str(syscall(39)) + "-" + str(DIGEST_COUNTER);
@@ -150,17 +158,17 @@ pub fun dependency_state(ws: Any) -> Any {
         if (proc.capture(["sha256sum", "--zero", "--", temporary], ws.root, [], temporary + ".result") != 0) { fail("may: cannot hash dependency identity"); }
         let hash: Str = substring(read_file(temporary + ".result"), 0, 64);
         syscall(87, cstr(temporary)); syscall(87, cstr(temporary + ".result"));
-        result[name] = {"path": fs.normpath(dependency.path), "modules": fs.normpath(dependency.modules ?? "."), "sha256": hash};
+        result[name] = {"path": str(fs.normpath(dependency.path)), "modules": str(fs.normpath(dependency.modules ?? ".")), "sha256": hash};
         push(ws.module_paths, modules);
     }
     push(ws.module_paths, ws.stdlib);
     return result;
 }
-pub fun lock(ws: Any) -> Nil {
+pub fun lock(ws: Workspace) -> Nil {
     fs.write_atomic(ws.root + "/may.lock", json_stringify({"schema": 1, "dependencies": dependency_state(ws)}) + "\n");
     print("locked", len(keys(ws.config.dependencies)), "local dependencies"); return;
 }
-pub fun verify_dependencies(ws: Any) -> Nil {
+pub fun verify_dependencies(ws: Workspace) -> Nil {
     let actual: Any = dependency_state(ws);
     if (len(keys(actual)) == 0) { return; }
     if (not file_exists(ws.root + "/may.lock")) { fail("may: missing may.lock; run may lock"); }

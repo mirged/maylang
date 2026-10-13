@@ -27,6 +27,6 @@
 - [stats.may](stdlib/stats.md) — Descriptive statistics and simple linear regression. 12 declarations.
 - [string.may](stdlib/string.md) — String transformations and simple delimiter helpers. 12 declarations.
 - [test.may](stdlib/test.md) — Counting assertions and a final test report. 9 declarations.
-- [ui.may](stdlib/ui.md) — Native Linux desktop widget trees, layout, Unicode inputs, focus, scrolling, virtual lists and headless PNG snapshots; requires the May UI X11 adapter. 34 declarations.
+- [ui.may](stdlib/ui.md) — Native Linux desktop widget trees, layout, Unicode inputs, focus, scrolling, virtual lists and headless PNG snapshots; requires the May UI X11 adapter. 36 declarations.
 - [validate.may](stdlib/validate.md) — Input predicates and structured rule/field validation. 8 declarations.
 - [core](stdlib/core.md) — Portable core library, including typed scratch arenas and basic list/string/integer helpers. 19 declarations.

@@ -18,8 +18,8 @@ fun io_read_config(path: Str) -> Map<Str, Str> {
         if (len(s) == 0 || starts_with(s, "#")) { continue; }
         let i: Any = index_of(s, "=");
         if (i <= 0) { continue; }
-        let key: Any = trim(join(slice(chars(s), 0, i), ""));
-        let value: Any = trim(join(slice(chars(s), i + 1, len(s)), ""));
+        let key: Str = trim(join(slice(chars(s), 0, i), ""));
+        let value: Str = trim(join(slice(chars(s), i + 1, len(s)), ""));
         config[key] = value;
     }
     return config;

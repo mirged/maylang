@@ -1,11 +1,11 @@
 // csv.may — small RFC-4180-style CSV reader/writer.
 // Supports commas/newlines and escaped quotes inside quoted cells.
 
-fun csv_parse(text: Any) -> Any {
-    let cs: Any = chars(text); let n: Any = len(cs);
-    mut rows: Any = []; mut row: Any = []; mut cell: Any = ""; mut quoted: Any = false; mut started: Any = false; mut i: Any = 0;
+fun csv_parse(text: Any) -> List<List<Str>> {
+    let cs: List<Str> = chars(text); let n: Any = len(cs);
+    mut rows: List<List<Str>> = []; mut row: List<Str> = []; mut cell: Str = ""; mut quoted: Any = false; mut started: Any = false; mut i: Any = 0;
     while (i < n) {
-        let c: Any = cs[i];
+        let c: Str = cs[i];
         if (quoted) {
             if (c == "\"" && i + 1 < n && cs[i + 1] == "\"") { cell = cell + "\""; started = true; i = i + 2; continue; }
             if (c == "\"") { quoted = false; }

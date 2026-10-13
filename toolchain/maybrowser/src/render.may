@@ -117,11 +117,11 @@ fun paint_borders(b: Box) -> Nil {
     return;
 }
 
-fun paint_text(x: Int, baseline: Int, s: Str, style: Style) -> Nil {
+fun paint_text(x: Int, baseline: Int, s: Str, style: Any) -> Nil {
     if (baseline + FB_DY + style.font_size < FB_CY or baseline + FB_DY - style.font_size >= FB_CB) { return; }
-    let font: Int = sup_font_id(style.font_family, style.font_weight);
+    let font: Int = sup_font_id(str(style.font_family), int(style.font_weight));
     let px: Float = float(style.font_size);
-    let color: Int = style.color;
+    let color: Int = int(style.color);
     mut pen: Int = x;
     mut prev: Int = 0 - 1;
     for ch: Str in s {
@@ -156,12 +156,12 @@ fun paint_text(x: Int, baseline: Int, s: Str, style: Style) -> Nil {
     return;
 }
 
-fun paint_line_items(items: List<Any>, baseline: Int) -> Nil {
+fun paint_line_items(items: Any, baseline: Int) -> Nil {
     for it: Any in items {
         if (it.kind == "text") {
-            paint_text(it.x, baseline, it.text, it.style);
+            paint_text(int(it.x), baseline, str(it.text), it.style);
         } else if (it.kind == "box") {
-            paint_box(it.box);
+            paint_box(int(it.box));
         }
     }
     return;
@@ -175,11 +175,11 @@ fun paint_box(bi: Int) -> Nil {
     paint_borders(b);
     if (b.kind == "image") { paint_image(b); }
     for line: Any in b.lines {
-        paint_line_items(line.items, line.baseline);
+        paint_line_items(line.items, int(line.baseline));
     }
     if (b.kind == "list-item" and len(b.lines) > 0) {
         let first: Any = b.lines[0];
-        paint_text(b.x - 18, first.baseline, "•", b.style);
+        paint_text(b.x - 18, int(first.baseline), "•", b.style);
     }
     for c: Int in b.children {
         paint_box(c);

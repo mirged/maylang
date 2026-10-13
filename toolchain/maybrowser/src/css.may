@@ -312,7 +312,7 @@ fun css_rule_match(rule: Any, node: Int) -> Bool {
     return css_match_parts(rule.parts, len(rule.parts) - 1, node);
 }
 
-fun css_match_parts(parts: List<Any>, pi: Int, node: Int) -> Bool {
+fun css_match_parts(parts: Any, pi: Int, node: Int) -> Bool {
     if (node < 0 or dom_is_text(node)) { return false; }
     if (not css_compound_match(parts[pi], node)) { return false; }
     if (pi == 0) { return true; }
@@ -333,9 +333,9 @@ fun css_compound_match(part: Any, node: Int) -> Bool {
     if (len(part.id) > 0 and dom_id(node) != part.id) { return false; }
     if (len(part.classes) > 0) {
         let have: List<Str> = dom_classes(node);
-        for c: Str in part.classes {
+        for c: Any in part.classes {
             if (len(c) == 0) { continue; }
-            if (not has_class(have, c)) { return false; }
+            if (not has_class(have, str(c))) { return false; }
         }
     }
     if (part.first and not css_is_first(node)) { return false; }
@@ -446,9 +446,9 @@ fun css_finalize(s: Style) -> Nil {
     return;
 }
 
-fun css_apply_decls(s: Style, decls: Map<Str, Str>, parent_size: Int) -> Nil {
-    for prop: Str in keys(decls) {
-        css_apply(s, prop, decls[prop] ?? "", parent_size);
+fun css_apply_decls(s: Style, decls: Any, parent_size: Int) -> Nil {
+    for prop: Any in keys(decls) {
+        css_apply(s, str(prop), str(decls[prop] ?? ""), parent_size);
     }
     return;
 }
@@ -486,7 +486,7 @@ fun css_apply(s: Style, prop: Str, value: Str, parent_size: Int) -> Nil {
         return;
     }
     if (prop == "list-style" or prop == "list-style-type") { s.list_style = v; return; }
-    if (prop == "opacity") { s.opacity = clamp(int(float(v) * 100.0 + 0.5), 0, 100); return; }
+    if (prop == "opacity") { s.opacity = int(clamp(int(float(v) * 100.0 + 0.5), 0, 100)); return; }
     if (prop == "margin") { css_box4(s, "margin", v, parent_size); return; }
     if (prop == "padding") { css_box4(s, "padding", v, parent_size); return; }
     if (prop == "margin-top") { s.margin_top = css_len(v, s.font_size, 0 - 1); return; }

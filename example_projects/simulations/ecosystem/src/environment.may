@@ -6,7 +6,7 @@ fun new_world(config: Config) -> World {
     let rng: Any = random_new(config.seed);
     let cells: List<Cell> = [];
     for i: Int in 0..config.width * config.width {
-        let fertility: Float = 0.45 + 0.55 * random_float(rng);
+        let fertility: Float = 0.45 + 0.55 * float(random_float(rng));
         push(cells, Cell(5.0 * fertility, 0.0, 0.5, fertility));
     }
     let world: World = World(config, rng, 0, 1, cells, [], empty_totals(), [], [], 0.0);

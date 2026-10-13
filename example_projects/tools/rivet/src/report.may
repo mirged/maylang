@@ -63,11 +63,11 @@ fun parse_batch(path: Str) -> List<Operation> {
         if (type(row) != "Map" or type(row["op"]) != "Str" or type(row["key"]) != "Str") {
             fail("each batch item requires string op and key");
         }
-        let kind: Str = row["op"];
+        let kind: Str = str(row["op"]);
         if (kind == "put") {
             if (type(row["value"]) != "Str") { fail("put requires a string value"); }
-            push(operations, Operation(2, row["key"], row["value"]));
-        } else if (kind == "delete") { push(operations, Operation(3, row["key"], "")); }
+            push(operations, Operation(2, str(row["key"]), str(row["value"])));
+        } else if (kind == "delete") { push(operations, Operation(3, str(row["key"]), "")); }
         else { fail("unknown batch operation: " + kind); }
     }
     for operation: Operation in operations { validate_operation(operation); }

@@ -80,7 +80,7 @@ fun rivet_main(argv: List<Str>) -> Int {
 
 may { exit(rivet_main(process_args())); } otherwise {
     // Keep stdout byte-clean for `get` pipelines.
-    let message: Str = "rivet: " + err.message + "\n";
+    let message: Str = "rivet: " + str(err.message) + "\n";
     write_text(2, message);
     exit(2);
 };

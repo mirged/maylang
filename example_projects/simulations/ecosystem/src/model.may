@@ -1,4 +1,5 @@
-// Shared domain records. Any is confined to ML models, RNGs and report/JSON data.
+// Shared domain records. Any is confined to RNGs and report/JSON data.
+import "../../../../stdlib/ml/fixed.may";
 struct Config {
     generations: Int, seed: Int, population: Int, width: Int, ticks: Int,
     report_every: Int, checkpoint_every: Int, mutation_rate: Float,
@@ -6,7 +7,7 @@ struct Config {
 }
 struct Genome { traits: List<Float>, weights: List<Int> }
 struct Creature {
-    id: Int, parent: Int, lineage: Int, genome: Genome, brain: Any,
+    id: Int, parent: Int, lineage: Int, genome: Genome, brain: FixedNetwork,
     x: Int, y: Int, energy: Float, body: Float, health: Float,
     plants: Float, scavenged: Float, hunted: Float, attacks: Int, kills: Int,
     moved: Int, reproduction: Float

@@ -1,11 +1,12 @@
-fun make_sample(number: Int) -> Any {
+struct Sample { number: Int, values: List<Int>, text: Str, pointer: Ptr, callback: Fn(Int) -> Int }
+fun make_sample(number: Int) -> Sample {
     let values: List<Int> = [number, number + 1, number + 2];
     let text: Str = "λ" + str(number);
     let callback: Fn(Int) -> Int = fun(extra: Int) -> Int { return sum(values) + extra; };
-    return {"number": number, "values": values, "text": text, "pointer": cstr(text), "callback": callback};
+    return Sample(number, values, text, cstr(text), callback);
 }
-fun verify_samples(samples: List<Any>) -> Nil {
-    for sample: Any in samples {
+fun verify_samples(samples: List<Sample>) -> Nil {
+    for sample: Sample in samples {
         let number: Int = sample.number;
         let callback: Fn(Int) -> Int = sample.callback;
         if (callback(5) != number * 3 + 8) { fail("GC lost a captured list or closure"); }
@@ -17,11 +18,11 @@ fun verify_samples(samples: List<Any>) -> Nil {
     }
     return;
 }
-let samples: List<Any> = [];
+let samples: List<Sample> = [];
 for number: Int in 0..24 { push(samples, make_sample(number)); }
 spawn(fun() -> Nil {
     // These values are reachable only from a suspended fiber's stack/cells.
-    let private_samples: List<Any> = [];
+    let private_samples: List<Sample> = [];
     for number: Int in 30..42 { push(private_samples, make_sample(number)); }
     for round: Int in 0..120 { verify_samples(private_samples); yield(); }
     return;

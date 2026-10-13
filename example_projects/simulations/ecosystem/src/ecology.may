@@ -61,7 +61,7 @@ fun metabolize(world: World, creature: Creature) -> Nil {
 fun ecology_step(world: World) -> Nil {
     grow_environment(world);
     let actions: List<List<Int>> = decide(world, occupancy(world));
-    let order: List<Int> = random_shuffle(world.rng, 0..len(world.creatures));
+    let order: List<Int> = map(random_shuffle(world.rng, 0..len(world.creatures)), int);
     for index: Int in order {
         let creature: Creature = world.creatures[index];
         if (creature.health > 0.0) { move_creature(world, creature, actions[index]); }

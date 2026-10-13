@@ -48,7 +48,7 @@ fun load_checkpoint(path: Str) -> World {
         int(t.first_hunt), int(t.starved), int(t.natural_deaths), float(t.plant_energy), float(t.scavenged_energy),
         float(t.hunted_energy), float(t.heat), float(t.sunlight), float(t.initial_energy));
     let world: World = World(config, {"state": int(saved.rng_state)}, int(saved.generation), int(saved.next_id),
-                            cells, creatures, totals, saved.history, saved.csv, float(saved.elapsed));
+                            cells, creatures, totals, [item for item: Any in saved.history], map(saved.csv, str), float(saved.elapsed));
     if (len(cells) != config.width * config.width or len(creatures) > config.population) { fail("invalid checkpoint world dimensions"); }
     return world;
 }

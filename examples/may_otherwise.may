@@ -1,10 +1,10 @@
 // Speculative execution: `may { risky } otherwise { safe }`.
-fun divide(a: Any, b: Any) -> Float {
+fun divide(a: Float, b: Float) -> Float {
     return may {
         a / b
     } otherwise {
         print("  problem:", err);
-        0
+        0.0
     };
 }
 

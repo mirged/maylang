@@ -345,7 +345,7 @@ fun ls_format(doc: Any, options: Any) -> Any {
     let spaces: Any = options.insertSpaces ?? true;
     if (value_tag(size) != 0 or size < 1 or size > 16) { fail("tabSize must be between 1 and 16"); }
     if (value_tag(spaces) != 3 and value_tag(spaces) != 4) { fail("insertSpaces must be a boolean"); }
-    return formatting.format_source(doc.text, size, spaces);
+    return formatting.format_source(str(doc.text), int(size), bool(spaces));
 }
 fun ls_format_edits(doc: Any, p: Any) -> Any {
     let formatted: Any = ls_format(doc, p.options ?? ({}));

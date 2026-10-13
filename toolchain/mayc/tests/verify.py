@@ -8,6 +8,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -26,7 +27,8 @@ RESULTS = []
 def run(argv, stdin=b"", timeout=180):
     return subprocess.run([str(value) for value in argv], input=stdin,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          cwd=ROOT, timeout=timeout)
+                          cwd=ROOT, timeout=timeout,
+                          env=dict(os.environ, MAYLANG_STDLIB=str(ROOT / "stdlib")))
 
 
 def record(name, ok, detail=""):
@@ -113,8 +115,12 @@ def targets(compiler):
         ROOT / "example_projects/apps/maytasks/main.may",
         ROOT / "example_projects/apps/textstats/main.may",
         ROOT / "example_projects/games/starfall/main.may",
+        ROOT / "example_projects/tools/rivet/main.may",
+        ROOT / "example_projects/simulations/ecosystem/main.may",
     ]
     print(f"Testing {len(sources)} current entrypoints", flush=True)
+    ui = run([compiler, "--check", ROOT / "example_projects/apps/mayboard/src/main.may"])
+    record("target mayboard UI type contracts", ui.returncode == 0, ui.stderr.decode())
     shutil.copy2(COMPILER / "runtime.may", WORK / "runtime.may")
     shutil.copy2(COMPILER / "native.may", WORK / "native.may")
     for index, source in enumerate(sources):
@@ -177,6 +183,8 @@ def main():
         record("typed standard-library contracts", libraries.returncode == 0, (libraries.stdout + libraries.stderr).decode())
         strings = run(["python3", COMPILER / "tests/strings.py", "--compiler", compiler], timeout=180)
         record("Unicode string operations and long environments", strings.returncode == 0, (strings.stdout + strings.stderr).decode())
+        json_controls = run(["python3", COMPILER / "tests/json_controls.py", "--compiler", compiler], timeout=180)
+        record("JSON control escaping and independent parser roundtrips", json_controls.returncode == 0, (json_controls.stdout + json_controls.stderr).decode())
         processes = run(["python3", COMPILER / "tests/processes.py", "--compiler", compiler], timeout=180)
         record("process inheritance and exit contracts", processes.returncode == 0, (processes.stdout + processes.stderr).decode())
         for script, name in [("file_io.py", "complete binary file I/O"),

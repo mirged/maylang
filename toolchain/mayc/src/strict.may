@@ -30,7 +30,8 @@ fun st_same(a: Any, b: Any) -> Any {
     return true;
 }
 fun st_accept(expected: Any, actual: Any) -> Any {
-    if (expected.name == "Any" or actual.name == "Any" or actual.name == "Never") { return true; }
+    if (expected.name == "Any" or actual.name == "Never") { return true; }
+    if (actual.name == "Any") { return false; }
     if (expected.name == "Optional") { return actual.name == "Nil" or st_accept(expected.arguments[0], if (actual.name == "Optional") { actual.arguments[0] } else { actual }); }
     if (expected.name == "Ptr" and (len(expected.arguments) == 0 or len(actual.arguments) == 0)) { return true; }
     if (has(["Array", "Slice"], expected.name) and has(["Array", "Slice", "List"], actual.name)) {
@@ -41,14 +42,31 @@ fun st_accept(expected: Any, actual: Any) -> Any {
     if (has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"], expected.name) and has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"], actual.name)) { return true; }
     if (has(["Float", "Float32", "Float64"], expected.name) and has(["Float", "Float32", "Float64"], actual.name)) { return true; }
     if (expected.name != actual.name or len(expected.arguments) != len(actual.arguments)) { return false; }
+    if (expected.name == "Function") {
+        for i: Any in 0..len(expected.arguments) { if (not st_accept(actual.arguments[i], expected.arguments[i])) { return false; } }
+        return st_accept(expected.result, actual.result);
+    }
     for i: Any in 0..len(expected.arguments) { if (not st_accept(expected.arguments[i], actual.arguments[i])) { return false; } }
-    if (expected.name == "Function") { return st_accept(expected.result, actual.result); }
     if (expected.name == "Array") { return expected.arrayLength == actual.arrayLength; }
     return true;
 }
 fun st_require(expected: Any, actual: Any, span: Any) -> Any {
-    if (not st_accept(expected, actual)) { diagnostic(span, "expected " + st_show(expected) + ", found " + st_show(actual)); }
+    if (not st_accept(expected, actual)) {
+        let hint: Any = if (actual.name == "Any") { "; use an explicit conversion or preserve the concrete type with a generic API" } else { "" };
+        diagnostic(span, "expected " + st_show(expected) + ", found " + st_show(actual) + hint);
+    }
     return 0;
+}
+// Dynamic operations retain their runtime dispatch; typed storage and user
+// function signatures use st_require and never narrow Any implicitly.
+fun st_dynamic_require(expected: Any, actual: Any, span: Any) -> Any {
+    if (actual.name == "Any") { return 0; }
+    if (expected.name == actual.name and len(expected.arguments) == len(actual.arguments)) {
+        for i: Any in 0..len(expected.arguments) { st_dynamic_require(expected.arguments[i], actual.arguments[i], span); }
+        if (expected.name == "Function") { st_dynamic_require(expected.result, actual.result, span); }
+        return 0;
+    }
+    return st_require(expected, actual, span);
 }
 fun st_has_contract(t: Any) -> Any {
     if (has(["Int8", "Int16", "Int32", "UInt8", "UInt16", "UInt32", "UInt64", "Float32", "Array"], t.name)) { return true; }
@@ -82,6 +100,9 @@ fun st_contract(node: Any, t: Any) -> Any {
 fun st_call_contracts(callee: Any, head: Any, types: Any) -> Any {
     if (callee.name != "Function") { return 0; }
     if (callee.builtin == "push" and types[0].name == "List") { st_contract(head.next, types[0].arguments[0]); return 0; }
+    if (callee.builtin == "map_set" and types[0].name == "Map") {
+        st_contract(head.next, types[0].arguments[0]); st_contract(head.next.next, types[0].arguments[1]); return 0;
+    }
     if (callee.builtin != nil) { return 0; }
     let bindings: Any = {};
     for i: Any in 0..len(types) { st_unify(callee.arguments[i], types[i], bindings, head.span); }
@@ -197,6 +218,11 @@ fun st_substitute(t: Any, bindings: Any) -> Any {
     if (t.name == "Array") { result.arrayLength = t.arrayLength; }
     return result;
 }
+fun st_has_variable(t: Any) -> Any {
+    if (starts_with(t.name, "$")) { return true; }
+    for argument: Any in t.arguments { if (st_has_variable(argument)) { return true; } }
+    return t.name == "Function" and st_has_variable(t.result);
+}
 fun st_unify(expected: Any, actual: Any, bindings: Any, span: Any) -> Any {
     if (starts_with(expected.name, "$")) {
         if (has(bindings, expected.name)) {
@@ -208,8 +234,15 @@ fun st_unify(expected: Any, actual: Any, bindings: Any, span: Any) -> Any {
     }
     if (expected.name == actual.name and len(expected.arguments) == len(actual.arguments)) {
         if (expected.name == "Array" and expected.arrayLength != actual.arrayLength) { st_require(expected, actual, span); return 0; }
+        if (expected.name == "Function") {
+            for i: Any in 0..len(expected.arguments) {
+                let parameter: Any = st_substitute(expected.arguments[i], bindings);
+                if (st_has_variable(parameter)) { st_unify(parameter, actual.arguments[i], bindings, span); }
+                else { st_require(actual.arguments[i], parameter, span); }
+            }
+            st_unify(expected.result, actual.result, bindings, span); return 0;
+        }
         for i: Any in 0..len(expected.arguments) { st_unify(expected.arguments[i], actual.arguments[i], bindings, span); }
-        if (expected.name == "Function") { st_unify(expected.result, actual.result, bindings, span); }
         return 0;
     }
     st_require(expected, actual, span); return 0;
@@ -228,23 +261,75 @@ fun st_number(t: Any, span: Any) -> Any {
     return 0;
 }
 fun st_builtin(name: Any, args: Any, span: Any) -> Any {
-    if (name == "Ok" or name == "Err") {
+    if (name == "Ok" or name == "Err" or name == "Some") {
         st_arity(name, args, 1, 1, span);
-        return st_type("Result", if (name == "Ok") { [args[0], st_type("Never", [])] } else { [st_type("Never", []), args[0]] });
+        return st_type("Result", if (name != "Err") { [args[0], st_type("Never", [])] } else { [st_type("Never", []), args[0]] });
     }
     if (name == "print") { return st_type("Int", []); }
+    if (name == "ptr") { st_arity(name, args, 1, 1, span); return st_type("Ptr", []); }
+    if (name == "replace") {
+        st_arity(name, args, 3, 3, span); return if (args[0].name == "Str") { st_type("Str", []) } else { st_any() };
+    }
+    if (name == "rt_raise") { st_arity(name, args, 1, 1, span); return st_type("Never", []); }
+    if (has(["keys", "values", "map_keys", "map_values"], name)) {
+        st_arity(name, args, 1, 1, span);
+        let index: Any = if (name == "keys" or name == "map_keys") { 0 } else { 1 };
+        return st_type("List", [if (args[0].name == "Map") { args[0].arguments[index] } else { st_any() }]);
+    }
+    if (name == "min" or name == "max") {
+        st_arity(name, args, 2, 2, span); return st_join(args[0], args[1], span);
+    }
+    if (name == "clamp") {
+        st_arity(name, args, 3, 3, span); return st_join(st_join(args[0], args[1], span), args[2], span);
+    }
+    if (name == "map_get" or name == "map_set") {
+        st_arity(name, args, if (name == "map_get") { 2 } else { 3 }, if (name == "map_get") { 2 } else { 3 }, span);
+        if (args[0].name == "Map") {
+            st_require(args[0].arguments[0], args[1], span);
+            if (name == "map_set") { st_require(args[0].arguments[1], args[2], span); return args[2]; }
+            return st_type("Optional", [args[0].arguments[1]]);
+        }
+        return st_any();
+    }
+    if (name == "remove") {
+        st_arity(name, args, 2, 2, span); return if (args[0].name == "Map") { args[0] } else { st_any() };
+    }
+    if (name == "merge") {
+        st_arity(name, args, 2, 2, span);
+        if (args[0].name == "Map" and args[1].name == "Map") {
+            return st_type("Map", [st_join(args[0].arguments[0], args[1].arguments[0], span), st_join(args[0].arguments[1], args[1].arguments[1], span)]);
+        }
+        return st_any();
+    }
+    // Native helpers keep dynamic arguments but guarantee these result types.
+    if (has(["substring", "chr", "char_from", "to_lower", "to_upper", "trim", "repeat", "join", "pad_left", "pad_right", "int_to_str", "str_of"], name)) {
+        let count: Any = if (has(["substring", "pad_left", "pad_right"], name)) { 3 } else if (name == "repeat" or name == "join") { 2 } else { 1 };
+        st_arity(name, args, count, count, span); return st_type("Str", []);
+    }
+    if (name == "split" or name == "chars") {
+        let count: Any = if (name == "split") { 2 } else { 1 };
+        st_arity(name, args, count, count, span); return st_type("List", [st_type("Str", [])]);
+    }
+    if (has(["char_at", "ord", "index_of", "cmp", "str_cmp", "value_tag", "count"], name)) {
+        let count: Any = if (name == "ord" or name == "value_tag") { 1 } else { 2 };
+        st_arity(name, args, count, count, span); return st_type("Int", []);
+    }
+    if (has(["contains", "starts_with", "ends_with", "has", "map_has", "value_eq"], name)) {
+        st_arity(name, args, 2, 2, span); return st_type("Bool", []);
+    }
+
     if (name == "exec") {
         st_arity(name, args, 1, 1, span);
-        st_require(st_type("List", [st_type("Str", [])]), args[0], span);
+        st_dynamic_require(st_type("List", [st_type("Str", [])]), args[0], span);
         return st_type("Int", []);
     }
     if (name == "wait") {
-        st_arity(name, args, 1, 1, span); st_require(st_type("Int", []), args[0], span);
+        st_arity(name, args, 1, 1, span); st_dynamic_require(st_type("Int", []), args[0], span);
         return st_type("Int", []);
     }
     if (name == "syscall") {
         st_arity(name, args, 1, 7, span);
-        for arg: Any in args { if (arg.name != "Ptr") { st_require(st_type("Int", []), arg, span); } }
+        for arg: Any in args { if (arg.name != "Ptr") { st_dynamic_require(st_type("Int", []), arg, span); } }
         return st_type("Int", []);
     }
     if (has(["str", "int", "float", "to_float", "bool", "type", "type_name", "json_stringify"], name)) {
@@ -263,8 +348,8 @@ fun st_builtin(name: Any, args: Any, span: Any) -> Any {
     }
     if (has(["exit", "sleep", "yield", "run", "fail"], name)) {
         st_arity(name, args, if (name == "yield" or name == "run") { 0 } else { 1 }, if (name == "yield" or name == "run") { 0 } else { 1 }, span);
-        if (name == "fail") { st_require(st_type("Str", []), args[0], span); }
-        if (name == "exit" or name == "sleep") { st_require(st_type("Int", []), args[0], span); }
+        if (name == "fail") { st_dynamic_require(st_type("Str", []), args[0], span); }
+        if (name == "exit" or name == "sleep") { st_dynamic_require(st_type("Int", []), args[0], span); }
         return st_type(if (name == "exit" or name == "fail") { "Never" } else if (name == "sleep") { "Nil" } else { "Int" }, []);
     }
     if (has(["sqrt", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "floor", "ceil", "round", "trunc", "abs"], name)) {
@@ -272,7 +357,7 @@ fun st_builtin(name: Any, args: Any, span: Any) -> Any {
         return if (name == "abs") { args[0] } else if (name == "trunc") { st_type("Int", []) } else { st_type("Float", []) };
     }
     if (has(["read_file", "read_dir", "file_exists", "env", "input", "json_parse"], name)) {
-        st_arity(name, args, 1, 1, span); st_require(st_type("Str", []), args[0], span);
+        st_arity(name, args, 1, 1, span); st_dynamic_require(st_type("Str", []), args[0], span);
         if (name == "read_dir") { return st_type("List", [st_type("Str", [])]); }
         if (name == "file_exists") { return st_type("Bool", []); }
         if (name == "json_parse") { return st_any(); }
@@ -280,18 +365,18 @@ fun st_builtin(name: Any, args: Any, span: Any) -> Any {
         return st_type("Str", []);
     }
     if (name == "write_file") {
-        st_arity(name, args, 2, 2, span); for arg: Any in args { st_require(st_type("Str", []), arg, span); } return st_type("Nil", []);
+        st_arity(name, args, 2, 2, span); for arg: Any in args { st_dynamic_require(st_type("Str", []), arg, span); } return st_type("Nil", []);
     }
     if (name == "addr" or name == "cstr") {
         st_arity(name, args, 1, 1, span);
-        if (name == "cstr") { st_require(st_type("Str", []), args[0], span); }
+        if (name == "cstr") { st_dynamic_require(st_type("Str", []), args[0], span); }
         else if (not has(["Str", "Float", "Any", "Ptr", "Int"], args[0].name)) { diagnostic(span, "addr expects a string, float or address"); }
         return st_type("Ptr", []);
     }
     if (starts_with(name, "load") or starts_with(name, "store")) {
         st_arity(name, args, if (starts_with(name, "load")) { 1 } else { 2 }, if (starts_with(name, "load")) { 1 } else { 2 }, span);
         if (not has(["Int", "Ptr", "Any"], args[0].name)) { diagnostic(span, "memory access requires an address"); }
-        if (len(args) == 2) { st_require(st_type("Int", []), args[1], span); }
+        if (len(args) == 2) { st_dynamic_require(st_type("Int", []), args[1], span); }
         return st_type("Int", []);
     }
     if (has(["push", "pop", "sort", "reverse", "slice", "sum", "map", "filter", "any", "all", "reduce"], name)) {
@@ -302,14 +387,20 @@ fun st_builtin(name: Any, args: Any, span: Any) -> Any {
         let item: Any = if (list.name == "List") { list.arguments[0] } else { st_any() };
         if (name == "push") { st_require(item, args[1], span); return list; }
         if (name == "pop") { return st_type("Optional", [item]); }
-        if (name == "slice") { st_require(st_type("Int", []), args[1], span); st_require(st_type("Int", []), args[2], span); }
+        if (name == "slice") { st_dynamic_require(st_type("Int", []), args[1], span); st_dynamic_require(st_type("Int", []), args[2], span); }
         if (name == "sum") { if (item.name == "Never") { return st_type("Int", []); } st_number(item, span); return item; }
         if (has(["map", "filter", "any", "all", "reduce"], name)) {
             let callback: Any = args[1]; let parameters: Any = if (name == "reduce") { [args[2], item] } else { [item] };
             let result: Any = st_invoke(callback, parameters, span);
             if (name == "map") { return st_type("List", [result]); }
-            if (name == "reduce") { st_require(args[2], result, span); return args[2]; }
-            st_require(st_type("Bool", []), result, span);
+            if (name == "reduce") {
+                if (result.name == "Any") {
+                    if (callback.name == "Function") { st_require(callback.arguments[0], result, span); }
+                    return st_any();
+                }
+                st_require(args[2], result, span); return args[2];
+            }
+            st_dynamic_require(st_type("Bool", []), result, span);
             if (name == "any" or name == "all") { return st_type("Bool", []); }
         }
         return list;
@@ -396,9 +487,9 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
     if (k == E_BIN or k == E_POW or k == E_AND or k == E_OR or k == E_COALESCE) {
         let left: Any = st_expr(ctx, node.left); let right: Any = st_expr(ctx, node.right);
         if (k == E_COALESCE) { return st_join(if (left.name == "Optional") { left.arguments[0] } else if (left.name == "Nil") { st_type("Never", []) } else { left }, right, node.span); }
-        if (k == E_AND or k == E_OR) { st_require(st_type("Bool", []), left, node.span); st_require(st_type("Bool", []), right, node.span); return if (left.name == "Any" or right.name == "Any") { st_any() } else { st_type("Bool", []) }; }
+        if (k == E_AND or k == E_OR) { st_dynamic_require(st_type("Bool", []), left, node.span); st_dynamic_require(st_type("Bool", []), right, node.span); return if (left.name == "Any" or right.name == "Any") { st_any() } else { st_type("Bool", []) }; }
         if (k == E_BIN and node.op >= TK_EQ and node.op <= TK_GE) {
-            if (not (has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float", "Float32", "Float64", "Ptr"], left.name) and has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float", "Float32", "Float64", "Ptr"], right.name))) { st_require(left, right, node.span); }
+            if (not (has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float", "Float32", "Float64", "Ptr"], left.name) and has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float", "Float32", "Float64", "Ptr"], right.name))) { st_dynamic_require(left, right, node.span); }
             return st_type("Bool", []);
         }
         if (left.name == "Any" or right.name == "Any") { return st_any(); }
@@ -410,7 +501,7 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
     }
     if (k == E_UN) {
         let value: Any = st_expr(ctx, node.operand);
-        if (node.op == TK_NOT) { st_require(st_type("Bool", []), value, node.span); return st_type("Bool", []); }
+        if (node.op == TK_NOT) { st_dynamic_require(st_type("Bool", []), value, node.span); return st_type("Bool", []); }
         st_number(value, node.span); return value;
     }
     if (k == E_LIST) {
@@ -440,7 +531,7 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
         let object: Any = st_expr(ctx, node.object); let index: Any = st_expr(ctx, node.index);
         if (object.name == "Any") { return st_any(); }
         if (has(["List", "Array", "Slice"], object.name) or object.name == "Str") {
-            st_require(st_type("Int", []), index, node.span);
+            st_dynamic_require(st_type("Int", []), index, node.span);
             return if (object.name == "Str") { st_type("Str", []) } else { object.arguments[0] };
         }
         if (object.name == "Map") { st_require(object.arguments[0], index, node.span); return st_type("Optional", [object.arguments[1]]); }
@@ -453,10 +544,10 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
         let t: Any = st_member(object, symbol_name(node.span.source + node.start, node.length), node.span);
         return if (k == E_SAFEGET and t.name != "Any" and t.name != "Optional") { st_type("Optional", [t]) } else { t };
     }
-    if (k == E_RANGE) { st_require(st_type("Int", []), st_expr(ctx, node.start), node.span); st_require(st_type("Int", []), st_expr(ctx, node.end), node.span); return st_type("List", [st_type("Int", [])]); }
+    if (k == E_RANGE) { st_dynamic_require(st_type("Int", []), st_expr(ctx, node.start), node.span); st_dynamic_require(st_type("Int", []), st_expr(ctx, node.end), node.span); return st_type("List", [st_type("Int", [])]); }
     if (k == S_BLOCK) { return st_block(ctx, node); }
     if (k == S_IF) {
-        st_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span);
+        st_dynamic_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span);
         return st_join(st_expr(ctx, node.thenBranch), st_expr(ctx, node.elseBranch), node.span);
     }
     if (k == E_MAY) { return st_join(st_expr(ctx, node.body), st_expr(ctx, node.fallback), node.span); }
@@ -468,7 +559,7 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
         st_require(declared, item, node.span);
         node.bindingContract = declared;
         st_scope(); st_bind(symbol_name(node.name, node.length), declared, node.span);
-        if (node.condition != 0) { st_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span); }
+        if (node.condition != 0) { st_dynamic_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span); }
         let element: Any = st_expr(ctx, node.element); pop(ST_SCOPES); return st_type("List", [element]);
     }
     if (k == E_MATCH) {
@@ -481,7 +572,7 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
             else if (arm.patternKind == 1) { st_require(subject, st_expr(ctx, arm.pattern), arm.span); }
             else if (arm.patternKind == 3) { let tag: Any = st_variant_pattern(ctx, arm, subject); if (arm.guard == 0) { covered[tag] = true; } }
             else if (arm.patternKind > 2) { diagnostic(arm.span, "strict match supports literals, names and wildcard patterns"); }
-            if (arm.guard != 0) { st_require(st_type("Bool", []), st_expr(ctx, arm.guard), arm.span); }
+            if (arm.guard != 0) { st_dynamic_require(st_type("Bool", []), st_expr(ctx, arm.guard), arm.span); }
             else if (arm.patternKind == 0 or arm.patternKind == 2) { coversAll = true; }
             else if (subject.name == "Bool" and arm.pattern.kind == E_VAR) {
                 let booleanName: Any = symbol_name(arm.pattern.name, arm.pattern.length);
@@ -532,10 +623,10 @@ fun st_statement(ctx: Any, node: Any) -> Any {
     } else if (k == S_EXPR) { st_expr(ctx, node.expression); }
     else if (k == S_BLOCK) { st_block(ctx, node); }
     else if (k == S_IF) {
-        st_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span);
+        st_dynamic_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span);
         st_scope(); st_statement(ctx, node.thenBranch); pop(ST_SCOPES);
         if (node.elseBranch != 0) { st_scope(); st_statement(ctx, node.elseBranch); pop(ST_SCOPES); }
-    } else if (k == S_WHILE) { st_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span); st_scope(); st_statement(ctx, node.body); pop(ST_SCOPES); }
+    } else if (k == S_WHILE) { st_dynamic_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span); st_scope(); st_statement(ctx, node.body); pop(ST_SCOPES); }
     else if (k == S_FOR) {
         let iterable: Any = st_expr(ctx, node.iterable);
         if (not has(["List", "Array", "Slice", "Str", "Any"], iterable.name)) { diagnostic(node.span, "for requires a list, array, slice, string or range"); }
@@ -637,7 +728,7 @@ fun strict_program(ctx: Any) -> Any {
             variant.constructor.strictSignature = t; variant.constructor.strictSynthetic = true;
         }
     }
-    let builtins: Any = ["Ok", "Err", "print", "syscall", "str", "int", "float", "to_float", "bool", "type", "type_name", "json_stringify", "len", "clock", "time", "pi", "e", "args", "read_stdin", "exit", "sleep", "yield", "run", "fail", "sqrt", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "floor", "ceil", "round", "trunc", "abs", "read_file", "read_dir", "file_exists", "env", "input", "json_parse", "write_file", "addr", "cstr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "push", "pop", "sort", "reverse", "slice", "sum", "map", "filter", "any", "all", "reduce", "__ccall6", "__longjmp", "__sp", "__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__f32", "__fabs", "__fpow2", "__fiber_entry", "__fib_switch", "ptr", "chr", "ord", "count", "each", "times", "char_at", "char_from", "to_lower", "to_upper", "trim", "split", "repeat", "join", "contains", "starts_with", "ends_with", "index_of", "cmp", "min", "max", "to_map", "map_get", "map_set", "keys", "values", "has", "pow", "chars", "mkdir", "system", "exec", "wait", "remove", "merge", "unique", "pad_left", "pad_right", "str_of", "int_to_str", "str_cmp", "value_eq", "map_keys", "map_values", "map_has", "rt_raise", "spawn", "value_tag"];
+    let builtins: Any = ["clamp", "substring", "replace", "Ok", "Err", "Some", "print", "syscall", "str", "int", "float", "to_float", "bool", "type", "type_name", "json_stringify", "len", "clock", "time", "pi", "e", "args", "read_stdin", "exit", "sleep", "yield", "run", "fail", "sqrt", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "floor", "ceil", "round", "trunc", "abs", "read_file", "read_dir", "file_exists", "env", "input", "json_parse", "write_file", "addr", "cstr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "push", "pop", "sort", "reverse", "slice", "sum", "map", "filter", "any", "all", "reduce", "__ccall6", "__longjmp", "__sp", "__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__f32", "__fabs", "__fpow2", "__fiber_entry", "__fib_switch", "ptr", "chr", "ord", "count", "each", "times", "char_at", "char_from", "to_lower", "to_upper", "trim", "split", "repeat", "join", "contains", "starts_with", "ends_with", "index_of", "cmp", "min", "max", "to_map", "map_get", "map_set", "keys", "values", "has", "pow", "chars", "mkdir", "system", "exec", "wait", "remove", "merge", "unique", "pad_left", "pad_right", "str_of", "int_to_str", "str_cmp", "value_eq", "map_keys", "map_values", "map_has", "rt_raise", "spawn", "value_tag"];
     // Inferred signatures can call builtins while checking local initializers.
     for name: Any in builtins { let t: Any = st_type("Function", []); t.result = st_any(); t.builtin = name; ST_GLOBALS[name] = t; }
     for rec: Any in FUNC_HEAD {

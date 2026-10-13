@@ -69,7 +69,7 @@ expect(numbers.lcm(0, 8), 0, "line 68");
 expect(numbers.factorial(0), 1, "line 69");
 expect(numbers.fibonacci(0), 0, "line 70");
 expect(numbers.is_prime(1), false, "line 71");
-let network: Any = fixed.nn_fixed_model([1, 1], [1024, 0], 1024);
+let network: fixed.FixedNetwork = fixed.nn_fixed_model([1, 1], [1024, 0], 1024);
 expect(fixed.nn_fixed_predict(network, [1024]), [512], "line 73");
 expect(may { fixed.nn_fixed_model([1, 1], [0], 1024) } otherwise { err.message }, "fixed neural parameter count mismatch", "invalid fixed parameters");
 print("PASS collection/string/path/numeric/experimental ML boundaries");

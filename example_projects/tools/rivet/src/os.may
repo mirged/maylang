@@ -39,7 +39,7 @@ fun lock_database(path: Str, exclusive: Bool) -> Int {
 fun close_file(fd: Int) -> Nil { os_error("close", syscall(3, fd)); return; }
 fun sync_file(fd: Int) -> Nil { os_error("fsync", syscall(74, fd)); return; }
 fun sync_directory(path: Str) -> Nil {
-    let parent: Str = path_dirname(path);
+    let parent: Str = str(path_dirname(path));
     let fd: Int = open_file(parent, 65536); // O_DIRECTORY
     sync_file(fd); close_file(fd);
     return;

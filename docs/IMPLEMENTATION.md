@@ -223,6 +223,36 @@ Local final validation also passes compiler verification **94/0**, compliance
 native stages 2/3, the full LLVM suite, runtime-map/GC regressions and all-target
 core emulation. The pinned VSIX packager produces an installable extension.
 
+## GitHub issues #32, #34 and #35 (2026-10-13)
+
+Both JSON stringifiers escape every control character U+0000–U+001F. The
+regression uses Python's JSON parser to check strings, nested values and map
+keys, plus native JSON roundtrips on x86-64 and LLVM and the raw quoting helper.
+Unicode/NUL string tests no longer repair malformed output before parsing it.
+
+Strict assignability rejects implicit `Any` narrowing, including nested
+collections, typed writes, function arguments/returns and callback signatures.
+`Some` preserves its payload type, native helper results retain known types,
+and dynamic reductions cannot feed an unchecked value back into a typed
+accumulator. Dynamic operations and explicitly dynamic native APIs keep their
+runtime dispatch. See [conversion semantics and limitations](STRICT.md).
+The workspace runner, browser, UI library and shipped applications retain
+known state in typed records and convert values explicitly at their JSON,
+layout and native boundaries.
+
+ELF function and global symbols use module IDs assigned in deterministic
+import-expansion order, such as `module0::main`. Canonical source paths continue
+to serve resolution and diagnostics. Modules with identical filenames receive
+distinct IDs; copying the same import graph to another directory produces the
+same symbol names. The module regression checks both execution and `nm` output
+in strict and legacy modes, including functions and globals.
+
+Validation passes 102 compiler verification checks, 69 compliance cases,
+source bootstrap with identical native stages 2/3, LLVM behavior tests, offline
+Rust tests, LSP, formatter, maypkg and workspace workflows, Rivet storage and
+ecosystem regressions. Browser HTTP and headless UI/widget/application checks
+also pass; live X11 interaction and optional ISA emulation were not exercised.
+
 ## Remaining limits
 
 The issue acceptance audit additionally covers atomic successful-build state

@@ -9,13 +9,13 @@ import "../src/js.may";
 fun check(condition: Bool, label: Str) -> Nil {
     if (not condition) { fail("browser state: " + label); } return;
 }
-fun find(state: Any, id: Str) -> Int {
+fun find(state: UIState, id: Str) -> Int {
     for node: Int in dom_descendants(state.root) { if (dom_id(node) == id) { return node; } }
     fail("missing DOM id: " + id); return -1;
 }
 
 let argv: List<Str> = args();
-let state: Any = ui_state(1024, 768, true, argv[1]);
+let state: UIState = ui_state(1024, 768, true, argv[1]);
 check(ui_address("examples/hello.html#section") == "examples/hello.html#section", "local address with fragment");
 ui_navigate(state, "about:home", true);
 check(state.at == 0 and len(state.history) == 1, "initial history");

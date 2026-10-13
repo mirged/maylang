@@ -62,12 +62,31 @@ fun identity<T>(value: T) -> T { return value; }
 let point: Point = identity(Point(3, 4));
 ```
 
-`Any` explicitly opts a value out of static type checking. It is useful for
-heterogeneous JSON, runtime maps, AST nodes, raw APIs and legacy operator
-dispatch. The repository migration uses `Any` at existing dynamic boundaries;
-it does not infer concrete contracts for every old program. Values still use
-the existing tagged runtime representation, and types are erased after checking.
-Calling a dynamic value or passing one into a concrete API can still fail at runtime.
+`Any` supports heterogeneous JSON, runtime maps, AST nodes, raw APIs and legacy
+operator dispatch. Concrete values can widen to `Any`. Strict mode rejects
+implicit narrowing from `Any` to a concrete type at bindings, assignments,
+user function arguments and returns, typed collection writes and loop bindings.
+This rule also applies inside `List`, `Map`, `Optional`, `Result` and function
+types. Use a generic API to preserve a payload's type, or an explicit conversion
+such as `str(value)`, `int(value)`, `float(value)` or `bool(value)`:
+
+```may
+let dynamic: Any = 123;
+// let text: Str = dynamic; // error: expected Str, found Any
+let text: Str = str(dynamic);
+let number: Int = identity(123); // generic identity<T> preserves Int
+let payload: Str = Some("hello").value ?? "missing";
+```
+
+Conversions have their own conversion semantics: `str(123)` produces `"123"`
+and `int("hello")` faults. They are not arbitrary casts. `Some` and `Ok` preserve
+the success payload type as `Result<T, Never>`; `.value` is optional. There is
+no general checked cast from dynamic objects to nominal records or functions.
+Dynamic calls, operators, predicates and native builtins retain runtime
+dispatch; an `Any` condition still uses truthiness. Typed callbacks check
+parameter compatibility in the contravariant direction and return compatibility
+in the covariant direction. `--legacy` keeps the previous unchecked behavior.
+Values use the existing tagged representation, with types erased after checking.
 
 Integer annotations use the tagged integer ABI. `Int8`, `Int16`, `Int32`,
 `UInt8`, `UInt16` and `UInt32` enforce their declared bounds at typed
@@ -88,7 +107,9 @@ payloads; rounding collection elements also affects aliases to that collection.
 Arrays and slices use the list representation. Fixed arrays check their length
 on assignment and return, including runtime values whose length is unknown
 during checking. `Tuple` remains a static description of existing values.
-`Any` and mutable aliases can bypass invariants until the next typed access;
+Mutable dynamic aliases can still bypass invariants; numeric contracts run at
+the next typed access. Rejecting implicit narrowing does not prevent mutation
+through a separately retained `Any` alias or raw memory operations;
 the language does not provide ownership or immutable collection storage.
 
 The return analysis accepts both returning branches of an `if` and returning

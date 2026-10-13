@@ -16,7 +16,7 @@ fun application() -> Nil {
     if (path == "" and not demo) { path = store.default_path(); }
     let lock: Int = if (demo or snapshot != "") { -1 } else { store.acquire(path) };
     mut read_only: Bool = false;
-    let board: model.Model = if (demo) { model.demo() } else { may { store.load(path) } otherwise { let fallback: model.Model = model.create(); fallback.message = "Data error: " + err.message + " (file preserved; restart after repair)"; read_only = true; fallback } };
+    let board: model.Model = if (demo) { model.demo() } else { may { store.load(path) } otherwise { let fallback: model.Model = model.create(); fallback.message = "Data error: " + str(err.message) + " (file preserved; restart after repair)"; read_only = true; fallback } };
     let window: ui.Window = ui.open("Mayboard · Maylang", 900, 760, snapshot != "");
     ui.focus(window, "draft");
     may {
@@ -48,7 +48,7 @@ fun application() -> Nil {
                 if (board.dirty) {
                     if (read_only) { board.message = "Data file needs repair before saving; original preserved."; }
                     else if (demo) { board.dirty = false; board.message = "Demo workspace · changes stay in memory"; }
-                    else { may { store.save(path, board); } otherwise { board.message = "Save failed: " + err.message + " · click Save to retry"; } }
+                    else { may { store.save(path, board); } otherwise { board.message = "Save failed: " + str(err.message) + " · click Save to retry"; } }
                 }
                 ui.present(window, view.render(board, window));
             }

@@ -22,9 +22,9 @@ fun check_neural_inference() -> Nil {
         nn_add_dense(network, 3, 4, activation, rng);
         nn_add_dense(network, 4, 2, "tanh", rng);
         let row: List<Float> = [0.5, -0.25, 0.75];
-        let expected: List<Float> = nn_predict(network, [row])[0];
+        let expected: List<Float> = map(nn_predict(network, [row])[0], float);
         let cache: Any = network.layers[0].cache_input;
-        let actual: List<Float> = nn_predict_one(network, row);
+        let actual: List<Float> = map(nn_predict_one(network, row), float);
         for i: Int in 0..2 { check(near(expected[i], actual[i]), "ML inference parity"); }
         check(network.layers[0].cache_input == cache, "inference must preserve training caches");
         let rejected: Bool = may { nn_predict_one(network, [0.0]); false } otherwise { true };
@@ -53,7 +53,7 @@ fun check_genomes() -> Nil {
     let config: Config = default_config();
     let parent: Genome = founder_genome(random_new(17));
     check(len(parent.traits) == 6 and len(parent.weights) == WEIGHT_COUNT, "genome dimensions");
-    let network: Any = build_brain(parent);
+    let network: FixedNetwork = build_brain(parent);
     check(len(network.parameters) == WEIGHT_COUNT, "every neural parameter must be heritable");
     config.mutation_rate = 0.0;
     let clone: Genome = mutate_genome(parent, random_new(5), config);

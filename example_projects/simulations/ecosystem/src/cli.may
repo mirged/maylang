@@ -27,7 +27,7 @@ fun ecosystem_main(argv: List<Str>) -> Int {
     if (len(argv) < 2 or argv[1] == "help" or argv[1] == "--help") { usage(); return 0; }
     let command: Str = argv[1];
     if (command != "run" and command != "demo" and command != "resume" and command != "_worker") { usage(); return 2; }
-    mut world: Any = nil;
+    mut saved_world: Optional<World> = nil;
     mut config: Config = default_config();
     mut index: Int = 2;
     mut stop_at: Int = 0;
@@ -35,13 +35,13 @@ fun ecosystem_main(argv: List<Str>) -> Int {
     if (command == "demo") { config.generations = 1000; config.report_every = 100; }
     if (command == "resume") {
         if (len(argv) < 3) { fail("resume requires a checkpoint path"); }
-        world = load_checkpoint(argv[2]); config = world.config; index = 3;
+        let loaded: World = load_checkpoint(argv[2]); saved_world = loaded; config = loaded.config; index = 3;
     }
     if (command == "resume") { checkpoint = argv[2]; }
     if (command == "_worker") {
         if (len(argv) < 3) { fail("worker requires fresh or checkpoint source"); }
         checkpoint = argv[2]; index = 3;
-        if (checkpoint != "fresh") { world = load_checkpoint(checkpoint); config = world.config; }
+        if (checkpoint != "fresh") { let loaded: World = load_checkpoint(checkpoint); saved_world = loaded; config = loaded.config; }
     }
     while (index < len(argv)) {
         if (index + 1 >= len(argv)) { fail("option requires a value: " + argv[index]); }
@@ -62,11 +62,11 @@ fun ecosystem_main(argv: List<Str>) -> Int {
         index += 2;
     }
     validate_config(config);
-    let generation: Int = if (world == nil) { 0 } else { world.generation };
+    let generation: Int = saved_world?.generation ?? 0;
     if (config.generations < generation) { fail("resume generation target precedes checkpoint"); }
     if (command == "_worker") {
         if (stop_at <= generation or stop_at > config.generations) { fail("invalid worker generation boundary"); }
-        if (world == nil) { world = new_world(config); }
+        let world: World = saved_world ?? new_world(config);
         simulate(world, stop_at);
         return 0;
     }

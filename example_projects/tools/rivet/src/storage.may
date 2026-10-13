@@ -36,7 +36,7 @@ fun recover_database(path: Str, database: Database) -> Int {
     sync_file(fd); close_file(fd);
     return database.tail;
 }
-fun sorted_keys(database: Database) -> List<Str> { return merge_sort(keys(database.entries)); }
+fun sorted_keys(database: Database) -> List<Str> { return map(merge_sort(keys(database.entries)), str); }
 fun entry_for(database: Database, key: Str) -> Entry {
     if (!has(database.entries, key)) { fail("key not found: " + key); }
     return database.entries[key] ?? Entry(0, 0, 0);

@@ -19,7 +19,7 @@ pub fun decode(text: Str) -> model.Model {
     let board: model.Model = model.create(); let ids: Map<Str, Bool> = {};
     for item: Any in value.tasks {
         if (type(item) != "Map" or type(item.id) != "Int" or item.id < 1 or item.id > 1000000000 or type(item.title) != "Str" or trim(item.title) == "" or len(item.title) > 2048 or type(item.done) != "Bool" or has(ids, str(item.id))) { fail("Invalid or duplicate task record"); }
-        push(board.tasks, model.Task(item.id, item.title, item.done)); ids[str(item.id)] = true; board.next_id = int(max(board.next_id, item.id + 1));
+        push(board.tasks, model.Task(int(item.id), str(item.title), bool(item.done))); ids[str(item.id)] = true; board.next_id = int(max(board.next_id, item.id + 1));
     }
     board.message = "All changes saved locally"; return board;
 }

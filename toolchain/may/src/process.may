@@ -16,13 +16,13 @@ fun vector(values: List<Str>) -> KernelVector {
 
 pub fun executable(name: Str) -> Str {
     if (contains(name, "/")) {
-        let path: Str = fs.normpath(if (starts_with(name, "/")) { name } else { fs.join_path(fs.cwd(), name) });
+        let path: Str = str(fs.normpath(if (starts_with(name, "/")) { name } else { str(fs.join_path(str(fs.cwd()), name)) }));
         if (not file_exists(path)) { fail("may: executable not found: " + path); }
         return path;
     }
     for directory: Str in split(env("PATH") ?? "", ":") {
-        let path: Str = fs.join_path(if (directory == "") { fs.cwd() } else { directory }, name);
-        if (file_exists(path)) { return fs.normpath(if (starts_with(path, "/")) { path } else { fs.join_path(fs.cwd(), path) }); }
+        let path: Str = str(fs.join_path(if (directory == "") { str(fs.cwd()) } else { directory }, name));
+        if (file_exists(path)) { return str(fs.normpath(if (starts_with(path, "/")) { path } else { str(fs.join_path(str(fs.cwd()), path)) })); }
     }
     fail("may: executable not found on PATH: " + name); return "";
 }
@@ -37,7 +37,7 @@ pub fun command(argv: List<Str>, variables: List<Str>) -> List<Str> {
 fun launch(argv: List<Str>, directory: Str, variables: List<Str>, output_fd: Int) -> Int {
     let absolute_args: List<Str> = slice(argv, 0, len(argv));
     if (len(absolute_args) > 0 and contains(absolute_args[0], "/") and not starts_with(absolute_args[0], "/")) {
-        absolute_args[0] = fs.normpath(directory + "/" + absolute_args[0]);
+        absolute_args[0] = str(fs.normpath(directory + "/" + absolute_args[0]));
     }
     let prepared: List<Str> = command(absolute_args, variables);
     let inherited: List<Str> = [];

@@ -20,8 +20,12 @@ extern "libmayui.so" {
 
 /// Widget tree node; construct with label, button, entry, checkbox or containers.
 pub struct Widget { kind: Str, id: Str, text: Str, hint: Str, children: List<Widget>, width: Int, height: Int, grow: Int, pad: Int, gap: Int, background: Int, foreground: Int, font: Int, radius: Int, checked: Bool }
+/// Internal integer rectangle used by layout, clipping and hit testing.
+struct Rect { x: Int, y: Int, w: Int, h: Int }
+/// Internal input region retaining its concrete widget and rectangles.
+struct Hit { item: Widget, rect: Rect, full: Rect, limit: Int }
 /// Persistent window interaction state. Keep it while rebuilding views.
-pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Any>, root: Any, active: Bool }
+pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Hit>, root: Any, active: Bool }
 /// Action kind is click, toggle, edit, submit, close, resize, repaint or idle.
 pub struct Event { kind: Str, id: Str, text: Str, width: Int, height: Int }
 /// Construct an internal widget with shared defaults.
@@ -89,25 +93,25 @@ fun natural(item: Widget, horizontal: Bool) -> Int {
     return result + item.pad * 2 + if (along) { item.gap * int(max(0, len(item.children) - 1)) } else { 0 };
 }
 /// Intersect two rectangles for drawing and hit clipping.
-fun intersect(a: Any, b: Any) -> Any {
+fun intersect(a: Rect, b: Rect) -> Rect {
     let x: Int = int(max(a.x, b.x)); let y: Int = int(max(a.y, b.y));
-    return {"x": x, "y": y, "w": int(max(0, min(a.x + a.w, b.x + b.w) - x)), "h": int(max(0, min(a.y + a.h, b.y + b.h) - y))};
+    return Rect(x, y, int(max(0, min(a.x + a.w, b.x + b.w) - x)), int(max(0, min(a.y + a.h, b.y + b.h) - y)));
 }
 /// Test whether a point lies within a rectangle.
-fun inside(rect: Any, x: Int, y: Int) -> Bool { return x >= rect.x and y >= rect.y and x < rect.x + rect.w and y < rect.y + rect.h; }
+fun inside(rect: Rect, x: Int, y: Int) -> Bool { return x >= rect.x and y >= rect.y and x < rect.x + rect.w and y < rect.y + rect.h; }
 /// Set the native drawing clip to the visible rectangle.
-fun clip(rect: Any) -> Nil { mui_clip(rect.x, rect.y, rect.w, rect.h); return; }
+fun clip(rect: Rect) -> Nil { mui_clip(rect.x, rect.y, rect.w, rect.h); return; }
 /// Lay out and paint one subtree, recording visible input regions.
-fun draw(window: Window, item: Widget, rect: Any, viewport: Any, ids: Map<Str, Bool>) -> Nil {
-    let visible: Any = intersect(rect, viewport); if (visible.w <= 0 or visible.h <= 0) { return; }
+fun draw(window: Window, item: Widget, rect: Rect, viewport: Rect, ids: Map<Str, Bool>) -> Nil {
+    let visible: Rect = intersect(rect, viewport); if (visible.w <= 0 or visible.h <= 0) { return; }
     clip(visible);
     if (item.id != "") { if (has(ids, item.id)) { fail("ui: duplicate widget id: " + item.id); } ids[item.id] = true; }
     if (item.background >= 0) { mui_rect(rect.x, rect.y, rect.w, rect.h, item.radius, item.background); }
     if (item.kind == "scroll") {
         let content: Int = natural(item.children[0], false); let limit: Int = int(max(0, content - rect.h));
         let offset: Int = int(max(0, min(window.scroll[item.id] ?? 0, limit))); window.scroll[item.id] = offset;
-        push(window.hits, {"item": item, "rect": visible, "full": rect, "limit": limit});
-        draw(window, item.children[0], {"x": rect.x, "y": rect.y - offset, "w": int(max(0, rect.w - 10)), "h": int(max(content, rect.h))}, visible, ids);
+        push(window.hits, Hit(item, visible, rect, limit));
+        draw(window, item.children[0], Rect(rect.x, rect.y - offset, int(max(0, rect.w - 10)), int(max(content, rect.h))), visible, ids);
         if (limit > 0) { clip(visible); let thumb: Int = int(max(24, rect.h * rect.h / content)); mui_rect(rect.x + rect.w - 5, rect.y + offset * (rect.h - thumb) / limit, 4, thumb, 2, 11515079); }
         return;
     }
@@ -118,8 +122,8 @@ fun draw(window: Window, item: Widget, rect: Any, viewport: Any, ids: Map<Str, B
         let available: Int = int(max(0, length - used)); mut cursor: Int = item.pad;
         for child: Widget in item.children {
             let span: Int = if (child.grow > 0) { available * child.grow / weights } else { natural(child, horizontal) };
-            let next: Any = if (horizontal) { {"x": rect.x + cursor, "y": rect.y + item.pad, "w": span, "h": int(max(0, rect.h - item.pad * 2))} }
-                else { {"x": rect.x + item.pad, "y": rect.y + cursor, "w": int(max(0, rect.w - item.pad * 2)), "h": span} };
+            let next: Rect = if (horizontal) { Rect(rect.x + cursor, rect.y + item.pad, span, int(max(0, rect.h - item.pad * 2))) }
+                else { Rect(rect.x + item.pad, rect.y + cursor, int(max(0, rect.w - item.pad * 2)), span) };
             draw(window, child, next, visible, ids); cursor += span + item.gap;
         }
         return;
@@ -127,7 +131,7 @@ fun draw(window: Window, item: Widget, rect: Any, viewport: Any, ids: Map<Str, B
     let actionable: Bool = has(["button", "entry", "checkbox"], item.kind);
     if (actionable) {
         if (item.id == "") { fail("ui: interactive widgets need an id"); }
-        push(window.hits, {"item": item, "rect": visible, "full": rect});
+        push(window.hits, Hit(item, visible, rect, 0));
         let border: Int = if (window.focus == item.id) { 6727794 } else { 14081243 };
         if (item.kind == "entry" or window.focus == item.id or inside(visible, window.mouse_x, window.mouse_y)) {
             mui_rect(rect.x, rect.y, rect.w, rect.h, item.radius, border);
@@ -142,7 +146,7 @@ fun draw(window: Window, item: Widget, rect: Any, viewport: Any, ids: Map<Str, B
         tx += 36;
     }
     if (item.kind == "entry") {
-        clip(intersect(visible, {"x": rect.x + item.pad, "y": rect.y + 3, "w": int(max(0, rect.w - item.pad * 2)), "h": rect.h - 6}));
+        clip(intersect(visible, Rect(rect.x + item.pad, rect.y + 3, int(max(0, rect.w - item.pad * 2)), rect.h - 6)));
         let caret: Int = int(max(0, min(window.caret, len(item.text))));
         let advance: Int = mui_measure(substring(item.text, 0, caret), item.font);
         let shift: Int = if (window.focus == item.id) { int(max(0, advance - rect.w + item.pad * 2 + 3)) } else { 0 }; tx -= shift;
@@ -158,7 +162,7 @@ pub fun present(window: Window, root: Widget) -> Nil {
     if (mui_surface(window.width, window.height) == 0) { fail("ui: surface resize failed"); }
     mui_rect(0, 0, window.width, window.height, 0, 16448250);
     window.hits = []; window.root = root;
-    draw(window, root, {"x": 0, "y": 0, "w": window.width, "h": window.height}, {"x": 0, "y": 0, "w": window.width, "h": window.height}, {});
+    draw(window, root, Rect(0, 0, window.width, window.height), Rect(0, 0, window.width, window.height), {});
     if (not window.headless) { mui_present(); }
     return;
 }
@@ -185,11 +189,11 @@ pub fun dispatch(window: Window, kind: Int, a: Int, b: Int, modifiers: Int, text
     if (kind == 2) { return action("repaint", "", "", window); }
     if (kind == 4) { window.mouse_x = a; window.mouse_y = b; return action("repaint", "", "", window); }
     if (kind == 6) {
-        for hit: Any in window.hits { if (hit.item.kind == "scroll" and inside(hit.rect, window.mouse_x, window.mouse_y)) { window.scroll[hit.item.id] = int(max(0, min(hit.limit, (window.scroll[hit.item.id] ?? 0) + a * 48))); return action("repaint", "", "", window); } }
+        for hit: Hit in window.hits { if (hit.item.kind == "scroll" and inside(hit.rect, window.mouse_x, window.mouse_y)) { window.scroll[hit.item.id] = int(max(0, min(hit.limit, (window.scroll[hit.item.id] ?? 0) + a * 48))); return action("repaint", "", "", window); } }
     }
     if (kind == 5 and modifiers == 1) {
         window.mouse_x = a; window.mouse_y = b;
-        for hit: Any in window.hits {
+        for hit: Hit in window.hits {
             let item: Widget = hit.item;
             if (item.kind == "scroll" or not inside(hit.rect, a, b)) { continue; }
             focus(window, item.id);
@@ -203,8 +207,8 @@ pub fun dispatch(window: Window, kind: Int, a: Int, b: Int, modifiers: Int, text
     }
     if (kind == 7) {
         if (modifiers / 4 % 2 != 0 and (a == 113 or a == 81)) { return action("close", "", "", window); }
-        let controls: List<Any> = []; mut selected: Int = -1;
-        for hit: Any in window.hits { if (hit.item.kind != "scroll") { if (hit.item.id == window.focus) { selected = len(controls); } push(controls, hit); } }
+        let controls: List<Hit> = []; mut selected: Int = -1;
+        for hit: Hit in window.hits { if (hit.item.kind != "scroll") { if (hit.item.id == window.focus) { selected = len(controls); } push(controls, hit); } }
         if (a == 65289 or a == 65056) {
             if (len(controls) > 0) { let reverse: Bool = a == 65056 or (modifiers % 2) != 0; let next: Int = if (reverse) { if (selected < 0) { len(controls) - 1 } else { (selected - 1 + len(controls)) % len(controls) } } else { (selected + 1) % len(controls) }; focus(window, controls[next].item.id); }
             return action("repaint", "", "", window);
@@ -245,7 +249,7 @@ pub fun poll(window: Window) -> Event {
     let raw: Ptr = mui_window_event();
     let result: Event = dispatch(window, load64(raw), load64(raw + 8), load64(raw + 16), load64(raw + 24), mui_window_text());
     mut cursor: Int = 0;
-    for hit: Any in window.hits { if (hit.item.kind != "scroll" and inside(hit.rect, window.mouse_x, window.mouse_y)) { cursor = if (hit.item.kind == "entry") { 2 } else { 1 }; } }
+    for hit: Hit in window.hits { if (hit.item.kind != "scroll" and inside(hit.rect, window.mouse_x, window.mouse_y)) { cursor = if (hit.item.kind == "entry") { 2 } else { 1 }; } }
     mui_window_cursor(cursor); return result;
 }
 /// Write the current surface to PNG without needing a display.

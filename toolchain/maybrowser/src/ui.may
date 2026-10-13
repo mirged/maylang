@@ -64,12 +64,17 @@ fun ui_demo_html() -> Str {
     return "<!doctype html><html><head><title>The playground</title><style>html{background:#f3f7fa}body{margin:40px;color:#11212f;font-family:sans-serif}h1{font-size:36px;margin:0 0 12px}p{line-height:1.6;margin:0 0 18px}.card{background:white;padding:28px;margin:0 0 24px;border:1px solid #dce5ec}.label{color:#0d5c71;font-weight:bold}button{display:inline-block;background:#0d5c71;color:white;padding:12px 20px;border:1px solid #0d5c71}a{color:#0d5c71}</style></head><body><p class=\"label\">WELCOME TO THE PLAYGROUND</p><h1>A small browser. Real interactions.</h1><p>Try the button, follow a link, and scroll to explore.</p><div class=\"card\"><h2>Make something happen</h2><p id=\"count\">You've clicked 0 times.</p><button id=\"counter\" onclick=\"count++;document.getElementById('count').textContent='You clicked '+count+' times.';console.log('Playground clicks',count);\">Click me +</button></div><div class=\"card\"><h2>Go somewhere new</h2><p><a href=\"about:home\">Back to your start page →</a></p><p><a href=\"#next\">Jump to the reading corner ↓</a></p></div><div class=\"card\"><h2>Your next little adventure</h2><p>Open a local HTML file or enter a web address in the bar above. Use Alt + Left and Alt + Right to revisit pages.</p></div><div id=\"next\" class=\"card\"><h2>The reading corner</h2><p>Every page has room to breathe. Scroll with the mouse wheel or Page Down; Home brings you back to the top.</p><p>Simple documents, readable typography, and a quiet place to explore.</p><p><a href=\"about:home\">Take me home →</a></p></div><script>var count=0;console.log('The playground is ready');</script></body></html>";
 }
 
-fun ui_state(w: Int, h: Int, run_js: Bool, output: Str) -> Any {
-    return {"width":w,"height":h,"run_js":run_js,"out":output,"url":"","edit":"",
-        "cursor":0,"selected":false,"focused":false,"history":[],"at":-1,
-        "root":-1,"box":-1,"scroll":0,"content":0,"title":"Start page",
-        "error":"","status":"Ready","hover":"","hover_button":-1,"loading":false,
-        "open":false,"running":true,"inline":""};
+struct UIState {
+    width: Int, height: Int, run_js: Bool, out: Str, url: Str, edit: Str,
+    cursor: Int, selected: Bool, focused: Bool, history: List<Str>, at: Int,
+    root: Int, box: Int, scroll: Int, content: Int, title: Str, error: Str,
+    status: Str, hover: Str, hover_button: Int, loading: Bool,
+    open: Bool, running: Bool, inline: Str
+}
+
+fun ui_state(w: Int, h: Int, run_js: Bool, output: Str) -> UIState {
+    return UIState(w, h, run_js, output, "", "", 0, false, false, [], -1,
+        -1, -1, 0, 0, "Start page", "", "Ready", "", -1, false, false, true, "");
 }
 
 fun ui_node_text(node: Int) -> Str {
@@ -78,7 +83,7 @@ fun ui_node_text(node: Int) -> Str {
     return text;
 }
 
-fun ui_layout(state: Any) -> Nil {
+fun ui_layout(state: UIState) -> Nil {
     if (state.root < 0) { return; }
     state.box = lay_layout_document(state.root, state.width - 12, state.height - UI_TOP - UI_BOTTOM);
     state.content = BOXES[state.box].h;
@@ -99,7 +104,7 @@ fun ui_is_ancestor(node: Int, ancestor: Int) -> Bool {
     return false;
 }
 
-fun ui_scroll_anchor(state: Any, address: Str) -> Nil {
+fun ui_scroll_anchor(state: UIState, address: Str) -> Nil {
     let hash: Int = index_of(address, "#");
     if (hash < 0) { state.scroll = 0; return; }
     let id: Str = substring(address, hash + 1, len(address) - hash - 1);
@@ -109,7 +114,7 @@ fun ui_scroll_anchor(state: Any, address: Str) -> Nil {
             if (box.node == node) { state.scroll = box.y; return; }
             for line: Any in box.lines {
                 for item: Any in line.items {
-                    if (item.kind == "text" and ui_is_ancestor(item.node, node)) { state.scroll = line.y; return; }
+                    if (item.kind == "text" and ui_is_ancestor(int(item.node), node)) { state.scroll = int(line.y); return; }
                 }
             }
         }
@@ -127,7 +132,7 @@ fun ui_address(raw: Str) -> Str {
     return "https://" + value;
 }
 
-fun ui_navigate(state: Any, raw: Str, record: Bool) -> Nil {
+fun ui_navigate(state: UIState, raw: Str, record: Bool) -> Nil {
     let address: Str = ui_address(raw);
     if (record) {
         state.history = slice(state.history, 0, state.at + 1);
@@ -155,14 +160,14 @@ fun ui_navigate(state: Any, raw: Str, record: Bool) -> Nil {
             ui_scroll_anchor(state, address);
         }
         nil
-    } otherwise { state.error = err.message; state.title = "Unable to open page"; nil };
+    } otherwise { state.error = str(err.message); state.title = "Unable to open page"; nil };
     state.loading = false;
     state.status = if (state.error == "") { "Ready" } else { "Couldn't open this page" };
     if (state.open) { mb_window_title(state.title + " — MayBrowser"); }
     return;
 }
 
-fun ui_history(state: Any, direction: Int) -> Nil {
+fun ui_history(state: UIState, direction: Int) -> Nil {
     let next: Int = state.at + direction;
     if (next >= 0 and next < len(state.history)) {
         state.at = next; ui_navigate(state, state.history[next], false);
@@ -170,25 +175,25 @@ fun ui_history(state: Any, direction: Int) -> Nil {
     return;
 }
 
-fun ui_reload(state: Any) -> Nil { state.root = -1; ui_navigate(state, state.url, false); return; }
+fun ui_reload(state: UIState) -> Nil { state.root = -1; ui_navigate(state, state.url, false); return; }
 
-fun ui_focus(state: Any) -> Nil {
+fun ui_focus(state: UIState) -> Nil {
     state.focused = true; state.selected = true; state.cursor = len(state.edit); return;
 }
 
-fun ui_scroll(state: Any, change: Int) -> Nil {
+fun ui_scroll(state: UIState, change: Int) -> Nil {
     state.scroll = clamp(state.scroll + change, 0, max(0, state.content - state.height + UI_TOP + UI_BOTTOM));
     return;
 }
 
-fun ui_hit(state: Any, x: Int, y: Int) -> Int {
+fun ui_hit(state: UIState, x: Int, y: Int) -> Int {
     if (state.root < 0 or y < UI_TOP or y >= state.height - UI_BOTTOM) { return -1; }
     let page_y: Int = y - UI_TOP + state.scroll;
     for box: Box in BOXES {
         for line: Any in box.lines {
             if (page_y < line.y or page_y >= line.y + line.height) { continue; }
             for item: Any in line.items {
-                if (item.kind == "text" and x >= item.x and x < item.x + item.w) { return item.node; }
+                if (item.kind == "text" and x >= item.x and x < item.x + item.w) { return int(item.node); }
             }
         }
     }
@@ -210,7 +215,7 @@ fun ui_link(node: Int) -> Str {
     return "";
 }
 
-fun ui_activate(state: Any, node: Int) -> Nil {
+fun ui_activate(state: UIState, node: Int) -> Nil {
     if (node < 0) { return; }
     let href: Str = ui_link(node);
     let destination: Str = if (href == "") { "" } else { net_reference(href) };
@@ -218,16 +223,16 @@ fun ui_activate(state: Any, node: Int) -> Nil {
     let index: Int = may { int(dom_attr(element, "data-mb-node")) } otherwise { -1 };
     let result: Any = if (index < 0 or not state.run_js) { nil } else { js_click(index) };
     if (result != nil and result.html != "") {
-        state.root = html_parse(result.html); CSS_RULES = []; browser_collect_styles(state.root); ui_layout(state);
+        state.root = html_parse(str(result.html)); CSS_RULES = []; browser_collect_styles(state.root); ui_layout(state);
         if (state.open) { mb_window_title(state.title + " — MayBrowser"); }
     }
     if (destination != "" and (result == nil or not result.prevented)) { ui_navigate(state, destination, true); }
     return;
 }
 
-fun ui_home_x(state: Any) -> Int { return max(40, (state.width - 720) / 2); }
+fun ui_home_x(state: UIState) -> Int { return max(40, (state.width - 720) / 2); }
 
-fun ui_home(state: Any) -> Nil {
+fun ui_home(state: UIState) -> Nil {
     let x: Int = ui_home_x(state);
     let width: Int = min(720, state.width - 2 * x);
     let heading: Int = if (state.width >= 800) { 56 } else { 43 };
@@ -259,7 +264,7 @@ fun ui_home(state: Any) -> Nil {
     return;
 }
 
-fun ui_draw(state: Any) -> Nil {
+fun ui_draw(state: UIState) -> Nil {
     if (FB == 0 or FB_W != state.width or FB_H != state.height) { fb_init(state.width, state.height, 16777215); }
     else { fb_fill(16777215); }
     let page_h: Int = state.height - UI_TOP - UI_BOTTOM;
@@ -335,14 +340,14 @@ fun ui_draw(state: Any) -> Nil {
     return;
 }
 
-fun ui_save(state: Any) -> Nil {
+fun ui_save(state: UIState) -> Nil {
     let result: Int = mb_png_write(state.out, FB, FB_W, FB_H, 3);
     state.status = if (result == 0) { "Couldn't write " + state.out } else { "Saved " + state.out };
     if (result != 0) { print("Saved " + state.out); }
     return;
 }
 
-fun ui_click(state: Any, x: Int, y: Int) -> Nil {
+fun ui_click(state: UIState, x: Int, y: Int) -> Nil {
     if (y >= 58 and y <= 101) {
         if (x >= 186 and x < state.width - 156) { ui_focus(state); return; }
         state.focused = false;
@@ -380,7 +385,7 @@ fun ui_click(state: Any, x: Int, y: Int) -> Nil {
     ui_activate(state, ui_hit(state, x, y)); return;
 }
 
-fun ui_insert(state: Any, text: Str) -> Nil {
+fun ui_insert(state: UIState, text: Str) -> Nil {
     let clean: Str = replace(replace(text, "\n", ""), "\r", "");
     if (clean == "") { return; }
     if (state.selected) { state.edit = ""; state.cursor = 0; state.selected = false; }
@@ -390,7 +395,7 @@ fun ui_insert(state: Any, text: Str) -> Nil {
     state.cursor += len(clean); return;
 }
 
-fun ui_key(state: Any, key: Int, modifiers: Int, text: Str) -> Nil {
+fun ui_key(state: UIState, key: Int, modifiers: Int, text: Str) -> Nil {
     let control: Bool = modifiers / 4 % 2 == 1;
     let alt: Bool = modifiers / 8 % 2 == 1;
     let lower: Int = if (key >= 65 and key <= 90) { key + 32 } else { key };
@@ -435,7 +440,7 @@ fun ui_key(state: Any, key: Int, modifiers: Int, text: Str) -> Nil {
     return;
 }
 
-fun ui_motion(state: Any, x: Int, y: Int) -> Bool {
+fun ui_motion(state: UIState, x: Int, y: Int) -> Bool {
     let button: Int = if (y >= 60 and y <= 96 and x >= 16 and x < 176) { (x - 16) / 40 } else { -1 };
     let node: Int = ui_hit(state, x, y);
     let href: Str = if (node < 0) { "" } else { ui_link(node) };
@@ -458,7 +463,7 @@ fun ui_motion(state: Any, x: Int, y: Int) -> Bool {
     return dirty;
 }
 
-fun ui_event(state: Any, kind: Int, a: Int, b: Int, modifiers: Int, text: Str) -> Bool {
+fun ui_event(state: UIState, kind: Int, a: Int, b: Int, modifiers: Int, text: Str) -> Bool {
     if (kind == 1) { state.running = false; return false; }
     if (kind == 2) { return true; }
     if (kind == 3) {
@@ -485,14 +490,14 @@ fun ui_cleanup() -> Nil {
     mb_window_close(); fb_release(); js_close(); sup_images_release(); net_release(); return;
 }
 
-fun ui_snapshot(state: Any, input: Str) -> Int {
+fun ui_snapshot(state: UIState, input: Str) -> Int {
     ui_navigate(state, input, true); ui_draw(state);
     if (mb_png_write(state.out, FB, FB_W, FB_H, 3) == 0) { fail("could not write PNG: " + state.out); }
     print("MayBrowser saved its interface to " + state.out);
     ui_cleanup(); return 0;
 }
 
-fun ui_run(state: Any, input: Str) -> Int {
+fun ui_run(state: UIState, input: Str) -> Int {
     if (mb_window_open(state.width, state.height, "MayBrowser") == 0) {
         fail("Cannot open a graphical display. Run on an X11/XWayland desktop, or use --snapshot / -o for PNG output.");
     }

@@ -64,7 +64,7 @@ fun mb_main(argv: List<Str>) -> Int {
     if (mode == "auto") { mode = if (output_set) { "png" } else { "gui" }; }
     if (mode != "png") {
         if (width < 640 or height < 400) { print("the browser interface needs at least 640x400"); return 2; }
-        let state: Any = ui_state(width, height, run_js, out);
+        let state: UIState = ui_state(width, height, run_js, out);
         if (inline_html or input == "-") {
             state.inline = if (input == "-") { read_stdin() } else { input };
             input = "about:inline";

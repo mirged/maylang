@@ -14,7 +14,7 @@ fun discard_egg(world: World, egg: Egg) -> Nil {
 fun next_generation(world: World) -> Nil {
     let eggs: List<Egg> = [];
     mut candidates: Int = 0;
-    let order: List<Int> = random_shuffle(world.rng, 0..len(world.creatures));
+    let order: List<Int> = map(random_shuffle(world.rng, 0..len(world.creatures)), int);
     for index: Int in order {
         let parent: Creature = world.creatures[index];
         if (parent.health > 0.0 and parent.reproduction > -0.2) {

@@ -24,7 +24,7 @@ fun miles_to_km_exact(miles: Float) -> Float {
     return miles * KM_PER_MILE;
 }
 
-let miles: Float = parse_float(input("Enter miles: "));
+let miles: Float = float(input("Enter miles: ") ?? "");
 
 let approximate: Float = miles_to_km(miles, 20);
 let exact: Float = miles_to_km_exact(miles);
