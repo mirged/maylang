@@ -1,6 +1,28 @@
+# Maylang 0.11.1 — Bramble
+
+Released 2026-10-13 UTC. Includes the complete Bramble workspace, GC, formatter,
+native UI and Mayboard features described below.
+
+The language server now excludes `.may/` build caches from source indexing and
+workspace/navigation scans. It distinguishes files from directories before
+reading a `.may` suffix, so legitimate directories such as `sources.may/` still
+get traversed and their programs get checked. Directory URIs are rejected as
+documents instead of triggering a read error. Focused regressions cover cache
+contents, directory creation notifications, nested source diagnostics and symbols.
+
+The existing `v0.11.0` source tag is retained. Its publication was stopped before
+assets were released when running the complete app exposed the cache-directory
+interaction. Dates record actual publication separately from version numbers.
+
+---
+
 # Maylang 0.11.0 — Bramble
 
-Released 2026-10-12. Everyday workspaces and the first native desktop UI toolkit.
+Source tagged 2026-10-12. Publication was held after the final real-workspace
+check found the build-cache directory scan failure. The tag remains immutable;
+0.11.1 is the first published Bramble bundle.
+
+Everyday workspaces and the first native desktop UI toolkit.
 
 ## Everyday ergonomics
 
