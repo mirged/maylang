@@ -81,13 +81,13 @@ pub fun join_path(a: Any, b: Any) -> Any {
     return a + "/" + b;
 }
 
-fun substr(s: Any, a: Any, b: Any) -> Any { return join(slice(s, a, b), ""); }
+fun substr(s: Any, a: Any, b: Any) -> Any { return substring(s, a, b - a); }
 
 fun last_char(s: Any, ch: Any) -> Any {
     mut r: Any = -1;
     mut i: Any = 0;
-    while (i < len(s)) {
-        if (s[i] == ch) { r = i; }
+    for c: Any in chars(s) {
+        if (c == ch) { r = i; }
         i = i + 1;
     }
     return r;

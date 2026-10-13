@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import shutil
+import sys
 import tempfile
 import time
 
@@ -34,6 +35,14 @@ with tempfile.TemporaryDirectory(prefix='may-workspace-tests-') as directory:
     assert b'Hello from' in invoke(binary, project, 'run').stdout
     cached = invoke(binary, project / 'src', 'run')
     assert b'cached app' in cached.stderr and (project / 'may.json').read_bytes() == original
+    # Keep size and timestamps unchanged: cache freshness must still use bytes.
+    source = project / 'src/main.may'
+    previous = source.stat()
+    source.write_bytes(source.read_bytes().replace(b'Hello', b'Howdy'))
+    os.utime(source, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+    changed = invoke(binary, project, 'run')
+    assert b'build app' in changed.stderr and b'Howdy from' in changed.stdout, changed
+    assert b'cached app' in invoke(binary, project, 'run').stderr
     invoke(binary, project, 'test')
     invoke(binary, project, 'check', '--all')
     invoke(binary, project, 'doctor')
@@ -54,6 +63,9 @@ with tempfile.TemporaryDirectory(prefix='may-workspace-tests-') as directory:
     artifact.write_bytes(artifact.read_bytes() + b'damage')
     assert b'build app' in invoke(binary, project, 'build').stderr
     assert b'cached app' in invoke(binary, project, 'build').stderr
+    artifact.chmod(0o644)
+    assert b'build app' in invoke(binary, project, 'build').stderr
+    assert b'cached app' in invoke(binary, project, 'build').stderr
     (project / 'src/main.may').write_text('print( 42 );\n')
     invoke(binary, project, 'fmt', '--check', ok=False)
     invoke(binary, project, 'fmt')
@@ -62,6 +74,38 @@ with tempfile.TemporaryDirectory(prefix='may-workspace-tests-') as directory:
     assert b'1 failed' in invoke(binary, project, 'test', ok=False).stdout
     (project / 'tests/fail.test.may').unlink()
     print('PASS workspace creation, literal argv, profiles, real tests/checks, cache hits and damaged/failed artifact recovery', flush=True)
+
+    toolchain_project = work / 'toolchain freshness'
+    invoke(binary, work, 'new', str(toolchain_project))
+    compiler_directory = work / 'selected compiler'
+    compiler_directory.mkdir()
+    selected_compiler = compiler_directory / 'mayc'
+    selected_compiler.write_text(f'#!{sys.executable}\n'
+                                 'import subprocess, sys\n'
+                                 '# revision A\n'
+                                 f'sys.exit(subprocess.call([{ENV["MAYC"]!r}, *sys.argv[1:]]))\n')
+    selected_compiler.chmod(0o755)
+    sidecars = [compiler_directory / 'native.may', compiler_directory / 'runtime.may',
+                compiler_directory / 'runtime/core.may']
+    sidecars[-1].parent.mkdir()
+    for path in sidecars:
+        path.write_text('// revision A\n')
+    config = json.loads((toolchain_project / 'may.json').read_text())
+    config['compiler'] = str(selected_compiler)
+    manifest(toolchain_project, config)
+    module = toolchain_project / 'src/value.may'
+    module.write_text('pub fun answer() -> Int { return 7; }\n')
+    (toolchain_project / 'src/main.may').write_text('import "value.may" as value; print(value.answer());\n')
+    assert invoke(binary, toolchain_project, 'run').stdout == b'7\n'
+    assert b'cached app' in invoke(binary, toolchain_project, 'build').stderr
+    for path in [selected_compiler, *sidecars, module]:
+        previous = path.stat()
+        path.write_bytes(path.read_bytes().replace(b'revision A', b'revision B').replace(b'return 7', b'return 8'))
+        os.utime(path, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+        assert b'build app' in invoke(binary, toolchain_project, 'build').stderr, path
+        assert b'cached app' in invoke(binary, toolchain_project, 'build').stderr, path
+    assert invoke(binary, toolchain_project, 'run').stdout == b'8\n'
+    print('PASS compiler, runtime sidecars and imported-source byte changes invalidate unchanged metadata', flush=True)
 
     dependency = work / 'dependency'
     dependency.mkdir()

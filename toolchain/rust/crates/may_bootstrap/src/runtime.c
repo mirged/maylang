@@ -33,9 +33,14 @@ static V integer(int64_t n) { return (V){0,n,NULL}; }
 static V boolean(int b) { return (V){b?4:3,0,NULL}; }
 static V floating(double d) { double *p=allocate(sizeof(double)); *p=d; return (V){6,0,p}; }
 static V string_value(Str *s) { return (V){1,0,s}; }
-#define S(text,size) ({ static Str literal={size,text}; string_value(&literal); })
+#define S(text,size) ({ static struct { uint64_t n; char bytes[sizeof(text)]; } raw={size,text}; static Str literal={size,raw.bytes}; string_value(&literal); })
+/* Match native addr(s)'s byte ABI without changing the stage-zero V/Str ABI. */
+static char *string_bytes(size_t n) {
+    uint64_t *raw=allocate(sizeof(uint64_t)+n+1); *raw=n;
+    return (char*)(raw+1);
+}
 static V string(const char *bytes,size_t n) {
-    Str *s=allocate(sizeof(Str)); s->n=n; s->data=allocate(n+1);
+    Str *s=allocate(sizeof(Str)); s->n=n; s->data=string_bytes(n);
     memcpy(s->data,bytes,n); return string_value(s);
 }
 static V *cell(V v) { V *p=allocate(sizeof(V)); *p=v; return p; }
@@ -139,7 +144,7 @@ static V concat(V a,V b) {
         for(size_t i=0;i<y->n;i++) push(out,y->items[i]); return out;
     }
     a=stringify(a); b=stringify(b); Str *x=a.p,*y=b.p;
-    Str *s=allocate(sizeof(Str)); s->n=x->n+y->n; s->data=allocate(s->n+1);
+    Str *s=allocate(sizeof(Str)); s->n=x->n+y->n; s->data=string_bytes(s->n);
     memcpy(s->data,x->data,x->n); memcpy(s->data+x->n,y->data,y->n); return string_value(s);
 }
 static V stringify(V v) {

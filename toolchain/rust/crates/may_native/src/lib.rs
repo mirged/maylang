@@ -750,6 +750,27 @@ mod tests {
         assert_eq!(out.trim(), "true nil nil");
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn string_byte_scans_preserve_unicode_and_empty_fields() {
+        let out = run_elf(
+            "print(split(\"λ🙂/日本//é/\", \"/\"));\n\
+             print(split(\"λ🙂λ🙂\", \"λ🙂\"), split(\"λ🙂\", \"\"));\n\
+             print(split(\"a\\0λ\\0\\0🙂\\0\", \"\\0\"));\n\
+             print(chars(\"aλ🙂日本\"), substring(\"aλ🙂日本\", 1, 3));\n\
+             let s = repeat(\"λ🙂/\", 1000);\n\
+             print(len(chars(s)), len(split(s, \"/\")), join(split(s, \"/\"), \"/\") == s);",
+        );
+        assert_eq!(
+            out.trim(),
+            "[\"λ🙂\", \"日本\", \"\", \"é\", \"\"]\n\
+             [\"\", \"\", \"\"] [\"λ🙂\"]\n\
+             [\"a\", \"λ\", \"\", \"🙂\", \"\"]\n\
+             [\"a\", \"λ\", \"🙂\", \"日\", \"本\"] λ🙂日\n\
+             3000 1001 true"
+        );
+    }
+
     #[test]
     fn elf_has_a_symbol_table() {
         let bytes = compile_source("fun foo(x) { x + 1 } print(foo(1));", Target::LinuxElf).unwrap();

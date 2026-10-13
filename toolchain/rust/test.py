@@ -31,6 +31,14 @@ with tempfile.TemporaryDirectory(prefix="may-bootstrap-test-") as temp:
     smoke = build / "smoke"
     run(bootstrap, HERE / "tests/smoke.may", "-o", smoke)
     assert run(smoke) == "41 42 12 42\nruntime\n12\n7\ntrue\n"
+    strings = build / "strings.may"
+    strings.write_text('print(split("λ🙂/日本//é/", "/"));\n'
+                       'print(chars("λ🙂日"), substring("aλ🙂日本", 1, 3));\n'
+                       'print(split("a\\0λ\\0", "\\0"));\n'
+                       'let copy: Any = substring("λ🙂", 0, 1);\n'
+                       'print(load64(addr("λ🙂") - 8), load64(addr(copy) - 8));\n')
+    run(bootstrap, strings, "-o", smoke)
+    assert run(smoke) == '["λ🙂", "日本", "", "é", ""]\n["λ", "🙂", "日"] λ🙂日\n["a", "λ", ""]\n6 2\n'
     c_source = build / "hello.c"
     run(bootstrap, "--emit-c", ROOT / "examples/hello.may", "-o", c_source)
     run(os.environ.get("CC", "cc"), "-std=gnu11", c_source, "-lm", "-o", smoke)
