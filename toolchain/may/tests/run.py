@@ -157,10 +157,14 @@ with tempfile.TemporaryDirectory(prefix='may-workspace-tests-') as directory:
         log_handle.close()
         err = watch_log.read_bytes()
     deadline = time.monotonic() + 5
-    while Path(f'/proc/{second}/stat').exists() and time.monotonic() < deadline:
-        if Path(f'/proc/{second}/stat').read_text().split()[2] == 'Z':
+    while True:
+        try:
+            state = Path(f'/proc/{second}/stat').read_text().split()[2]
+        except (FileNotFoundError, ProcessLookupError):
             break
+        if state == 'Z':
+            break
+        assert time.monotonic() < deadline, 'watcher exit orphaned a running application'
         time.sleep(0.05)
-    assert not Path(f'/proc/{second}/stat').exists() or Path(f'/proc/{second}/stat').read_text().split()[2] == 'Z', 'watcher exit orphaned a running application'
     assert b'first\n' in out and b'second\n' in out and b'build failed' in err, (out, err)
     print('PASS development reload, failed-edit preservation, replacement reaping and parent-death cleanup', flush=True)
