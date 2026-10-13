@@ -45,10 +45,33 @@ mkdir -p "$HOME/.local/share/maylang"
 tar -xzf maylang.tar.gz -C "$HOME/.local/share/maylang"
 ```
 
-Add the extracted bundle's `bin` directory to `PATH`, using its actual versioned
-directory name. Keep the entire bundle together; copying only `mayc` loses
-runtime and library discovery. To upgrade, extract the new version beside the
-old one and update `PATH`. This also makes rollback a path change.
+From a source checkout, configure Bash and select the newest extracted stable
+release with:
+
+```sh
+python3 toolchain/update.py
+source "$HOME/.local/share/maylang/env.sh"
+```
+
+The script keeps a `current` symlink to the complete bundle and configures both
+`PATH` and `MAYLANG_STDLIB` through it. It backs up `.bashrc` to
+`.bashrc.maylang-backup` before migrating old version-specific Maylang exports,
+and preserves other shell settings. It also restores executable permissions
+on the five tools if extraction lost them. Keep the entire bundle together;
+copying only `mayc` loses runtime and library discovery.
+
+After extracting a new release beside the old one, run `maylang-update` in Bash
+to select the newest stable version and refresh that shell. It does not download
+or build releases. Select a specific version (including a prerelease), or roll
+back, with `maylang-update 0.11.2`. An extracted bundle directory is also accepted:
+
+```sh
+maylang-update /path/to/maylang-0.11.2-x86_64-linux
+```
+
+Use `python3 toolchain/update.py --dry-run` to preview the initial setup.
+`--root` and `--bashrc` allow a different install location or Bash configuration.
+Other open shells should source `env.sh` to refresh their environment.
 
 ```sh
 mayc --version

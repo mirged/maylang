@@ -146,6 +146,74 @@ def main():
         assert subprocess.check_output([str(binary)]) == b'73\n'
         count += 1
         print('PASS modules explicit standard library overrides', flush=True)
+        
+        # Regression: modules sharing a filename must have unique ELF symbols.
+        collision = work / "duplicate-filename-symbols"
+        (collision / "alpha").mkdir(parents=True)
+        (collision / "beta").mkdir()
+
+        (collision / "alpha/utils.may").write_text(
+            "pub fun value() -> Int { return 11; }\n"
+        )
+        (collision / "beta/utils.may").write_text(
+            "pub fun value() -> Int { return 22; }\n"
+        )
+
+        source = collision / "main.may"
+        source.write_text(
+            'import "alpha/utils" as a;\n'
+            'import "beta/utils" as b;\n'
+            'print(a.value(), b.value());\n'
+        )
+
+        for mode in ("--strict", "--legacy"):
+            binary = collision / f"app-{mode[2:]}"
+            result = subprocess.run(
+                [str(compiler), mode, str(source), "-o", str(binary)],
+                cwd=collision,
+                capture_output=True,
+                timeout=60,
+            )
+            assert result.returncode == 0, result.stderr
+
+            execution = subprocess.run(
+                [str(binary)], capture_output=True, timeout=10
+            )
+            assert execution.returncode == 0, execution.stderr
+            assert execution.stdout == b"11 22\n", execution.stdout
+
+            nm = subprocess.run(
+                ["nm", "--defined-only", str(binary)],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            )
+
+            function_symbols = []
+            for line in nm.stdout.splitlines():
+                parts = line.split(maxsplit=2)
+                if (
+                    len(parts) == 3
+                    and parts[1] in ("T", "t")
+                    and parts[2].endswith("::value")
+                ):
+                    function_symbols.append(parts[2])
+
+            assert len(function_symbols) == 2, function_symbols
+            assert len(set(function_symbols)) == 2, (
+                f"Duplicate ELF symbols: {function_symbols}"
+            )
+            assert all(
+                not name.startswith("/") for name in function_symbols
+            ), f"Absolute source path leaked: {function_symbols}"
+
+            count += 1
+            print(
+                f"PASS modules {mode[2:]} duplicate filename symbols",
+                flush=True,
+            )
+
     assert not failures, failures
     print(f'{count} module checks passed', flush=True)
 

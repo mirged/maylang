@@ -38,6 +38,32 @@ fun elf_section(header: Any, section: Any) -> Any {
     return 0;
 }
 
+fun elf_symbol_name(name: Str) -> Str {
+    mut lastSlash = -1;
+    mut i = 0;
+
+    while (i < len(name)) {
+        if (load8(addr(name) + i) == 47) {
+            lastSlash = i;
+        }
+        i += 1;
+    }
+
+    if (lastSlash < 0) {
+        return name;
+    }
+
+    mut result = "";
+    i = lastSlash + 1;
+
+    while (i < len(name)) {
+        result += chr(load8(addr(name) + i));
+        i += 1;
+    }
+
+    return result;
+}
+
 fun build_elf(ctx: Any) -> Any {
     let dataOffset: Any = ctx.layout.dataOffset;
     let roOffset: Any = dataOffset + ctx.rodataOffset;
@@ -56,7 +82,7 @@ fun build_elf(ctx: Any) -> Any {
     mut strings: Any = "\0_start\0";
     mut symbols: Any = [ElfSymbol(1, 18, 1, ctx.layout.codeAddress, 0)];
     for rec: Any in ctx.functions {
-        let name: Any = symbol_name(rec.p, rec.l);
+        let name: Any = elf_symbol_name(symbol_name(rec.p, rec.l));
         push(symbols, ElfSymbol(len(strings), 18, 1, ctx.layout.codeAddress + lab_off(ctx, rec.abiLab), 0));
         strings = strings + name + "\0";
     }
