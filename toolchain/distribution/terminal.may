@@ -99,7 +99,8 @@ fun raw_input() -> Nil {
     store8(next + 22, 0);
     store8(next + 23, 1);
 
-    if (syscall(16, 0, 21508, next) != 0 and syscall(16, 0, 21506, next) != 0) {
+    // Preserve queued keys when moving between menus; TCSETSF discards them.
+    if (syscall(16, 0, 21506, next) != 0) {
         fail("Cannot configure terminal input. Try --plain.");
     }
     RAW = true;
@@ -214,7 +215,7 @@ pub fun prompt(message: Str, fallback: Str) -> Str {
 
     let value: Str = repeat(chr(0), count);
     for i: Int in 0..count {
-        store8(cstr(value) + i, load8(buffer + i));
+        store8(addr(value) + i, load8(buffer + i));
     }
     let res: Str = trim(value);
     return if (res == "") { fallback } else { res };

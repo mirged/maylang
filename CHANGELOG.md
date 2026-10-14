@@ -1,3 +1,25 @@
+# Maylang 0.12.2 — Clover
+
+Released 2026-10-15 UTC. A patch release for the interactive installer following
+the terminal UI refactor.
+
+- Allocate terminal state on demand and require both input and output terminals
+  before enabling interactive rendering. Fall back to plain menus for missing
+  or dumb terminal settings and small windows.
+- Poll for escape-sequence input so Escape cancels promptly; restore terminal
+  settings after selection, cancellation and errors. Preserve queued keys when
+  moving between menus so fast selections are not discarded.
+- Use compact menu rows, dedicated folder and shell-profile prompts, bounded
+  labels and progress indicators, and normalized component selections. Keep
+  typed answers in the prompt buffer and detect the terminal after reconnecting
+  input for the one-line curl-to-shell installation.
+
+The complete independent toolchain and one-line installer remain available for
+Linux x86-64, including x86-64 WSL 2. The language and runtime limits described
+for 0.12.1 are unchanged.
+
+---
+
 # Maylang 0.12.1 — Clover
 
 Released 2026-10-14 UTC. The first published Clover release includes the

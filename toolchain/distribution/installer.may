@@ -226,6 +226,7 @@ fun main_cli(argv: List<Str>) -> Int {
         let tty: Int = syscall(2, cstr("/dev/tty"), 2, 0);
         if (tty < 0) { fail("installer: no terminal; use --yes and optionally --no-modify-path"); }
         syscall(33, tty, 0); syscall(3, tty);
+        ui.configure(plain, no_color);
         let settings: ui.Settings = ui.wizard(version, prefix, components, modify, profile, removing);
         if (settings.cancelled) { ui.cancelled(); return 0; }
         prefix = settings.prefix; components = settings.components;
