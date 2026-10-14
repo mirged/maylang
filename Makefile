@@ -1,14 +1,17 @@
 PYTHON ?= python3
 MAYC ?= toolchain/mayc/mayc_new
 BUNDLE ?= /tmp/maylang-linux-x86_64.tar.gz
+INSTALL_ARGS ?=
+INSTALLER_OUTPUT ?= build/installer
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor setup build tools check test test-rust test-compiler test-bootstrap test-compliance test-tools test-docs test-distribution test-ui test-browser test-llvm test-limits test-all package editor
+.PHONY: help doctor setup install build tools check test test-rust test-compiler test-bootstrap test-compliance test-tools test-docs test-distribution test-installer test-ui test-browser test-llvm test-limits test-all package editor
 
 help:
 	@echo 'Maylang development (Linux x86-64)'
 	@echo '  make doctor             Check source build prerequisites'
-	@echo '  make setup              Build all five tools and print shell setup'
+	@echo '  make setup / install    Build and install a standalone user toolchain'
+	@echo '    INSTALL_ARGS="--yes --prefix=/path --no-modify-path" for unattended setup'
 	@echo '  make build              Rebuild the compiler and developer tools'
 	@echo '  make tools              Rebuild tools with the selected MAYC'
 	@echo '  make check              Check repository structure and reference freshness'
@@ -20,7 +23,7 @@ help:
 	@echo '  make test-llvm          Experimental LLVM backend checks'
 	@echo '  make test-limits        GC pressure/capacity checks and codegen reports'
 	@echo '  make test-all           All local suites (optional dependencies required)'
-	@echo '  make package            Build a bundle; override BUNDLE=/path/to/archive'
+	@echo '  make package            Build a bundle and standalone C/shell installers'
 	@echo '  make editor             Install locked npm dependencies and compile the extension'
 	@echo 'See CONTRIBUTING.md for targeted checks and docs/INSTALL.md for releases.'
 
@@ -28,9 +31,9 @@ doctor:
 	$(PYTHON) scripts/doctor.py
 
 setup: build
-	@echo 'Enable this checkout in your current shell:'
-	@echo '. "$(CURDIR)/build/dev/env.sh"'
-	@echo 'Then try: may new /tmp/hello-maylang && cd /tmp/hello-maylang && may run'
+	build/dev/bin/may-installer --bundle "$(CURDIR)/build/dev" $(INSTALL_ARGS)
+
+install: setup
 
 build: doctor
 	sh toolchain/rust/build.sh
@@ -75,6 +78,9 @@ test-distribution:
 	$(PYTHON) toolchain/tests/test_update.py
 	sh toolchain/tests/install.sh
 
+test-installer: tools
+	$(PYTHON) toolchain/tests/test_installer.py --bundle build/dev
+
 test-ui:
 	$(PYTHON) toolchain/mayui/tests/run.py --compiler "$(MAYC)"
 
@@ -94,8 +100,9 @@ test-all: test test-bootstrap test-tools test-ui test-browser test-llvm
 package:
 	$(PYTHON) scripts/doctor.py --profile package
 	$(MAKE) build
-	$(PYTHON) toolchain/distribution/package.py --compiler "$(MAYC)" --output "$(BUNDLE)"
+	$(PYTHON) toolchain/distribution/package.py --compiler "$(MAYC)" --output "$(BUNDLE)" --installer-output "$(INSTALLER_OUTPUT)"
 	$(PYTHON) toolchain/tests/test_package.py "$(BUNDLE)"
+	$(PYTHON) toolchain/tests/test_installer.py --archive "$(BUNDLE)" --artifacts "$(INSTALLER_OUTPUT)"
 
 editor:
 	cd editors/vscode && npm ci && npm run compile

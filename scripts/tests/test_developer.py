@@ -46,7 +46,7 @@ class DeveloperTests(unittest.TestCase):
                                      'printf "%s\\n%s\\n%s\\n" "$MAYC" "$MAYLANG_STDLIB" "$PATH"',
                                      'sh', str(script)], capture_output=True, text=True, check=True)
             self.assertEqual(result.stdout.splitlines(), [str(output / 'bin/mayc'),
-                             str(output / 'checkout with spaces/stdlib'),
+                             str(output / 'stdlib'),
                              str(output / 'bin') + ':' + os.environ['PATH']])
 
     def test_distribution_python_compatibility_entrypoints(self):

@@ -79,8 +79,9 @@ jobs:
       - name: Build and test an extracted release
         run: |
           python3 toolchain/tests/test_release.py
-          python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --output /tmp/maylang.tar.gz
+          python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --output /tmp/maylang.tar.gz --installer-output /tmp/maylang-installers
           python3 toolchain/tests/test_package.py /tmp/maylang.tar.gz
+          python3 toolchain/tests/test_installer.py --archive /tmp/maylang.tar.gz --artifacts /tmp/maylang-installers
       - name: Upload complete toolchain bundle
         uses: actions/upload-artifact@v4
         with:
@@ -88,6 +89,7 @@ jobs:
           path: |
             /tmp/maylang.tar.gz
             /tmp/maylang.tar.gz.sha256
+            /tmp/maylang-installers/
       - name: Run language compliance checks
         run: python3 tests/compliance/run.py
       - name: Upload verification reports and failure logs

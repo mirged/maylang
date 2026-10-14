@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install a downloaded release or select an already extracted bundle. No Python.
+# Copy a downloaded release or extracted bundle into an independent prefix.
 set -eu
 fail() { echo "maylang-install: $*" >&2; exit 1; }
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
@@ -44,14 +44,17 @@ printf '%s\n' "$version" | LC_ALL=C grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-
 if [ -e "$root/current" ] && [ ! -L "$root/current" ]; then
     fail "$root/current exists and is not a symlink"
 fi
-case "$bundle" in
-    "$staging"/*)
-        destination="$root/maylang-$version-x86_64-linux"
-        [ ! -e "$destination" ] || fail "Already installed: $destination; select this directory to reuse it"
-        mv "$bundle" "$destination"
-        bundle=$destination
-        ;;
-esac
+# Dereference source sidecars while copying: current must never depend on the
+# checkout, extracted download directory, or its symlink targets surviving.
+cp -RL "$bundle" "$staging/copied-bundle"
+destination="$root/maylang-$version-x86_64-linux"
+if [ -L "$destination" ]; then fail "Destination is an external symlink: $destination"; fi
+if [ -e "$destination" ]; then
+    diff -qr "$staging/copied-bundle" "$destination" >/dev/null || fail "Version already installed with different contents: $destination; use the Maylang installer for independent generations"
+else
+    mv "$staging/copied-bundle" "$destination"
+fi
+bundle=$destination
 for tool in mayc may mayfmt maypkg maylsp; do chmod +x "$bundle/bin/$tool"; done
 # Quote the root for shell startup files, including spaces and apostrophes.
 quoted_root=$(printf '%s' "$root" | sed "s/'/'\\\\''/g")
