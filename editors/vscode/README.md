@@ -11,14 +11,14 @@ formatting).
 Build the language server (from the repository root):
 
 ```sh
-make -C toolchain/maylsp build
+make setup
 ```
 
 Point the extension at the resulting binary in your VS Code settings:
 
 ```json
 {
-  "maylang.serverPath": "/absolute/path/to/maylang/toolchain/maylsp/build/maylsp"
+  "maylang.serverPath": "/absolute/path/to/maylang/build/dev/bin/maylsp"
 }
 ```
 
@@ -30,7 +30,7 @@ Existing installations under another name can use `maylang.serverPath`.
 
 ```sh
 cd editors/vscode
-npm install
+npm ci
 npm run compile
 ```
 
@@ -48,10 +48,9 @@ an Extension Development Host with `.may` files supported.
 ## Package a `.vsix`
 
 ```sh
-npm install                 # only typescript + vscode-languageclient
-npm run compile
-npx @vscode/vsce@3 package  # vsce 3 works on Node 20; use latest on Node 22+
-code --install-extension maylang-0.1.0.vsix   # run inside the WSL remote
+npm ci
+npm exec --yes --package @vscode/vsce@3.6.2 -- vsce package --out /tmp/maylang.vsix
+code --install-extension /tmp/maylang.vsix
 ```
 
 ## Files

@@ -7,36 +7,27 @@ compiler for normal direct native compilation. `may` needs the `sha256sum` comma
 need a C compiler, X11 development headers and a TrueType font. `maypkg` retains
 its POSIX shell workflow for existing projects.
 
-## Build and verify a bundle
-
-From the checkout:
-
-```sh
-sh toolchain/rust/build.sh
-python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
-python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --output /tmp/maylang.tar.gz
-python3 toolchain/tests/test_package.py /tmp/maylang.tar.gz
-```
-
-Omit `--compiler` from the package command to bootstrap afresh. The source
-launcher caches its generated compiler; after changing compiler sources, run
-`sh toolchain/rust/build.sh` again. Packaging does not silently refresh a compiler
-explicitly supplied with `--compiler`.
-
-The archive contains `bin/mayc`, `bin/may`, `bin/mayfmt`, `bin/maypkg`, `bin/maylsp`, runtime sidecars and
-`stdlib`, plus the complete Mayboard source workspace at
-`example_projects/apps/mayboard`. It also contains `VERSION`, `provenance.json` (source commit, dirty
-state, host and compiler digest) and `SHA256SUMS`. The adjacent `.sha256` file
-checks the archive itself. Archive timestamps are deterministic for the source
-commit; `SOURCE_DATE_EPOCH` can override them.
-
 ## Install or upgrade (no Python required)
 
 Download `maylang-linux-x86_64.tar.gz` and
 `maylang-linux-x86_64.tar.gz.sha256` from the
 [release page](https://github.com/mirged/maylang/releases). Keep both files in
-one folder with their original names. Get the installer by cloning this repository.
-Installation requires no Rust, C compiler, or Python.
+one folder with their original names. Installation requires no Rust, C compiler,
+or Python. If you use GitHub CLI, download both assets together:
+
+```sh
+mkdir -p /tmp/maylang-download
+gh release download --repo mirged/maylang --dir /tmp/maylang-download \
+  --pattern maylang-linux-x86_64.tar.gz --pattern maylang-linux-x86_64.tar.gz.sha256
+```
+
+Get the installers from a source checkout (`git clone
+https://github.com/mirged/maylang.git`). Releases made with the restructured
+workflow will also include standalone `install.sh` and `install.ps1` assets;
+older releases such as v0.11.2 need the checkout installer. The implementations
+live in `toolchain/distribution`; existing `toolchain/install.*` commands remain
+supported. When using the download directory above, pass
+`/tmp/maylang-download/maylang-linux-x86_64.tar.gz` as the archive path.
 
 ### Linux x86-64
 
@@ -131,6 +122,13 @@ Use VS Code's **Install from VSIX** command. The extension starts `maylsp` from
 `PATH`; set `maylang.serverPath` to an absolute path when needed. Restart the
 editor after changing its inherited `PATH`. VS Code 1.82 or later is required.
 Other LSP editors can launch the same `maylsp` executable over stdin/stdout.
+
+## Build from source or package a bundle
+
+Run `make doctor` and `make setup` from the checkout, then source
+`build/dev/env.sh`. See [development setup](DEVELOPMENT.md) for prerequisites
+and editor configuration. Packaging and archive verification are documented
+in [distribution](../toolchain/distribution/README.md).
 
 ## Preparing a tagged release
 

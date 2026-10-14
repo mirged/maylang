@@ -1,0 +1,192 @@
+[
+  {
+    "color": "D73A4A",
+    "description": "Incorrect or unexpected behavior",
+    "name": "type:bug"
+  },
+  {
+    "color": "A2EEEF",
+    "description": "New functionality or language capabilities",
+    "name": "type:feature"
+  },
+  {
+    "color": "84B6EB",
+    "description": "Improvement to existing functionality",
+    "name": "type:enhancement"
+  },
+  {
+    "color": "C5DEF5",
+    "description": "Internal restructuring without behavior changes",
+    "name": "type:refactor"
+  },
+  {
+    "color": "0075CA",
+    "description": "Documentation changes",
+    "name": "type:docs"
+  },
+  {
+    "color": "BFD4F2",
+    "description": "Tests, coverage, and regression cases",
+    "name": "type:test"
+  },
+  {
+    "color": "F9D0C4",
+    "description": "Performance and memory improvements",
+    "name": "type:performance"
+  },
+  {
+    "color": "B60205",
+    "description": "Critical: crashes, corruption, severe correctness failures",
+    "name": "priority:p0"
+  },
+  {
+    "color": "D93F0B",
+    "description": "High: major functionality or type-safety defects",
+    "name": "priority:p1"
+  },
+  {
+    "color": "FBCA04",
+    "description": "Normal: important but not blocking",
+    "name": "priority:p2"
+  },
+  {
+    "color": "C2E0C6",
+    "description": "Low: minor issues and polish",
+    "name": "priority:p3"
+  },
+  {
+    "color": "7057FF",
+    "description": "Syntax and parsing",
+    "name": "area:parser"
+  },
+  {
+    "color": "7057FF",
+    "description": "Tokenization",
+    "name": "area:lexer"
+  },
+  {
+    "color": "7057FF",
+    "description": "Type checking, inference, and generics",
+    "name": "area:type-system"
+  },
+  {
+    "color": "7057FF",
+    "description": "Compilation pipeline and diagnostics",
+    "name": "area:compiler"
+  },
+  {
+    "color": "7057FF",
+    "description": "Runtime execution and built-in behavior",
+    "name": "area:runtime"
+  },
+  {
+    "color": "7057FF",
+    "description": "Standard library",
+    "name": "area:stdlib"
+  },
+  {
+    "color": "7057FF",
+    "description": "Command-line interface and project tooling",
+    "name": "area:cli"
+  },
+  {
+    "color": "7057FF",
+    "description": "Language Server Protocol and editor support",
+    "name": "area:lsp"
+  },
+  {
+    "color": "7057FF",
+    "description": "Developer tools and build infrastructure",
+    "name": "area:tooling"
+  },
+  {
+    "color": "D4C5F9",
+    "description": "Awaiting initial review and classification",
+    "name": "status:needs-triage"
+  },
+  {
+    "color": "D4C5F9",
+    "description": "Issue reproduced or validated",
+    "name": "status:confirmed"
+  },
+  {
+    "color": "D4C5F9",
+    "description": "Blocked by another issue or dependency",
+    "name": "status:blocked"
+  },
+  {
+    "color": "D4C5F9",
+    "description": "Actively being implemented",
+    "name": "status:in-progress"
+  },
+  {
+    "color": "D4C5F9",
+    "description": "Additional information required",
+    "name": "status:needs-info"
+  },
+  {
+    "color": "7057FF",
+    "description": "Suitable for first-time contributors",
+    "name": "good-first-issue"
+  },
+  {
+    "color": "008672",
+    "description": "Community contributions welcome",
+    "name": "help-wanted"
+  },
+  {
+    "color": "E99695",
+    "description": "Introduces backward-incompatible behavior",
+    "name": "breaking-change"
+  },
+  {
+    "color": "D93F0B",
+    "description": "Previously working behavior is broken",
+    "name": "regression"
+  },
+  {
+    "color": "F9D0C4",
+    "description": "Requires language or architecture discussion",
+    "name": "design:discussion"
+  },
+  {
+    "color": "BFDADC",
+    "description": "Backward compatibility concern",
+    "name": "compatibility"
+  },
+  {
+    "color": "7057FF",
+    "description": "Experimental MayBrowser engine and native adapter",
+    "name": "area:browser"
+  },
+  {
+    "color": "7057FF",
+    "description": "May workspace graphs, processes and artifact cache",
+    "name": "area:workspace"
+  },
+  {
+    "color": "7057FF",
+    "description": "Editor extensions, grammar and client integration",
+    "name": "area:editor"
+  },
+  {
+    "color": "7057FF",
+    "description": "Release packaging, installers and bundle migration",
+    "name": "area:distribution"
+  },
+  {
+    "color": "7057FF",
+    "description": "Source bootstrap and compiler host support",
+    "name": "area:bootstrap"
+  },
+  {
+    "color": "7057FF",
+    "description": "User guides, contributor documentation and licensing",
+    "name": "area:docs"
+  },
+  {
+    "color": "7057FF",
+    "description": "MayOS kernel, disk tools and boot tests",
+    "name": "area:mayos"
+  }
+]

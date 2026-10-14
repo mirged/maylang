@@ -1,42 +1,31 @@
-> [!WARNING]
-> **THIS PROJECT WAS WRITTEN MOSTLY BY MULTIPLE LARGE LANGUAGE MODELS (LLMs).**
-> Human direction, review, and testing are part of the process, but generated code
-> can contain subtle bugs, incorrect assumptions, and optimistic documentation.
-> This is an experimental language and toolchain. Read the code, run the tests,
-> and bring your curiosity. The robots brought their own confidence.
-
 # Maylang
 
-### A language that compiles itself. Because apparently one compiler wasn't enough.
+An experimental programming language with a self-hosted compiler, strict
+checking by default, and direct native executable output.
 
-![Version](https://img.shields.io/badge/mayc-0.11.2%20Bramble-8b5cf6)
-![Self hosted](https://img.shields.io/badge/self--hosted-Maylang-06b6d4)
-![Native output](https://img.shields.io/badge/output-native%20machine%20code-f97316)
-![Status](https://img.shields.io/badge/status-experimental-facc15)
-![LLM authorship](https://img.shields.io/badge/authorship-mostly%20multiple%20LLMs-f43f5e)
-
-Maylang is a small programming language with a **self-hosted compiler**, strict
-checking by default, and direct native executable output. `mayc` emits machine
-code and packages ELF, Mach-O, or PE images without an external assembler or
-linker. The active compiler and language server are written in Maylang.
-
-Its signature feature is `may { … }`: try something uncertain and provide an
-`otherwise { … }` fallback. A language named after a possibility should probably
-have a plan B.
+[Releases](https://github.com/mirged/maylang/releases) ·
+[Install](docs/INSTALL.md) · [Language guide](docs/STRICT.md) ·
+[Reference](reference/README.md) · [Contribute](CONTRIBUTING.md) ·
+[Roadmap](ROADMAP.md)
 
 ```may
 fun double(value: Int) -> Int {
     return value * 2;
 }
 
-let answer: Int = double(21);
-print(answer); // 42. The compiler has read the same books you have.
+print(double(21)); // 42
 ```
 
-## Install
+`may { … } otherwise { … }` provides a recovery path for operations that can
+fail. The compiler and active language server are written in Maylang. The
+Rust workspace bootstraps the compiler from source.
 
-Download the Linux x86-64 archive and its `.sha256` file from
-[Releases](https://github.com/mirged/maylang/releases), then run from this checkout:
+## Install and run your first project
+
+The toolchain runs on **Linux x86-64**, including **x86-64 WSL 2** on Windows.
+Release installation needs standard Linux utilities and no Python, Rust, or
+C compiler. Download the Linux archive and matching `.sha256` file from
+[Releases](https://github.com/mirged/maylang/releases). From this checkout:
 
 ```sh
 sh toolchain/install.sh "$HOME/Downloads/maylang-linux-x86_64.tar.gz"
@@ -45,203 +34,121 @@ mayc --version
 may new "$HOME/hello-maylang"
 cd "$HOME/hello-maylang"
 may run
+may test
 ```
 
-On Windows x86-64, install WSL 2 and run the wrapper from PowerShell:
+The [installation guide](docs/INSTALL.md) covers downloads with `gh`, WSL,
+shell setup, upgrades, rollback, and the VS Code extension. Native macOS,
+Windows, and ARM64 compiler hosts currently have no release bundle.
 
-```powershell
-.\toolchain\install.ps1 -Bundle "$HOME\Downloads\maylang-linux-x86_64.tar.gz"
-```
+## Build from source
 
-Then source `env.sh` and run Maylang inside WSL using the commands above.
-Installation needs no Python, Rust, or C compiler. Native macOS, Windows, and
-ARM64 host bundles are not currently available. See the
-[installation guide](docs/INSTALL.md) for shell setup, upgrades, and editor setup.
-
-## From clone to native code
-
-**Host requirement: Linux x86-64, Rust and GCC or Clang.** The compiler builds
-entirely from source; no compiler binaries are stored in the repository.
-Python 3 and `readelf` (from binutils) are needed for the verification suite.
-
-For a source-only build with Rust and a C compiler, see the
-[minimal Rust bootstrap](toolchain/rust/README.md).
-For complete compiler, project-manager and editor installation, see the
-[installation guide](docs/INSTALL.md).
+Install Rust, a C compiler available as `cc`, GNU Make, Python 3.10+, and
+binutils on Linux x86-64. Then:
 
 ```sh
 git clone https://github.com/mirged/maylang.git
 cd maylang
-
-sh toolchain/rust/build.sh
-toolchain/mayc/mayc_new --version
-toolchain/mayc/mayc_new examples/hello.may -o /tmp/maylang-hello
+make doctor
+make setup
+. "$PWD/build/dev/env.sh"
+mayc examples/hello.may -o /tmp/maylang-hello
 /tmp/maylang-hello
-
-toolchain/mayc/mayc_new --check examples/strict.may
 ```
 
-Expected hello output:
+`make setup` rebuilds the compiler and creates a complete local toolchain with
+`mayc`, `may`, `mayfmt`, `maypkg`, and `maylsp` in `build/dev/bin`. It prints a
+shell command to enable them; it does not edit shell startup files. Rerun
+`make build` after compiler or runtime changes.
 
-```text
-Hello, Maylang!
-Hello, world!
-```
+For a compiler-only build, run `sh toolchain/rust/build.sh` and use
+`toolchain/mayc/mayc_new`. See [development setup](docs/DEVELOPMENT.md) for
+dependency profiles, editor configuration, and targeted checks.
 
-Build and verify the compiler, including successive self-hosting generations:
+## Work with a project
+
+The [May workspace runner](toolchain/may/README.md) manages application,
+test, native build, and task targets in `may.json`:
 
 ```sh
-toolchain/mayc/tests/run.sh
+may new my-project
+cd my-project
+may run
+may check --all
+may test
+may fmt --check
+may dev
 ```
 
-Keep the compiler with its runtime sidecars. The `mayc_new` launcher wires up
-those paths; copying just the underlying executable elsewhere is insufficient.
-See the [compiler guide](toolchain/mayc/README.md) for the build pipeline,
-runtime selection, benchmarks, and detailed verification commands.
+Local dependencies have content pins, builds verify cached artifacts, and
+commands receive literal argument arrays. Existing `mayproj.json` projects
+can use `maypkg` or `may migrate`. The [formatter](toolchain/mayfmt/README.md)
+also powers editor formatting.
 
-## Everyday project workflow
-
-The new [May workspace runner](toolchain/may/README.md) keeps named applications,
-real executable tests and native build recipes in an explicit `may.json` graph.
-It verifies content-addressed build artifacts, pins local dependencies, forwards
-arguments directly, and reloads applications after successful edits.
-
-```sh
-toolchain/mayc/mayc_new toolchain/may/main.may -o /tmp/may
-export MAYC="$PWD/toolchain/mayc/mayc_new"
-/tmp/may new /tmp/hello-workspace
-cd /tmp/hello-workspace
-/tmp/may run
-/tmp/may test
-/tmp/may fmt --check
-```
-
-`maypkg` remains available for existing projects; `may migrate` preserves the old
-manifest while creating a workspace. The [shared formatter](toolchain/mayfmt/README.md)
-also serves editor formatting. Source comments support nested `/* ... */` blocks.
-
-## Write a desktop application
-
-The [native UI library](stdlib/ui/README.md) provides Maylang layout, widgets,
-Unicode text inputs, keyboard focus and virtual scrolling, backed by X11.
-`may new my-app --ui` creates a runnable desktop project. The complete
-[Mayboard task board](example_projects/apps/mayboard/README.md) adds editing,
-search, filters and persistent local storage:
+For a desktop project, use `may new my-app --ui`. The
+[native UI library](stdlib/ui/README.md) needs a C compiler, X11 development
+headers, and DejaVu fonts; windows use X11/XWayland. The complete
+[Mayboard task board](example_projects/apps/mayboard/README.md) supports a
+preview without a display:
 
 ```sh
 cd example_projects/apps/mayboard
-may run
-may test
+may run -- --demo --snapshot /tmp/mayboard.png
 ```
 
-Install a C compiler, X11 development headers and DejaVu fonts; interactive
-windows require X11/XWayland. Use `may run -- --demo --snapshot /tmp/mayboard.png`
-for a display-free PNG preview.
+## Language and targets
 
-## What's in the language?
+Maylang supports typed functions, structs, generics, pattern matching,
+closures, modules, collections, JSON, file I/O, raw pointers, and C ABI calls.
+Start with the [strict guide](docs/STRICT.md) and
+[runnable examples](reference/EXAMPLES.md). The
+[legacy tour](docs/LEGACY_TOUR.md) documents older syntax for `--legacy` mode.
 
-- **Strict checking:** typed parameters, inferred local bindings and function
-  results, explicit returns, structs, generics, and collection checks.
-- **Fault boundaries:** `may`, `otherwise`, structured errors, nil coalescing
-  (`??`), and safe navigation (`?.`).
-- **Everyday tools:** pattern matching, closures, pipelines, modules, JSON,
-  file I/O, and a standard library.
-- **Close to the metal:** native code, raw pointers, memory operations,
-  syscalls, and C ABI calls in the full runtime.
-- **Developer tools:** a Maylang language server, VS Code extension, package
-  manager, and an interactive reference site.
+The compiler emits native executables without an external assembler or linker.
+Compiler **host** support and emitted **program targets** are separate:
 
-Start with the [strict language guide](docs/STRICT.md). The
-[historical tour](docs/LEGACY_TOUR.md) preserves older syntax for reference;
-use `--legacy` only when intentionally compiling older untyped programs.
-The self-hosted compiler is the active toolchain. Shared Rust frontend
-components support the minimal source-only bootstrap.
-
-## One compiler, several destinations
-
-The compiler itself runs on Linux x86-64. It can emit these targets:
-
-| Target | Executable | Runtime support |
+| Program target | Format | Runtime |
 | --- | --- | --- |
-| `x86_64-linux` | ELF64 | Full, core, or raw |
-| `arm64-linux` | ELF64 | Core or raw |
-| `riscv64-linux` | ELF64 | Core or raw (RV64IM) |
-| `arm64-macos` | Mach-O | Core or raw; signing required on macOS |
-| `x86_64-windows` | PE32+ | Core or raw |
+| `x86_64-linux` | ELF64 | Full, core, raw |
+| `arm64-linux` | ELF64 | Core, raw |
+| `riscv64-linux` | ELF64 (RV64IM) | Core, raw |
+| `arm64-macos` | Mach-O | Core, raw; signing required |
+| `x86_64-windows` | PE32+ | Core, raw |
+| `clang-llvm` | LLVM IR / ELF64 | Experimental full runtime on Linux x86-64 |
 
-```sh
-toolchain/mayc/mayc_new --target arm64-linux examples/hello.may -o /tmp/hello-arm64
-```
+Use `mayc --list-targets` for discovery and see the
+[compiler guide](toolchain/mayc/README.md#cross-compilation) for feature limits.
+LLVM output requires Clang and excludes fibers and FFI. Native Windows and
+macOS program execution is covered by the [native target suite](docs/NATIVE_TARGETS.md).
 
-The full dynamic runtime is Linux x86-64 only. Core programs use a smaller
-runtime; closures, maps, floats, exceptions, fibers, and FFI require the full
-runtime. Cross-target execution has emulator checks; native macOS and Windows
-launches are not yet verified here. See [target details](toolchain/mayc/README.md#cross-compilation).
+## Find your way around
 
-## Take the scenic route
-
-| Path | What you'll find |
+| Directory | Contents |
 | --- | --- |
-| [toolchain/](toolchain/README.md) | `mayc`, language server, package manager, browser experiments, and MayOS |
-| [examples/](examples/) | Small programs to read, compile, and tinker with |
-| [example_projects/](example_projects/README.md) | Games, apps, simulations, graphics, and storage experiments |
-| [stdlib/](stdlib/README.md) | Standard library modules, including ML experiments |
-| [docs/](docs/) | Strict syntax, grammar, native internals, GC, and editor docs |
-| [editors/vscode/](editors/vscode/README.md) | VS Code integration |
-| [reference/](reference/README.md) | Generated language, runtime and standard-library reference |
-| [tests/compliance/](tests/compliance/README.md) | Additional runtime and language regressions |
-| [toolchain/rust/](toolchain/rust/) | Unified Rust compiler crates and source-only bootstrap |
+| [toolchain/](toolchain/README.md) | Compiler, workspace runner, formatter, LSP, legacy manager, browser, OS |
+| [toolchain/distribution/](toolchain/distribution/README.md) | Release packaging, installers, environment migration |
+| [scripts/](scripts/README.md) | Checkout setup, prerequisite checks, repository validation |
+| [stdlib/](stdlib/README.md) | Standard library, UI and experimental ML modules |
+| [examples/](examples/) | Small language examples |
+| [example_projects/](example_projects/README.md) | Complete apps, games, simulations, and learning projects |
+| [docs/](docs/README.md) | Setup, language, architecture, audit and release guides |
+| [reference/](reference/README.md) | Generated language and library reference |
+| [editors/vscode/](editors/vscode/README.md) | VS Code extension |
+| [tests/compliance/](tests/compliance/README.md) | Runtime and language boundary regressions |
 
-Try the terminal game:
+## Project status and contributions
 
-```sh
-toolchain/mayc/mayc_new example_projects/games/starfall/main.may -o /tmp/starfall
-/tmp/starfall demo
-```
+This project was written mostly by multiple large language models, with human
+direction, review, and testing. It is experimental; generated code and
+documentation need the same scrutiny as other contributions.
 
-## Experimental means experimental
+The original sustained-allocation garbage collector report remains open as
+[#2](https://github.com/mirged/maylang/issues/2). Core allocation has documented
+lifetime and capacity limits. Consult the [compiler guide](toolchain/mayc/README.md)
+and [library contracts](stdlib/CONTRACTS.md) before relying on a feature.
 
-The full runtime's collector has a documented corruption issue under sustained
-allocation workloads. Core allocation retains heap chunks until process exit.
-Some features and ABIs have target-specific restrictions. Read the
-[compiler limitations](toolchain/mayc/README.md) before relying on a feature.
-Performance reports describe particular local workloads, not universal speed
-promises. The badges above describe the project; they do not claim passing CI.
-
-Build outputs, dependencies, scratch binaries, and local assistant configuration
-are ignored. The `mayc_new` launcher builds from Rust and C source on first use
-and caches the native compiler in `toolchain/mayc/build/bin/`.
-
-## Roadmap
-
-See the [community roadmap](ROADMAP.md) for planned milestones, linked issues,
-and how to propose changes to priorities and scope. The plan evolves with
-community needs and implementation evidence.
-
-## Contributing
-
-Small reproductions and focused changes are welcome. Include the source that
-triggers a bug, the compiler version, the target, and the actual output. For
-compiler changes, run `toolchain/mayc/tests/run.sh` and the relevant specialized
-checks listed in the compiler guide. Review generated code with the same care
-as any other contribution.
-
-The compiler version lives in `MAYC_VERSION` near the top of
-[main.may](toolchain/mayc/main.may). Maylang uses immutable `let` bindings for
-constants. Rebuild from source and update the version badge when making a
-versioned release; distribute executables as release assets. The current release
-is **0.11.2 “Bramble”** (2026-10-13). See the [changelog](CHANGELOG.md) and
-[release naming convention](docs/RELEASING.md).
-
-<details>
-<summary>You found the emergency otherwise clause.</summary>
-
-If the compiler becomes self-aware, please ask it to fix the garbage collector
-before discussing philosophy.
-
-Achievement unlocked: **read the README all the way down**. No dependencies
-were installed to award this achievement.
-
-</details>
-
-<!-- Secret compiler motto: may the source be with you. -->
+See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, commit conventions, and issue
+labels. The [audit](docs/AUDIT.md) records findings and validation; the
+[roadmap](ROADMAP.md) links active work. Release identity lives in `RELEASE.json`
+and `MAYC_VERSION` in [main.may](toolchain/mayc/main.may); see the
+[changelog](CHANGELOG.md) and [release convention](docs/RELEASING.md).

@@ -229,14 +229,14 @@ bump pointer is rewound past the last live block. The heap is a 1 GiB
 demand-zero `mmap` reservation that is **not stored in the executable**, and
 only touched pages consume physical memory — so long-running, allocation-heavy
 programs (like `examples/game.may`) run without leaking. See
-[`GC.md`](docs/GC.md).
+[`GC.md`](GC.md).
 
 ### Standard library
 `stdlib/` contains Maylang modules — `math`, `string`, `collections` (stack,
 queue, set), `algo` (sorts, search, `zip`/`chunk`/`partition`/`group_by`),
 `functional` (compose/curry/memoize/pipeline), `result`, `test` — with native
 built-ins for transcendental math, file I/O, JSON, `env`, `time` and `exit`.
-See [`stdlib/README.md`](stdlib/README.md).
+See [`stdlib/README.md`](../stdlib/README.md).
 
 ### Collections and built-ins
 `print`, `str`, `int`, `float`, `bool`, `type`, `len`, `push`, `pop`, `range`,
