@@ -1,0 +1,16 @@
+fun probe_mix(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, h: Int) -> Int {
+    return a + 2 * b + 3 * c + 4 * d + 5 * e + 6 * f + 7 * g + 8 * h;
+}
+fun probe_calls(iterations: Int, seed: Int) -> Int {
+    mut checksum: Int = 0;
+    mut index: Int = 0;
+    while index < iterations {
+        let value: Int = (index + seed) % 1024;
+        checksum += probe_mix(value, value + 1, value + 2, value + 3,
+                              value + 4, value + 5, value + 6, value + 7);
+        index += 1;
+    }
+    return checksum;
+}
+let arguments: List<Str> = args();
+print(probe_calls(int(arguments[1]), int(arguments[2])));

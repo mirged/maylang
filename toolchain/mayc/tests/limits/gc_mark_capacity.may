@@ -1,0 +1,15 @@
+fun limits_mark_capacity() -> Any {
+    STACKTOP = __sp(); rt_init();
+    let root: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    rt_gc_root(root);
+    let parent: Any = rt_alloc((LIMIT_MARK_SLOTS + 16) * 8);
+    store64(root, parent);
+    mut index: Any = 0;
+    while (index < LIMIT_MARK_SLOTS + 16) {
+        let child: Any = rt_alloc(32);
+        store64(child, 0); store64(child + 8, 0); store64(child + 16, 0); store64(child + 24, 0);
+        store64(parent + index * 8, child); index += 1;
+    }
+    rt_gc(); syscall(60, 19); return 0;
+}
+limits_mark_capacity();

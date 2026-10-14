@@ -275,6 +275,13 @@ Linux targets. Native verification runs the non-LLVM cases; CI also runs LLVM.
 
 ## Runtime performance
 
+Use `make test-limits` for retained GC/codegen experiments, or select
+native/LLVM `-O1`/LLVM `-O3` variants with
+[the limits runner](tests/limits/README.md). It keeps generated sources,
+executables, assembly, LLVM IR, symbol statistics and resource measurements.
+The [signed constant-division report](PERFORMANCE_LIMITS.md) records a measured
+optimization discovered with these workloads and its raw timing samples.
+
 `src/regalloc.may` runs a shared basic linear-scan allocator over IR temporaries.
 It expires inclusive live intervals, evicts the interval ending farthest away
 when registers are full, and reuses stack homes after intervals expire. The

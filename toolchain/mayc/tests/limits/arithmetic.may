@@ -1,0 +1,15 @@
+// Signed divisions must truncate toward zero; the input prevents folding the loop.
+fun probe_arithmetic(iterations: Int, seed: Int) -> Int {
+    mut value: Int = seed;
+    mut checksum: Int = 0;
+    mut index: Int = 0;
+    while index < iterations {
+        value = (value * 17 + 23) % 1048576;
+        let signed: Int = value - 524288;
+        checksum += signed / 8 + signed % 8;
+        index += 1;
+    }
+    return checksum;
+}
+let arguments: List<Str> = args();
+print(probe_arithmetic(int(arguments[1]), int(arguments[2])));

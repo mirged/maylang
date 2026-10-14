@@ -33,6 +33,12 @@ fixed heap capacity and nonmoving fragmentation remain limitations.
 
 ## Repeatable stress coverage
 
+For larger heap/fragmentation sweeps, controlled capacity failures, allocation/GC
+telemetry and retained native assembly, see the
+[GC and codegen limits runner](../toolchain/mayc/tests/limits/README.md).
+`make test-limits` runs a bounded local profile. Its root-table and mark-stack
+cases verify exact exhaustion diagnostics; timeouts and unrelated crashes fail.
+
 ```sh
 python3 toolchain/mayc/tests/gc_stress.py --self-test --report /tmp/gc-report.json
 python3 toolchain/mayc/tests/gc_stress.py --seeds 42 --steps 256

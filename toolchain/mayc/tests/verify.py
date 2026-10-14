@@ -47,6 +47,11 @@ def sha256(path):
 
 
 def bootstrap():
+    # Each copied generation must carry the runtime it was compiled against.
+    for name in ('runtime.may', 'native.may'):
+        shutil.copy2(COMPILER / name, BOOTSTRAP / name)
+    shutil.copy2(ROOT / 'stdlib/prelude.may', BOOTSTRAP / 'prelude.may')
+    shutil.copytree(COMPILER / 'runtime', BOOTSTRAP / 'runtime', dirs_exist_ok=True)
     seed = BOOTSTRAP / "mayc_v2_seed"
     first = BOOTSTRAP / "mayc_v2_stage1"
     second = BOOTSTRAP / "mayc_v2_stage2"
@@ -190,6 +195,7 @@ def main():
         for script, name in [("file_io.py", "complete binary file I/O"),
                              ("reachability.py", "reachable functions, runtime helpers and loader dependencies"),
                              ("numeric_contracts.py", "numeric bounds and array lengths"),
+                             ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
                              ("diagnostics.py", "structured diagnostics and recovery"),
                              ("debug_traces.py", "debug traces and fiber isolation"),
                              ("fuzz.py", "bounded frontend fuzzing")]:

@@ -36,10 +36,10 @@ def main():
             result=subprocess.run(command,cwd=project,env=env,capture_output=True,timeout=180)
             assert result.returncode == 0,(command,result)
             return result.stdout
-        assert run(str(bundle/'bin/mayc'),'--version').decode().strip() == 'mayc '+provenance['version']
+        assert run('mayc','--version').decode().strip() == 'mayc '+provenance['version']
         targets = run(str(bundle / 'bin/mayc'), '--list-targets').decode()
         assert 'arm64-macos\tmacho\tcore' in targets and 'clang-llvm\tllvm\tfull' in targets
-        run(str(bundle/'bin/mayc'),'main.may','-o','hello')
+        run('mayc','main.may','-o','hello')
         assert run(str(project/'hello')) == b'42\n'
         run(str(bundle/'bin/maypkg'),'build')
         assert b'up to date' in run(str(bundle/'bin/maypkg'),'build')

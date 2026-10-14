@@ -288,24 +288,36 @@ fun cg_var(ctx: Any, n: Any) -> Any {
     return 0;
 }
 
+fun x86_divisor_shift(value: Any) -> Any {
+    if (value.kind != E_INT or value.value <= 0) { return -1; }
+    mut power: Any = 1; mut shift: Any = 0;
+    // The bias/mask uses a positive sign-extended imm32.
+    while (power < value.value and power < 1073741824) { power *= 2; shift += 1; }
+    return if (power == value.value) { shift } else { -1 };
+}
+
+fun x86_signed_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) -> Any {
+    // rax is an untagged signed integer. Bias negatives so shifting truncates
+    // toward zero; subtract the same bias to give remainder the dividend's sign.
+    for byte: Any in [72,137,193,72,193,249,63,72,129,225] { e8(ctx, byte); }
+    e32(ctx, divisor - 1);
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
+    if (remainder) {
+        e8(ctx, 72); e8(ctx, 37); e32(ctx, divisor - 1);
+        e8(ctx, 72); e8(ctx, 41); e8(ctx, 200);
+    } else { e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, shift); }
+    return 0;
+}
+
 fun cg_bin(ctx: Any, n: Any) -> Any {
     let op: Any = n.op;
     // Signed power-of-two division/remainder: bias negatives before shifting.
     // `% 8` is especially common in the runtime's value tag checks.
     if ((op == TK_SLASH or op == TK_PCT) and n.right.kind == E_INT) {
-        let divisor: Any = n.right.value;
-        mut power: Any = 1; mut shift: Any = 0;
-        while (power < divisor and power < 1073741824) { power *= 2; shift += 1; }
-        if (divisor > 0 and power == divisor) {
+        let shift: Any = x86_divisor_shift(n.right);
+        if (shift >= 0) {
             cg_expr(ctx, n.left);
-            for byte: Any in [72,137,193,72,193,249,63,72,129,225] { e8(ctx, byte); }
-            e32(ctx, divisor - 1); // rcx = sign bias
-            e8(ctx, 72); e8(ctx, 1); e8(ctx, 200); // add rax,rcx
-            if (op == TK_SLASH) { e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, shift); }
-            else {
-                e8(ctx, 72); e8(ctx, 37); e32(ctx, divisor - 1);
-                e8(ctx, 72); e8(ctx, 41); e8(ctx, 200);
-            }
+            x86_signed_power_divide(ctx, n.right.value, shift, op == TK_PCT);
             return 0;
         }
     }
@@ -849,14 +861,21 @@ fun cg_bin_dyn(ctx: Any, n: Any) -> Any {
         else { untag_rax(ctx); e8(ctx, 72); e8(ctx, 15); e8(ctx, 175); e8(ctx, 193); }
         jcc(ctx, 128, fallback); // overflow uses the existing error path
     } else if (op == TK_SLASH or op == TK_PCT) {
-        e8(ctx, 72); e8(ctx, 133); e8(ctx, 201); jcc(ctx, 132, fallback);
-        e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249);
-        if (op == TK_PCT) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 208); }
-        else {
-            e8(ctx, 72); e8(ctx, 137); e8(ctx, 194); // save quotient
+        let shift: Any = x86_divisor_shift(n.right);
+        if (shift >= 0) {
+            untag_rax(ctx);
+            x86_signed_power_divide(ctx, n.right.value, shift, op == TK_PCT);
             tag_rax(ctx);
-            for byte: Any in [73,137,195,73,193,251,3,73,57,211] { e8(ctx, byte); }
-            jcc(ctx, 133, fallback); // tagged integer range overflow
+        } else {
+            e8(ctx, 72); e8(ctx, 133); e8(ctx, 201); jcc(ctx, 132, fallback);
+            e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249);
+            if (op == TK_PCT) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 208); }
+            else {
+                e8(ctx, 72); e8(ctx, 137); e8(ctx, 194); // save quotient
+                tag_rax(ctx);
+                for byte: Any in [73,137,195,73,193,251,3,73,57,211] { e8(ctx, byte); }
+                jcc(ctx, 133, fallback); // tagged integer range overflow
+            }
         }
     } else {
         cmp_rcx(ctx);

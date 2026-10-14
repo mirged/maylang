@@ -386,7 +386,12 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
     if (main) { llvm_line(s,"  ret i32 0"); } else { llvm_line(s,"  ret i64 0"); }
     mut out: Any = [];
     if (main) { push(out,"define i32 @main(i32 %argc, ptr %argv0, ptr %envp) noinline {\nentry:"); }
-    else { push(out,"define i64 @f${rec.lab}(i64 %env, ptr %incoming) noinline {\nentry:"); }
+    else {
+        let parts: Any = split(symbol_name(rec.p, rec.l), "::");
+        let name: Any = parts[len(parts) - 1];
+        push(out,"; may-function @f${rec.lab} ${name}");
+        push(out,"define i64 @f${rec.lab}(i64 %env, ptr %incoming) noinline {\nentry:");
+    }
     push(out,"  %argv = alloca [${unit.argCount} x i64], align 8");
     for p: Any in values(s.locals) { push(out,"  ${p} = alloca i64, align 8\n  store volatile i64 0, ptr ${p}, align 8"); }
     for j: Any in 0..block.temporaries { push(out,"  %t${j} = alloca i64, align 8\n  store volatile i64 0, ptr %t${j}, align 8"); }
