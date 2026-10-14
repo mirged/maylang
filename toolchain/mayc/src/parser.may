@@ -141,6 +141,10 @@ fun parse_program(ctx: Any) -> Any {
     diagnostics_finish();
     MAINBODY = rev_list(mh);
     PROGRAM_AST = Program(DECLARATIONS, FUNC_HEAD, MAINBODY);
+    // Nodes own their source spans and annotations. No later stage reads the
+    // lexer tokens; retaining this global otherwise pins every token through
+    // type checking, IR construction and emission.
+    TOKS = []; NTOKS = 0; POS = 0;
     return 0;
 }
 

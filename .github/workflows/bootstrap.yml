@@ -47,12 +47,16 @@ jobs:
         run: |
           python3 toolchain/mayc/tests/test_limits.py
           python3 toolchain/mayc/tests/limits.py --samples 1 --iterations 2000 --rounds 8 --heap-mib 4 --seeds 1 --self-test --output toolchain/mayc/build/limits-ci
+      - name: Regress compiler heap retention on the 4096-function graph
+        run: python3 toolchain/mayc/tests/limits.py --mode codegen --backend native --case graph --functions 4096 --samples 1 --iterations 16 --compile-timeout 60 --output toolchain/mayc/build/limits-large-graph
       - name: Upload GC and codegen experiment artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gc-codegen-limits
-          path: toolchain/mayc/build/limits-ci/
+          path: |
+            toolchain/mayc/build/limits-ci/
+            toolchain/mayc/build/limits-large-graph/
           if-no-files-found: ignore
       - name: Verify native compiler and current entrypoints
         run: python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new

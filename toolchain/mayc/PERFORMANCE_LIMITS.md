@@ -106,16 +106,38 @@ and LLVM -O3, then increased call pressure to 64 arguments and call-graph
 depth to 512. All checksums matched. Compiler verification passed 103
 checks; LLVM/reachability and source bootstrap convergence passed.
 
-An additional native sweep passed 256 live call arguments. At 4,096 reachable
+An additional native sweep passed 256 live call arguments. Before the
+[#59](https://github.com/mirged/maylang/issues/59) retention fix, 4,096 reachable
 functions plus 4,096 dead functions, the 548,759-byte graph source exhausted
 the compiler's heap: exit 70, `out of memory`, after the resolve timing and
 before the IR timing. Peak RSS was 307,380 KiB. The unmodified baseline
 also failed with the same diagnostic and stage boundary (300,640 KiB RSS).
-This is an existing compiler capacity limit, separate from the expected
-runtime capacity tests. The runner returns failure and retains an incomplete
-report for this input; the 4,096-function generator ceiling is not a promise
-that the compiler can accept that workload. Tracked in
-[#59](https://github.com/mirged/maylang/issues/59).
+This was an existing compiler capacity limit, separate from the expected
+runtime capacity tests. The runner correctly retained these failures as
+incomplete reports.
+
+### Compiler heap retention fix (#59)
+
+The parser retained all lexer tokens in `TOKS` after the AST had copied their
+source spans. The type/name passes also retained completed lookup tables;
+frontend roots kept unused bodies alive after the emission snapshot existed.
+Releasing each at its ownership boundary allows the exact graph to compile
+using the unchanged 256 MiB heap. Symbol strings remain rooted, as do AST
+nodes referenced by IR payloads and the backend's own function snapshot.
+
+Token release alone compiled the graph in 63,397.9 ms, with 58,586 ms in
+packaging. Releasing the remaining phase roots reduced packaging to 18,985 ms.
+ELF symbol-table construction still concatenated the entire accumulated string
+table twice per symbol. A bounded byte sink removes that quadratic allocation
+and copying. The final experiment compiled in 5,495.9 ms, including 93 ms in
+packaging, with peak RSS 313,320 KiB. RSS includes source/output mappings and
+GC metadata in addition to the 256 MiB heap. These are diagnostic runs, not a
+controlled cross-machine performance comparison.
+
+The final native image was byte-identical to the phase-release image; all
+warmups/samples matched the independent graph checksum, and dead markers were
+absent. The normal CI profile now includes this 548,759-byte graph and retains
+its exact commands, stage timings and resource data.
 
 Next useful inspection targets are register spills and repeated argument
 reloads in wide calls, repeated collection contracts, and LLVM volatile

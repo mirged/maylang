@@ -49,6 +49,18 @@ fun elf_symbol_name(name: Any) -> Any {
     return name;
 }
 
+fun elf_string(strings: Any, name: Any) -> Any {
+    let source: Any = addr(name);
+    mut count: Any = 0;
+    while (load8(source + count) != 0) { count += 1; }
+    let offset: Any = strings.length;
+    sink_require(strings, offset + count + 1);
+    image_copy(strings.data + offset, source, count);
+    store8(strings.data + offset + count, 0);
+    strings.length += count + 1;
+    return offset;
+}
+
 fun build_elf(ctx: Any) -> Any {
     let dataOffset: Any = ctx.layout.dataOffset;
     let roOffset: Any = dataOffset + ctx.rodataOffset;
@@ -64,17 +76,19 @@ fun build_elf(ctx: Any) -> Any {
         roSize = imageEnd - roOffset;
     }
     let symOffset: Any = image_align(imageEnd, 8);
-    mut strings: Any = "\0_start\0";
+    // A symbol table grows linearly. Repeated immutable-string concatenation
+    // copied the entire prefix twice per symbol and retained large GC garbage.
+    let strings: Any = sink_new(ctx.image.capacity);
+    store8(strings.data, 0); strings.length = 1;
+    elf_string(strings, "_start");
     mut symbols: Any = [ElfSymbol(1, 18, 1, ctx.layout.codeAddress, 0)];
     for rec: Any in ctx.functions {
         let name: Any = elf_symbol_name(symbol_name(rec.p, rec.l));
-        push(symbols, ElfSymbol(len(strings), 18, 1, ctx.layout.codeAddress + lab_off(ctx, rec.abiLab), 0));
-        strings = strings + name + "\0";
+        push(symbols, ElfSymbol(elf_string(strings, name), 18, 1, ctx.layout.codeAddress + lab_off(ctx, rec.abiLab), 0));
     }
     for global: Any in ctx.globals {
         let name: Any = elf_symbol_name(symbol_name(global.p, global.l));
-        push(symbols, ElfSymbol(len(strings), 17, 3, ctx.layout.base + dataOffset + global.off, 8));
-        strings = strings + name + "\0";
+        push(symbols, ElfSymbol(elf_string(strings, name), 17, 3, ctx.layout.base + dataOffset + global.off, 8));
     }
     let symSize: Any = (len(symbols) + 1) * 24;
     let strOffset: Any = symOffset + symSize;
@@ -87,7 +101,7 @@ fun build_elf(ctx: Any) -> Any {
         }
     }
     let sectionCount: Any = if (dynamic) { 13 } else { 7 };
-    let namesOffset: Any = strOffset + len(strings);
+    let namesOffset: Any = strOffset + strings.length;
     let sectionOffset: Any = image_align(namesOffset + len(sectionNames), 8);
     ctx.image.length = sectionOffset + sectionCount * 64;
     sink_require(ctx.image, ctx.image.length);
@@ -121,19 +135,20 @@ fun build_elf(ctx: Any) -> Any {
         store64(entry + 16, symbol.size);
         i = i + 1;
     }
-    image_copy(ctx.image.data + strOffset, addr(strings), len(strings));
+    image_copy(ctx.image.data + strOffset, strings.data, strings.length);
     image_copy(ctx.image.data + namesOffset, addr(sectionNames), len(sectionNames));
     let sections: Any = [
         ElfSection(1, 1, 6, ctx.layout.codeAddress, ctx.layout.codeOffset, ctx.code.length, 0, 0, 16, 0),
         ElfSection(7, 1, 2, ctx.layout.base + roOffset, roOffset, roDataSize, 0, 0, 8, 0),
         ElfSection(15, 1, 3, ctx.layout.base + dataOffset, dataOffset, ctx.globalBytes, 0, 0, 8, 0),
         ElfSection(21, 2, 0, 0, symOffset, symSize, 5, 1, 8, 24),
-        ElfSection(29, 3, 0, 0, strOffset, len(strings), 0, 0, 1, 0),
+        ElfSection(29, 3, 0, 0, strOffset, strings.length, 0, 0, 1, 0),
         ElfSection(37, 3, 0, 0, namesOffset, len(sectionNames), 0, 0, 1, 0),
     ];
     if (dynamic) { for entry: Any in metadata.sections { push(sections, entry[1]); } }
     i = 1;
     for section: Any in sections { elf_section(ctx.image.data + sectionOffset + i * 64, section); i = i + 1; }
+    sink_release(strings);
     return 0;
 }
 
