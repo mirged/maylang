@@ -32,9 +32,7 @@ jobs:
           python3 toolchain/rust/test.py
           sh toolchain/rust/build.sh
           python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
-          python3 toolchain/tests/test_release.py
-          python3 toolchain/maylsp/docs/generate.py --check
-          python3 reference/generate.py --check
+          make check test-distribution
           python3 toolchain/tests/documentation.py
           python3 toolchain/mayfmt/tests/run.py
           python3 toolchain/may/tests/run.py
@@ -72,7 +70,7 @@ jobs:
           RELEASE_CODENAME: ${{ steps.identity.outputs.codename }}
         run: |
           gh release create "$RELEASE_TAG" --verify-tag --draft --notes-file CHANGELOG.md --title "Maylang $RELEASE_TAG — $RELEASE_CODENAME"
-          gh release upload "$RELEASE_TAG" /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-linux-x86_64.tar.gz.sha256 /tmp/maylang-vscode.vsix /tmp/maylang-vscode.vsix.sha256
+          gh release upload "$RELEASE_TAG" /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-linux-x86_64.tar.gz.sha256 /tmp/maylang-vscode.vsix /tmp/maylang-vscode.vsix.sha256 toolchain/distribution/install.sh toolchain/distribution/install.ps1
           if [[ "$RELEASE_TAG" == *-* ]]; then
             gh release edit "$RELEASE_TAG" --prerelease --draft=false
           else

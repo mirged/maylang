@@ -19,14 +19,15 @@ list is discovered dynamically, so adding an example no longer breaks a
 hard-coded count assertion.
 
 The second command runs historical dynamic runtime cases with `--legacy` and
-writes `report.json`. The compiler verification also runs `strict_types.py`
+writes `build/reports/report.json`. The compiler verification also runs `strict_types.py`
 with strict defaults, checking missing annotations, returns and concrete types.
 It exits nonzero on failure. To test another self-hosted compiler, set `MAYC`
 to its absolute path. Compiler binaries need their `runtime.may` and
 `native.may` sidecars in the same directory.
 
-All test sources, fixtures, and reports live here; generated executables
-and verification artifacts go under `build/`. Each compilation is limited
+Test sources and fixtures live here; generated reports, executables
+and verification artifacts go under `build/`. Historical report snapshots are
+preserved in `history/` and are not rewritten by tests. Each compilation is limited
 to 30 seconds and each compliance executable to 3 seconds. Core dumps are
 disabled. Python 3 and Linux are required.
 
@@ -58,5 +59,5 @@ The `json_unicode` case records the existing source-string escape behavior.
 The JSON compliance tests construct backslash bytes explicitly to avoid
 confusing source-language escapes with JSON escapes.
 
-Current counts and individual outcomes are recorded in `report.json` and
+Current counts and individual outcomes are recorded in `build/reports/report.json` and
 `verification.json`, including the self-hosting fixpoint and discovered entrypoints.
