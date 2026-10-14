@@ -100,7 +100,7 @@ def main():
         files = sorted(path for path in bundle.rglob('*') if path.is_file())
         (bundle/'SHA256SUMS').write_text(''.join(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(bundle)}\n' for path in files))
         if args.installer_output:
-            generate_installer(bundle, args.installer_output.resolve())
+            generate_installer(bundle, args.installer_output.resolve(), native=True)
         temporary = output.with_suffix(output.suffix+'.tmp')
         with temporary.open('wb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=0) as zipped, tarfile.open(fileobj=zipped, mode='w') as archive:
             for path in [bundle, *sorted(bundle.rglob('*'))]:

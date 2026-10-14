@@ -5,11 +5,13 @@ import base64
 import hashlib
 from pathlib import Path
 import struct
+import os
+import subprocess
 
 HERE = Path(__file__).resolve().parent
 
 
-def generate(bundle, output):
+def generate(bundle, output, native=False):
     entries = sorted(bundle.rglob('*'))
     if any(path.is_symlink() for path in entries):
         raise ValueError('bundle must contain copied regular files/directories, not symlinks')
@@ -43,18 +45,28 @@ MAYLANG_BOOTSTRAP_C
 "$work/install" "$@"
 ''')
     script.chmod(0o755)
-    for path in (c_file, script):
+    downloader = output / 'maylang-init.sh'
+    downloader.write_bytes((HERE.parents[1] / 'install.sh').read_bytes())
+    downloader.chmod(0o755)
+    artifacts = [c_file, script, downloader]
+    if native:
+        binary = output / 'maylang-init-x86_64-linux'
+        subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-Os', '-static', '-U_FORTIFY_SOURCE', '-D_FORTIFY_SOURCE=2',
+                        '-Wall', '-Wextra', '-Werror', str(c_file), '-o', str(binary)], check=True)
+        artifacts.append(binary)
+    for path in artifacts:
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         path.with_name(path.name + '.sha256').write_text(f'{digest}  {path.name}\n')
-    return c_file, script
+    return artifacts
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--native', action='store_true', help='also build the prebuilt standalone native installer')
     args = parser.parse_args()
-    for path in generate(args.bundle.resolve(), args.output.resolve()):
+    for path in generate(args.bundle.resolve(), args.output.resolve(), args.native):
         print(path)
 
 

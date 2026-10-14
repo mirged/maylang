@@ -1,3 +1,42 @@
+# Maylang 0.12.1 — Clover
+
+Released 2026-10-14 UTC. The first published Clover release includes the
+one-line installer, interactive setup, independent toolchains and compiler
+improvements described below. Check terminal cleanup writes under the same
+hardened C compilation flags used in Ubuntu CI; restore terminal state on
+interruption. The unpublished `v0.12.0` source tag remains immutable.
+
+---
+
+# Maylang 0.12.0 — Clover
+
+Source tagged 2026-10-14 UTC. Publication was held after Ubuntu hardened
+compilation caught an unchecked terminal-cleanup write. The immutable tag is
+retained; 0.12.1 is the first published Clover bundle.
+
+Install Maylang from one command, then follow the
+interactive setup. No checkout or compiler is required to install it.
+
+- Publish a small HTTPS downloader and a prebuilt, self-contained native installer.
+  The Maylang interface includes arrow-key menus, a recommended setup, custom
+  tool checkboxes, live file-copy progress, compiler verification, shell setup
+  and a clear first-project walkthrough. Plain menus and NO_COLOR are supported.
+- Copy complete independent toolchains into `~/.maylang`, with managed shell
+  integration and an uninstaller. Removing the checkout leaves installed tools
+  working. Checksum failures and interrupted setup preserve the active install.
+- Resolve runtime sidecars through PATH/symlinks. Release completed compiler
+  frontend state so a 4,096-reachable/4,096-dead function graph compiles within
+  the existing 256 MiB heap. Build ELF string tables without quadratic copying.
+- Add checksum-verified GC/codegen limit workloads, retained disassembly and
+  optimized LLVM IR, and measured signed power-of-two division improvements.
+
+Compiler hosts remain Linux x86-64, including x86-64 WSL 2. The existing
+sustained-GC investigation [#2](https://github.com/mirged/maylang/issues/2)
+remains open. This release does not establish native compiler-host support for
+macOS, Windows or ARM64.
+
+---
+
 # Maylang 0.11.2 — Bramble
 
 Released 2026-10-13 UTC. A patch release for workspace runner performance.

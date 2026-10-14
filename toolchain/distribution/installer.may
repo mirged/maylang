@@ -1,4 +1,5 @@
 import "../maypkg/src/fs.may" as fs;
+import "terminal.may" as ui;
 
 let TOOLS: List<Str> = ["mayc", "may", "mayfmt", "maypkg", "maylsp"];
 let FORMAT: Str = "maylang-prefix-v1";
@@ -59,7 +60,15 @@ fun copy_tree(source: Str, destination: Str, selected: List<Str>, relative: Str)
     let executable: Bool = starts_with(relative, "bin/") and not contains(substring(relative, 4, len(relative) - 4), "/")
         and (has(TOOLS, substring(relative, 4, len(relative) - 4)) or relative == "bin/may-installer");
     if (syscall(90, cstr(destination), if (executable) { 493 } else { 420 }) != 0) { fail("installer: chmod failed: " + destination); }
+    ui.copied(relative);
     return 1;
+}
+
+fun count_files(path: Str) -> Int {
+    if (kind(path) != 4) { return 1; }
+    mut result: Int = 0;
+    for name: Str in read_dir(path) { result += count_files(path + "/" + name); }
+    return result;
 }
 
 struct Vector { address: Ptr, size: Int, copies: List<Ptr> }
@@ -82,14 +91,31 @@ fun run(command: List<Str>, root: Str) -> Int {
     }
     push(variables, "MAYLANG_STDLIB=" + root + "/stdlib");
     let argv: Vector = vector(command); let environment: Vector = vector(variables);
+    let log: Str = root + "/.install-log";
+    let descriptor: Int = syscall(2, cstr(log), 577, 384);
+    if (descriptor < 0) { fail("Cannot prepare compiler verification."); }
     let child: Int = syscall(57);
     if (child < 0) { fail("installer: cannot start verification"); }
     if (child == 0) {
+        syscall(33, descriptor, 1); syscall(33, descriptor, 2); syscall(3, descriptor);
         if (syscall(80, cstr(root)) != 0) { exit(125); }
         syscall(59, argv.copies[0], argv.address, environment.address); exit(127);
     }
+    syscall(3, descriptor);
     syscall(11, argv.address, argv.size); syscall(11, environment.address, environment.size);
-    return wait(child);
+    let status: Ptr = ptr(syscall(9, 0, 4096, 3, 34, -1, 0));
+    if (int(status) < 0) { fail("Cannot monitor compiler verification."); }
+    mut frame: Int = 0;
+    while (true) {
+        let waited: Int = syscall(61, child, status, 1);
+        if (waited == child) { break; }
+        if (waited < 0 and waited != -4) { syscall(11, status, 4096); fail("Cannot wait for compiler verification."); }
+        ui.spin(frame); frame += 1; sleep(80);
+    }
+    let raw_status: Int = load32(status); syscall(11, status, 4096);
+    let result: Int = if (raw_status % 128 != 0) { 128 + raw_status % 128 } else { raw_status / 256 % 256 };
+    if (result != 0) { ui.line(""); ui.line(read_file(log)); }
+    erase(log); return result;
 }
 
 fun profile_text(content: Str, prefix: Str, enabled: Bool) -> Str {
@@ -162,22 +188,19 @@ fun uninstall(prefix: Str) -> Nil {
     print("Uninstalled Maylang from", prefix); return;
 }
 
-fun prompt(message: Str, fallback: Str) -> Str {
-    let value: Any = input(message + " [" + fallback + "]: ");
-    if (value == nil) { fail("installer: input ended; use --yes for unattended installation"); }
-    return if (trim(str(value)) == "") { fallback } else { trim(str(value)) };
-}
-
 fun main_cli(argv: List<Str>) -> Int {
     mut prefix: Str = (env("HOME") ?? ".") + "/.maylang";
     mut bundle: Str = ""; mut yes: Bool = false; mut modify: Bool = true;
     mut removing: Bool = false; mut components: Str = "all"; mut profile: Str = "";
+    mut plain: Bool = false; mut no_color: Bool = false;
     mut i: Int = 1;
     while (i < len(argv)) {
         let flag: Str = argv[i];
         if (flag == "--help" or flag == "-h") {
-            print("Maylang installer\n  --bundle DIR       Complete source-built or extracted bundle\n  --prefix DIR       Independent user prefix (default ~/.maylang)\n  --components LIST  all, compiler, or comma-separated tools (mayc always included)\n  --yes              Unattended installation\n  --no-modify-path   Leave shell profiles untouched\n  --profile FILE     Shell profile to configure (Bash/Zsh/POSIX syntax)\n  --uninstall        Remove this installer's assets and managed PATH blocks\nOptions accepting values also support --option=value."); return 0;
-        } else if (flag == "--yes") { yes = true; }
+            print("Maylang installer\n  --bundle DIR       Complete source-built or extracted bundle\n  --prefix DIR       Independent user prefix (default ~/.maylang)\n  --components LIST  all, compiler, or comma-separated tools (mayc always included)\n  -y, --yes          Unattended installation\n  --plain            Numbered menus and a scrolling transcript\n  --no-color         Disable colors (also respects NO_COLOR)\n  --no-modify-path   Leave shell profiles untouched\n  --profile FILE     Shell profile to configure (Bash/Zsh/POSIX syntax)\n  --uninstall        Remove this installer's assets and managed PATH blocks\nOptions accepting values also support --option=value."); return 0;
+        } else if (flag == "--yes" or flag == "-y") { yes = true; }
+        else if (flag == "--plain") { plain = true; }
+        else if (flag == "--no-color") { no_color = true; }
         else if (flag == "--no-modify-path") { modify = false; }
         else if (flag == "--uninstall") { removing = true; }
         else {
@@ -193,17 +216,20 @@ fun main_cli(argv: List<Str>) -> Int {
         }
         i += 1;
     }
+    ui.configure(plain, no_color);
+    if (profile == "") {
+        let shell: Str = str(fs.basename(env("SHELL") ?? "/bin/sh"));
+        profile = (env("HOME") ?? ".") + if (shell == "zsh") { "/.zshrc" } else if (shell == "bash") { "/.bashrc" } else { "/.profile" };
+    }
+    let version: Str = if (bundle != "") { trim(read_file(absolute(bundle) + "/VERSION")) } else { "" };
     if (not yes) {
         let tty: Int = syscall(2, cstr("/dev/tty"), 2, 0);
         if (tty < 0) { fail("installer: no terminal; use --yes and optionally --no-modify-path"); }
         syscall(33, tty, 0); syscall(3, tty);
-        print(chr(27) + "[1;36mMaylang — standalone toolchain installation" + chr(27) + "[0m");
-        prefix = prompt("Install prefix", prefix);
-        if (not removing) {
-            components = prompt("Components: all, compiler, or may,mayfmt,maypkg,maylsp", components);
-            if (modify) { modify = to_lower(prompt("Configure shell PATH? y/n", "y")) == "y"; }
-        }
-        if (to_lower(prompt(if (removing) { "Uninstall? y/n" } else { "Install? y/n" }, "y")) != "y") { print("Cancelled."); return 0; }
+        let settings: ui.Settings = ui.wizard(version, prefix, components, modify, profile, removing);
+        if (settings.cancelled) { ui.cancelled(); return 0; }
+        prefix = settings.prefix; components = settings.components;
+        modify = settings.modify; profile = settings.profile;
     }
     prefix = absolute(prefix);
     if (prefix == "/" or prefix == absolute(env("HOME") ?? ".")) { fail("installer: choose a dedicated prefix below your home or another directory"); }
@@ -222,7 +248,6 @@ fun main_cli(argv: List<Str>) -> Int {
         if (kind(bundle + "/" + name) != 8) { fail("installer: incomplete bundle: " + name); }
     }
     for name: Str in selected { if (kind(bundle + "/bin/" + name) != 8) { fail("installer: missing component " + name); } }
-    let version: Str = trim(read_file(bundle + "/VERSION"));
     if (version == "" or contains(version, "/") or version == "." or version == "..") { fail("installer: invalid VERSION"); }
     let previous: Any = ownership(prefix);
     if (kind(prefix) != 0 and (kind(prefix) != 4 or (previous == nil and len(read_dir(prefix)) != 0))) { fail("installer: choose an empty prefix or one managed by this installer"); }
@@ -230,24 +255,25 @@ fun main_cli(argv: List<Str>) -> Int {
     if (kind(prefix + "/bin") != 0 and kind(prefix + "/bin") != 10) { fail("installer: bin must be an internal symlink"); }
     if (kind(prefix + "/stdlib") != 0 and kind(prefix + "/stdlib") != 10) { fail("installer: stdlib must be an internal symlink"); }
     if (kind(prefix + "/releases") != 0 and kind(prefix + "/releases") != 4) { fail("installer: releases must be a directory"); }
-    if (profile == "") {
-        let shell: Str = str(fs.basename(env("SHELL") ?? "/bin/sh"));
-        profile = (env("HOME") ?? ".") + if (shell == "zsh") { "/.zshrc" } else if (shell == "bash") { "/.bashrc" } else { "/.profile" };
-    }
     profile = absolute(profile);
     let configured: Str = if (modify) { profile_text(read_optional(profile), prefix, true) } else { "" };
     directory(prefix); let stage: Str = prefix + "/.install-" + str(syscall(39));
     if (kind(stage) != 0) { fail("installer: staging path already exists"); }
-    print("Copying", join(selected, ", "), "and runtime/stdlib into", prefix);
+    ui.start(version, prefix);
+    mut total_files: Int = count_files(bundle);
+    for name: Str in TOOLS { if (not has(selected, name) and kind(bundle + "/bin/" + name) == 8) { total_files -= 1; } }
+    ui.copy_begin(total_files);
     may {
         let count: Int = copy_tree(bundle, stage, selected, "");
+        ui.step("Toolchain copied · " + str(count) + " files");
         write_file(stage + "/bin/may-uninstall", "#!/bin/sh\nexec " + quote(prefix + "/current/bin/may-installer") + " --uninstall --yes --prefix " + quote(prefix) + "\n");
         if (syscall(90, cstr(stage + "/bin/may-uninstall"), 493) != 0) { fail("installer: cannot enable uninstaller"); }
         let source: Str = stage + "/.install-check.may"; let output: Str = stage + "/.install-check";
         write_file(source, "import \"result\" as result;\nlet value: Result<Int, Str> = result.ok(42);\nif (result.unwrap(value) != 42) { exit(1); }\n");
-        print("Verifying copied compiler and standard library...");
+        ui.checking();
         if (run([stage + "/bin/mayc", source, "-o", output], stage) != 0 or run([output], stage) != 0) { fail("installer: post-install verification failed; active installation was preserved"); }
         erase(source); erase(output);
+        ui.step("Compiler and standard library checked");
         directory(prefix + "/releases");
         let identity: Str = version + "-" + str(syscall(39));
         if (syscall(82, cstr(stage), cstr(prefix + "/releases/" + identity)) != 0) { fail("installer: cannot publish copied release"); }
@@ -262,10 +288,10 @@ fun main_cli(argv: List<Str>) -> Int {
         if (modify) { directory(str(fs.dirname(profile))); fs.write_atomic(profile, configured); }
         let temporary: Str = prefix + "/.current-" + str(syscall(39));
         if (syscall(88, cstr("releases/" + identity), cstr(temporary)) != 0 or syscall(82, cstr(temporary), cstr(prefix + "/current")) != 0) { fail("installer: cannot select copied release"); }
-        print("Installed", count, "files. Enable this shell: .", quote(prefix + "/env.sh"));
-        print("Uninstall:", quote(prefix + "/bin/may-uninstall"));
+        ui.step(if (modify) { "Shell PATH configured" } else { "Your environment is ready" });
+        ui.success(version, ". " + quote(prefix + "/env.sh"), has(selected, "may"), if (modify) { profile } else { "" }, quote(prefix + "/bin/may-uninstall"));
     } otherwise { erase(stage); fail(err.message); };
     return 0;
 }
 
-exit(may { main_cli(args()) } otherwise { print(err.message); 1 });
+exit(may { main_cli(args()) } otherwise { ui.error(str(err.message)); 1 });

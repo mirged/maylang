@@ -1,0 +1,266 @@
+// Small Linux terminal UI. Raw input is confined to a selector and restored
+// before text entry, filesystem work, child processes or cancellation.
+mut COLOR: Bool = false;
+mut FANCY: Bool = false;
+mut LINES: Int = 0;
+mut WIDTH: Int = 68;
+mut SAVED: Ptr = ptr(0);
+mut RAW: Bool = false;
+mut COPIED: Int = 0;
+mut TOTAL: Int = 0;
+
+pub fun write(text: Str) -> Nil {
+    let pointer: Ptr = cstr(text); mut bytes: Int = 0;
+    while (load8(pointer + bytes) != 0) { bytes += 1; }
+    mut offset: Int = 0;
+    while (offset < bytes) {
+        let count: Int = syscall(1, 1, pointer + offset, bytes - offset);
+        if (count == -4) { continue; }
+        if (count <= 0) { return; }
+        offset += count;
+    }
+    return;
+}
+pub fun line(text: Str) -> Nil { write(text + "\n"); LINES += 1; return; }
+fun escape(code: Str) -> Str { return chr(27) + "[" + code; }
+fun paint(text: Str, color: Str) -> Str { return if (COLOR) { escape(color + "m") + text + escape("0m") } else { text }; }
+fun muted(text: Str) -> Str { return paint(text, "38;5;244"); }
+fun mint(text: Str) -> Str { return paint(text, "1;38;5;157"); }
+fun bright(text: Str) -> Str { return paint(text, "1;38;5;231"); }
+fun fit(text: Str, width: Int) -> Str {
+    return if (len(text) <= width) { text } else { substring(text, 0, max(1, width - 3)) + "..." };
+}
+
+pub fun configure(plain: Bool, no_color: Bool) -> Nil {
+    SAVED = ptr(syscall(9, 0, 4096, 3, 34, -1, 0));
+    if (int(SAVED) < 0) { fail("Cannot allocate terminal state."); }
+    let terminal: Bool = syscall(16, 1, 21505, SAVED) == 0;
+    FANCY = terminal and not plain and (env("TERM") ?? "") != "dumb";
+    COLOR = terminal and not plain and not no_color and env("NO_COLOR") == nil and (env("TERM") ?? "") != "dumb";
+    let size: Ptr = SAVED + 128;
+    if (syscall(16, 1, 21523, size) == 0) { WIDTH = max(32, min(68, load16(size + 2) - 4)); }
+    if (WIDTH < 46) { FANCY = false; }
+    if (load16(size) > 0 and load16(size) < 22) { FANCY = false; }
+    return;
+}
+
+pub fun restore() -> Nil {
+    if (RAW) { syscall(16, 0, 21506, SAVED); RAW = false; write(escape("?25h")); }
+    return;
+}
+fun raw_input() -> Nil {
+    if (syscall(16, 0, 21505, SAVED) != 0) { fail("Cannot read terminal settings. Try --plain."); }
+    let next: Ptr = SAVED + 64;
+    for i: Int in 0..64 { store8(next + i, load8(SAVED + i)); }
+    mut flags: Int = load32(next + 12);
+    for bit: Int in [1, 2, 8, 64] { flags -= (flags / bit % 2) * bit; }
+    store32(next + 12, flags); store8(next + 22, 1); store8(next + 23, 0);
+    if (syscall(16, 0, 21506, next) != 0) { fail("Cannot configure terminal input. Try --plain."); }
+    RAW = true; write(escape("?25l")); return;
+}
+fun byte() -> Int {
+    let result: Int = syscall(0, 0, SAVED + 256, 1);
+    if (result == -4 or result == 0) { return -2; }
+    if (result < 0) { fail("Terminal input ended."); }
+    return load8(SAVED + 256);
+}
+fun key() -> Int {
+    let value: Int = byte();
+    if (value == 27) {
+        let second: Int = byte();
+        if (second == -2) { return -1; }
+        if (second == 91 or second == 79) {
+            let third: Int = byte();
+            if (third == 65) { return 1001; }
+            if (third == 66) { return 1002; }
+        }
+        return -2;
+    }
+    if (value == 3 or value == 4) { return -1; }
+    if (value == 107) { return 1001; }
+    if (value == 106) { return 1002; }
+    return value;
+}
+
+pub fun clear() -> Nil {
+    if (FANCY and LINES > 0) { write(escape(str(LINES) + "A") + "\r" + escape("J")); }
+    LINES = 0; return;
+}
+pub fun heading(version: Str, subtitle: Str) -> Nil {
+    line("");
+    if (not FANCY) { line("  Maylang " + version); line("  " + subtitle); line(""); return; }
+    let left: Str = "╭─ ◇ ─"; let brand: Str = "  M A Y L A N G  ";
+    let slogan: Str = "A little language. A lot of possibility.";
+    line("  " + mint(left) + bright(brand) + mint(repeat("─", max(2, WIDTH - len(left) - len(brand) - 1)) + "╮"));
+    line("  " + mint("│") + "  " + bright(slogan) + repeat(" ", max(0, WIDTH - 4 - len(slogan))) + mint("│"));
+    line("  " + mint("╰") + mint(repeat("─", WIDTH - 2) + "╯"));
+    line("");
+    line("  " + muted(fit(subtitle + "  /  " + version + "  /  Linux x86-64", WIDTH)));
+    line(""); return;
+}
+pub fun detail(name: Str, value: Str) -> Nil {
+    line("  " + muted(name + repeat(" ", max(1, 12 - len(name)))) + bright(fit(value, WIDTH - 14))); return;
+}
+
+pub fun prompt(message: Str, fallback: Str) -> Str {
+    write("  " + mint("? ") + bright(message) + " " + muted("[" + fit(fallback, WIDTH - len(message) - 8) + "]") + " ");
+    let buffer: Str = repeat(chr(0), 4096); let pointer: Ptr = addr(buffer);
+    mut count: Int = 0; mut too_long: Bool = false;
+    while (true) {
+        let read: Int = syscall(0, 0, SAVED + 256, 1);
+        if (read == -4) { continue; }
+        if (read <= 0) { fail("Input ended. Run again, or pass --yes for unattended setup."); }
+        let value: Int = load8(SAVED + 256);
+        if (value == 10 or value == 13) { break; }
+        if (count < 4095) { store8(pointer + count, value); count += 1; } else { too_long = true; }
+    }
+    LINES += 1;
+    if (too_long) { fail("That answer is too long. Keep paths and choices below 4096 bytes."); }
+    let value: Str = repeat(chr(0), count);
+    for i: Int in 0..count { store8(addr(value) + i, load8(pointer + i)); }
+    return if (trim(value) == "") { fallback } else { trim(value) };
+}
+
+pub fun pick(options: List<Str>, descriptions: List<Str>, initial: Int) -> Int {
+    if (not FANCY) {
+        for i: Int in 0..len(options) { line("  " + str(i + 1) + ") " + options[i] + " — " + descriptions[i]); }
+        while (true) {
+            let answer: Str = prompt("Choose", str(initial + 1));
+            if (has(["q", "quit", "cancel"], to_lower(answer))) { return -1; }
+            for i: Int in 0..len(options) { if (answer == str(i + 1)) { return i; } }
+            line("  Choose a number from 1 to " + str(len(options)) + ", or q to cancel.");
+        }
+    }
+    raw_input();
+    return may {
+        mut selected: Int = initial; mut drawn: Int = 0; mut result: Int = -1; mut redraw: Bool = true;
+        while (true) {
+            if (redraw) {
+                if (drawn > 0) { write(escape(str(drawn) + "A") + "\r" + escape("J")); LINES -= drawn; }
+                for i: Int in 0..len(options) {
+                    line("  " + if (i == selected) { mint("› ") + bright(options[i]) } else { "  " + muted(options[i]) });
+                    line("    " + muted(fit(descriptions[i], WIDTH - 4)));
+                }
+                line(""); line("  " + muted("↑ ↓ move   enter choose   1–" + str(len(options)) + " shortcut   esc cancel"));
+                drawn = len(options) * 2 + 2; redraw = false;
+            }
+            let pressed: Int = key();
+            if (pressed == -1) { break; }
+            if (pressed == 10 or pressed == 13) { result = selected; break; }
+            if (pressed >= 49 and pressed < 49 + len(options)) { result = pressed - 49; break; }
+            if (pressed == 1001) { selected = (selected + len(options) - 1) % len(options); redraw = true; }
+            if (pressed == 1002) { selected = (selected + 1) % len(options); redraw = true; }
+        }
+        restore(); result
+    } otherwise { restore(); fail(err.message); -1 };
+}
+
+pub fun tools(current: Str) -> Str {
+    let names: List<Str> = ["may", "mayfmt", "maypkg", "maylsp"];
+    let labels: List<Str> = ["Project runner", "Code formatter", "Package manager", "Editor support"];
+    let selected: List<Bool> = [];
+    for name: Str in names { push(selected, current == "all" or has(split(current, ","), name)); }
+    if (not FANCY) { return prompt("Tools: all, compiler, or comma-separated names", current); }
+    line("  " + mint("✓ ") + bright("mayc") + muted("  Compiler · always included")); line("");
+    raw_input();
+    return may {
+        mut cursor: Int = 0; mut drawn: Int = 0; mut redraw: Bool = true; mut cancelled: Bool = false;
+        while (true) {
+            if (redraw) {
+                if (drawn > 0) { write(escape(str(drawn) + "A") + "\r" + escape("J")); LINES -= drawn; }
+                for i: Int in 0..len(names) {
+                    line("  " + if (cursor == i) { mint("› ") } else { "  " }
+                        + if (selected[i]) { mint("[✓] ") } else { muted("[ ] ") }
+                        + bright(names[i]) + muted("  " + labels[i]));
+                }
+                line(""); line("  " + muted("↑ ↓ move   space toggle   enter done   esc back"));
+                drawn = len(names) + 2; redraw = false;
+            }
+            let pressed: Int = key();
+            if (pressed == -1) { cancelled = true; break; }
+            if (pressed == 10 or pressed == 13) { break; }
+            if (pressed == 32) { selected[cursor] = not selected[cursor]; redraw = true; }
+            if (pressed == 1001) { cursor = (cursor + len(names) - 1) % len(names); redraw = true; }
+            if (pressed == 1002) { cursor = (cursor + 1) % len(names); redraw = true; }
+        }
+        restore(); let result: List<Str> = ["mayc"];
+        for i: Int in 0..len(names) { if (selected[i]) { push(result, names[i]); } }
+        if (cancelled) { current } else { join(result, ",") }
+    } otherwise { restore(); fail(err.message); current };
+}
+
+pub struct Settings { prefix: Str, components: Str, modify: Bool, profile: Str, cancelled: Bool }
+pub fun wizard(version: Str, prefix: Str, components: Str, modify: Bool, profile: Str, removing: Bool) -> Settings {
+    let result: Settings = Settings(prefix, components, modify, profile, false);
+    while (true) {
+        clear(); heading(version, if (removing) { "REMOVE TOOLCHAIN" } else { "TOOLCHAIN SETUP" });
+        detail("Install to", result.prefix);
+        detail("Tools", if (result.components == "all") { "Complete toolkit · all five tools" } else if (result.components == "compiler") { "Compiler + standard library" } else { result.components });
+        detail("Shell PATH", if (result.modify) { result.profile } else { "I'll configure it myself" });
+        line("");
+        let action: Int = if (removing) { pick(["Uninstall Maylang", "Keep Maylang"], ["Remove this installation and its PATH entries", "Leave everything as it is"], 1) }
+            else { pick(["Install Maylang", "Customize setup", "Cancel"], ["Use these settings · recommended", "Choose a folder, tools and shell integration", "Leave everything as it is"], 0) };
+        if (action < 0 or (removing and action == 1) or action == 2) { result.cancelled = true; return result; }
+        if (action == 0) { return result; }
+        mut editing: Bool = true;
+        while (editing) {
+            clear(); heading(version, "MAKE IT YOURS");
+            let field: Int = pick(["Installation folder", "Included tools", "Shell integration", "Back to review"],
+                [result.prefix, result.components, if (result.modify) { result.profile } else { "Manual PATH setup" }, "Review your choices and install"], 3);
+            if (field < 0 or field == 3) { editing = false; }
+            else if (field == 0) { result.prefix = prompt("Install prefix", result.prefix); }
+            else if (field == 1) {
+                clear(); heading(version, "YOUR TOOLKIT");
+                let toolset: Int = pick(["Complete toolkit", "Compiler only", "Choose individual tools"],
+                    ["Compiler, project runner, formatter, packages, editor", "Compiler and standard library · smallest install", "Toggle the tools you want with space"], 0);
+                if (toolset == 0) { result.components = "all"; }
+                else if (toolset == 1) { result.components = "compiler"; }
+                else if (toolset == 2) { clear(); heading(version, "PICK YOUR TOOLS"); result.components = tools(result.components); }
+            } else {
+                clear(); heading(version, "READY IN YOUR SHELL");
+                let shell: Int = pick(["Configure PATH for me", "Set up PATH myself", "Choose a shell profile"],
+                    [result.profile + " · recommended", "Show me the command when setup finishes", "Use a different Bash, Zsh or POSIX profile"], if (result.modify) { 0 } else { 1 });
+                if (shell == 0) { result.modify = true; }
+                else if (shell == 1) { result.modify = false; }
+                else if (shell == 2) { result.profile = prompt("Shell profile", result.profile); result.modify = true; }
+            }
+        }
+    }
+    return result;
+}
+
+pub fun start(version: Str, prefix: Str) -> Nil {
+    clear(); heading(version, "LET'S GET YOU SET UP"); detail("Destination", prefix); line(""); return;
+}
+pub fun progress(message: Str, done: Int, total: Int) -> Nil {
+    if (FANCY) {
+        let fill: Int = min(24, done * 24 / max(total, 1));
+        write("\r" + escape("2K") + "  " + mint(repeat("━", fill)) + muted(repeat("─", 24 - fill))
+              + "  " + muted(fit(message, WIDTH - 31)));
+    }
+    return;
+}
+pub fun copied(name: Str) -> Nil { COPIED += 1; progress(str(COPIED) + " / " + str(TOTAL) + " files", COPIED, TOTAL); return; }
+pub fun copy_begin(total: Int) -> Nil { TOTAL = total; COPIED = 0; if (not FANCY) { line("  Copying toolchain and standard library..."); } return; }
+pub fun step(message: Str) -> Nil {
+    if (FANCY) { write("\r" + escape("2K")); }
+    line("  " + mint("✓ ") + bright(message)); return;
+}
+pub fun checking() -> Nil { if (not FANCY) { line("  Checking your compiler..."); } return; }
+pub fun spin(frame: Int) -> Nil {
+    if (FANCY) { write("\r" + escape("2K") + "  " + mint(["◐", "◓", "◑", "◒"][frame % 4]) + " " + bright("Checking your compiler")); }
+    return;
+}
+pub fun success(version: Str, activate: Str, complete: Bool, profile: Str, uninstall: Str) -> Nil {
+    line(""); line("  " + mint("◇ You're ready to May.") + muted("  " + version)); line("");
+    if (profile != "") { line("  " + muted("Open a new terminal and you're ready to go.")); }
+    line("  " + muted("To use Maylang in this terminal:")); line("    " + bright(activate)); line("");
+    if (complete) {
+        line("  " + muted("Make your first project:")); line("    " + bright("may new hello"));
+        line("    " + bright("cd hello && may run"));
+    } else { line("  " + muted("Compile a program:")); line("    " + bright("mayc hello.may -o hello")); }
+    line(""); line("  " + muted("Docs: github.com/mirged/maylang"));
+    line("  " + muted("Uninstall: " + uninstall)); line(""); return;
+}
+pub fun error(message: Str) -> Nil { restore(); write("\r" + if (FANCY) { escape("2K") } else { "" }); line("  " + paint("× Setup stopped", "1;38;5;203")); line("  " + message); line(""); return; }
+pub fun cancelled() -> Nil { restore(); line(""); line("  " + muted("Cancelled. Your current setup is unchanged.")); line(""); return; }

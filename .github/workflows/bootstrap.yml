@@ -86,6 +86,7 @@ jobs:
           python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --output /tmp/maylang.tar.gz --installer-output /tmp/maylang-installers
           python3 toolchain/tests/test_package.py /tmp/maylang.tar.gz
           python3 toolchain/tests/test_installer.py --archive /tmp/maylang.tar.gz --artifacts /tmp/maylang-installers
+          python3 toolchain/tests/test_download_installer.py --artifacts /tmp/maylang-installers
       - name: Upload complete toolchain bundle
         uses: actions/upload-artifact@v4
         with:

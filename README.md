@@ -22,52 +22,46 @@ Rust workspace bootstraps the compiler from source.
 
 ## Install and run your first project
 
-The toolchain runs on **Linux x86-64**, including **x86-64 WSL 2** on Windows.
-Release installation needs standard Linux utilities and no Python, Rust, or
-C compiler. Download the Linux archive and matching `.sha256` file from
-[Releases](https://github.com/mirged/maylang/releases). From this checkout:
+Run this in a **Linux x86-64** terminal, including **x86-64 WSL 2**:
 
 ```sh
-sh toolchain/install.sh "$HOME/Downloads/maylang-linux-x86_64.tar.gz"
-. "$HOME/.local/share/maylang/env.sh"
-mayc --version
-may new "$HOME/hello-maylang"
-cd "$HOME/hello-maylang"
+curl --proto '=https' --tlsv1.2 -fsSL https://github.com/mirged/maylang/releases/latest/download/maylang-init.sh | sh
+```
+
+Press **Enter** for the recommended setup, or choose **Customize setup** to
+pick a folder, individual tools and shell integration. Use **↑ ↓** to move,
+**Space** to toggle tools, and **Esc** to go back. The installer shows progress
+and checks the copied compiler before finishing. No checkout, Rust, Python,
+C compiler or build command is needed.
+
+![The interactive Maylang installer](docs/assets/installer.svg)
+
+Open a new terminal, then create your first project:
+
+```sh
+may new hello
+cd hello
 may run
-may test
 ```
 
-The [installation guide](docs/INSTALL.md) covers downloads with `gh`, WSL,
-shell setup, upgrades, rollback, and the VS Code extension. Native macOS,
-Windows, and ARM64 compiler hosts currently have no release bundle.
+The installer prints the activation command for your current terminal too.
+[Installation options](docs/INSTALL.md) cover unattended setup, plain menus,
+updates, uninstall and offline downloads. Your tools live in `~/.maylang`,
+independently of any source checkout. Compiler hosts are Linux x86-64;
+native macOS, Windows and ARM64 host bundles are not available yet.
 
-## Build from source
+## Compiler development
 
-Install Rust, a C compiler available as `cc`, GNU Make, Python 3.10+, and
-binutils on Linux x86-64. Then:
+Contributors can bootstrap directly from source on Linux x86-64:
 
 ```sh
-git clone https://github.com/mirged/maylang.git
-cd maylang
-make doctor
-make setup
-. "$HOME/.maylang/env.sh"
-mayc examples/hello.may -o /tmp/maylang-hello
-/tmp/maylang-hello
+sh toolchain/rust/build.sh
+python3 scripts/build_tools.py
 ```
 
-`make setup` rebuilds the tools and opens the Maylang installer. It copies
-`mayc`, `may`, `mayfmt`, `maypkg`, `maylsp`, runtime files and the standard
-library into an independent prefix (default `~/.maylang`), with optional shell
-configuration and an uninstall command. Moving or deleting this checkout does
-not break that installation. For unattended setup use
-`make setup INSTALL_ARGS='--yes --no-modify-path'`. Rerun `make build` after
-compiler/runtime changes; source `build/dev/env.sh` only when deliberately
-testing checkout-local tools. See [installation options](docs/INSTALL.md).
-
-For a compiler-only build, run `sh toolchain/rust/build.sh` and use
-`toolchain/mayc/mayc_new`. See [development setup](docs/DEVELOPMENT.md) for
-dependency profiles, editor configuration, and targeted checks.
+See [development setup](docs/DEVELOPMENT.md) for contributor prerequisites,
+checkout-local tools and tests. To install Maylang for everyday use, use the
+one-line installer above.
 
 ## Work with a project
 

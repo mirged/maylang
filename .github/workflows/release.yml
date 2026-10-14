@@ -47,8 +47,10 @@ jobs:
           cmp /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-repeat.tar.gz
           cmp /tmp/maylang-installers/maylang-bootstrap.c /tmp/maylang-installers-repeat/maylang-bootstrap.c
           cmp /tmp/maylang-installers/maylang-install.sh /tmp/maylang-installers-repeat/maylang-install.sh
+          cmp /tmp/maylang-installers/maylang-init-x86_64-linux /tmp/maylang-installers-repeat/maylang-init-x86_64-linux
           python3 toolchain/tests/test_package.py /tmp/maylang-linux-x86_64.tar.gz
           python3 toolchain/tests/test_installer.py --archive /tmp/maylang-linux-x86_64.tar.gz --artifacts /tmp/maylang-installers
+          python3 toolchain/tests/test_download_installer.py --artifacts /tmp/maylang-installers
       - name: Package editor extension
         working-directory: editors/vscode
         run: |
