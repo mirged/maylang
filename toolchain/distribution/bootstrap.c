@@ -185,7 +185,17 @@ int main(int argc, char **argv) {
         struct termios current;
         if (tcgetattr(terminal, &current) == 0 &&
             (current.c_lflag != previous.c_lflag || memcmp(current.c_cc, previous.c_cc, sizeof previous.c_cc))) {
-            tcsetattr(terminal, TCSANOW, &previous); write(terminal, "\033[?25h", 6);
+            if (tcsetattr(terminal, TCSANOW, &previous) < 0) {
+                perror("maylang-bootstrap: restore terminal");
+            } else {
+                size_t offset = 0;
+                while (offset < 6) {
+                    ssize_t count = write(terminal, "\033[?25h" + offset, 6 - offset);
+                    if (count < 0 && errno == EINTR) continue;
+                    if (count <= 0) break;
+                    offset += (size_t)count;
+                }
+            }
         }
     }
     if (terminal >= 0) close(terminal);

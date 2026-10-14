@@ -40,7 +40,7 @@ class DownloadTests(unittest.TestCase):
         for name in ('maylang-init-x86_64-linux', 'maylang-init-x86_64-linux.sha256'):
             shutil.copy2(self.artifacts / name, assets / name)
         (self.web / 'download').mkdir()
-        (self.web / 'download/v0.12.0').symlink_to('../latest/download', target_is_directory=True)
+        (self.web / 'download/v0.12.1').symlink_to('../latest/download', target_is_directory=True)
         with socket.socket() as reservation:
             reservation.bind(('127.0.0.1', 0))
             port = reservation.getsockname()[1]
@@ -79,7 +79,7 @@ class DownloadTests(unittest.TestCase):
             stub.write_text('#!/bin/sh\ntouch "$HOME/../build-tool-was-called"\nexit 99\n')
             stub.chmod(0o755)
         self.environment['PATH'] = str(blockers) + ':' + self.environment['PATH']
-        self.environment['MAYLANG_VERSION'] = 'v0.12.0'
+        self.environment['MAYLANG_VERSION'] = 'v0.12.1'
         result = self.run_script('--yes', '--prefix=' + str(self.prefix), '--no-modify-path', '--plain')
         self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
         self.assertFalse(marker.exists())

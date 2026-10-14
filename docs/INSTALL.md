@@ -124,7 +124,7 @@ independent prefix. `maylang-bootstrap.c` and `maylang-install.sh` are optional
 host-C bootstrap artifacts for developers; ordinary installation uses the
 prebuilt native asset.
 
-Set `MAYLANG_VERSION=v0.12.0` on the downloaded script to choose a particular
+Set `MAYLANG_VERSION=v0.12.1` on the downloaded script to choose a particular
 release. `MAYLANG_DIST_ROOT` can select an HTTPS distribution mirror. Public
 releases before 0.12.0 do not include the native interactive installer.
 

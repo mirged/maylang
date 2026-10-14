@@ -181,7 +181,7 @@ def main():
         if not args.artifacts:
             builder.generate(source, artifacts)
         c_runner = work / 'c-installer'
-        invoke(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', artifacts / 'maylang-bootstrap.c', '-o', c_runner], work, environment)
+        invoke(['cc', '-std=c11', '-O2', '-U_FORTIFY_SOURCE', '-D_FORTIFY_SOURCE=2', '-Wall', '-Wextra', '-Werror', artifacts / 'maylang-bootstrap.c', '-o', c_runner], work, environment)
         shell_script = (artifacts / 'maylang-install.sh').read_bytes()
         shutil.rmtree(work / 'checkout')
         installed_tools(prefix, work, environment)

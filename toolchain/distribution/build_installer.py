@@ -51,7 +51,7 @@ MAYLANG_BOOTSTRAP_C
     artifacts = [c_file, script, downloader]
     if native:
         binary = output / 'maylang-init-x86_64-linux'
-        subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-Os', '-static',
+        subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-Os', '-static', '-U_FORTIFY_SOURCE', '-D_FORTIFY_SOURCE=2',
                         '-Wall', '-Wextra', '-Werror', str(c_file), '-o', str(binary)], check=True)
         artifacts.append(binary)
     for path in artifacts:

@@ -1,6 +1,20 @@
+# Maylang 0.12.1 — Clover
+
+Released 2026-10-14 UTC. The first published Clover release includes the
+one-line installer, interactive setup, independent toolchains and compiler
+improvements described below. Check terminal cleanup writes under the same
+hardened C compilation flags used in Ubuntu CI; restore terminal state on
+interruption. The unpublished `v0.12.0` source tag remains immutable.
+
+---
+
 # Maylang 0.12.0 — Clover
 
-Released 2026-10-14 UTC. Install Maylang from one command, then follow the
+Source tagged 2026-10-14 UTC. Publication was held after Ubuntu hardened
+compilation caught an unchecked terminal-cleanup write. The immutable tag is
+retained; 0.12.1 is the first published Clover bundle.
+
+Install Maylang from one command, then follow the
 interactive setup. No checkout or compiler is required to install it.
 
 - Publish a small HTTPS downloader and a prebuilt, self-contained native installer.

@@ -16,7 +16,7 @@
 <text x="32.0" y="147" xml:space="preserve" fill="#d9e8df" font-family="DejaVu Sans Mono, monospace" font-size="16" font-weight="400">  </text>
 <text x="51.2656" y="147" xml:space="preserve" fill="#afffaf" font-family="DejaVu Sans Mono, monospace" font-size="16" font-weight="700">╰──────────────────────────────────────────────────────────────────╯</text>
 <text x="32.0" y="195" xml:space="preserve" fill="#d9e8df" font-family="DejaVu Sans Mono, monospace" font-size="16" font-weight="400">  </text>
-<text x="51.2656" y="195" xml:space="preserve" fill="#808080" font-family="DejaVu Sans Mono, monospace" font-size="16" font-weight="400">TOOLCHAIN SETUP  /  0.12.0  /  Linux x86-64</text>
+<text x="51.2656" y="195" xml:space="preserve" fill="#808080" font-family="DejaVu Sans Mono, monospace" font-size="16" font-weight="400">TOOLCHAIN SETUP  /  0.12.1  /  Linux x86-64</text>
 <text x="32.0" y="243" xml:space="preserve" fill="#d9e8df" font-family="DejaVu Sans Mono, monospace" font-size="16" font-weight="400">  </text>
 <text x="51.2656" y="243" xml:space="preserve" fill="#808080" font-family="DejaVu Sans Mono, monospace" font-size="16" font-weight="400">Install to  </text>
 <text x="166.8594" y="243" xml:space="preserve" fill="#ffffff" font-family="DejaVu Sans Mono, monospace" font-size="16" font-weight="700">~/.maylang</text>

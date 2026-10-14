@@ -48,7 +48,7 @@ HELP
     esac
     if [ -n "${MAYLANG_VERSION:-}" ]; then
         case "$MAYLANG_VERSION" in
-            *[!A-Za-z0-9.-]*|.*|-*) printf '%s\n' 'Invalid MAYLANG_VERSION; use a release tag such as v0.12.0.' >&2; return 1 ;;
+            *[!A-Za-z0-9.-]*|.*|-*) printf '%s\n' 'Invalid MAYLANG_VERSION; use a release tag such as v0.12.1.' >&2; return 1 ;;
         esac
         maylang_url="$maylang_root/download/$MAYLANG_VERSION"
     else
