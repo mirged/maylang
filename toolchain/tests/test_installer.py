@@ -13,6 +13,9 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import termios
+import fcntl
+import struct
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('installer_builder', ROOT / 'toolchain/distribution/build_installer.py')
@@ -27,13 +30,26 @@ def invoke(command, work, environment, *, ok=True, data=None):
     return result
 
 
-def interactive(installer, source, prefix, work, environment):
+def interactive(installer, source, prefix, work, environment, *, plain=False, cancel=False, checklist=False):
     child, descriptor = pty.fork()
     if child == 0:
         os.chdir(work)
-        os.execve(installer, [str(installer), '--bundle', str(source), '--prefix', str(prefix), '--no-modify-path'], environment)
+        options = ['--plain'] if plain else []
+        os.execve(installer, [str(installer), '--bundle', str(source), '--prefix', str(prefix), '--no-modify-path', *options], environment)
+    fcntl.ioctl(descriptor, termios.TIOCSWINSZ, struct.pack('HHHH', 28, 88, 0, 0))
+    before = termios.tcgetattr(descriptor)
+    if cancel:
+        actions = [(b'esc cancel', b'\x03')]
+    elif plain:
+        actions = [(b'Choose', b'1\n')]
+    else:
+        actions = [(b'esc cancel', b'\x1b[B\r'), (b'esc cancel', b'2'),
+                   (b'esc cancel', b'3' if checklist else b'\x1b[B\r')]
+        if checklist:
+            actions += [(b'space toggle', b' \x1b[B\x1b[B \x1b[B \r')]
+        actions += [(b'esc cancel', b'4'), (b'esc cancel', b'\r')]
     transcript = bytearray()
-    sent = False
+    pending = bytearray()
     deadline = time.monotonic() + 60
     try:
         while time.monotonic() < deadline:
@@ -43,14 +59,21 @@ def interactive(installer, source, prefix, work, environment):
                 except OSError:
                     chunk = b''
                 transcript.extend(chunk)
-                if not sent and b'Install prefix' in transcript:
-                    os.write(descriptor, b'\ncompiler\ny\n')
-                    sent = True
+                pending.extend(chunk)
+                if actions and actions[0][0] in pending:
+                    _, response = actions.pop(0)
+                    os.write(descriptor, response)
+                    pending.clear()
             waited, status = os.waitpid(child, os.WNOHANG)
             if waited:
                 assert os.waitstatus_to_exitcode(status) == 0, transcript.decode(errors='replace')
-                assert b'Components:' in transcript and b'Installed' in transcript, transcript
-                return
+                assert not actions, (actions, transcript.decode(errors='replace'))
+                assert b'Cancelled' in transcript if cancel else b"You're ready to May" in transcript, transcript
+                after = termios.tcgetattr(descriptor)
+                assert (after[3] & (termios.ECHO | termios.ICANON | termios.ISIG)) == (before[3] & (termios.ECHO | termios.ICANON | termios.ISIG))
+                if plain:
+                    assert b'\x1b[' not in transcript, transcript
+                return transcript
         raise AssertionError('interactive installer timed out: ' + transcript.decode(errors='replace'))
     except BaseException:
         try:
@@ -105,7 +128,7 @@ def main():
         profile = home / '.bashrc'
         profile.write_text('# user configuration\nexport USER_SETTING=kept\n')
         environment = {key: value for key, value in os.environ.items() if key not in ('MAYC', 'MAYLANG_STDLIB')}
-        environment.update(HOME=str(home), SHELL='/bin/bash')
+        environment.update(HOME=str(home), SHELL='/bin/bash', TERM='xterm-256color')
         prefix = work / "prefix with spaces ' $ `quotes`"
         command = [installer, '--bundle', source, '--yes', '--prefix', prefix, '--profile', profile]
         invoke(command, work, environment)
@@ -142,6 +165,15 @@ def main():
         interactive(installer, source, tui_prefix, work, environment)
         assert (tui_prefix / 'bin/mayc').exists() and not (tui_prefix / 'bin/may').exists()
         assert profile.read_text().count('# >>> Maylang ') == 1
+        cancelled = work / 'cancelled-prefix'
+        interactive(installer, source, cancelled, work, environment, cancel=True)
+        assert not cancelled.exists()
+        plain_prefix = work / 'plain-prefix'
+        interactive(installer, source, plain_prefix, work, environment, plain=True)
+        custom_prefix = work / 'custom-prefix'
+        interactive(installer, source, custom_prefix, work, environment, checklist=True)
+        assert (custom_prefix / 'bin/mayfmt').exists()
+        assert not (custom_prefix / 'bin/may').exists() and not (custom_prefix / 'bin/maypkg').exists()
         invoke([installer, '--bundle', source], work, environment, ok=False)
         invoke([installer, '--bundle', source, '--yes', '--prefix', home], work, environment, ok=False)
         # Build the single C file before deleting all source/development files.
@@ -169,11 +201,11 @@ def main():
         assert (prefix / 'notes.txt').read_text() == 'keep me'
         assert not (prefix / 'bin').exists() and not (prefix / 'releases').exists()
         assert profile.read_text() == '# user configuration\nexport USER_SETTING=kept\n\n# another user setting\n'
-        for root in (tui_prefix, c_prefix, shell_prefix):
+        for root in (tui_prefix, plain_prefix, custom_prefix, c_prefix, shell_prefix):
             invoke([root / 'bin/may-uninstall'], work, environment)
             assert not root.exists(), root
         print('PASS independent copies, repository deletion, all five tools and staged verification failure')
-        print('PASS interactive Maylang prompts, component selection, repeated profile setup and safe idempotent uninstall')
+        print('PASS arrow navigation, component checkboxes, plain menus, cancellation/terminal restoration, profiles and safe uninstall')
         print('PASS standalone host-cc bootstrap with empty PATH and piped self-contained shell installer')
 
 

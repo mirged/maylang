@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unistd.h>
 
 static const char payload[] = ""
@@ -162,6 +163,9 @@ int main(int argc, char **argv) {
     struct sigaction action = {0}; action.sa_handler = interrupt_child;
     sigemptyset(&action.sa_mask);
     sigaction(SIGINT, &action, NULL); sigaction(SIGTERM, &action, NULL);
+    int terminal = open("/dev/tty", O_RDWR | O_CLOEXEC);
+    struct termios previous;
+    int saved_terminal = terminal >= 0 && tcgetattr(terminal, &previous) == 0;
     pid_t child = fork();
     if (child == 0) {
         signal(SIGINT, SIG_DFL); signal(SIGTERM, SIG_DFL);
@@ -177,6 +181,14 @@ int main(int argc, char **argv) {
         child_pid = 0;
     }
     free(arguments);
+    if (saved_terminal) {
+        struct termios current;
+        if (tcgetattr(terminal, &current) == 0 &&
+            (current.c_lflag != previous.c_lflag || memcmp(current.c_cc, previous.c_cc, sizeof previous.c_cc))) {
+            tcsetattr(terminal, TCSANOW, &previous); write(terminal, "\033[?25h", 6);
+        }
+    }
+    if (terminal >= 0) close(terminal);
     if (remove_tree(root) < 0) { perror("maylang-bootstrap: cleanup"); if (!result) result = 1; }
     return result;
 #endif

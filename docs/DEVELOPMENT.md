@@ -2,7 +2,8 @@
 
 Compiler development requires Linux x86-64, including x86-64 WSL 2 on Windows.
 A compiler that emits Windows or macOS programs still runs on Linux.
-For release installation, see [INSTALL.md](INSTALL.md).
+For everyday installation, use the [one-line interactive installer](INSTALL.md).
+The commands below are for contributors working on the compiler.
 
 ## Prerequisites
 
