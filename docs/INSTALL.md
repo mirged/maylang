@@ -30,60 +30,92 @@ state, host and compiler digest) and `SHA256SUMS`. The adjacent `.sha256` file
 checks the archive itself. Archive timestamps are deterministic for the source
 commit; `SOURCE_DATE_EPOCH` can override them.
 
-## Install or upgrade
+## Install or upgrade (no Python required)
 
-Download `maylang-linux-x86_64.tar.gz` and its adjacent `.sha256` from the
-[GitHub releases](https://github.com/mirged/maylang/releases), together with the
-optional `maylang-vscode.vsix` and its checksum. Nightly/prerelease tags are
-marked as prereleases. The bundle's `provenance.json` records the source tag,
-commit, compiler digest and Rust/C bootstrap tool versions.
+Download `maylang-linux-x86_64.tar.gz` and
+`maylang-linux-x86_64.tar.gz.sha256` from the
+[release page](https://github.com/mirged/maylang/releases). Keep both files in
+one folder with their original names. Get the installer by cloning this repository.
+Installation requires no Rust, C compiler, or Python.
 
-```sh
-cd /tmp
-sha256sum -c maylang.tar.gz.sha256
-mkdir -p "$HOME/.local/share/maylang"
-tar -xzf maylang.tar.gz -C "$HOME/.local/share/maylang"
-```
+### Linux x86-64
 
-From a source checkout, configure Bash and select the newest extracted stable
-release with:
+From the repository root, run:
 
 ```sh
-python3 toolchain/update.py
-source "$HOME/.local/share/maylang/env.sh"
-```
-
-The script keeps a `current` symlink to the complete bundle and configures both
-`PATH` and `MAYLANG_STDLIB` through it. It backs up `.bashrc` to
-`.bashrc.maylang-backup` before migrating old version-specific Maylang exports,
-and preserves other shell settings. It also restores executable permissions
-on the five tools if extraction lost them. Keep the entire bundle together;
-copying only `mayc` loses runtime and library discovery.
-
-After extracting a new release beside the old one, run `maylang-update` in Bash
-to select the newest stable version and refresh that shell. It does not download
-or build releases. Select a specific version (including a prerelease), or roll
-back, with `maylang-update 0.11.2`. An extracted bundle directory is also accepted:
-
-```sh
-maylang-update /path/to/maylang-0.11.2-x86_64-linux
-```
-
-Use `python3 toolchain/update.py --dry-run` to preview the initial setup.
-`--root` and `--bashrc` allow a different install location or Bash configuration.
-Other open shells should source `env.sh` to refresh their environment.
-
-```sh
+sh toolchain/install.sh "$HOME/Downloads/maylang-linux-x86_64.tar.gz"
+. "$HOME/.local/share/maylang/env.sh"
 mayc --version
-may new /tmp/hello
-cd /tmp/hello
+may new "$HOME/hello-maylang"
+cd "$HOME/hello-maylang"
 may run
 ```
 
+The installer verifies the archive checksum, checks that the bundle is complete,
+and selects it through `~/.local/share/maylang/current`. Keep the entire bundle
+together so the compiler can find its runtime and standard library.
+
+To enable future shells, add this line once to `~/.bashrc` for Bash,
+`~/.zshrc` for Zsh, or `~/.profile` for a POSIX login shell:
+
+```sh
+. "$HOME/.local/share/maylang/env.sh"
+```
+
+The installer leaves your shell configuration untouched. It needs standard
+Linux utilities: `sh`, `tar`, `sha256sum`, `awk`, `grep`, and coreutils.
+
+### Windows (WSL 2, x86-64)
+
+Run `wsl --install` in an administrator PowerShell if WSL is not installed.
+Restart Windows if prompted, then open the Linux distribution and finish its
+initial account setup. From the repository root in PowerShell:
+
+```powershell
+.\toolchain\install.ps1 -Bundle "$HOME\Downloads\maylang-linux-x86_64.tar.gz"
+```
+
+This installs into the default WSL distribution. In a WSL terminal, run:
+
+```sh
+. "$HOME/.local/share/maylang/env.sh"
+mayc --version
+may new "$HOME/hello-maylang"
+cd "$HOME/hello-maylang"
+may run
+```
+
+Use the Linux shell startup instructions above to persist the environment.
+The compiler and projects run inside WSL. Native Windows and macOS host bundles
+are not available yet; cross-compiling programs for those systems does not
+provide a native toolchain installation. ARM64 hosts are also unsupported by
+the current release bundle.
+
+### Upgrade, rollback, or choose a location
+
+Download a new archive and checksum, then run the same installer and source
+`env.sh` again. Previous versions remain installed. To switch back, pass an
+extracted bundle directory:
+
+```sh
+sh toolchain/install.sh "$HOME/.local/share/maylang/maylang-0.11.2-x86_64-linux"
+. "$HOME/.local/share/maylang/env.sh"
+```
+
+An optional second argument sets the installation root:
+
+```sh
+sh toolchain/install.sh /path/to/maylang-linux-x86_64.tar.gz "$HOME/tools/maylang"
+. "$HOME/tools/maylang/env.sh"
+```
+
+In PowerShell, use `-InstallRoot /home/yourname/tools/maylang` (a Linux path).
+The installer also accepts bundles extracted by the older `update.py` workflow;
+remove its managed startup block if you stop using that environment file.
+
 For `may`, compiler selection uses the manifest's `compiler`, then `MAYC`,
-then `mayc` beside `may`, then `PATH`. Relative configured paths resolve from the project root.
-`MAYLANG_STDLIB` supplies colon-separated library overrides before normal
-discovery. See [May workspace configuration](../toolchain/may/README.md).
+then `mayc` beside `may`, then `PATH`. Relative configured paths resolve from
+the project root. See [May workspace configuration](../toolchain/may/README.md).
 
 ## Editor
 

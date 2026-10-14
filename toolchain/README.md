@@ -12,6 +12,13 @@ project live here. Each component keeps its own tests and build files.
 | [maybrowser](maybrowser/README.md) | Graphical browser, HTML/CSS engine, JavaScript, and PNG export | `maybrowser/main.may` + `maybrowser/src/` |
 | [mayos](mayos/README.md) | Bootable Maylang OS and kernel development example | `mayos/main.may`, `src/`, and `boot/` |
 
+## Install a release
+
+Use `sh toolchain/install.sh /path/to/maylang-linux-x86_64.tar.gz` on Linux
+x86-64, or `toolchain/install.ps1 -Bundle <archive>` from PowerShell on Windows
+x86-64 with WSL 2. Keep the adjacent `.sha256` file beside the archive. No Python
+is required. See the [installation guide](../docs/INSTALL.md).
+
 ## Build the core tools
 
 From the repository root:

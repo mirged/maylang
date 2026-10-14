@@ -24,7 +24,7 @@
 - Statistics import: `import "stats" as stats;`.
 - Statistics call: `print(stats.stats_mean([1, 2]));` — prints 1.5, avoiding integer-division truncation in math.average.
 - Result import: `import "result" as result;`.
-- Result call: `let r: Any = result.attempt(fun() -> Any { return int("oops"); }); print(result.unwrap_or(r, 0));` — prints 0.
+- Result call: `let r: Result<Int, Str> = result.attempt(fun() -> Int { return int("oops"); }); print(result.unwrap_or(r, 0));` — prints 0.
 - Tensor import: `import "ml/tensor" as tensors;`.
 - Tensor call: `let t: Any = tensors.tensor_matrix([[1.0, 2.0], [3.0, 4.0]]); print(tensors.tensor_sum(t));` — prints 10.0.
 - Validation import: `import "validate" as validate;`.

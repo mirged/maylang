@@ -33,6 +33,31 @@ let answer: Int = double(21);
 print(answer); // 42. The compiler has read the same books you have.
 ```
 
+## Install
+
+Download the Linux x86-64 archive and its `.sha256` file from
+[Releases](https://github.com/mirged/maylang/releases), then run from this checkout:
+
+```sh
+sh toolchain/install.sh "$HOME/Downloads/maylang-linux-x86_64.tar.gz"
+. "$HOME/.local/share/maylang/env.sh"
+mayc --version
+may new "$HOME/hello-maylang"
+cd "$HOME/hello-maylang"
+may run
+```
+
+On Windows x86-64, install WSL 2 and run the wrapper from PowerShell:
+
+```powershell
+.\toolchain\install.ps1 -Bundle "$HOME\Downloads\maylang-linux-x86_64.tar.gz"
+```
+
+Then source `env.sh` and run Maylang inside WSL using the commands above.
+Installation needs no Python, Rust, or C compiler. Native macOS, Windows, and
+ARM64 host bundles are not currently available. See the
+[installation guide](docs/INSTALL.md) for shell setup, upgrades, and editor setup.
+
 ## From clone to native code
 
 **Host requirement: Linux x86-64, Rust and GCC or Clang.** The compiler builds

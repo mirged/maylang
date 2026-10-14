@@ -71,6 +71,7 @@ types. Use a generic API to preserve a payload's type, or an explicit conversion
 such as `str(value)`, `int(value)`, `float(value)` or `bool(value)`:
 
 ```may
+fun identity<T>(value: T) -> T { return value; }
 let dynamic: Any = 123;
 // let text: Str = dynamic; // error: expected Str, found Any
 let text: Str = str(dynamic);

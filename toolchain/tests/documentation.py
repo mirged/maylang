@@ -37,8 +37,8 @@ def snippets():
         yield title, source, expected[title]
     assert not imports and seen == expected.keys(), (imports, seen ^ expected.keys())
     strict = re.findall(r'```may\n(.*?)\n```', (ROOT / 'docs/STRICT.md').read_text(), re.S)
-    assert len(strict) == 4, 'Review added strict-guide examples and their expected output'
-    for index, (source, stdout) in enumerate(zip(strict, ['50\n', '', '', ''])):
+    assert len(strict) == 5, 'Review added strict-guide examples and their expected output'
+    for index, (source, stdout) in enumerate(zip(strict, ['50\n', '', '', '', ''])):
         yield f'STRICT.md example {index + 1}', source, stdout
 
 
