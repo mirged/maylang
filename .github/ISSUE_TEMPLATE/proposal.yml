@@ -1,0 +1,30 @@
+name: Improvement or design proposal
+description: Propose a feature, refactor, documentation or testing improvement.
+title: 'enhancement(component): '
+labels: ['type:enhancement', 'status:needs-triage']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and evidence
+      description: Explain the user need; link source locations, measurements and existing issues.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed change
+      description: Describe scope, affected components and compatibility concerns.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable outcomes and the checks that establish them.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and open questions

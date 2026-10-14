@@ -1,0 +1,40 @@
+name: Bug report
+description: Report incorrect compiler, runtime, library or tooling behavior.
+title: 'fix(component): '
+labels: ['type:bug', 'status:needs-triage']
+body:
+  - type: checkboxes
+    id: existing
+    attributes:
+      label: Existing reports
+      options:
+        - label: I searched open and closed issues for the same problem.
+          required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Compiler version, host OS/architecture, target and runtime; include installation method.
+      placeholder: 'mayc --version; uname -a; target x86_64-linux, runtime full'
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide a minimal program and the exact commands to compile/run it.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include output, exit status or a relevant log.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true

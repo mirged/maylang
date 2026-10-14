@@ -1,0 +1,99 @@
+# Development setup
+
+Compiler development requires Linux x86-64, including x86-64 WSL 2 on Windows.
+A compiler that emits Windows or macOS programs still runs on Linux.
+For release installation, see [INSTALL.md](INSTALL.md).
+
+## Prerequisites
+
+On Ubuntu/Debian:
+
+```sh
+sudo apt-get update
+sudo apt-get install build-essential binutils python3 git
+```
+
+Install Rust through your preferred installation method; `cargo` and `rustc`
+must be on `PATH`. Python 3.10+ is required for repository scripts; extracted
+archive checks use Python 3.12+ for `tarfile` extraction filters. The source
+bootstrap uses `CC` (or `cc`) and locked, offline Cargo builds.
+
+```sh
+make doctor
+make setup
+. "$PWD/build/dev/env.sh"
+mayc --version
+may help
+```
+
+Tools and sidecars are written to ignored `build/dev/`. The environment file
+is safe to source repeatedly and handles checkout paths with spaces. It sets
+`PATH`, `MAYC`, and `MAYLANG_STDLIB` for the current shell. To persist it, add
+its absolute source command to your own shell startup file.
+Rerun `make build` after compiler/runtime changes; `make tools` rebuilds the
+other tools with the selected compiler.
+
+See the [Rust bootstrap](../toolchain/rust/README.md) and
+[compiler guide](../toolchain/mayc/README.md) for compiler-only work.
+
+## Optional dependency profiles
+
+These checks report requirements without installing anything:
+
+```sh
+python3 scripts/doctor.py --profile test
+python3 scripts/doctor.py --profile ui
+python3 scripts/doctor.py --profile browser
+python3 scripts/doctor.py --profile editor
+python3 scripts/doctor.py --profile package
+```
+
+| Profile | Extra requirements |
+| --- | --- |
+| Test | `readelf` from binutils |
+| LLVM | Clang/LLVM; `sudo apt-get install clang llvm` |
+| UI | `libx11-dev`, `fonts-dejavu-core`; X11/XWayland for windows |
+| Browser | UI dependencies, libcurl and `libduktape.so.207` |
+| Window testing | `xvfb`, `xauth`, `xdotool` |
+| Editor | Node.js and npm; CI uses Node 22 |
+| Package verification | Python 3.12+, base build and UI dependencies for extracted scaffold tests |
+| Core emulation | Unicorn in a Python virtual environment; see compiler tests |
+
+The [browser](../toolchain/maybrowser/README.md) and [UI](../stdlib/ui/README.md)
+guides have full commands. Socket/window tests may skip when unavailable;
+required integration modes turn those skips into failures.
+
+## Editor setup
+
+Install the released VSIX or run `make editor` for extension development.
+Set `maylang.serverPath` in VS Code to the absolute checkout path
+`/path/to/maylang/build/dev/bin/maylsp`, or source the environment before
+launching an editor that inherits tools from `PATH`.
+
+## Testing and packaging
+
+`make help` lists commands. [CONTRIBUTING.md](../CONTRIBUTING.md) maps changes
+to checks. `make check` is quick; `make test` exercises the default suites.
+`make test-all` also needs optional integrations.
+
+```sh
+make check
+make test
+make test-tools
+make package BUNDLE=/tmp/maylang-dev.tar.gz
+```
+
+Packaging records commit and dirty state. Tagged release packaging requires a
+clean checkout at the exact version tag. See [distribution](../toolchain/distribution/README.md).
+
+## Troubleshooting
+
+| Symptom | Action |
+| --- | --- |
+| `mayc` or `maylsp` not found | Source the printed environment command; restart editors after changing PATH |
+| Compiler source edits seem ineffective | Run `make build`; the launcher caches its binary |
+| Runtime or stdlib missing | Keep sidecars with the compiler and source the environment file |
+| Cargo offline dependency error | Inspect `Cargo.lock` and toolchain; keep `--locked` |
+| X11 header/font/library missing | Run the matching doctor profile and install reported requirements |
+| Check succeeds but app cannot run | Check host versus output target and runtime restrictions |
+| Unclear Make target | Run `make help` or inspect it with `make -n TARGET` |

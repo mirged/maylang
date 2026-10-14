@@ -6,6 +6,7 @@ import resource
 import subprocess
 
 WORK = Path(__file__).resolve().parent
+REPORTS = WORK / 'build/reports'
 ROOT = WORK.parents[1]
 COMPILER = Path(os.environ.get('MAYC', str(ROOT / 'toolchain/mayc/mayc_new')))
 REJECT = {
@@ -32,6 +33,7 @@ def run(args, timeout):
 
 def run_cases(cases, report_name):
     (WORK / 'build').mkdir(exist_ok=True)
+    REPORTS.mkdir(parents=True, exist_ok=True)
     results = []
     for name, (source, expected) in cases.items():
         path = WORK / (name + '.may')
@@ -53,4 +55,4 @@ def run_cases(cases, report_name):
                         'compile': compiled, 'run': executed, 'passed': passed})
         print(f"{'PASS' if passed else 'FAIL'} {name}" +
               ('' if passed else ': ' + json.dumps(executed or compiled, ensure_ascii=False)), flush=True)
-    (WORK / report_name).write_text(json.dumps(results, indent=2, ensure_ascii=False) + '\n')
+    (REPORTS / report_name).write_text(json.dumps(results, indent=2, ensure_ascii=False) + '\n')

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SPEC = importlib.util.spec_from_file_location('package', Path(__file__).parents[1] / 'package.py')
+SPEC = importlib.util.spec_from_file_location('package', Path(__file__).parents[1] / 'distribution/package.py')
 package = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(package)
 

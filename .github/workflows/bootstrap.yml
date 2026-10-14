@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: bootstrap-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   bootstrap:
     runs-on: ubuntu-24.04
@@ -81,10 +85,7 @@ jobs:
           name: compiler-verification
           path: |
             tests/compliance/verification.json
-            tests/compliance/report.json
-            tests/compliance/results.json
-            tests/compliance/round2.json
-            tests/compliance/followup.json
+            tests/compliance/build/reports/*.json
             tests/compliance/build/verify-*/**/*.stdout
             tests/compliance/build/verify-*/**/*.stderr
             tests/compliance/build/fuzz/**

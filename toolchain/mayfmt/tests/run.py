@@ -19,7 +19,7 @@ def run(*args, expected=0):
 
 with tempfile.TemporaryDirectory(prefix='mayfmt-test-') as directory:
     work = Path(directory)
-    compiler = ROOT / 'toolchain/mayc/mayc_new'
+    compiler = Path(ENV.get('MAYC', str(ROOT / 'toolchain/mayc/mayc_new'))).resolve()
     formatter = work / 'mayfmt'
     run(compiler, ROOT / 'toolchain/mayfmt/main.may', '-o', formatter)
     snippets = [
