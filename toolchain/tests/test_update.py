@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'update.py'
+SCRIPT = Path(__file__).resolve().parents[1] / 'distribution/update.py'
 
 
 class UpdateTests(unittest.TestCase):
