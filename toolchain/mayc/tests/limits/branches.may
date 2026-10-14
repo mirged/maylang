@@ -1,0 +1,18 @@
+fun probe_branches(iterations: Int, seed: Int) -> Int {
+    mut value: Int = seed;
+    mut checksum: Int = 0;
+    mut index: Int = 0;
+    while index < iterations {
+        value = (value * 17 + 23) % 1048576;
+        if value % 2 == 0 {
+            if value % 16 < 8 { checksum += value / 16; }
+            else { checksum -= value / 16; }
+        } else {
+            checksum += if value % 7 < 3 { 3 } else { -5 };
+        }
+        index += 1;
+    }
+    return checksum;
+}
+let arguments: List<Str> = args();
+print(probe_branches(int(arguments[1]), int(arguments[2])));

@@ -1,0 +1,8 @@
+fun limits_root_capacity() -> Any {
+    STACKTOP = __sp(); rt_init();
+    let root: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    mut index: Any = 0;
+    while (index <= 131072) { rt_gc_root(root); index += 1; }
+    syscall(60, 19); return 0;
+}
+limits_root_capacity();

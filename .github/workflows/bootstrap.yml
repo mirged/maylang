@@ -42,6 +42,18 @@ jobs:
         run: |
           python3 toolchain/mayc/tests/llvm.py
           python3 toolchain/mayc/tests/reachability.py --llvm
+          python3 toolchain/mayc/tests/strength_reduction.py --llvm
+      - name: Exercise bounded GC limits and retain actual codegen
+        run: |
+          python3 toolchain/mayc/tests/test_limits.py
+          python3 toolchain/mayc/tests/limits.py --samples 1 --iterations 2000 --rounds 8 --heap-mib 4 --seeds 1 --self-test --output toolchain/mayc/build/limits-ci
+      - name: Upload GC and codegen experiment artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gc-codegen-limits
+          path: toolchain/mayc/build/limits-ci/
+          if-no-files-found: ignore
       - name: Verify native compiler and current entrypoints
         run: python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
       - name: Execute strict documentation examples
@@ -140,6 +152,8 @@ jobs:
           python3 toolchain/maylsp/tests/benchmark_diagnostics.py --binary "$1" --files 10016 --report /tmp/diagnostic-benchmark.json
           set -- /tmp/maylang-toolchain/maylang-*/bin/may
           python3 toolchain/may/tests/benchmark.py --binary "$1" --compiler "$(dirname "$1")/mayc" --report /tmp/workspace-benchmark.json
+          set -- /tmp/maylang-toolchain/maylang-*/bin/mayc
+          python3 toolchain/mayc/tests/limits.py --compiler "$1" --backend native llvm llvm-o3 --iterations 2000000 --samples 5 --rounds 256 --heap-mib 4 16 64 256 --pressure 64 --functions 512 --self-test --timeout 120 --output /tmp/gc-codegen-limits
       - name: Upload performance measurements
         if: always()
         uses: actions/upload-artifact@v4
@@ -150,6 +164,7 @@ jobs:
             /tmp/navigation-benchmark.json
             /tmp/diagnostic-benchmark.json
             /tmp/workspace-benchmark.json
+            /tmp/gc-codegen-limits/
           if-no-files-found: ignore
   editor:
     runs-on: ubuntu-24.04

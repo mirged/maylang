@@ -3,7 +3,7 @@ MAYC ?= toolchain/mayc/mayc_new
 BUNDLE ?= /tmp/maylang-linux-x86_64.tar.gz
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor setup build tools check test test-rust test-compiler test-bootstrap test-compliance test-tools test-docs test-distribution test-ui test-browser test-llvm test-all package editor
+.PHONY: help doctor setup build tools check test test-rust test-compiler test-bootstrap test-compliance test-tools test-docs test-distribution test-ui test-browser test-llvm test-limits test-all package editor
 
 help:
 	@echo 'Maylang development (Linux x86-64)'
@@ -18,6 +18,7 @@ help:
 	@echo '  make test-ui            UI checks, including X11 when available'
 	@echo '  make test-browser       Browser checks (native dependencies required)'
 	@echo '  make test-llvm          Experimental LLVM backend checks'
+	@echo '  make test-limits        GC pressure/capacity checks and codegen reports'
 	@echo '  make test-all           All local suites (optional dependencies required)'
 	@echo '  make package            Build a bundle; override BUNDLE=/path/to/archive'
 	@echo '  make editor             Install locked npm dependencies and compile the extension'
@@ -83,6 +84,10 @@ test-browser:
 test-llvm:
 	$(PYTHON) toolchain/mayc/tests/llvm.py --compiler "$(MAYC)"
 	$(PYTHON) toolchain/mayc/tests/reachability.py --compiler "$(MAYC)" --llvm
+
+test-limits:
+	$(PYTHON) toolchain/mayc/tests/test_limits.py
+	$(PYTHON) toolchain/mayc/tests/limits.py --compiler "$(MAYC)" --self-test
 
 test-all: test test-bootstrap test-tools test-ui test-browser test-llvm
 

@@ -1,0 +1,39 @@
+fun limits_fragmentation() -> Any {
+    STACKTOP = __sp(); rt_init();
+    let roots: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let zeros: Any = syscall(9, 0, 262144, 3, 34, -1, 0);
+    mut slot: Any = 0;
+    while (slot < 64) { rt_gc_root(roots + slot * 8); slot += 1; }
+    mut round: Any = 0;
+    while (round < LIMIT_ROUNDS) {
+        slot = 0;
+        while (slot < 64) {
+            let size: Any = 2048 + (slot + round + LIMIT_SEED) % 16 * 128;
+            let block: Any = rt_alloc(size); rt_copy(block, zeros, size);
+            store64(block, slot + round * 64); store64(block + 8, size);
+            store64(block + size - 8, 5124095576638253);
+            store64(roots + slot * 8, block); slot += 1;
+        }
+        slot = 0;
+        while (slot < 64) { store64(roots + slot * 8, 0); slot += 2; }
+        rt_gc(); stress_heap_check();
+        slot = 1;
+        while (slot < 64) {
+            let block: Any = load64(roots + slot * 8);
+            stress_assert(rt_candidate(block) == block, 33);
+            stress_assert(load64(block) == slot + round * 64, 34);
+            stress_assert(load64(block + load64(block + 8) - 8) == 5124095576638253, 35);
+            slot += 2;
+        }
+        // Exercise bin boundaries and the large-block free list together.
+        slot = 0;
+        while (slot < 32) {
+            let size: Any = if (slot % 2 == 0) { 2032 + slot * 8 } else { 131072 + slot * 8 };
+            let discarded: Any = rt_alloc(size); rt_copy(discarded, zeros, size);
+            slot += 1;
+        }
+        rt_gc(); stress_heap_check(); round += 1;
+    }
+    limits_metric("checksum", LIMIT_ROUNDS * 64); limits_report(); return 0;
+}
+limits_fragmentation();

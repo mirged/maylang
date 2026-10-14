@@ -1,0 +1,14 @@
+// Small checked element types deliberately exercise runtime contracts and aliases.
+fun probe_contract(values: List<UInt8>, iterations: Int) -> Int {
+    mut checksum: Int = 0;
+    mut index: Int = 0;
+    while index < iterations {
+        let bounded: List<UInt8> = values;
+        checksum += bounded[index % len(bounded)];
+        index += 1;
+    }
+    return checksum;
+}
+let arguments: List<Str> = args();
+let values: List<UInt8> = [1, 3, 7, 15, 31, 63, 127, 255];
+print(probe_contract(values, int(arguments[1])));

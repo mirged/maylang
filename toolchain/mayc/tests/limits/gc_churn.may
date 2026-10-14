@@ -1,0 +1,47 @@
+// Raw runtime test: old children survive through their parent, not a root ledger.
+fun limits_churn() -> Any {
+    STACKTOP = __sp(); rt_init();
+    let roots: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let zeros: Any = syscall(9, 0, 262144, 3, 34, -1, 0);
+    rt_gc_root(roots);
+    let sizes: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    store64(sizes, 64); store64(sizes + 8, 96); store64(sizes + 16, 256);
+    store64(sizes + 24, 2048); store64(sizes + 32, 4096); store64(sizes + 40, 65536);
+    mut round: Any = 0;
+    mut checksum: Any = 0;
+    while (round < LIMIT_ROUNDS) {
+        if (round % 32 == 0) { store64(roots, 0); }
+        let size: Any = load64(sizes + (round + LIMIT_SEED) % 6 * 8);
+        let node: Any = rt_alloc(size); rt_copy(node, zeros, size);
+        store64(node, load64(roots)); store64(node + 8, round);
+        store64(node + 16, round * 17 + LIMIT_SEED);
+        store64(node + 24, if (round % 32 == 0) { -1 } else { round - 1 });
+        store64(node + size - 8, 5124095576638253);
+        store64(roots, node);
+        mut junk: Any = 0;
+        while (junk < (HEAPEND - HEAP) / 65536 / 2) {
+            let bytes: Any = 65536 + (junk % 16) * 32;
+            let discarded: Any = rt_alloc(bytes); rt_copy(discarded, zeros, bytes);
+            junk += 1;
+        }
+        if (round % 7 == 0) { rt_gc(); stress_heap_check(); }
+        mut current: Any = load64(roots);
+        mut expected: Any = round;
+        while (current != 0) {
+            stress_assert(rt_candidate(current) == current, 33);
+            stress_assert(load64(current + 8) == expected, 34);
+            stress_assert(load64(current + 16) == expected * 17 + LIMIT_SEED, 35);
+            let capacity: Any = load64(sizes + (expected + LIMIT_SEED) % 6 * 8);
+            stress_assert(load64(current + capacity - 8) == 5124095576638253, 36);
+            let previous: Any = if (expected % 32 == 0) { -1 } else { expected - 1 };
+            stress_assert(load64(current + 24) == previous, 38);
+            current = load64(current); expected = previous;
+        }
+        stress_assert(expected == -1, 39);
+        checksum += round * 17 + LIMIT_SEED;
+        round += 1;
+    }
+    stress_assert(GCCOUNT > (LIMIT_ROUNDS + 6) / 7, 37);
+    limits_metric("checksum", checksum); limits_report(); return 0;
+}
+limits_churn();

@@ -1,0 +1,42 @@
+struct Survivor { id: Int, values: List<Int>, text: Str, copy: Ptr, callback: Fn(Int) -> Int }
+fun make_survivor(id: Int) -> Survivor {
+    let values: List<Int> = [id, id + 1, id + 2];
+    let text: Str = "λ🙂" + str(id);
+    let callback: Fn(Int) -> Int = fun(extra: Int) -> Int { return values[0] + values[2] + extra; };
+    return Survivor(id, values, text, cstr(text), callback);
+}
+fun verify_survivors(values: List<Survivor>) -> Nil {
+    for value: Survivor in values {
+        let callback: Fn(Int) -> Int = value.callback;
+        if callback(5) != value.id * 2 + 7 { fail("closure root lost"); }
+        if value.values[1] != value.id + 1 { fail("list root lost"); }
+        if value.text != "λ🙂" + str(value.id) { fail("Unicode text root lost"); }
+        if load8(value.copy) != 206 or load8(value.copy + 1) != 187 { fail("encoded pointer root lost"); }
+        if load8(value.copy + load64(addr(value.text) - 8)) != 0 { fail("copied string terminator lost"); }
+    }
+    return;
+}
+let arguments: List<Str> = args();
+let rounds: Int = int(arguments[1]);
+let survivors: List<Survivor> = [];
+for id: Int in 0..32 { push(survivors, make_survivor(id)); }
+spawn(fun() -> Nil {
+    let private_values: List<Survivor> = [];
+    for id: Int in 32..64 { push(private_values, make_survivor(id)); }
+    mut index: Int = 0;
+    while index < rounds { verify_survivors(private_values); yield(); index += 1; }
+    return;
+});
+spawn(fun() -> Nil {
+    mut index: Int = 0;
+    while index < rounds {
+        let records: List<Map<Str, Any>> = [];
+        for item: Int in 0..8 {
+            push(records, {"text": repeat("garbage🙂", 2048), "values": [index, item], "fn": make_survivor(item).callback});
+        }
+        verify_survivors(survivors); yield(); index += 1;
+    }
+    return;
+});
+run(); verify_survivors(survivors);
+print("PASS retained objects, maps, lists, Unicode, encoded pointers, closures and suspended fibers");

@@ -1,0 +1,12 @@
+fun limits_capacity() -> Any {
+    STACKTOP = __sp(); rt_init();
+    let roots: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let zeros: Any = syscall(9, 0, 65536, 3, 34, -1, 0);
+    rt_gc_root(roots);
+    while (true) {
+        let block: Any = rt_alloc(65536); rt_copy(block, zeros, 65536);
+        store64(block, load64(roots)); store64(roots, block);
+    }
+    return 0;
+}
+limits_capacity();

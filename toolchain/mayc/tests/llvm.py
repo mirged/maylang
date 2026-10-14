@@ -40,6 +40,7 @@ def main():
         assert result.returncode == 0, result.stderr
         text = ir.read_text()
         assert '; Maylang direct LLVM backend' in text and 'define i32 @main' in text
+        assert '; may-function @f' in text
         assert not os.access(ir, os.X_OK)
         result = run(target + ['--check', source], env=missing_tools)
         assert result.returncode == 0, result.stderr
