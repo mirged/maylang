@@ -347,6 +347,13 @@ def run_codegen(args, report, compiler):
                 if b'GC_CODEGEN_UNREACHABLE_' in binary.read_bytes():
                     raise ValueError(f'unreachable literals survived in {binary}')
                 details = inspect_code(binary, variant, args)
+                if case == 'graph' and backend == 'native':
+                    symbols = json.loads((variant / 'functions.json').read_text())
+                    retained = {int(match[1]) for symbol in symbols
+                                if (match := re.search(r'(?:^|::)generated_(\d+)$', symbol))}
+                    if retained != set(range(args.functions)) or any(re.search(r'(?:^|::)unused_\d+$', symbol) for symbol in symbols):
+                        raise ValueError(f'graph symbol table is incomplete or retains dead functions: {variant}')
+                    details['verified_graph_symbols'] = len(retained)
                 if linked is not None:
                     details['clang_o3'] = linked
                     details['optimized_ir'] = optimized

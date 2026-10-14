@@ -21,17 +21,29 @@ bootstrap uses `CC` (or `cc`) and locked, offline Cargo builds.
 ```sh
 make doctor
 make setup
-. "$PWD/build/dev/env.sh"
+. "$HOME/.maylang/env.sh"
 mayc --version
 may help
 ```
 
-Tools and sidecars are written to ignored `build/dev/`. The environment file
-is safe to source repeatedly and handles checkout paths with spaces. It sets
-`PATH`, `MAYC`, and `MAYLANG_STDLIB` for the current shell. To persist it, add
-its absolute source command to your own shell startup file.
-Rerun `make build` after compiler/runtime changes; `make tools` rebuilds the
-other tools with the selected compiler.
+`make setup` builds into ignored `build/dev/`, then opens the Maylang installer
+to copy a complete toolchain into `~/.maylang` or your chosen independent
+prefix. It offers shell integration and creates `bin/may-uninstall`.
+For CI use `make setup INSTALL_ARGS='--yes --prefix=/tmp/maylang --no-modify-path'`.
+Installed copies survive moving, cleaning or deleting the checkout.
+
+For compiler development, explicitly enable the disposable checkout tools:
+
+```sh
+make build
+. "$PWD/build/dev/env.sh"
+```
+
+This local environment sets `PATH`, `MAYC` and `MAYLANG_STDLIB`; its library
+and runtime are copied into `build/dev`. It lasts only as long as that build
+directory. Rerun `make build` after compiler/runtime changes; `make tools`
+rebuilds the other tools with the selected compiler. Run `make install` to
+refresh the independent installation from the current sources.
 
 See the [Rust bootstrap](../toolchain/rust/README.md) and
 [compiler guide](../toolchain/mayc/README.md) for compiler-only work.

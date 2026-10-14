@@ -9,6 +9,77 @@ its POSIX shell workflow for existing projects.
 
 ## Install or upgrade (no Python required)
 
+### Interactive Maylang installer
+
+From source, run `make setup` (or `make install`). The installer is written in
+Maylang and prompts for an independent prefix, components and shell integration.
+The default prefix is `~/.maylang`. It copies the entire runtime and standard
+library, verifies compilation using the copied compiler, then selects the new
+generation. Cleaning or deleting the checkout does not affect the installation.
+
+```sh
+make setup
+. "$HOME/.maylang/env.sh"
+mayc --version
+```
+
+For unattended setup, explicit locations and existing shell configurations:
+
+```sh
+make setup INSTALL_ARGS='--yes --prefix=/tmp/my-maylang --no-modify-path'
+. /tmp/my-maylang/env.sh
+```
+
+The installed `bin/may-installer` also accepts `--bundle DIR`, `--prefix=DIR`,
+`--components=compiler` or a comma-separated list of tools (`mayc` is always
+included), `--profile=FILE`, `--yes`, and `--no-modify-path`. `--profile` chooses
+a Bash, Zsh or POSIX shell startup file; otherwise `$SHELL` selects `.bashrc`,
+`.zshrc` or `.profile`. Interactive installs ask before writing a managed PATH
+block. `--yes` accepts the chosen settings; use `--no-modify-path` to leave
+profiles untouched. Profiles with malformed managed blocks are rejected.
+
+Each generation is a physical copy under the prefix's `releases/` directory.
+The `current`, `bin` and `stdlib` symlinks stay entirely inside that prefix.
+Reinstallation preserves older generations. Choose an empty prefix or one
+managed by this installer; older shell-installed prefixes can be kept alongside
+a new prefix rather than being overwritten.
+
+Uninstall removes owned generations, environment files and only this prefix's
+managed shell blocks. Unrelated files and settings remain. Repeating uninstall
+through a saved installer is a safe no-op:
+
+```sh
+"$HOME/.maylang/bin/may-uninstall"
+# Or: /path/to/may-installer --uninstall --yes --prefix="$HOME/.maylang"
+```
+
+### Self-contained C and shell bootstrap
+
+New packages produce `maylang-bootstrap.c` and `maylang-install.sh`, plus
+checksums. The single C file embeds a source-built native Maylang installer and
+complete toolchain. Host `cc` and libc are sufficient to build it; running that
+binary uses no Python, Rust, archive utilities, network requests or installed
+Maylang compiler. It extracts into a private temporary directory and launches
+the embedded Maylang program, whose own runtime is already compiled into it.
+This is a native launcher, not a Maylang source interpreter or compiler.
+
+```sh
+cc -std=c11 -O2 maylang-bootstrap.c -o /tmp/maylang-install
+/tmp/maylang-install
+# Headless:
+/tmp/maylang-install --yes --prefix="$HOME/tools/maylang" --no-modify-path
+# The equivalent self-contained shell artifact:
+sh maylang-install.sh --yes --no-modify-path
+```
+
+The shell artifact wraps the same C file using `sh`, `cc`, `cat`, `mktemp` and
+`rm`. It can be fed through `sh` on stdin, including a downloaded script;
+interactive prompts open `/dev/tty`. Verify the downloaded asset's adjacent
+SHA-256 checksum before execution. Tagged releases built with this workflow
+publish both bootstrap artifacts; older releases do not contain them.
+
+### Existing release archives
+
 Download `maylang-linux-x86_64.tar.gz` and
 `maylang-linux-x86_64.tar.gz.sha256` from the
 [release page](https://github.com/mirged/maylang/releases). Keep both files in
@@ -43,7 +114,9 @@ may run
 ```
 
 The installer verifies the archive checksum, checks that the bundle is complete,
-and selects it through `~/.local/share/maylang/current`. Keep the entire bundle
+and copies it into `~/.local/share/maylang` before selecting its internal
+`current` link. Extracted source bundles are copied too; deleting them cannot
+break the installed tools. Keep the entire installed bundle
 together so the compiler can find its runtime and standard library.
 
 To enable future shells, add this line once to `~/.bashrc` for Bash,
@@ -54,7 +127,7 @@ To enable future shells, add this line once to `~/.bashrc` for Bash,
 ```
 
 The installer leaves your shell configuration untouched. It needs standard
-Linux utilities: `sh`, `tar`, `sha256sum`, `awk`, `grep`, and coreutils.
+Linux utilities: `sh`, `tar`, `sha256sum`, `awk`, `grep`, `diff`, and coreutils.
 
 ### Windows (WSL 2, x86-64)
 
@@ -125,8 +198,8 @@ Other LSP editors can launch the same `maylsp` executable over stdin/stdout.
 
 ## Build from source or package a bundle
 
-Run `make doctor` and `make setup` from the checkout, then source
-`build/dev/env.sh`. See [development setup](DEVELOPMENT.md) for prerequisites
+Run `make doctor` and `make setup` from the checkout, then source the installed
+prefix's `env.sh`. See [development setup](DEVELOPMENT.md) for prerequisites
 and editor configuration. Packaging and archive verification are documented
 in [distribution](../toolchain/distribution/README.md).
 

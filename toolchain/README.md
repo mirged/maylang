@@ -28,7 +28,7 @@ From the repository root:
 
 ```sh
 make setup
-. "$PWD/build/dev/env.sh"
+. "$HOME/.maylang/env.sh"
 mayc examples/hello.may -o /tmp/hello
 ```
 

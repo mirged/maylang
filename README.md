@@ -51,15 +51,19 @@ git clone https://github.com/mirged/maylang.git
 cd maylang
 make doctor
 make setup
-. "$PWD/build/dev/env.sh"
+. "$HOME/.maylang/env.sh"
 mayc examples/hello.may -o /tmp/maylang-hello
 /tmp/maylang-hello
 ```
 
-`make setup` rebuilds the compiler and creates a complete local toolchain with
-`mayc`, `may`, `mayfmt`, `maypkg`, and `maylsp` in `build/dev/bin`. It prints a
-shell command to enable them; it does not edit shell startup files. Rerun
-`make build` after compiler or runtime changes.
+`make setup` rebuilds the tools and opens the Maylang installer. It copies
+`mayc`, `may`, `mayfmt`, `maypkg`, `maylsp`, runtime files and the standard
+library into an independent prefix (default `~/.maylang`), with optional shell
+configuration and an uninstall command. Moving or deleting this checkout does
+not break that installation. For unattended setup use
+`make setup INSTALL_ARGS='--yes --no-modify-path'`. Rerun `make build` after
+compiler/runtime changes; source `build/dev/env.sh` only when deliberately
+testing checkout-local tools. See [installation options](docs/INSTALL.md).
 
 For a compiler-only build, run `sh toolchain/rust/build.sh` and use
 `toolchain/mayc/mayc_new`. See [development setup](docs/DEVELOPMENT.md) for

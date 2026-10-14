@@ -12,6 +12,9 @@ done
 for file in bin/runtime.may bin/native.may bin/prelude.may bin/runtime/core.may stdlib/prelude.may; do
     echo '// fixture' > "$bundle/$file"
 done
+echo '// external sidecar' > "$work/runtime.may"
+rm "$bundle/bin/runtime.may"
+ln -s "$work/runtime.may" "$bundle/bin/runtime.may"
 echo 1.2.3 > "$bundle/VERSION"
 archive="$work/release.tar.gz"
 tar -czf "$archive" -C "$work/source" maylang-1.2.3-x86_64-linux
@@ -26,16 +29,24 @@ original_path=$PATH
 test "$PATH" = "$original_path"
 test -f "$root/current/bin/runtime/core.may"
 sh "$repo/toolchain/install.sh" "$bundle" "$root"
-test "$(readlink "$root/current")" = "$bundle"
+selected="$root/maylang-1.2.3-x86_64-linux"
+test "$(readlink "$root/current")" = "$selected"
+# Removing the extracted source and external sidecar targets cannot break it.
+rm -rf "$bundle"
+rm "$work/runtime.may"
+test "$(mayc)" = fixture
+test -f "$root/current/bin/runtime/core.may"
+test "$(cat "$root/current/bin/runtime.may")" = '// external sidecar'
 # A bad checksum or incomplete bundle must preserve the selected installation.
 echo bad > "$archive.sha256"
 if sh "$repo/toolchain/install.sh" "$archive" "$root"; then exit 1; fi
-test "$(readlink "$root/current")" = "$bundle"
+test "$(readlink "$root/current")" = "$selected"
+cp -R "$selected" "$bundle"
 rm "$bundle/bin/runtime/core.may"
 if sh "$repo/toolchain/install.sh" "$bundle" "$root"; then exit 1; fi
-test "$(readlink "$root/current")" = "$bundle"
+test "$(readlink "$root/current")" = "$selected"
 mkdir "$work/conflicting"
 mkdir "$work/conflicting/current"
 echo '// fixture' > "$bundle/bin/runtime/core.may"
 if sh "$repo/toolchain/install.sh" "$bundle" "$work/conflicting"; then exit 1; fi
-echo 'PASS archive install, quoting, environment, switching, and failure preservation'
+echo 'PASS independent archive/bundle copies, source deletion, quoting, environment and failure preservation'

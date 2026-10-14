@@ -50,12 +50,14 @@ collection timing at 30,000; reports record the actual counts. Parameters come
 from runtime arguments. Every warmup/sample must match an independent Python
 checksum; dead marker literals must be absent from the executable.
 
-The generator ceilings intentionally reach beyond validated compiler capacity.
-Native calls with 256 arguments passed, but a 4,096-function graph (plus 4,096
-dead functions) currently exhausts the compiler heap during IR lowering, on
-both the baseline and optimized compiler. This produces a failing, incomplete
-report with the exact source and compilation logs. Use 512 functions for the
-validated larger comparison; see the measured report for observed limits.
+Native calls with 256 arguments and a 4,096-function graph (plus 4,096 dead
+functions) pass. The graph previously exhausted the compiler heap during IR
+lowering because completed frontend phases retained tokens and lookup tables.
+The compiler now releases those roots, and ELF string-table construction uses
+a bounded byte sink instead of quadratic string concatenation. Normal CI
+regresses the exact graph with the unchanged 256 MiB default runtime heap.
+Use 512 functions for routine larger backend comparisons; generator ceilings
+are workload bounds rather than a general compiler capacity guarantee.
 
 Compilation is timed separately. Whole-process execution includes startup,
 fork/exec and root setup; short timings can be dominated by that overhead.

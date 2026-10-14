@@ -538,6 +538,10 @@ fun ir_program(ctx: Any) -> Any {
         ctx.functionIndex[symbol_name(rec.p, rec.l)] = emitted;
         if (rec.foreign == true) { push(ctx.foreign, emitted); }
     }
+    // Emission owns its snapshot now. Drop frontend-only roots, including
+    // unreachable function bodies; IR payloads retain any nodes they still use.
+    MAINBODY = 0; RUNTIME_BODY = 0; FUNC_HEAD = []; FOREIGN_DECLS = [];
+    IR_FUNCTION = 0; IR_MAIN = 0; IR_CODE = [];
     return 0;
 }
 

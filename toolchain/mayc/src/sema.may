@@ -563,5 +563,9 @@ fun sem_program() -> Any {
     RUNTIME_BODY = sem_chain(RUNTIME_BODY);
     MAINBODY = sem_chain(MAINBODY);
     for rec: Any in FUNC_HEAD { if (rec.nested == 0) { sem_function(rec); } }
+    // Preserve symbol strings and main boxing information used by emission,
+    // but do not pin every function/scope through the completed name pass.
+    SEM_SCOPES = []; SEM_FUNCTIONS = {}; SEM_STACK = [];
+    PROGRAM_AST = 0; DECLARATIONS = []; STRUCT_DECLS = []; ENUM_DECLS = [];
     return 0;
 }

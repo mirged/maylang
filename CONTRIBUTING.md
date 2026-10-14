@@ -28,7 +28,7 @@ JSON/Python syntax, and generated reference freshness.
 | Backend/code generation | `make test-llvm` and relevant core/native target harnesses |
 | Workspace/formatter/legacy manager/LSP | `make test-tools` |
 | Runnable docs | `make test-docs` |
-| Installer/packaging/developer setup | `make test-distribution`; `make package` for an extracted bundle |
+| Installer/packaging/developer setup | `make test-distribution test-installer`; `make package` for extracted bundles and standalone bootstrap |
 | Native UI | `make test-ui`; use the UI harness's `--require-x11` for required window checks |
 | Browser | `make test-browser`; see its README for required network/window checks |
 | VS Code extension | `make editor` |

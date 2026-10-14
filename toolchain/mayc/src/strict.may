@@ -757,5 +757,10 @@ fun strict_program(ctx: Any) -> Any {
     for rec: Any in FUNC_HEAD {
         if (rec.nested == 0 and rec.mode != 1 and source_module(rec.moduleSpan ?? rec.body.span) != "") { st_attempt(fun() -> Any { st_function(ctx, rec, rec.strictSignature ?? st_complete_signature(ctx, rec)); return 0; }); }
     }
-    pop(ST_SCOPES); diagnostics_finish(); return 0;
+    pop(ST_SCOPES); diagnostics_finish();
+    // Signatures/contracts needed by lowering are attached to AST nodes.
+    // These lookup tables and temporary scopes belong only to type checking.
+    ST_GLOBALS = {}; ST_RECORDS = {}; ST_SCOPES = []; ST_FUNCTIONS = {};
+    ST_RESULT = 0; ST_VARS = [];
+    return 0;
 }
