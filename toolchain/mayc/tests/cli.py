@@ -61,6 +61,31 @@ def main():
         assert not bad_output.exists()
         print('PASS source-free target discovery, emitted formats, runtime defaults and invalid target')
 
+        # A bare PATH command and a symlink must find sidecars at the real
+        # executable, even outside the checkout and without shell overrides.
+        installed = work / 'installed tools'
+        installed.mkdir()
+        shutil.copy2(compiler, installed / 'mayc')
+        for name in ('runtime.may', 'native.may', 'prelude.may'):
+            shutil.copy2(compiler.parent / name, installed / name)
+        shutil.copytree(compiler.parent / 'runtime', installed / 'runtime')
+        links = work / 'links'
+        links.mkdir()
+        (links / 'mayc-link').symlink_to(installed / 'mayc')
+        clean_env = {key: value for key, value in os.environ.items()
+                     if key not in ('MAYC', 'MAYLANG_STDLIB')}
+        clean_env['PATH'] = str(installed) + os.pathsep + clean_env.get('PATH', '')
+        for invocation in ('mayc', str(links / 'mayc-link'), './installed tools/mayc'):
+            for runtime in ('full', 'core'):
+                output = work / 'relocated-hello'
+                result = subprocess.run([invocation, '--runtime', runtime, str(source),
+                                         '-o', str(output)], cwd=work, env=clean_env,
+                                        capture_output=True, timeout=120)
+                assert result.returncode == 0, (invocation, runtime, result.stderr)
+                result = subprocess.run([str(output)], capture_output=True, timeout=30)
+                assert result.returncode == 0 and result.stdout == b'42\n', result
+        print('PASS PATH, symlink and relative invocation locate full/core runtime sidecars')
+
 
 if __name__ == '__main__':
     main()

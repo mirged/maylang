@@ -195,8 +195,16 @@ fun main2() -> Any {
         i = i + 1;
     }
 
-    let a0: Any = argv[0][0];
-    let a0l: Any = argv[0][1];
+    // argv[0] may be a bare PATH command or a symlink in another directory.
+    // Sidecars belong to the actual executable, as does its installed stdlib.
+    mut a0: Any = argv[0][0];
+    mut a0l: Any = argv[0][1];
+    let executable: Any = irt_alloc(4096);
+    let executableLength: Any = syscall(89, addr("/proc/self/exe"), executable, 4096);
+    if (executableLength > 0 and executableLength < 4096) {
+        a0 = executable;
+        a0l = executableLength;
+    }
     mut sp: Any = 0;
     mut sl: Any = 0;
     mut op: Any = 0;

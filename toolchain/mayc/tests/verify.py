@@ -47,6 +47,11 @@ def sha256(path):
 
 
 def bootstrap():
+    # Each copied generation must carry the runtime it was compiled against.
+    for name in ('runtime.may', 'native.may'):
+        shutil.copy2(COMPILER / name, BOOTSTRAP / name)
+    shutil.copy2(ROOT / 'stdlib/prelude.may', BOOTSTRAP / 'prelude.may')
+    shutil.copytree(COMPILER / 'runtime', BOOTSTRAP / 'runtime', dirs_exist_ok=True)
     seed = BOOTSTRAP / "mayc_v2_seed"
     first = BOOTSTRAP / "mayc_v2_stage1"
     second = BOOTSTRAP / "mayc_v2_stage2"
