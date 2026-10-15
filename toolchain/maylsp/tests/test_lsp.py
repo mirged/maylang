@@ -425,12 +425,17 @@ def run_responsiveness(binary, work):
         assert hover_elapsed < 3, f"Editor requests starved hover for {hover_elapsed:.2f}s"
         assert "ls_cwd" in answers["textDocument/hover"]["contents"]["value"]
         assert answers["textDocument/documentHighlight"]
-        assert answers["textDocument/diagnostic"]["items"] == []
+        assert answers["textDocument/diagnostic"]["items"] == [], answers["textDocument/diagnostic"]
         # Duplicate pull requests reuse the check performed for didOpen.
         start = time.monotonic()
         for _ in range(3):
             assert client.result("textDocument/diagnostic", doc)["items"] == []
         assert time.monotonic() - start < 2, "Unchanged diagnostics reran the compiler"
+        # A diagnostic worker may discard its private editor indexes; the
+        # interactive parent must retain them after the result is published.
+        assert client.result("textDocument/hover", at) == answers["textDocument/hover"]
+        assert client.result("textDocument/documentHighlight", at) == answers["textDocument/documentHighlight"]
+        assert client.result("textDocument/documentSymbol", doc) == answers["textDocument/documentSymbol"]
         client.stop()
         print(f"PASS VS Code request queue, local highlighting and cached diagnostics ({hover_elapsed:.3f}s)", flush=True)
     finally:

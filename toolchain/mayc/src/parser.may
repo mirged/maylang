@@ -421,7 +421,7 @@ fun parse_fun(ctx: Any) -> Any {
     mut returnType: Any = 0;
     if (ptok() == TK_ARROW) { adv(); returnType = parse_type(); }
     let behaviorContract: Any = ptok() == TK_NOT;
-    mut behaviorEffects: Any = [];
+    mut behaviorEffects: Any = 0;
     if (behaviorContract) { behaviorEffects = parse_behavior_effects(); }
     IN_FUN = 1;
     let body: Any = parse_block(ctx);
@@ -430,9 +430,12 @@ fun parse_fun(ctx: Any) -> Any {
     let caparr: Any = [];
     let boxed: Any = [];
     make_func(ctx, np, nl, parr, pc, body, cc, caparr, boxed);
-    FUNC_HEAD[len(FUNC_HEAD) - 1].behaviorContract = behaviorContract;
-    FUNC_HEAD[len(FUNC_HEAD) - 1].behaviorEffects = behaviorEffects;
-    FUNC_HEAD[len(FUNC_HEAD) - 1].pureBehavior = behaviorContract and len(behaviorEffects) == 0;
+    // Unannotated functions need no behavior storage. Compiler/LSP ASTs are
+    // large; allocating rows and widening every record wastes their heap.
+    if (behaviorContract) {
+        FUNC_HEAD[len(FUNC_HEAD) - 1].behaviorContract = true;
+        FUNC_HEAD[len(FUNC_HEAD) - 1].behaviorEffects = behaviorEffects;
+    }
     FUNC_HEAD[len(FUNC_HEAD) - 1].returnType = returnType;
     FUNC_HEAD[len(FUNC_HEAD) - 1].typeParameters = typeParameters;
     return 0;
