@@ -53,6 +53,36 @@ Contracts require strict checking; `--legacy` cannot disable verification.
 Other proposed behavior clauses and syntax are not implemented. Programs without
 contracts retain their current behavior.
 
+## Primitive audit and expansion gates
+
+The strict checker's builtin registry in `src/strict.may` and the runtime bodies
+in `native.may` and `runtime.may` are the starting points for this inventory.
+A value signature is not an effect summary. Only `print`, `time`, and `clock`
+currently have explicit primitive behavior rules; other builtin and runtime
+calls remain unknown, including apparently scalar mathematical operations.
+
+| Remaining family | Representative calls | Required semantics before admission |
+| --- | --- | --- |
+| Input and ambient configuration | `read_stdin`, `input`, `env`, `args` | Distinguish input channels, host configuration and nondeterministic observations; define authority requirements. |
+| Filesystem | `read_file`, `read_dir`, `file_exists`, `write_file`, `mkdir` | Specify read, metadata and write effects, path authority, failures and allocation. |
+| Processes and native entry points | `syscall`, `system`, `exec`, `wait`, `__ccall6` | Define mediated authority and the native trust boundary; a raw call cannot inherit an empty row. |
+| Scheduling and lifetime | `sleep`, `spawn`, `yield`, `run`, `exit` | Define blocking, task lifetime, cancellation and termination effects; sleep is more than a clock observation. |
+| Raw memory | `addr`, `cstr`, `ptr`, `load8`–`load64`, `store8`–`store64` | Specify ownership, aliasing, reads, writes and native-memory safety. |
+| Failure and recovery | `fail`, `rt_raise`, `__longjmp` | Define typed failure, unwinding and recovery before adding a failure row. |
+| Scalar conversions and mathematics | `int`, `bool`, `abs`, `sqrt`, `pi`, `e` | Define accepted value types, dispatch, numeric failures and runtime assumptions before claiming purity. |
+| Strings, JSON and collections | `str`, `json_parse`, `push`, `pop`, `map_set`, `sort` | Define allocation, mutation, aliasing and failure; distinguish copying operations from in-place operations. |
+| Callback traversal | `map`, `filter`, `reduce`, `any`, `all`, `each`, `times` | Carry callback effects through function types and prevent laundering effects through callbacks. |
+
+These are audit families, not accepted effect names. Each new rule needs valid
+unannotated controls, positive contract cases, missing-effect failures,
+transitive propagation, shadowing checks and report assertions. Operations with
+unresolved semantics must continue to fail closed under every supported row.
+
+The effect-row suite includes valid unannotated controls and unknown-behavior
+rejections for 22 representative calls from these families. Those checks use
+`--check` so process, memory, filesystem and scheduling operations never execute.
+This is representative coverage, not a complete audit of runtime entry points.
+
 ## Composition and inference
 
 The checker discovers every annotated function and its reachable source helpers.
