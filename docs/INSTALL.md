@@ -11,8 +11,6 @@ native installer, and opens the interactive Maylang setup. You need `curl` and
 standard Linux utilities; no checkout, compiler, Rust, Python or build command
 is required. No administrator password is needed for the default user install.
 
-![Interactive setup](assets/installer.svg)
-
 ## Choose your setup
 
 Press **Enter** on **Install Maylang** to accept the recommended settings.
