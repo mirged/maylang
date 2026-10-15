@@ -5,12 +5,14 @@ import "symbols.may";
 import "diagnostics.may";
 import "ast.may";
 import "strict.may";
-// Initial, deliberately closed pure fragment. Unknown syntax/calls are never
-// treated as evidence of purity. This pass runs before closure conversion.
+// Closed scalar effect fragment. Unsupported operations are unknown, never
+// evidence of an empty effect row. This pass precedes closure conversion.
 mut BEHAVIOR_PATH: Any = [];
 mut BEHAVIOR_STATES: Any = {};
+mut BEHAVIOR_GRAPHS: Any = [];
+mut BEHAVIOR_CURRENT: Any = 0;
 fun behavior_error(span: Any, reason: Any) -> Any {
-    diagnostic(span, "MB-EFFECT-001: ! pure contract: " + reason + " [call path: " + join(BEHAVIOR_PATH, " -> ") + "]");
+    diagnostic(span, "MB-EFFECT-001: behavior contract: " + reason + " [call path: " + join(BEHAVIOR_PATH, " -> ") + "]");
     return 0;
 }
 fun behavior_scalar(annotation: Any, span: Any) -> Any {
@@ -54,7 +56,15 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         let key: Any = may { st_export_name(source_module(node.span), replace(name, "::", "."), node.span, functions) } otherwise { behavior_error(node.span, "unresolved or primitive call `" + name + "`: " + err.message); "" };
         let callee: Any = functions[key];
         if (callee.behaviorUnknown == true) { return behavior_error(node.span, "call to `" + name + "` has unknown behavior through a global binding"); }
-        behavior_function(callee, functions);
+        if (callee.primitiveEffect != nil) {
+            let effect: Any = callee.primitiveEffect;
+            if (not has(BEHAVIOR_CURRENT.effects, effect)) {
+                BEHAVIOR_CURRENT.effects[effect] = {"span": node.span, "path": [BEHAVIOR_CURRENT.name, name]};
+            }
+        } else {
+            push(BEHAVIOR_CURRENT.calls, {"target": callee.lab});
+            behavior_function(callee, functions);
+        }
         mut arg: Any = node.args;
         while (arg != 0) { behavior_node(arg, locals, functions); arg = arg.next; }
         return 0;
@@ -79,7 +89,7 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         locals[symbol_name(node.name, node.length)] = true;
         return 0;
     }
-    return behavior_error(node.span, "operation is outside the supported scalar pure subset");
+    return behavior_error(node.span, "operation is outside the supported scalar behavior subset");
 }
 // Global value bindings can shadow function declarations during name resolution.
 // Keep them in this registry as unknown behavior, including destructuring.
@@ -97,12 +107,15 @@ fun behavior_pattern(functions: Any, pattern: Any, span: Any) -> Any {
     }
     return 0;
 }
-// Visiting a recursive edge is safe only because every reachable body is still
-// checked before the enclosing contract succeeds. Failures abort this pass.
+// Build every reachable body once. Recursive edges are retained and resolved
+// by monotone set union after graph discovery; visiting is not an empty summary.
 fun behavior_function(rec: Any, functions: Any) -> Any {
     if (has(BEHAVIOR_STATES, rec.lab)) { return 0; }
-    BEHAVIOR_STATES[rec.lab] = "visiting";
-    push(BEHAVIOR_PATH, symbol_name(rec.p, rec.l));
+    let graph: Any = {"record": rec, "name": symbol_name(rec.p, rec.l), "effects": {}, "calls": []};
+    BEHAVIOR_STATES[rec.lab] = graph;
+    push(BEHAVIOR_GRAPHS, graph);
+    let previous: Any = BEHAVIOR_CURRENT; BEHAVIOR_CURRENT = graph;
+    push(BEHAVIOR_PATH, graph.name);
     if (rec.foreign == true or source_module(rec.moduleSpan ?? rec.body.span) == "") {
         return behavior_error(rec.body.span, "native and runtime calls have unknown behavior");
     }
@@ -111,16 +124,47 @@ fun behavior_function(rec: Any, functions: Any) -> Any {
     let locals: Any = {};
     for param: Any in rec.parr { behavior_scalar(param.annotation, param.span); locals[symbol_name(param.name, param.length)] = true; }
     behavior_node(rec.body, locals, functions);
-    BEHAVIOR_STATES[rec.lab] = "checked";
-    rec.inferredPure = true;
-    pop(BEHAVIOR_PATH);
+    pop(BEHAVIOR_PATH); BEHAVIOR_CURRENT = previous;
+    return 0;
+}
+fun behavior_solve() -> Any {
+    mut changed: Any = true;
+    while (changed) {
+        changed = false;
+        for graph: Any in BEHAVIOR_GRAPHS {
+            for edge: Any in graph.calls {
+                let callee: Any = BEHAVIOR_STATES[edge.target];
+                for effect: Any in sort(keys(callee.effects)) {
+                    if (not has(graph.effects, effect)) {
+                        let witness: Any = callee.effects[effect];
+                        graph.effects[effect] = {"span": witness.span, "path": [graph.name] + witness.path};
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    for graph: Any in BEHAVIOR_GRAPHS {
+        let rec: Any = graph.record;
+        let effects: Any = sort(keys(graph.effects));
+        rec.behaviorSummary = {"effects": effects, "classification": "proven", "scope": "scalar_effects_v1"};
+        rec.inferredPure = len(effects) == 0;
+        if (rec.behaviorContract == true) {
+            for effect: Any in effects {
+                if (not has(rec.behaviorEffects, effect)) {
+                    let witness: Any = graph.effects[effect]; BEHAVIOR_PATH = witness.path;
+                    return behavior_error(witness.span, "effect `" + effect + "` exceeds declared ceiling [" + join(rec.behaviorEffects, ", ") + "] of `" + graph.name + "`");
+                }
+            }
+        }
+    }
     return 0;
 }
 fun behavior_program() -> Any {
     mut enabled: Any = false;
-    for rec: Any in FUNC_HEAD { if (rec.pureBehavior == true) { enabled = true; } }
+    for rec: Any in FUNC_HEAD { if (rec.behaviorContract == true) { enabled = true; } }
     if (not enabled) { return 0; }
-    BEHAVIOR_PATH = []; BEHAVIOR_STATES = {};
+    BEHAVIOR_PATH = []; BEHAVIOR_STATES = {}; BEHAVIOR_GRAPHS = []; BEHAVIOR_CURRENT = 0;
     let functions: Any = {};
     for rec: Any in FUNC_HEAD {
         if (rec.nested == 0) {
@@ -129,6 +173,11 @@ fun behavior_program() -> Any {
             functions[if (module == "") { name } else { module + "::" + name }] = rec;
         }
     }
+    // These names are runtime primitives in the existing resolver. User module
+    // functions and globals still take precedence over these unqualified names.
+    functions["print"] = {"primitiveEffect": "output"};
+    functions["time"] = {"primitiveEffect": "clock"};
+    functions["clock"] = {"primitiveEffect": "clock"};
     for head: Any in [RUNTIME_BODY, MAINBODY] {
         mut statement: Any = head;
         while (statement != 0) {
@@ -138,11 +187,12 @@ fun behavior_program() -> Any {
         }
     }
     for rec: Any in FUNC_HEAD {
-        if (rec.pureBehavior == true) {
+        if (rec.behaviorContract == true) {
             if (not STRICT_TYPES) { return behavior_error(rec.body.span, "requires strict type checking; remove --legacy"); }
             behavior_function(rec, functions);
         }
     }
-    BEHAVIOR_PATH = []; BEHAVIOR_STATES = {};
+    behavior_solve();
+    BEHAVIOR_PATH = []; BEHAVIOR_STATES = {}; BEHAVIOR_GRAPHS = []; BEHAVIOR_CURRENT = 0;
     return 0;
 }

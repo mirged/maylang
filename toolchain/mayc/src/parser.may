@@ -386,6 +386,28 @@ fun parse_enum(ctx: Any) -> Any {
     return 0;
 }
 
+// Effect ceilings are canonical sets. Unsupported clauses must not disappear
+// during parsing; expanding this vocabulary requires matching analysis rules.
+fun parse_behavior_effects() -> Any {
+    if (symbol_name(pstart() + SRC, plen()) != "!") { diagnostic(parser_span(), "behavior contract requires ! pure or ! {effects}"); }
+    expect(TK_NOT);
+    if (ptok() == TK_IDENT and symbol_name(pstart() + SRC, plen()) == "pure") { adv(); return []; }
+    if (ptok() != TK_LB) { diagnostic(parser_span(), "unsupported behavior contract; expected pure or {effects}"); }
+    adv();
+    let effects: Any = [];
+    while (ptok() != TK_RB) {
+        let span: Any = parser_span();
+        let effect: Any = symbol_name(pstart() + SRC, plen());
+        expect(TK_IDENT);
+        if (not has(["output", "clock"], effect)) { diagnostic(span, "unsupported behavior effect `" + effect + "`"); }
+        if (not has(effects, effect)) { push(effects, effect); }
+        if (ptok() != TK_COMMA) { break; }
+        adv();
+    }
+    expect(TK_RB);
+    return sort(effects);
+}
+
 fun parse_fun(ctx: Any) -> Any {
     expect(TK_FUN);
     let np: Any = pstart() + SRC;
@@ -398,13 +420,9 @@ fun parse_fun(ctx: Any) -> Any {
     expect(TK_RP);
     mut returnType: Any = 0;
     if (ptok() == TK_ARROW) { adv(); returnType = parse_type(); }
-    mut pureBehavior: Any = false;
-    if (ptok() == TK_NOT) {
-        if (symbol_name(pstart() + SRC, plen()) != "!") { diagnostic(parser_span(), "behavior contract requires ! pure"); }
-        adv();
-        if (ptok() != TK_IDENT or symbol_name(pstart() + SRC, plen()) != "pure") { diagnostic(parser_span(), "unsupported behavior contract; expected pure"); }
-        adv(); pureBehavior = true;
-    }
+    let behaviorContract: Any = ptok() == TK_NOT;
+    mut behaviorEffects: Any = [];
+    if (behaviorContract) { behaviorEffects = parse_behavior_effects(); }
     IN_FUN = 1;
     let body: Any = parse_block(ctx);
     IN_FUN = 0;
@@ -412,7 +430,9 @@ fun parse_fun(ctx: Any) -> Any {
     let caparr: Any = [];
     let boxed: Any = [];
     make_func(ctx, np, nl, parr, pc, body, cc, caparr, boxed);
-    FUNC_HEAD[len(FUNC_HEAD) - 1].pureBehavior = pureBehavior;
+    FUNC_HEAD[len(FUNC_HEAD) - 1].behaviorContract = behaviorContract;
+    FUNC_HEAD[len(FUNC_HEAD) - 1].behaviorEffects = behaviorEffects;
+    FUNC_HEAD[len(FUNC_HEAD) - 1].pureBehavior = behaviorContract and len(behaviorEffects) == 0;
     FUNC_HEAD[len(FUNC_HEAD) - 1].returnType = returnType;
     FUNC_HEAD[len(FUNC_HEAD) - 1].typeParameters = typeParameters;
     return 0;

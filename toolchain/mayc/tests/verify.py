@@ -195,6 +195,7 @@ def main():
         for script, name in [("file_io.py", "complete binary file I/O"),
                              ("reachability.py", "reachable functions, runtime helpers and loader dependencies"),
                              ("behavior.py", "scalar pure behavior contracts"),
+                             ("effect_rows.py", "effect ceilings and recursive propagation"),
                              ("numeric_contracts.py", "numeric bounds and array lengths"),
                              ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
                              ("diagnostics.py", "structured diagnostics and recovery"),
