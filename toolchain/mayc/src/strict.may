@@ -5,6 +5,7 @@ import "parser.may";
 import "sema.may";
 import "diagnostics.may";
 import "modules.may";
+import "behavior.may";
 // Static checking precedes linkage rewriting and closure conversion. Any is
 // an explicit escape hatch for the runtime, compiler ASTs and dynamic APIs.
 mut ST_GLOBALS: Any = {};
@@ -709,6 +710,7 @@ fun st_attempt(operation: Any) -> Any {
     return accepted;
 }
 fun strict_program(ctx: Any) -> Any {
+    behavior_program();
     if (not STRICT_TYPES) { return 0; }
     ST_GLOBALS = {}; ST_RECORDS = {}; ST_SCOPES = []; ST_FUNCTIONS = {}; ST_RESULT = 0; ST_VARS = [];
     for record: Any in STRUCT_DECLS { let module: Any = source_module(record.span); let key: Any = if (module == "") { record.name } else { module + "::" + record.name }; ST_RECORDS[key] = {"fields": {}}; record.strictName = key; }

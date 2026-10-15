@@ -1,0 +1,85 @@
+import "sema.may";
+import "state.may";
+import "symbols.may";
+import "diagnostics.may";
+import "ast.may";
+import "strict.may";
+// Initial, deliberately closed pure fragment. Unknown syntax/calls are never
+// treated as evidence of purity. This pass runs before closure conversion.
+fun behavior_error(span: Any, reason: Any) -> Any {
+    diagnostic(span, "MB-EFFECT-001: ! pure contract: " + reason);
+    return 0;
+}
+fun behavior_scalar(annotation: Any, span: Any) -> Any {
+    if (annotation == nil or annotation == 0) { return behavior_error(span, "requires explicit Int or Bool types"); }
+    if (not has(["Int", "Bool"], annotation.name) or len(annotation.arguments) != 0) {
+        return behavior_error(span, "only Int and Bool types are supported");
+    }
+    return 0;
+}
+fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
+    if (node == 0) { return 0; }
+    let k: Any = node.kind;
+    if (k == E_INT) { return 0; }
+    if (k == E_VAR) {
+        let name: Any = symbol_name(node.name, node.length);
+        if (not has(locals, name) and not has(["true", "false"], name)) { return behavior_error(node.span, "global or captured value `" + name + "` is not permitted"); }
+        return 0;
+    }
+    if (k == E_BIN or k == E_AND or k == E_OR) {
+        behavior_node(node.left, locals, functions); behavior_node(node.right, locals, functions); return 0;
+    }
+    if (k == E_UN) { return behavior_node(node.operand, locals, functions); }
+    if (k == E_CALL) {
+        let name: Any = symbol_name(node.name, node.length);
+        if (has(locals, name)) { return behavior_error(node.span, "indirect calls are not supported"); }
+        let key: Any = may { st_export_name(source_module(node.span), replace(name, "::", "."), node.span, functions) } otherwise { behavior_error(node.span, "unresolved or primitive call `" + name + "`: " + err.message); "" };
+        let callee: Any = functions[key];
+        if (callee.pureBehavior != true) { return behavior_error(node.span, "call to `" + name + "` requires a checked ! pure contract"); }
+        mut arg: Any = node.args;
+        while (arg != 0) { behavior_node(arg, locals, functions); arg = arg.next; }
+        return 0;
+    }
+    if (k == S_RETURN or k == S_EXPR) { return behavior_node(if (k == S_RETURN) { node.value } else { node.expression }, locals, functions); }
+    if (k == S_BLOCK) {
+        let scope: Any = {}; for name: Any in keys(locals) { scope[name] = true; }
+        mut statement: Any = node.statements;
+        while (statement != 0) { behavior_node(statement, scope, functions); statement = statement.next; }
+        return behavior_node(node.tail, scope, functions);
+    }
+    if (k == S_IF) {
+        behavior_node(node.condition, locals, functions); behavior_node(node.thenBranch, locals, functions); behavior_node(node.elseBranch, locals, functions); return 0;
+    }
+    if (k == S_LET) {
+        if (node.mutable) { return behavior_error(node.span, "mutable bindings are not supported"); }
+        behavior_scalar(node.annotation, node.span);
+        behavior_node(node.initializer, locals, functions);
+        locals[symbol_name(node.name, node.length)] = true;
+        return 0;
+    }
+    return behavior_error(node.span, "operation is outside the supported scalar pure subset");
+}
+fun behavior_program() -> Any {
+    mut enabled: Any = false;
+    for rec: Any in FUNC_HEAD { if (rec.pureBehavior == true) { enabled = true; } }
+    if (not enabled) { return 0; }
+    let functions: Any = {};
+    for rec: Any in FUNC_HEAD {
+        if (rec.nested == 0) {
+            let module: Any = source_module(rec.moduleSpan ?? rec.body.span);
+            let name: Any = symbol_name(rec.p, rec.l);
+            functions[if (module == "") { name } else { module + "::" + name }] = rec;
+        }
+    }
+    for rec: Any in FUNC_HEAD {
+        if (rec.pureBehavior == true) {
+            if (not STRICT_TYPES) { return behavior_error(rec.body.span, "requires strict type checking; remove --legacy"); }
+            if (len(rec.typeParameters ?? []) != 0 or rec.nested != 0) { return behavior_error(rec.body.span, "generic and nested contracts are not supported"); }
+            behavior_scalar(rec.returnType, rec.body.span);
+            let locals: Any = {};
+            for param: Any in rec.parr { behavior_scalar(param.annotation, param.span); locals[symbol_name(param.name, param.length)] = true; }
+            behavior_node(rec.body, locals, functions);
+        }
+    }
+    return 0;
+}
