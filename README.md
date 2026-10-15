@@ -34,7 +34,6 @@ pick a folder, individual tools and shell integration. Use **↑ ↓** to move,
 and checks the copied compiler before finishing. No checkout, Rust, Python,
 C compiler or build command is needed.
 
-![The interactive Maylang installer](docs/assets/installer.svg)
 
 Open a new terminal, then create your first project:
 
