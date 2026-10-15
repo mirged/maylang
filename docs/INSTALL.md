@@ -91,6 +91,45 @@ older generations remain available. The active tools and standard library
 resolve entirely inside that prefix. Moving, cleaning or deleting a source
 checkout does not affect them.
 
+### Automatic stable-release updates (Linux with systemd)
+
+The optional Python updater checks GitHub for a newer stable release, verifies
+both the installer checksum and GitHub's asset digest when available, and runs
+the native installer unattended. It preserves your selected components and
+shell-profile configuration, retains older generations, and never downgrades a
+newer installation. It requires Python 3.9 or newer and a prefix managed by the
+native installer.
+
+From a source checkout, enable hourly checks for the default `~/.maylang` prefix:
+
+```sh
+mkdir -p "$HOME/.local/share/maylang" "$HOME/.config/systemd/user"
+cp toolchain/distribution/auto_update.py "$HOME/.local/share/maylang/"
+cp toolchain/distribution/systemd/maylang-update.* "$HOME/.config/systemd/user/"
+systemctl --user daemon-reload
+systemctl --user enable --now maylang-update.timer
+systemctl --user start maylang-update.service
+```
+
+The timer checks hourly with up to five minutes of randomized delay and catches
+up after downtime. User services normally run while you are logged in; use
+`loginctl enable-linger "$USER"` if you want them to continue after logout.
+The computer must be running and online to download updates. For a custom
+installation prefix, edit the service's `--prefix` and `ConditionPathExists`.
+
+Check availability or inspect the scheduled job:
+
+```sh
+python3 "$HOME/.local/share/maylang/auto_update.py" --check
+systemctl --user list-timers maylang-update.timer
+journalctl --user -u maylang-update.service
+```
+
+To stop automatic updates, run
+`systemctl --user disable --now maylang-update.timer`.
+The updater and timer are separate from the toolchain prefix; disable the timer
+before uninstalling. VS Code extension updates remain managed by the editor.
+
 To uninstall the default installation:
 
 ```sh
