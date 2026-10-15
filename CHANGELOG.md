@@ -1,3 +1,21 @@
+# Maylang 0.12.3 — Clover
+
+Released 2026-10-15 UTC. Improve explanations for scalar behavior contracts.
+
+- Report the shortest call path to a contributing primitive when an inferred
+  effect exceeds a declared ceiling. Update witnesses across fixed-point
+  iterations, including recursive graphs; keep equal-length selection stable.
+- Add regressions for competing paths, propagated improvements, recursion and
+  equal-length witnesses. Unknown-operation diagnostics still use their
+  discovery path; the supported behavior fragment is unchanged.
+- Include the fixes since 0.12.2 for verified optional stable-release updates,
+  hourly update scheduling and compiler-worker editor-index cleanup.
+
+Maylang remains experimental. These scalar effect checks do not establish
+capability containment, termination, failure freedom or resource bounds.
+
+---
+
 # Maylang 0.12.2 — Clover
 
 Released 2026-10-15 UTC. A patch release for the interactive installer following
