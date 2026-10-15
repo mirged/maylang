@@ -2,6 +2,7 @@
 """Inspect public behavior reports, fixed-point summaries, and failure output."""
 import argparse
 import json
+import random
 from pathlib import Path
 import subprocess
 import tempfile
@@ -83,6 +84,40 @@ fun b(n: Int) -> Int { print(n); return a(n); }
         entries = {entry['name']: entry for entry in data['functions']}
         assert entries['leaf']['file'] == str(work / 'dep.may'), entries
         assert entries['root']['file'] == str(source), entries
+        # A reachability oracle is independent of the compiler's fixed-point
+        # propagation, and exercises cycles with different discovery orders.
+        rng = random.Random(0xB3A710)
+        for case in range(12):
+            size = rng.randrange(4, 10)
+            edges = {i: [j for j in range(size) if rng.random() < 0.25] for i in range(size)}
+            direct = {i: {effect for effect in ['clock', 'output']
+                          if case and rng.random() < 0.2} for i in range(size)}
+            expected = {}
+            for start in range(size):
+                seen, pending = set(), [start]
+                while pending:
+                    node = pending.pop()
+                    if node not in seen:
+                        seen.add(node)
+                        pending.extend(edges[node])
+                expected[f'g{start}'] = sorted(set().union(*(direct[node] for node in seen)))
+            functions = []
+            for node in range(size):
+                body = ''.join(f'g{callee}();' for callee in edges[node])
+                if 'clock' in direct[node]:
+                    body += 'time();'
+                if 'output' in direct[node]:
+                    body += 'print(0);'
+                functions.append(f'fun g{node}() -> Int {{ {body} return 0; }}')
+            root = ('fun root() -> Int ! {clock, output} {'
+                    + ''.join(f'g{node}();' for node in range(size)) + 'return 0; }')
+            text = '\n'.join([*functions, root])
+            data = report(text)
+            actual = {entry['name']: entry['inferred_effects'] for entry in data['functions']}
+            expected['root'] = sorted(set().union(*direct.values()))
+            assert actual == expected, (case, edges, direct, data, expected)
+            if expected['root']:
+                report(text.replace('! {clock, output}', '! {}'), error='exceeds declared ceiling []')
     print('behavior reports: passed')
 
 
