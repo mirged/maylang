@@ -20,6 +20,10 @@ fun behavior_scalar(annotation: Any, span: Any) -> Any {
     }
     return 0;
 }
+fun behavior_scope(locals: Any) -> Any {
+    let scope: Any = {}; for name: Any in keys(locals) { scope[name] = true; }
+    return scope;
+}
 fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
     if (node == 0) { return 0; }
     let k: Any = node.kind;
@@ -57,13 +61,16 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
     }
     if (k == S_RETURN or k == S_EXPR) { return behavior_node(if (k == S_RETURN) { node.value } else { node.expression }, locals, functions); }
     if (k == S_BLOCK) {
-        let scope: Any = {}; for name: Any in keys(locals) { scope[name] = true; }
+        let scope: Any = behavior_scope(locals);
         mut statement: Any = node.statements;
         while (statement != 0) { behavior_node(statement, scope, functions); statement = statement.next; }
         return behavior_node(node.tail, scope, functions);
     }
     if (k == S_IF) {
-        behavior_node(node.condition, locals, functions); behavior_node(node.thenBranch, locals, functions); behavior_node(node.elseBranch, locals, functions); return 0;
+        behavior_node(node.condition, locals, functions);
+        behavior_node(node.thenBranch, behavior_scope(locals), functions);
+        behavior_node(node.elseBranch, behavior_scope(locals), functions);
+        return 0;
     }
     if (k == S_LET) {
         if (node.mutable) { return behavior_error(node.span, "mutable bindings are not supported"); }

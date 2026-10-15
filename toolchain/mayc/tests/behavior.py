@@ -70,6 +70,14 @@ print(double(21), even(10), odd(9));
                          + 'fun f() -> Int ! pure { ' + body + ' }', ('--check',), 'MB-EFFECT-001')
         compile_case('transitive', 'fun a() -> Int ! pure { return b(); } '
                      'fun b() -> Int ! pure { print(1); return 0; }', ('--check',), 'MB-EFFECT-001')
+        for body in [
+            'if (false) let shared: Int = 1; return shared;',
+            'if (true) let shared: Int = 1; else return shared; return 0;',
+            '{ let shared: Int = 1; } return shared;',
+        ]:
+            compile_case('branch_scope', 'mut shared: Int = 7; '
+                         'fun root() -> Int ! pure { ' + body + ' }',
+                         ('--check',), 'global or captured value `shared`')
         compile_case('dynamic', 'fun f(x: Any) -> Int ! pure { return 1; }', ('--check',), 'only Int and Bool')
         compile_case('callback', 'fun f(g: () -> Int) -> Int ! pure { return g(); }', ('--check',), 'only Int and Bool')
         compile_case('bad_contract', 'fun f() -> Int ! deterministic { return 1; }', ('--check',), 'unsupported behavior')

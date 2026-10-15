@@ -26,10 +26,10 @@ branches. Helpers need explicit scalar value signatures but can omit `! pure`.
 The checker infers their purity on demand and memoizes checked call graphs;
 a recursive edge never exempts the remainder of a body from checking.
 
-Calls resolve through the existing module/import visibility rules. Inference resolves named source functions, including qualified imports and
+Calls resolve through the existing module/import visibility rules. Inference
+resolves named source functions, including qualified imports and
 parenthesized direct function references. Native/runtime calls and dynamic
-call targets remain unknown. Global
-value bindings that shadow function declarations remain unknown; a function
+call targets remain unknown. Global value bindings that shadow function declarations remain unknown; a function
 annotation cannot certify a separately assigned callback.
 
 Global reads, mutation, collections, strings, callbacks, closures, generic
@@ -46,8 +46,7 @@ shortest paths. Structured behavior-specific diagnostic fields are future work.
 ## Exact guarantee boundary
 
 The check establishes absence of explicit external operations and shared-state
-access in this closed scalar fragment and its checked direct
-callees. It relies on the existing strict checker, module resolver, native
+access in this closed scalar fragment and its checked direct callees. It relies on the existing strict checker, module resolver, native
 compiler, scalar runtime operations, and runtime type enforcement. It is not a
 mechanically proved soundness theorem or containment for hostile native code.
 
@@ -75,7 +74,8 @@ executes recursive and imported pure functions and rejects direct/transitive
 I/O, raw syscalls, hidden branch effects, global access, mutation, unknown calls,
 callback types, shadowed functions/module aliases, unsupported contracts, and
 legacy bypasses. Inference tests cover mutual recursion, effects after recursive
-edges, effectful call arguments, and imported helpers.
+edges, effectful call arguments, and imported helpers. Scope regressions ensure
+branch-local bindings cannot hide global reads after a branch or in its sibling.
 
 ## Next implementation milestones
 
@@ -83,7 +83,8 @@ edges, effectful call arguments, and imported helpers.
    `guarded`, `assumed`, `unknown`), with unknown never satisfying a ceiling.
    Inventory primitive effects and test that every primitive is classified.
 2. Extend the current closed-fragment purity traversal to general conservative
-   effect summaries computed to a fixed point, retaining minimal explanation paths. Compare inferred effects with explicit ceilings. Preserve
+   effect summaries computed to a fixed point, retaining minimal explanation
+   paths. Compare inferred effects with explicit ceilings. Preserve
    unknown effects for unresolved calls and unsupported forms.
 3. Carry effects in callback/function types and check behavioral subtyping at
    assignments and calls. Add negative tests for callback laundering, generic
