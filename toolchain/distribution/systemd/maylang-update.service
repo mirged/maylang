@@ -1,0 +1,8 @@
+[Unit]
+Description=Update Maylang to the latest stable release
+ConditionPathExists=%h/.maylang/.maylang-install.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 "%h/.local/share/maylang/auto_update.py" --prefix "%h/.maylang"
+TimeoutStartSec=10min

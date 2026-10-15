@@ -76,6 +76,7 @@ test-distribution:
 	$(PYTHON) scripts/tests/test_developer.py
 	$(PYTHON) toolchain/tests/test_release.py
 	$(PYTHON) toolchain/tests/test_update.py
+	$(PYTHON) toolchain/tests/test_auto_update.py
 	sh toolchain/tests/install.sh
 
 test-installer: tools
