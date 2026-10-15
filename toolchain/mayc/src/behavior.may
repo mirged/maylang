@@ -140,8 +140,11 @@ fun behavior_solve() -> Any {
             for edge: Any in graph.calls {
                 let callee: Any = BEHAVIOR_STATES[edge.target];
                 for effect: Any in sort(keys(callee.effects)) {
-                    if (not has(graph.effects, effect)) {
-                        let witness: Any = callee.effects[effect];
+                    let witness: Any = callee.effects[effect];
+                    // Relax witness distances as well as effect membership.
+                    // A later edge or iteration can reveal a shorter path;
+                    // strict improvement terminates even for recursive graphs.
+                    if (not has(graph.effects, effect) or len(witness.path) + 1 < len(graph.effects[effect].path)) {
                         graph.effects[effect] = {"span": witness.span, "path": [graph.name] + witness.path};
                         changed = true;
                     }

@@ -1,6 +1,7 @@
 # Unified behavior implementation
 
-The Unified Behavior System design is a long-term language and platform proposal.
+The [Unified Behavior System design](../MAYLANG_UNIFIED_BEHAVIOR_DESIGN.md)
+is a long-term language and platform proposal.
 The active self-hosted compiler implements a closed scalar fragment with inferred
 effect sets, explicit ceilings, recursive propagation, and inspectable summaries.
 This is an initial implementation, not the design's verified execution profile.
@@ -79,8 +80,12 @@ exemption.
 
 The diagnostic prefix is `MB-EFFECT-001`. Ceiling violations identify the effect,
 permitted row, annotated function, contributing primitive location, and a call
-path. Unknown-operation diagnostics identify the operation and traversal path.
-These are deterministic witnesses, not necessarily shortest paths.
+path. Effect-ceiling witnesses use the fewest call edges from the annotated
+function to a contributing primitive. Equal-length witnesses retain the first
+discovered path, making selection deterministic for the same source. Recursive
+propagation also updates witnesses when a shorter path becomes available.
+Unknown-operation diagnostics identify the operation and discovery traversal
+path; those paths do not yet have the same minimality guarantee.
 
 ## Inspecting summaries
 
@@ -151,7 +156,8 @@ report or executable. Bootstrap validation checks stage-2/stage-3 binary converg
    unknown calls never silently receive empty rows. Add `guarded`, `assumed`, and
    `unknown` guarantee results when corresponding enforcement paths exist.
 2. Broaden the supported AST/type fragment with defined allocation, mutation,
-   failure, and aliasing semantics. Preserve minimal diagnostic witness paths.
+   failure, and aliasing semantics. Preserve minimal effect-ceiling witness
+   paths and extend minimal witnesses to unknown-operation diagnostics.
 3. Carry effects in callback/function types and check behavioral subtyping at
    assignments and calls. Add regressions for callback laundering and generic
    substitution before enabling those forms.

@@ -77,6 +77,13 @@ fun b(n: Int) -> Int { print(n); return a(n); }
                         ('--diagnostics', 'json'), 'MB-EFFECT-001')
         error = json.loads(result.stderr)['diagnostics'][0]
         assert error['file'] == str(source) and 'root -> print' in error['message'], error
+        result = report('''fun long_path() -> Int ! {output} { return middle(); }
+fun root() -> Int ! pure { return long_path() + short_path(); }
+fun middle() -> Int { print(1); return 0; }
+fun short_path() -> Int { print(2); return 0; }
+''', ('--diagnostics', 'json'), 'call path: root -> short_path -> print]')
+        error = json.loads(result.stderr)['diagnostics'][0]
+        assert error['range']['start']['line'] == 4, error
         for option in ['--dump-expanded', '--dump']:
             report('fun root() -> Int ! pure { return 1; }', (option,), 'cannot be combined')
         (work / 'dep.may').write_text('pub fun leaf(n: Int) -> Int { print(n); return n; }\n')

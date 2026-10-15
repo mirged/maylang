@@ -57,6 +57,30 @@ def main():
               'fun root() -> Int ! pure { return b(0); }', 'call path: root -> b -> a -> print')
         check('callee_ceiling', 'fun root() -> Int ! {output} { return leaf(); } '
               'fun leaf() -> Int ! pure { print(1); return 0; }', 'ceiling [] of `leaf`')
+        check('shortest_witness',
+              'fun long_path() -> Int ! {output} { return middle(); } '
+              'fun root() -> Int ! pure { return long_path() + short_path(); } '
+              'fun middle() -> Int { print(1); return 0; } '
+              'fun short_path() -> Int { print(2); return 0; }',
+              'call path: root -> short_path -> print]')
+        check('shortest_witness_propagates',
+              'fun long_path() -> Int ! {output} { return middle(); } '
+              'fun root() -> Int ! pure { return helper(); } '
+              'fun helper() -> Int { return long_path() + short_path(); } '
+              'fun middle() -> Int { print(1); return 0; } '
+              'fun short_path() -> Int { print(2); return 0; }',
+              'call path: root -> helper -> short_path -> print]')
+        check('shortest_recursive_witness',
+              'fun a(n: Int) -> Int ! {output} { return b(n); } '
+              'fun root() -> Int ! pure { return a(1) + short_path(); } '
+              'fun b(n: Int) -> Int { if(n>0) { return a(n-1); } print(1); return 0; } '
+              'fun short_path() -> Int { print(2); return 0; }',
+              'call path: root -> short_path -> print]')
+        check('equal_witness_uses_first_call',
+              'fun root() -> Int ! pure { return first() + second(); } '
+              'fun first() -> Int { print(1); return 0; } '
+              'fun second() -> Int { print(2); return 0; }',
+              'call path: root -> first -> print]')
         check('argument_effect', 'fun f(x: Int) -> Int { return x; } '
               'fun root() -> Int ! {clock} { return f(print(1)); }', 'effect `output`')
         check('global_primitive', 'let time = fun() -> Int { return 0; }; '
