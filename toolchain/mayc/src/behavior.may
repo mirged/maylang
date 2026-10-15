@@ -1,3 +1,4 @@
+import "parser.may";
 import "sema.may";
 import "state.may";
 import "symbols.may";
@@ -59,6 +60,22 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
     }
     return behavior_error(node.span, "operation is outside the supported scalar pure subset");
 }
+// Global value bindings can shadow function declarations during name resolution.
+// Keep them in this registry as unknown behavior, including destructuring.
+fun behavior_global(functions: Any, name: Any, span: Any) -> Any {
+    let module: Any = source_module(span);
+    functions[if (module == "") { name } else { module + "::" + name }] = {"pureBehavior": false};
+    return 0;
+}
+fun behavior_pattern(functions: Any, pattern: Any, span: Any) -> Any {
+    mut entry: Any = pattern;
+    while (entry != 0) {
+        if (entry.nested != 0) { behavior_pattern(functions, entry.nested, span); }
+        else { behavior_global(functions, symbol_name(entry.name, entry.length), span); }
+        entry = entry.next;
+    }
+    return 0;
+}
 fun behavior_program() -> Any {
     mut enabled: Any = false;
     for rec: Any in FUNC_HEAD { if (rec.pureBehavior == true) { enabled = true; } }
@@ -69,6 +86,14 @@ fun behavior_program() -> Any {
             let module: Any = source_module(rec.moduleSpan ?? rec.body.span);
             let name: Any = symbol_name(rec.p, rec.l);
             functions[if (module == "") { name } else { module + "::" + name }] = rec;
+        }
+    }
+    for head: Any in [RUNTIME_BODY, MAINBODY] {
+        mut statement: Any = head;
+        while (statement != 0) {
+            if (statement.kind == S_LET and statement.global == 1) { behavior_global(functions, symbol_name(statement.name, statement.length), statement.span); }
+            if (statement.kind == S_DESTRUCT and statement.global == 1) { behavior_pattern(functions, statement.pattern, statement.span); }
+            statement = statement.next;
         }
     }
     for rec: Any in FUNC_HEAD {
