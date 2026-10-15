@@ -33,6 +33,7 @@ def main():
                     assert (result.returncode, result.stdout, result.stderr) == (0, output, ''), (name, result)
             count += 1
 
+        check('documented_example', (ROOT / 'examples/behavior.may').read_text(), output='42\n')
         check('empty', 'fun f(n: Int) -> Int ! {} { return n*2; } print(f(21));', output='42\n')
         check('output', 'fun f(n: Int) -> Int ! {output} { print(n); return n; } f(42);', output='42\n')
         check('clock', 'fun f() -> Int ! {clock} { return time(); }', options=('--check',))

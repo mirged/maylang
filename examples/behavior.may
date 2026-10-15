@@ -1,0 +1,20 @@
+// Helpers may omit an effect contract; their bodies are analyzed transitively.
+fun double(value: Int) -> Int {
+    return value * 2;
+}
+
+fun compute(value: Int) -> Int ! pure {
+    return double(value);
+}
+
+// A ceiling permits output but does not grant filesystem or process authority.
+fun display(value: Int) -> Int ! {output} {
+    print(compute(value));
+    return 0;
+}
+
+fun timestamp() -> Int ! {clock} {
+    return time();
+}
+
+display(21);
