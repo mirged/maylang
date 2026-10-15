@@ -7,6 +7,7 @@ import "ast.may";
 import "strict.may";
 // Closed scalar effect fragment. Unsupported operations are unknown, never
 // evidence of an empty effect row. This pass precedes closure conversion.
+mut BEHAVIOR_EXPLAIN: Any = false;
 mut BEHAVIOR_PATH: Any = [];
 mut BEHAVIOR_STATES: Any = {};
 mut BEHAVIOR_GRAPHS: Any = [];
@@ -147,7 +148,7 @@ fun behavior_solve() -> Any {
     for graph: Any in BEHAVIOR_GRAPHS {
         let rec: Any = graph.record;
         let effects: Any = sort(keys(graph.effects));
-        rec.behaviorSummary = {"effects": effects, "classification": "proven", "scope": "scalar_effects_v1"};
+        rec.behaviorSummary = {"effects": effects, "classification": "proven", "scope": "scalar_effects_v1", "name": graph.name};
         rec.inferredPure = len(effects) == 0;
         if (rec.behaviorContract == true) {
             for effect: Any in effects {
@@ -195,4 +196,20 @@ fun behavior_program() -> Any {
     behavior_solve();
     BEHAVIOR_PATH = []; BEHAVIOR_STATES = {}; BEHAVIOR_GRAPHS = []; BEHAVIOR_CURRENT = 0;
     return 0;
+}
+
+// Report only successfully checked functions rooted at explicit contracts.
+// An omitted function has no summary, rather than an implicit pure summary.
+fun behavior_report() -> Any {
+    let entries: Any = [];
+    for rec: Any in FUNC_HEAD {
+        let summary: Any = rec.behaviorSummary;
+        if (summary != nil) {
+            let location: Any = diagnostic_record(rec.moduleSpan ?? rec.body.span, "");
+            push(entries, {"name": summary.name, "file": location.file, "range": location.range,
+                "declared_effects": if (rec.behaviorContract == true) { rec.behaviorEffects } else { nil },
+                "inferred_effects": summary.effects, "classification": summary.classification});
+        }
+    }
+    return {"schema_version": 1, "scope": "scalar_effects_v1", "analysis_roots": "explicit_contracts", "functions": entries};
 }

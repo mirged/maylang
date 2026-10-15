@@ -6,6 +6,7 @@ import "src/lexer.may";
 import "src/parser.may";
 import "src/sema.may";
 import "src/strict.may";
+import "src/behavior.may";
 import "src/ir.may";
 import "src/backend.may";
 import "src/backend/llvm.may";
@@ -140,7 +141,7 @@ fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
 // ------------------------------------------------------------- Driver Entry
 
 fun cli_usage() -> Any {
-    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in full-runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in full-runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
     syscall(1, 1, addr(message), len(message));
     syscall(60, 0);
     return 0;
@@ -255,6 +256,8 @@ fun main2() -> Any {
             expandedflag = 1;
         } else if (name_eq(ap, al, addr("--check"), 7) == 1) {
             checkflag = 1;
+        } else if (name_eq(ap, al, addr("--explain-behavior"), 18) == 1) {
+            BEHAVIOR_EXPLAIN = true; checkflag = 1;
         } else if (name_eq(ap, al, addr("--diagnostics"), 13) == 1) {
             k += 1; if (k >= len(argv)) { die_str("mayc: --diagnostics requires text or json\n"); }
             DIAGNOSTIC_FORMAT = symbol_name(argv[k][0], argv[k][1]);
@@ -273,6 +276,9 @@ fun main2() -> Any {
             ol = al;
         }
         k = k + 1;
+    }
+    if (BEHAVIOR_EXPLAIN and (dumpflag == 1 or expandedflag == 1)) {
+        die_str("mayc: --explain-behavior cannot be combined with source dumps\n");
     }
     if (llvmflag == 1 and targetName != "clang-llvm") {
         die_str("mayc: --emit-llvm requires --target clang-llvm\n");
@@ -313,7 +319,7 @@ fun main2() -> Any {
         profile_mark("types");
         DIAGNOSTIC_STAGE = "name"; sem_program();
         profile_mark("resolve");
-        if (checkflag == 1) { syscall(60, 0); }
+        if (checkflag == 1) { if (BEHAVIOR_EXPLAIN) { print(json_stringify(behavior_report())); } syscall(60, 0); }
         ir_program(ctx);
 
     } else {
@@ -384,7 +390,7 @@ fun main2() -> Any {
         profile_mark("types");
         DIAGNOSTIC_STAGE = "name"; sem_program();
         profile_mark("resolve");
-        if (checkflag == 1) { syscall(60, 0); }
+        if (checkflag == 1) { if (BEHAVIOR_EXPLAIN) { print(json_stringify(behavior_report())); } syscall(60, 0); }
         ir_program(ctx);
 
     }
