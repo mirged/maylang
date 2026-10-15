@@ -33,8 +33,12 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
     if (k == E_INT) { return 0; }
     if (k == E_VAR) {
         let name: Any = symbol_name(node.name, node.length);
-        if (not has(locals, name) and not has(["true", "false"], name)) { return behavior_error(node.span, "global or captured value `" + name + "` is not permitted"); }
-        return 0;
+        if (has(locals, name)) { return 0; }
+        if (has(["true", "false"], name)) {
+            let shadow: Any = may { st_export_name(source_module(node.span), name, node.span, functions) } otherwise { nil };
+            if (shadow == nil) { return 0; }
+        }
+        return behavior_error(node.span, "global or captured value `" + name + "` is not permitted");
     }
     if (k == E_BIN or k == E_AND or k == E_OR) {
         behavior_node(node.left, locals, functions); behavior_node(node.right, locals, functions); return 0;

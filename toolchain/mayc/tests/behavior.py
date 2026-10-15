@@ -78,6 +78,14 @@ print(double(21), even(10), odd(9));
             compile_case('branch_scope', 'mut shared: Int = 7; '
                          'fun root() -> Int ! pure { ' + body + ' }',
                          ('--check',), 'global or captured value `shared`')
+        for name in ['true', 'false']:
+            compile_case('boolean_shadow', f'mut {name}: Bool = 1 == 1; '
+                         f'fun root() -> Bool ! pure {{ return {name}; }}',
+                         ('--check',), f'global or captured value `{name}`')
+        (work / 'boolean.may').write_text('pub let true: Bool = 1 == 0;')
+        compile_case('import_boolean_shadow', 'import "boolean.may"; '
+                     'fun root() -> Bool ! pure { return true; }',
+                     ('--check',), 'global or captured value `true`')
         compile_case('dynamic', 'fun f(x: Any) -> Int ! pure { return 1; }', ('--check',), 'only Int and Bool')
         compile_case('callback', 'fun f(g: () -> Int) -> Int ! pure { return g(); }', ('--check',), 'only Int and Bool')
         compile_case('bad_contract', 'fun f() -> Int ! deterministic { return 1; }', ('--check',), 'unsupported behavior')
