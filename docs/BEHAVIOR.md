@@ -19,12 +19,16 @@ Place `! pure` after an explicit return type. Parameters, returns, and local
 bindings must explicitly use `Int` or `Bool`. The checker accepts scalar
 literals, parameter/local reads, unary and binary expressions, logical
 expressions, immutable local bindings, blocks, conditionals, returns, and direct
-calls to other explicitly pure functions. Forward calls, recursion, and mutual
-recursion are supported: every annotated body is checked, including unused
-functions and syntactically unreachable branches.
+calls to scalar source functions. Forward calls, recursion, and mutual
+recursion are supported: every annotated body and its reachable helpers are
+checked, including unused annotated functions and syntactically unreachable
+branches. Helpers need explicit scalar value signatures but can omit `! pure`.
+The checker infers their purity on demand and memoizes checked call graphs;
+a recursive edge never exempts the remainder of a body from checking.
 
-Calls resolve through the existing module/import visibility rules. A function
-without an explicit contract is unknown, even if its body looks pure. Global
+Calls resolve through the existing module/import visibility rules. Inference resolves named source functions, including qualified imports and
+parenthesized direct function references. Native/runtime calls and dynamic
+call targets remain unknown. Global
 value bindings that shadow function declarations remain unknown; a function
 annotation cannot certify a separately assigned callback.
 
@@ -35,13 +39,14 @@ their verification. Other proposed contract syntax is not implemented. Existing
 unannotated programs retain their current behavior.
 
 The diagnostic prefix is `MB-EFFECT-001`. Diagnostics identify the offending
-operation and source location. Full transitive explanation paths and structured
-behavior-specific diagnostic fields are future work.
+operation, source location, and the traversal path from the annotated root
+through its helpers. Paths are deterministic traversal witnesses, not guaranteed
+shortest paths. Structured behavior-specific diagnostic fields are future work.
 
 ## Exact guarantee boundary
 
 The check establishes absence of explicit external operations and shared-state
-access in this closed scalar fragment and its explicitly contracted direct
+access in this closed scalar fragment and its checked direct
 callees. It relies on the existing strict checker, module resolver, native
 compiler, scalar runtime operations, and runtime type enforcement. It is not a
 mechanically proved soundness theorem or containment for hostile native code.
@@ -68,15 +73,17 @@ python3 toolchain/rust/test.py
 The behavior suite runs through the standard native verification harness. It
 executes recursive and imported pure functions and rejects direct/transitive
 I/O, raw syscalls, hidden branch effects, global access, mutation, unknown calls,
-callback types, shadowed functions, unsupported contracts, and legacy bypasses.
+callback types, shadowed functions/module aliases, unsupported contracts, and
+legacy bypasses. Inference tests cover mutual recursion, effects after recursive
+edges, effectful call arguments, and imported helpers.
 
 ## Next implementation milestones
 
 1. Define normalized effect rows and guarantee classifications (`proven`,
    `guarded`, `assumed`, `unknown`), with unknown never satisfying a ceiling.
    Inventory primitive effects and test that every primitive is classified.
-2. Infer conservative direct-call summaries to a fixed point, retaining minimal
-   explanation paths. Compare inferred effects with explicit ceilings. Preserve
+2. Extend the current closed-fragment purity traversal to general conservative
+   effect summaries computed to a fixed point, retaining minimal explanation paths. Compare inferred effects with explicit ceilings. Preserve
    unknown effects for unresolved calls and unsupported forms.
 3. Carry effects in callback/function types and check behavioral subtyping at
    assignments and calls. Add negative tests for callback laundering, generic

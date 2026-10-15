@@ -38,6 +38,22 @@ print(double(21), even(10), odd(9));
         binary = compile_case('recursive', source)
         result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
         assert (result.returncode, result.stdout, result.stderr) == (0, '42 true true\n', ''), result
+        inferred = source.replace(' -> Bool ! pure', ' -> Bool')
+        inferred += 'fun root(n: Int) -> Bool ! pure { return even(n); } print(root(12));'
+        binary = compile_case('inferred_recursion', inferred)
+        result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+        assert (result.returncode, result.stdout) == (0, '42 true true\ntrue\n'), result
+        compile_case('recursive_effect',
+                     'fun root(n: Int) -> Int ! pure { return left(n); } '
+                     'fun left(n: Int) -> Int { if (n > 0) { return right(n-1); } return 0; } '
+                     'fun right(n: Int) -> Int { left(n); print(n); return 0; }',
+                     ('--check',), 'call path: root -> left -> right')
+        compile_case('raw', 'fun f(n: Int) -> Int ! pure { return n + 1; }', ('--raw', '--check'))
+        compile_case('argument_effect',
+                     'fun identity(n: Int) -> Int { return n; } '
+                     'fun noisy() -> Int { print(1); return 1; } '
+                     'fun root() -> Int ! pure { return identity(noisy()); }',
+                     ('--check',), 'call path: root -> noisy')
         compile_case('legacy', source, ('--legacy', '--check'), 'requires strict')
         failures = {
             'io': 'print(1); return 0;',
@@ -47,10 +63,10 @@ print(double(21), even(10), odd(9));
             'global': 'return outside;',
             'assignment': 'outside = 2; return 0;',
             'hidden_branch': 'if (false) { print(1); } return 0;',
-            'unsealed_call': 'return helper();',
+            'inferred_effectful_call': 'return helper();',
         }
         for name, body in failures.items():
-            compile_case(name, 'mut outside: Int = 1; fun helper() -> Int { return 7; } '
+            compile_case(name, 'mut outside: Int = 1; fun helper() -> Int { print(7); return 7; } '
                          + 'fun f() -> Int ! pure { ' + body + ' }', ('--check',), 'MB-EFFECT-001')
         compile_case('transitive', 'fun a() -> Int ! pure { return b(); } '
                      'fun b() -> Int ! pure { print(1); return 0; }', ('--check',), 'MB-EFFECT-001')
@@ -68,6 +84,22 @@ print(double(21), even(10), odd(9));
         binary = compile_case('imported', 'import "helper.may"; fun f() -> Int ! pure { return twice(21); } print(f());')
         result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
         assert (result.returncode, result.stdout) == (0, '42\n'), result
+        (work / 'helper.may').write_text('pub fun twice(x: Int) -> Int { return x*2; }')
+        compile_case('import_inferred', 'import "helper.may" as h; '
+                     'fun root() -> Int ! pure { return h.twice(21); }', ('--check',))
+        compile_case('parenthesized', 'fun helper(n: Int) -> Int { return n; } '
+                     'fun root() -> Int ! pure { return (helper)(21); }', ('--check',))
+        compile_case('local_alias', 'import "helper.may" as h; '
+                     'fun root(h: Int) -> Int ! pure { return h.twice(21); }',
+                     ('--check',), 'shadowed module alias')
+        compile_case('global_alias', 'import "helper.may" as h; '
+                     'let h: Int = 0; fun root() -> Int ! pure { return h.twice(21); }',
+                     ('--check',), 'shadowed module alias')
+        (work / 'helper.may').write_text('pub fun twice(x: Int) -> Int { print(x); return x*2; }')
+        compile_case('import_effect', 'import "helper.may" as h; '
+                     'fun root() -> Int ! pure { return h.twice(21); }',
+                     ('--check',), 'call path: root -> twice')
+
     print('behavior contracts: passed')
 
 

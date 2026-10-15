@@ -7,8 +7,10 @@ import "ast.may";
 import "strict.may";
 // Initial, deliberately closed pure fragment. Unknown syntax/calls are never
 // treated as evidence of purity. This pass runs before closure conversion.
+mut BEHAVIOR_PATH: Any = [];
+mut BEHAVIOR_STATES: Any = {};
 fun behavior_error(span: Any, reason: Any) -> Any {
-    diagnostic(span, "MB-EFFECT-001: ! pure contract: " + reason);
+    diagnostic(span, "MB-EFFECT-001: ! pure contract: " + reason + " [call path: " + join(BEHAVIOR_PATH, " -> ") + "]");
     return 0;
 }
 fun behavior_scalar(annotation: Any, span: Any) -> Any {
@@ -31,12 +33,24 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         behavior_node(node.left, locals, functions); behavior_node(node.right, locals, functions); return 0;
     }
     if (k == E_UN) { return behavior_node(node.operand, locals, functions); }
-    if (k == E_CALL) {
-        let name: Any = symbol_name(node.name, node.length);
+    if (k == E_CALL or k == E_ICALL) {
+        mut target: Any = node;
+        if (k == E_ICALL) {
+            target = node.callee;
+            if (target.kind != E_VAR) { return behavior_error(node.span, "indirect calls are not supported"); }
+            if (target.moduleObject != nil) {
+                let alias: Any = symbol_name(target.moduleObject.name, target.moduleObject.length);
+                if (has(locals, alias) or has(functions, source_module(target.span) + "::" + alias)) {
+                    return behavior_error(node.span, "shadowed module alias has unknown behavior");
+                }
+            }
+        }
+        let name: Any = symbol_name(target.name, target.length);
         if (has(locals, name)) { return behavior_error(node.span, "indirect calls are not supported"); }
         let key: Any = may { st_export_name(source_module(node.span), replace(name, "::", "."), node.span, functions) } otherwise { behavior_error(node.span, "unresolved or primitive call `" + name + "`: " + err.message); "" };
         let callee: Any = functions[key];
-        if (callee.pureBehavior != true) { return behavior_error(node.span, "call to `" + name + "` requires a checked ! pure contract"); }
+        if (callee.behaviorUnknown == true) { return behavior_error(node.span, "call to `" + name + "` has unknown behavior through a global binding"); }
+        behavior_function(callee, functions);
         mut arg: Any = node.args;
         while (arg != 0) { behavior_node(arg, locals, functions); arg = arg.next; }
         return 0;
@@ -64,7 +78,7 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
 // Keep them in this registry as unknown behavior, including destructuring.
 fun behavior_global(functions: Any, name: Any, span: Any) -> Any {
     let module: Any = source_module(span);
-    functions[if (module == "") { name } else { module + "::" + name }] = {"pureBehavior": false};
+    functions[if (module == "") { name } else { module + "::" + name }] = {"behaviorUnknown": true};
     return 0;
 }
 fun behavior_pattern(functions: Any, pattern: Any, span: Any) -> Any {
@@ -76,10 +90,30 @@ fun behavior_pattern(functions: Any, pattern: Any, span: Any) -> Any {
     }
     return 0;
 }
+// Visiting a recursive edge is safe only because every reachable body is still
+// checked before the enclosing contract succeeds. Failures abort this pass.
+fun behavior_function(rec: Any, functions: Any) -> Any {
+    if (has(BEHAVIOR_STATES, rec.lab)) { return 0; }
+    BEHAVIOR_STATES[rec.lab] = "visiting";
+    push(BEHAVIOR_PATH, symbol_name(rec.p, rec.l));
+    if (rec.foreign == true or source_module(rec.moduleSpan ?? rec.body.span) == "") {
+        return behavior_error(rec.body.span, "native and runtime calls have unknown behavior");
+    }
+    if (len(rec.typeParameters ?? []) != 0 or rec.nested != 0) { return behavior_error(rec.body.span, "generic and nested contracts are not supported"); }
+    behavior_scalar(rec.returnType, rec.body.span);
+    let locals: Any = {};
+    for param: Any in rec.parr { behavior_scalar(param.annotation, param.span); locals[symbol_name(param.name, param.length)] = true; }
+    behavior_node(rec.body, locals, functions);
+    BEHAVIOR_STATES[rec.lab] = "checked";
+    rec.inferredPure = true;
+    pop(BEHAVIOR_PATH);
+    return 0;
+}
 fun behavior_program() -> Any {
     mut enabled: Any = false;
     for rec: Any in FUNC_HEAD { if (rec.pureBehavior == true) { enabled = true; } }
     if (not enabled) { return 0; }
+    BEHAVIOR_PATH = []; BEHAVIOR_STATES = {};
     let functions: Any = {};
     for rec: Any in FUNC_HEAD {
         if (rec.nested == 0) {
@@ -99,12 +133,9 @@ fun behavior_program() -> Any {
     for rec: Any in FUNC_HEAD {
         if (rec.pureBehavior == true) {
             if (not STRICT_TYPES) { return behavior_error(rec.body.span, "requires strict type checking; remove --legacy"); }
-            if (len(rec.typeParameters ?? []) != 0 or rec.nested != 0) { return behavior_error(rec.body.span, "generic and nested contracts are not supported"); }
-            behavior_scalar(rec.returnType, rec.body.span);
-            let locals: Any = {};
-            for param: Any in rec.parr { behavior_scalar(param.annotation, param.span); locals[symbol_name(param.name, param.length)] = true; }
-            behavior_node(rec.body, locals, functions);
+            behavior_function(rec, functions);
         }
     }
+    BEHAVIOR_PATH = []; BEHAVIOR_STATES = {};
     return 0;
 }
