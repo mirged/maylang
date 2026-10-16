@@ -49,6 +49,8 @@ def main():
                 values += [('float', '1.5'), ('map', '{}'), ('function', 'fun() -> Int { return 1; }')]
             for label, value in values:
                 operations = ['push(bad, 1)', 'pop(bad)']
+                # Full slice uses the source library's len/index wrapper;
+                # core dispatches directly to the list-only runtime helper.
                 if target == 'core':
                     operations.append('slice(bad, 0, 1)')
                 for operation in operations:
