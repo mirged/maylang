@@ -33,6 +33,10 @@ Next prerequisite: specify the scalar core and the behavioral function-type
 rules before admitting callbacks. Callable effects must survive every assignment,
 argument, return, substitution, and trust boundary; unannotated callable behavior
 must remain unknown. Do not enable callback syntax with erased effect metadata.
+The [core model](BEHAVIOR_CORE.md) records these rules and proof obligations.
+Its source audit identified a concrete IR gap: `ir_program` omits behavior
+summaries from emitted-function snapshots. Retain normalized summaries and test
+their preservation before presenting emission metadata as a behavioral interface.
 
 ## Full design coverage
 
