@@ -153,6 +153,8 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         assert re.search(r'\badd\s+rax,0x7\b', immediate)
         assert re.search(r'\bimul\s+rax,rax,0x49\b', immediate)
         assert re.search(r'\bsub\s+rax,0x81\b', immediate)
+        assert not re.search(r'\bmov\s+(r1[2-5]),rax\s*\n[^\n]*\bmov\s+rax,\1\b', immediate), immediate
+        assert not re.search(r'\bmov\s+r1[2-5],rax\b', immediate), immediate
         assert re.search(r'\b(?:add|imul|sub)\s+rax,r11\b', function(assembly, 'wide'))
         for name in operations:
             assert re.search(r'\bset\w+\b', function(assembly, 'value_' + name))

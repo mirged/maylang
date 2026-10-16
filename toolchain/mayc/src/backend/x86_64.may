@@ -112,6 +112,11 @@ fun cg_expr(ctx: Any, value: Any) -> Any {
 // Operands are already evaluated IR temporaries. Loading one cannot call,
 // modify another home, or clobber the other scratch register (rax/rcx).
 fun x86_get_temp(ctx: Any, value: Any, target: Any) -> Any {
+    let accumulator: Any = ctx.allocation.accumulator;
+    // Consume the forwarding fact once. Later scratch loads in the same
+    // instruction may follow arithmetic, calls, untagging, or other clobbers.
+    ctx.allocation.accumulator = -1;
+    if (ctx.mode == 0 and target == 0 and accumulator == value.slot) { return 0; }
     let location: Any = ctx.allocation.locations[value.slot];
     if (location.literal != nil) { x86_mov_immediate(ctx, target, location.literal); return 0; }
     if (location.register >= 0) { e8(ctx, 76); e8(ctx, 137); e8(ctx, 192 + (location.register - 8) * 8 + target); }
@@ -160,15 +165,15 @@ fun x86_handler_end(ctx: Any) -> Any {
 
 fun cg_ir(ctx: Any, block: Any) -> Any {
     mut fusedBranch: Any = -1;
+    ctx.allocation.accumulator = -1;
     for instruction: Any in block.code {
         ctx.allocation.position += 1;
         if (ctx.allocation.position <= fusedBranch) { continue; }
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
         if (ctx.mode == 0) {
-            if (op == E_INT and ctx.allocation.locations[instruction.result.slot].literal != nil) { continue; }
-            if (op == IR_NIL and ctx.allocation.locations[instruction.result.slot].uses == 0) { continue; }
-            if (x86_dead_copy(ctx, instruction)) { continue; }
+            if (x86_omitted_instruction(ctx, instruction)) { continue; }
+            if (not x86_forwardable(ctx, instruction)) { ctx.allocation.accumulator = -1; }
             let branch: Any = x86_branch_comparison(ctx, block, instruction);
             if (branch >= 0) {
                 cg_expr(ctx, payload.left);
@@ -232,8 +237,13 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
         } else { cg_operation(ctx, payload); }
         if (instruction.result != 0) {
             if (ctx.mode != 0 or ctx.allocation.locations[instruction.result.slot].uses > 0) {
-                x86_put_temp(ctx, instruction.result);
+                if (ctx.dynamic != 0 or ctx.mode != 0 or not x86_accumulator_only(ctx, block, instruction)) {
+                    x86_put_temp(ctx, instruction.result);
+                }
             }
+            if (ctx.mode == 0) { ctx.allocation.accumulator = instruction.result.slot; }
+        } else {
+            ctx.allocation.accumulator = -1;
         }
     }
     return 0;
@@ -423,6 +433,53 @@ fun x86_comparison_condition(op: Any) -> Any {
 
 fun x86_dead_copy(ctx: Any, instruction: Any) -> Any {
     return instruction.op == IR_COPY and ctx.allocation.locations[instruction.result.slot].uses == 0;
+}
+
+fun x86_omitted_instruction(ctx: Any, instruction: Any) -> Any {
+    let op: Any = instruction.op;
+    if (op == E_INT and ctx.allocation.locations[instruction.result.slot].literal != nil) { return true; }
+    if (op == IR_NIL and ctx.allocation.locations[instruction.result.slot].uses == 0) { return true; }
+    return x86_dead_copy(ctx, instruction);
+}
+
+fun x86_accumulator_only(ctx: Any, block: Any, instruction: Any) -> Any {
+    let location: Any = ctx.allocation.locations[instruction.result.slot];
+    if (location.definitions != 1 or location.start != ctx.allocation.position) { return false; }
+    mut next: Any = ctx.allocation.position + 1;
+    while (next < len(block.code) and x86_omitted_instruction(ctx, block.code[next])) { next += 1; }
+    if (next >= len(block.code) or location.end != next) { return false; }
+    let reader: Any = block.code[next];
+    if (not x86_forwardable(ctx, reader)) { return false; }
+    let op: Any = reader.op;
+    mut first: Any = reader.arg1;
+    mut visits: Any = 1;
+    // lsra_operands conservatively visits both arg1 and payload for these ops.
+    if (op == E_BIN) { first = reader.extra.left; visits = 2; }
+    else if (op == E_UN) { first = reader.extra.operand; }
+    else if (op == S_LET) { first = reader.extra.initializer; visits = 2; }
+    else if (op == S_ASSIGN) { first = reader.extra.value; visits = 2; }
+    else if (op == E_CALL) { first = reader.extra.args; }
+    return first != 0 and first.slot == instruction.result.slot and location.uses == visits;
+}
+
+fun x86_forwardable(ctx: Any, instruction: Any) -> Any {
+    let op: Any = instruction.op;
+    // Each allowed lowering reads its first IR operand before changing rax.
+    // Labels/joins and all other operations invalidate the fact. In particular,
+    // Windows __host_write calls GetStdHandle before loading its first operand.
+    if (op == E_BIN or op == E_UN or op == IR_COPY or op == IR_RETURN or
+        op == IR_BOOL or op == IR_FALSE or op == IR_TRUE or op == S_LET or op == S_ASSIGN) { return true; }
+    if (op == E_CALL) {
+        let payload: Any = instruction.extra;
+        let name: Any = symbol_name(payload.name, payload.length);
+        if (name != "ptr" and name != "load8" and name != "load16" and name != "load32" and name != "load64" and
+            name != "store8" and name != "store16" and name != "store32" and name != "store64") { return false; }
+        if (loc_find(ctx, payload.name, payload.length) >= 0 or glob_find(ctx, payload.name, payload.length) >= 0 or
+            backend_find_func(ctx, payload.name, payload.length) != 0) { return false; }
+        return name == "ptr" or name == "load8" or name == "load16" or name == "load32" or name == "load64" or
+            name == "store8" or name == "store16" or name == "store32" or name == "store64";
+    }
+    return false;
 }
 
 fun x86_branch_comparison(ctx: Any, block: Any, instruction: Any) -> Any {

@@ -46,3 +46,6 @@ reciprocal pass. Median runtime is 6.1% lower in this comparison. Static
 instructions fall from 2,361 to 1,906. All six checksums match every time.
 These are whole-suite measurements, with the same pinned/non-isolated host
 and timing/counter limitations documented in the earlier reports.
+
+The next [accumulator-forwarding pass](raw-accumulator.md) removes reloads
+and temporary stores along proven straight-line producer/consumer edges.
