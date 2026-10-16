@@ -50,5 +50,6 @@ require(literals.locations[0].home == -1 and literals.stackSlots == 0 and len(li
 let literalLoop: Any = lsra_plan(loop, [12], true);
 require(literalLoop.locations[0].literal == nil and literalLoop.locations[0].pinned == true);
 require(literalLoop.locations[0].home >= 0);
+require(literalLoop.locations[0].maximum == nil);
 require(literalLoop.locations[1].literal == 1 and literalLoop.locations[1].home == -1);
 print("allocator-ok");

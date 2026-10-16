@@ -46,3 +46,6 @@ from 126,358,584 to 124,869,688. Static instructions fall from 1,543 to 1,476.
 All six checksums match. These are whole-suite results on a pinned but
 non-isolated host; per-workload samples, dispersion, and counter coverage are
 retained in the report, without machine-specific timing gates.
+
+The subsequent [nonnegative range pass](raw-ranges.md) simplifies power-of-two
+arithmetic only when it can prove the dividend cannot be negative or wrap.

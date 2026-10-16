@@ -80,6 +80,9 @@ fun snapshot() -> Any { let before: Any = sequence; return sequence + step(1) - 
 fun pure(a: Any, b: Any) -> Any { return (a + b) * (a - b); }
 fun immediate(a: Any) -> Any { return (a + 7) * 73 - 129; }
 fun wide(a: Any) -> Any { return (a + 4294967295) * 4294967296 - 4294967297; }
+fun bounded(p: Any) -> Any { return (load8(p) + load8(p + 1) + load8(p + 2)) % 2; }
+fun halve(p: Any) -> Any { return load32(p) / 8; }
+fun wrapped(p: Any) -> Any { return (1152921504606846975 * 16 + load8(p)) % 2; }
 fun pressure(a: Any, b: Any) -> Any {
     return a + (b * (a + (b * (a + (b * (a + (b * (a + b))))))));
 }
@@ -109,6 +112,8 @@ if (step(1) + step(2)) * (step(3) - step(4)) != -3 { exit(3); }
 if sequence != 1234 { exit(4); }
 let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
 if p < 0 { exit(5); }
+store8(p, 1); store8(p + 1, 2); store8(p + 2, 4);
+if bounded(p) != 1 or halve(p) != 32832 or wrapped(p) != -1 { exit(5); }
 if stores(p, 4294967297) != 4294967300 { exit(6); }
 store64(p + step(5), step(6));
 if sequence != 123456 or load64(p + 5) != 6 { exit(7); }
@@ -158,6 +163,10 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         assert not re.search(r'\bmov\s+(r1[2-5]),rax\s*\n[^\n]*\bmov\s+rax,\1\b', immediate), immediate
         assert not re.search(r'\bmov\s+r1[2-5],rax\b', immediate), immediate
         assert re.search(r'\b(?:add|imul|sub)\s+rax,r11\b', function(assembly, 'wide'))
+        bounded = function(assembly, 'bounded')
+        assert re.search(r'\band\s+rax,0x1\b', bounded) and not re.search(r'\bsar\b', bounded), bounded
+        assert re.search(r'\bshr\s+rax,0x3\b', function(assembly, 'halve'))
+        assert re.search(r'\bsar\s+rcx,0x3f\b', function(assembly, 'wrapped'))
         for name in operations:
             assert re.search(r'\bset\w+\b', function(assembly, 'value_' + name))
         assert re.search(r'\bsetl\b', function(assembly, 'reused'))
