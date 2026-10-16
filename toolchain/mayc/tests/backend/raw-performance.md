@@ -13,6 +13,10 @@ constant division, general copy propagation/dead-code elimination, address
 selection, and CFG-aware allocation remain follow-up work. Issue #76 should
 remain open for those improvements.
 
+The subsequent [signed constant-division pass](raw-constant-division.md)
+implements non-power-of-two literal division and records a fresh, interleaved
+comparison of the original compiler, this first pass, and the combined changes.
+
 ## Reproduce
 
 Save the old compiler with its runtime sidecars before rebuilding. Run from the

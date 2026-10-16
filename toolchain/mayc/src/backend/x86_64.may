@@ -343,6 +343,60 @@ fun x86_signed_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) 
     return 0;
 }
 
+struct X86SignedReciprocal { low: Any, high: Any, shift: Any }
+
+fun x86_signed_reciprocal(divisor: Any) -> Any {
+    if (divisor < 3) { return 0; }
+    // Divide 2^64 by d, keeping the quotient in two unsigned 32-bit limbs.
+    // Tagged compiler integers cannot hold a general 64-bit multiplier.
+    mut low: Any = 0; mut high: Any = 0; mut rest: Any = 1;
+    mut shift: Any = 0; mut bound: Any = 2;
+    mut bits: Any = 0;
+    while (bits < 64 or divisor - rest > bound) {
+        // This form of 2*rest avoids tagged overflow even for d near 2^60.
+        let carry: Any = if (rest >= divisor - rest) { 1 } else { 0 };
+        rest = if (carry == 1) { rest - (divisor - rest) } else { rest * 2 };
+        let doubled: Any = low * 2 + carry;
+        high = high * 2 + doubled / 4294967296;
+        low = doubled % 4294967296;
+        if (bits >= 64) {
+            shift += 1;
+            bound = if (bound >= divisor - bound) { divisor } else { bound * 2 };
+        }
+        bits += 1;
+    }
+    // Exact reciprocals are powers of two. Keep their existing fast path or
+    // idiv fallback: the signed rounding correction below assumes nonzero error.
+    if (rest == 0) { return 0; }
+    low += 1;
+    if (low == 4294967296) { low = 0; high += 1; }
+    // m = ceil(2^(64+shift)/d), with 0 < m*d - 2^(64+shift)
+    // <= 2^(shift+1). This error bound makes floor(n*m/2^(64+shift))
+    // exact for nonnegative signed n; adding n's sign bit truncates negatives.
+    return X86SignedReciprocal(low, high, shift);
+}
+
+fun x86_signed_constant_divide(ctx: Any, n: Any, magic: Any, remainder: Any) -> Any {
+    cg_expr(ctx, n.left);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193); // mov rcx, rax: original dividend
+    e8(ctx, 72); e8(ctx, 186); e32(ctx, magic.low); e32(ctx, magic.high);
+    e8(ctx, 72); e8(ctx, 247); e8(ctx, 234); // imul rdx: signed high product
+    if (magic.high >= 2147483648) {
+        // The encoded multiplier is negative; restore the missing 2^64*n.
+        e8(ctx, 72); e8(ctx, 1); e8(ctx, 202); // add rdx, rcx
+    }
+    if (magic.shift > 0) { e8(ctx, 72); e8(ctx, 193); e8(ctx, 250); e8(ctx, magic.shift); }
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 200); // mov rax, rcx
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 232); e8(ctx, 63); // shr rax, 63
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 208); // add rax, rdx: truncated quotient
+    if (remainder) {
+        x86_rax_operand(ctx, n.right, 175, true); // q*d; operand home is untouched
+        e8(ctx, 72); e8(ctx, 41); e8(ctx, 193); // sub rcx, rax
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 200); // mov rax, rcx
+    }
+    return 0;
+}
+
 fun x86_comparison_condition(op: Any) -> Any {
     if (op == TK_EQ) { return 132; }
     if (op == TK_NE) { return 133; }
@@ -392,6 +446,11 @@ fun cg_bin(ctx: Any, n: Any) -> Any {
         if (shift >= 0) {
             cg_expr(ctx, n.left);
             x86_signed_power_divide(ctx, n.right.value, shift, op == TK_PCT);
+            return 0;
+        }
+        let magic: Any = x86_signed_reciprocal(n.right.value);
+        if (magic != 0) {
+            x86_signed_constant_divide(ctx, n, magic, op == TK_PCT);
             return 0;
         }
     }

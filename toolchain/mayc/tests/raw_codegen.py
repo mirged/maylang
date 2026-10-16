@@ -37,11 +37,39 @@ def raw_integer(n):
     return f'({high} * 4294967296 + {low})'
 
 
+def reciprocal_oracle():
+    # Independent arbitrary-precision model of the sufficient reciprocal error
+    # bound. Exhaust every signed dividend/non-power divisor at small widths.
+    for width in range(3, 11):
+        limit = 1 << (width - 1)
+        for divisor in range(3, limit):
+            if divisor & (divisor - 1) == 0:
+                continue
+            shift = 0
+            while True:
+                numerator = 1 << (width + shift)
+                magic = (numerator + divisor - 1) // divisor
+                if magic * divisor - numerator <= 1 << (shift + 1):
+                    break
+                shift += 1
+            assert magic < 1 << width
+            encoded = magic if magic < limit else magic - (1 << width)
+            for n in range(-limit, limit):
+                high = (n * encoded) >> width
+                if encoded < 0:
+                    high += n
+                quotient = (high >> shift) + (n < 0)
+                expected = abs(n) // divisor * (-1 if n < 0 else 1)
+                assert quotient == expected, (width, divisor, n, magic, shift)
+    print('PASS exhaustive signed reciprocal model for widths 3 through 10', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', type=Path, required=True)
     args = parser.parse_args()
     compiler = compiler_binary(args.compiler)
+    reciprocal_oracle()
     with tempfile.TemporaryDirectory(prefix='mayc-raw-codegen-') as directory:
         work = Path(directory)
         source, binary = work / 'test.may', work / 'test'
@@ -123,7 +151,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         print('PASS register/spill operands, stores, loop backedges, calls/syscalls, evaluation order and comparison fusion', flush=True)
 
         # Deterministic full-width signed arithmetic oracle. This covers the
-        # existing power-of-two fast path and hardware division fallback.
+        # power-of-two/reciprocal fast paths and hardware division fallback.
         rng = random.Random(76)
         dividends = [-(1 << 63), -(1 << 63) + 1, (1 << 63) - 1, (1 << 63) - 2,
                      -4294967296, -2147483649, -2147483648, -1, 0, 1,
@@ -131,30 +159,70 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         dividends += [rng.randrange(-(1 << 63), 1 << 63) for _ in range(40)]
         divisors = [1, 2, 4, 8, 256, 1024, 1073741824, 2147483648,
                     3, 7, 13, 17, 2147483647, 1000000007, -1, -2, -7, -2147483648]
+        divisors += [(1 << bit) + delta for bit in (15, 31, 32, 40, 50, 59) for delta in (-1, 1)]
+        divisors += [(1 << 59), (1 << 60) - 1]
+        divisors += [rng.randrange(3, 1 << 60) for _ in range(8)]
         declarations, calls = [], []
         for index, d in enumerate(divisors):
             declarations.append(f'fun check{index}(n: Any, q: Any, r: Any) -> Any {{ '
                                 f'if n / {d} != q {{ exit(21); }} '
                                 f'if n % {d} != r {{ exit(22); }} return 0; }}')
-            for n in dividends:
+            values = set(dividends)
+            for multiple in (-3, -1, 1, 3, ((1 << 63) - 1) // abs(d)):
+                for delta in (-1, 0, 1):
+                    n = multiple * abs(d) + delta
+                    if -(1 << 63) <= n < 1 << 63:
+                        values.add(n)
+            for n in sorted(values):
                 if n == -(1 << 63) and d == -1:
                     continue  # x86 idiv overflow traps, tested separately below.
                 q = abs(n) // abs(d) * (-1 if (n < 0) != (d < 0) else 1)
                 r = n - q * d
                 calls.append(f'check{index}({raw_integer(n)}, {raw_integer(q)}, {raw_integer(r)});')
-        source.write_text('\n'.join(declarations + calls + ['exit(0);']))
+        seen = set()
+        # Keep compiler memory bounded while growing the arithmetic oracle.
+        for offset in range(0, len(calls), 512):
+            source.write_text('\n'.join(declarations + calls[offset:offset + 512] + ['exit(0);']))
+            compile_source(compiler, source, binary, '--raw')
+            run(binary)
+            assembly = disassemble(binary)
+            for index, divisor in enumerate(divisors):
+                if f'<module0::check{index}>:' not in assembly:
+                    continue
+                seen.add(index)
+                body = function(assembly, f'check{index}')
+                if divisor > 0 and divisor & (divisor - 1):
+                    assert not re.search(r'\bidiv\b', body), (divisor, body)
+                    assert re.search(r'\bimul\s+rdx\b', body), (divisor, body)
+                elif divisor < 0 or divisor > 1 << 30:
+                    assert re.search(r'\bidiv\b', body), (divisor, body)
+        assert seen == set(range(len(divisors)))
+        sweeps = []
+        for divisor in range(3, 64):
+            if divisor & (divisor - 1) == 0:
+                continue
+            checksum = 0
+            for n in range(-4097, 4098):
+                quotient = abs(n) // divisor * (-1 if n < 0 else 1)
+                checksum += quotient * (n + 5000) + (n - quotient * divisor) * (n + 6000)
+            sweeps.append(f'fun sweep{divisor}() -> Any {{ mut checksum: Any = 0; mut n: Any = -4097; '
+                          f'while n <= 4097 {{ checksum = checksum + (n / {divisor}) * (n + 5000) '
+                          f'+ (n % {divisor}) * (n + 6000); n = n + 1; }} return checksum; }}\n'
+                          f'if sweep{divisor}() != {checksum} {{ exit(23); }}')
+        source.write_text('\n'.join(sweeps + ['exit(0);']))
         compile_source(compiler, source, binary, '--raw')
         run(binary)
+        print('PASS every dividend -4097..4097 for every non-power divisor 3..63', flush=True)
         for expression in ['1 / 0', f'{raw_integer(-(1 << 63))} / -1', f'{raw_integer(-(1 << 63))} % -1']:
             source.write_text(f'exit({expression});')
             compile_source(compiler, source, binary, '--raw')
             run(binary, -signal.SIGFPE)
-        print('PASS full-width signed division/remainder oracle and unchanged divide-by-zero/overflow traps', flush=True)
+        print(f'PASS {len(calls)} full-width signed division/remainder cases, reciprocal selection and unchanged traps', flush=True)
 
         unit = work / 'unit'
         compile_source(compiler, HERE / 'backend/x86_codegen.may', unit)
         assert run(unit) == 'x86-codegen-ok\n'
-        print('PASS compact immediate boundaries, IR_TRUE/IR_FALSE and fusion guards', flush=True)
+        print('PASS immediate/reciprocal boundaries, IR_TRUE/IR_FALSE and fusion guards', flush=True)
 
         compile_source(compiler, HERE / 'backend/raw_performance.may', binary, '--raw')
         for _ in range(3):

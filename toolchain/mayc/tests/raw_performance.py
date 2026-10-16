@@ -55,8 +55,10 @@ def summarize(samples):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', type=Path, required=True)
-    parser.add_argument('--baseline-compiler', type=Path)
-    parser.add_argument('--baseline-revision', default='unspecified')
+    parser.add_argument('--baseline-compiler', type=Path, action='append', default=[],
+                        help='repeat to compare multiple compiler revisions in one interleaved run')
+    parser.add_argument('--baseline-revision', action='append', default=[],
+                        help='revision for each --baseline-compiler, in the same order')
     parser.add_argument('--runs', type=int, default=3)
     parser.add_argument('--warmup', type=int, default=3)
     parser.add_argument('--cpu', type=int, help='pin every measured binary to this logical CPU')
@@ -73,12 +75,14 @@ def main():
         binaries = {'may': work / 'may'}
         compile_source(compiler, HERE / 'backend/raw_performance.may', binaries['may'], '--raw')
         compilers = {'may': {'sha256': digest(compiler), 'version': capture([compiler, '--version'])}}
-        if args.baseline_compiler:
-            baseline = compiler_binary(args.baseline_compiler)
-            binaries['before'] = work / 'before'
-            compile_source(baseline, HERE / 'backend/raw_performance.may', binaries['before'], '--raw')
-            compilers['before'] = {'sha256': digest(baseline), 'version': capture([baseline, '--version']),
-                                   'revision': args.baseline_revision}
+        assert len(args.baseline_revision) <= len(args.baseline_compiler)
+        for index, path in enumerate(args.baseline_compiler):
+            name = 'before' if index == 0 else f'before_{index + 1}'
+            baseline = compiler_binary(path)
+            binaries[name] = work / name
+            compile_source(baseline, HERE / 'backend/raw_performance.may', binaries[name], '--raw')
+            compilers[name] = {'sha256': digest(baseline), 'version': capture([baseline, '--version']),
+                               'revision': args.baseline_revision[index] if index < len(args.baseline_revision) else 'unspecified'}
         for name, flags in [('gcc', []), ('gcc_scalar', ['-fno-tree-vectorize'])]:
             binaries[name] = work / name
             subprocess.run(['gcc', '-O3', '-march=native', '-std=c11', *flags,

@@ -29,6 +29,30 @@ for test: Any in cases {
     for index: Any in 0..len(test[1]) { require(load8(ctx.code.data + index) == test[1][index]); }
 }
 
+// Independent arbitrary-precision oracle values for ceil(2^(64+s)/d).
+// Include both signed multiplier encodings and tagged-integer boundary divisors.
+let reciprocals: Any = [
+    [3, 1431655766, 1431655765, 0],
+    [5, 1717986919, 1717986918, 1],
+    [7, 613566757, 1227133513, 1],
+    [10, 1717986919, 1717986918, 2],
+    [13, 3303820997, 1321528398, 2],
+    [17, 2021161081, 2021161080, 3],
+    [2147483647, 3, 2147483649, 30],
+    [1000000007, 312643557, 2305842993, 29],
+    [2147483649, 2147483649, 1073741823, 29],
+    [576460752303423489, 4294967281, 2147483647, 58],
+    [1152921504606846975, 9, 2147483648, 59]
+];
+for test: Any in reciprocals {
+    let magic: Any = x86_signed_reciprocal(test[0]);
+    require(magic != 0);
+    require(magic.low == test[1] and magic.high == test[2] and magic.shift == test[3]);
+}
+for divisor: Any in [-7, -1, 0, 1, 2, 8, 2147483648, 576460752303423488] {
+    require(x86_signed_reciprocal(divisor) == 0);
+}
+
 let a: Any = value(0); let b: Any = value(1); let result: Any = value(2); let unused: Any = value(3);
 for direction: Any in [IR_FALSE, IR_TRUE] {
     for op: Any in [TK_EQ, TK_NE, TK_LT, TK_LE, TK_GT, TK_GE] {
