@@ -154,6 +154,20 @@ Unknown rows remain distinct from empty rows. These are internal prerequisites;
 they do not enable behavioral callback source syntax or verify callback bodies.
 The remaining requirements below still apply before that extension is admitted.
 
+Source callback discovery must not attach an exact function identity to an
+ordinary value type and propagate it through generic substitution. For example,
+`choose<T>(a: T, b: T) -> T` may return `b`: retaining only `a`'s source identity
+would incorrectly attribute its behavior to the result. Rows describe all values
+admitted by the type, not an arbitrarily selected implementation.
+
+The callback prototype will instead infer all source functions when explicit
+callable-row annotations occur. Unsupported bodies retain unknown behavior;
+only successfully analyzed bodies get finite rows. Strict value checking then
+enforces the declared callable ceilings at every boundary, including in functions
+without an outer effect annotation. Unknown rows cannot become finite through a
+generic API, closure, container, or foreign signature. Programs without callable
+row annotations keep the existing contract-rooted discovery scope.
+
 The next core adds an effect dimension to callable types:
 
 ```text
