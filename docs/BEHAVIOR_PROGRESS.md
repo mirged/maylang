@@ -27,14 +27,18 @@ Completed checkpoints:
   and stage-2/stage-3 convergence.
 - `742fd75`, PR #72 (merged): finite/unknown rows in callable type operations;
   local verification passed 85 checks, the strict suite and compiler convergence.
+- `21b3acc`, PR #73: closed named callable source contracts and all-source
+  inference in callable mode; 54 native/LLVM callback cases, 86 verification
+  checks, the full LLVM suite and source-bootstrap convergence passed locally.
+  Merge after CI passes. The current cached native compiler includes this work.
 
-Active increment: closed source callback contracts and all-source inference when
-callable-row annotations occur. Unknown bodies must never get finite rows. Check
-all argument, binding, assignment and return boundaries; revalidate generic
-arguments after row joins. Reject shared callable storage until aliasing/runtime
-rules exist, reject foreign finite callable contracts, and cover module-alias
-shadowing outside annotated callers. Keep closures, effect variables and generic
-body effects unknown until their analyses are implemented.
+Active increment: runtime list type/index guards before further shared-state
+admission. Reproduce invalid dynamic push/pop in bounded child processes with
+core dumps disabled. Check full/core list payload accessors before reading any
+fields. Preserve valid list aliasing, append/pop and nil-on-out-of-range reads;
+reject invalid assignments before writes. Validate native, LLVM and core targets
+and source-bootstrap convergence before merging. Finite callable shared storage
+must remain rejected: these guards do not establish a per-container effect row.
 
 Next prerequisite: specify the scalar core and the behavioral function-type
 rules before admitting callbacks. Callable effects must survive every assignment,
@@ -55,6 +59,10 @@ and `rt_push` access list payloads without validating the incoming tag. Dynamic
 cross-component value-integrity profile can be claimed. This is separate from
 the typed-container aliasing problem; tag checks alone cannot preserve a finite
 callable row stored in an otherwise valid mutable list.
+Full-runtime `rt_index_set` also lacks the range checks already present in
+`runtime/core.may`; inspect negative, non-integer and past-end assignments before
+allowing a store. Internal byte-offset getters/setters should preserve their
+valid offset convention while rejecting malformed access.
 
 ## Full design coverage
 
