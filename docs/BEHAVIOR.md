@@ -41,8 +41,8 @@ omitting an annotation does not grant authority.
 Parameters, returns, and local bindings must explicitly use `Int`, `Bool`, or
 `Float`. The checker accepts integer, boolean, and floating-point literals,
 parameter/local reads, unary and binary expressions, logical expressions,
-immutable local bindings, blocks,
-conditionals, returns, and direct calls to supported source functions and the
+typed local bindings, blocks, conditionals, `while` loops, `break`, `continue`,
+returns, and direct calls to supported source functions and the
 listed primitives. `clock` returns `Float`; `time` returns `Int`. Floating-point
 operations use the existing numeric typing and runtime semantics, including
 integer-to-float promotion. `Float32`, `Float64`, and dynamic `Any` annotations
@@ -65,12 +65,44 @@ fun sampled_clock() -> Float ! {clock} {
 }
 ```
 
-Global reads, mutation, collections, strings, callbacks, closures, generic
-functions, loops, FFI, and other unsupported AST forms are rejected as unknown.
+Global reads/writes, collection mutation, strings, callbacks, closures, generic
+functions, `for` loops, FFI, and other unsupported AST forms are rejected as unknown.
 Declaring all currently known effects cannot authorize unknown operations.
 Contracts require strict checking; `--legacy` cannot disable verification.
 Other proposed behavior clauses and syntax are not implemented. Programs without
-contracts retain their current behavior.
+contracts do not run the behavior pass.
+
+## Private scalar state and control flow
+
+Mutable `Int`, `Bool`, and `Float` bindings and by-value scalar parameters may be
+assigned within a checked function. Plain and compound assignments only target
+that function's mutable local bindings. This private state does not add an
+externally visible effect. Assigning immutable `let` bindings is rejected;
+assigning globals or captured values remains unknown behavior. Collection,
+reference, and object mutation are outside the fragment.
+
+```may
+fun sum_to(n: Int) -> Int ! pure {
+    mut total: Int = 0;
+    while (n > 0) {
+        total += n;
+        n -= 1;
+    }
+    return total;
+}
+```
+
+The checker analyzes a loop's condition and every body statement once, collecting
+effects and call edges independently of the iteration count. A false condition,
+`break`, `continue`, or early return cannot hide a later effect or unknown
+operation from analysis. `break` and `continue` require an enclosing `while`
+inside the same function. Block, branch, and loop declarations do not escape
+their scopes, and shadowing preserves each binding's mutability.
+
+Accepting a loop does not prove termination, bound its work, or limit allocation.
+Unbounded iteration remains possible just as unbounded recursion does. `for`
+loops and explicit ranges/collections require additional allocation and aliasing
+rules before admission.
 
 ## Primitive audit and expansion gates
 
@@ -199,16 +231,22 @@ python3 toolchain/mayc/tests/behavior.py
 python3 toolchain/mayc/tests/effect_rows.py
 python3 toolchain/mayc/tests/behavior_reports.py
 python3 toolchain/mayc/tests/behavior_scalars.py
+python3 toolchain/mayc/tests/behavior_control_flow.py
 python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/build/bin/mayc_new --features-only
 python3 toolchain/rust/test.py
 ```
 
-The four behavior suites run through the standard native verification harness.
+The five behavior suites run through the standard native verification harness.
 They execute recursive/imported functions, check fixed-point propagation and
 ceilings, reject global/alias/scope bypasses and unknown operations, inspect
 normalized reports, compare generated call graphs with an independent
 reachability oracle, and verify that failed checking produces no successful
 report or executable. Bootstrap validation checks stage-2/stage-3 binary convergence.
+The scalar and control-flow suites also accept `--llvm` to execute their positive
+cases through the direct LLVM backend when Clang is installed.
+
+The complete design backlog and continuation checkpoints are tracked in
+[the implementation ledger](BEHAVIOR_PROGRESS.md).
 
 ## Next implementation milestones
 

@@ -24,7 +24,7 @@ fun behavior_scalar(annotation: Any, span: Any) -> Any {
     return 0;
 }
 fun behavior_scope(locals: Any) -> Any {
-    let scope: Any = {}; for name: Any in keys(locals) { scope[name] = true; }
+    let scope: Any = {}; for name: Any in keys(locals) { scope[name] = locals[name]; }
     return scope;
 }
 fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
@@ -88,12 +88,28 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         behavior_node(node.elseBranch, behavior_scope(locals), functions);
         return 0;
     }
+    if (k == S_WHILE) {
+        behavior_node(node.condition, locals, functions);
+        BEHAVIOR_CURRENT.loopDepth += 1;
+        behavior_node(node.body, behavior_scope(locals), functions);
+        BEHAVIOR_CURRENT.loopDepth -= 1;
+        return 0;
+    }
+    if (k == S_BREAK or k == S_CONT) {
+        if (BEHAVIOR_CURRENT.loopDepth == 0) { return behavior_error(node.span, "loop control requires an enclosing while loop"); }
+        return 0;
+    }
     if (k == S_LET) {
-        if (node.mutable) { return behavior_error(node.span, "mutable bindings are not supported"); }
         behavior_scalar(node.annotation, node.span);
         behavior_node(node.initializer, locals, functions);
-        locals[symbol_name(node.name, node.length)] = true;
+        locals[symbol_name(node.name, node.length)] = node.mutable;
         return 0;
+    }
+    if (k == S_ASSIGN) {
+        let name: Any = symbol_name(node.name, node.length);
+        if (not has(locals, name)) { return behavior_error(node.span, "assignment to global or captured value `" + name + "` is not permitted"); }
+        if (not locals[name]) { return behavior_error(node.span, "cannot assign to immutable local `" + name + "`"); }
+        return behavior_node(node.value, locals, functions);
     }
     return behavior_error(node.span, "operation is outside the supported scalar behavior subset");
 }
@@ -119,7 +135,7 @@ fun behavior_pattern(functions: Any, pattern: Any, span: Any) -> Any {
 fun behavior_function(rec: Any, functions: Any) -> Any {
     if (has(BEHAVIOR_STATES, rec.lab)) { return 0; }
     let name: Any = symbol_name(rec.p, rec.l);
-    let graph: Any = {"record": rec, "name": name, "effects": {}, "calls": [], "path": BEHAVIOR_PATH + [name]};
+    let graph: Any = {"record": rec, "name": name, "effects": {}, "calls": [], "path": BEHAVIOR_PATH + [name], "loopDepth": 0};
     BEHAVIOR_STATES[rec.lab] = graph;
     push(BEHAVIOR_GRAPHS, graph);
     return 0;

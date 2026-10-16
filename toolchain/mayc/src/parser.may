@@ -608,17 +608,24 @@ fun for_tmp() -> Any {
     return p;
 }
 
+// In a control-flow body, empty braces denote an empty block. Expression
+// positions still parse {} as an empty map.
+fun parse_control_body(ctx: Any) -> Any {
+    if (ptok() == TK_LB and peek(1) == TK_RB) { return parse_block(ctx); }
+    return parse_stmt(ctx);
+}
+
 fun parse_if(ctx: Any) -> Any {
     expect(TK_IF);
     let c: Any = parse_expr(ctx);
-    let t: Any = parse_stmt(ctx);
+    let t: Any = parse_control_body(ctx);
     let b: Any = mknode(S_IF);
     b.condition = c;
     b.thenBranch = t;
     b.elseBranch = 0;
     if (ptok() == TK_ELSE) {
         adv();
-        b.elseBranch = parse_stmt(ctx);
+        b.elseBranch = parse_control_body(ctx);
     }
     return b;
 }
@@ -626,7 +633,7 @@ fun parse_if(ctx: Any) -> Any {
 fun parse_while(ctx: Any) -> Any {
     expect(TK_WHILE);
     let c: Any = parse_expr(ctx);
-    let body: Any = parse_stmt(ctx);
+    let body: Any = parse_control_body(ctx);
     let b: Any = mknode(S_WHILE);
     b.condition = c;
     b.body = body;
@@ -779,7 +786,7 @@ fun parse_statement(ctx: Any) -> Any {
 fun parse_unless(ctx: Any) -> Any {
     expect(TK_UNLESS);
     let c: Any = parse_expr(ctx);
-    let t: Any = parse_stmt(ctx);
+    let t: Any = parse_control_body(ctx);
     let b: Any = mknode(S_IF);
     let neg: Any = mknode(E_UN);
     neg.op = TK_NOT;
@@ -789,7 +796,7 @@ fun parse_unless(ctx: Any) -> Any {
     b.elseBranch = 0;
     if (ptok() == TK_ELSE) {
         adv();
-        b.elseBranch = parse_stmt(ctx);
+        b.elseBranch = parse_control_body(ctx);
     }
     return b;
 }
@@ -802,7 +809,7 @@ fun parse_for(ctx: Any) -> Any {
         let e: Any = parse_expr(ctx);
         let tmp: Any = for_tmp();
         let tl: Any = FORTL;
-        mut body: Any = parse_stmt(ctx);
+        mut body: Any = parse_control_body(ctx);
         let ds: Any = mknode(S_DESTRUCT);
         ds.pattern = pat;
         let vr: Any = mknode(E_VAR);
@@ -833,7 +840,7 @@ fun parse_for(ctx: Any) -> Any {
     let annotation: Any = parse_annotation();
     expect(TK_IN);
     let e: Any = parse_expr(ctx);
-    mut body: Any = parse_stmt(ctx);
+    mut body: Any = parse_control_body(ctx);
     let s: Any = mknode(S_FOR);
     s.name = np;
     s.length = nl;

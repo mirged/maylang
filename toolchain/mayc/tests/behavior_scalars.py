@@ -99,7 +99,7 @@ print(root());
               'fun root() -> Float ! pure { return pi(); }', error='call path: root -> pi -> print]')
         for name, body, error in [
             ('global', 'return shared;', 'global or captured value'),
-            ('mutable', 'mut x: Float = 0.0; return x;', 'mutable bindings'),
+            ('shared_mutation', 'mut x: Float = 0.0; shared = x; return x;', 'assignment to global'),
             ('math_unknown', 'return sqrt(pi());', 'MB-EFFECT-001'),
             ('conversion_unknown', 'return int(1.5);', 'MB-EFFECT-001'),
             ('wrong_return', 'return true;', 'expected Float'),
