@@ -1,3 +1,47 @@
+# Maylang 0.13.0 — Dahlia
+
+Released 2026-10-16 UTC. Closed callable behavior contracts and a broader
+checked scalar fragment, with runtime list boundary fixes.
+
+- Write closed effect ceilings on callable types, such as
+  `Fn(Int) -> Int ! pure` and `Fn(Int) -> Int ! {output}`. Check named source
+  functions and callback calls against those ceilings, preserving rows through
+  type identity, substitution, joins, generic inference and function variance.
+  Reject erased `Any`, unchecked foreign declarations and shared-container
+  storage that could bypass a finite callable contract.
+- Check `Float` scalar operations and pure `pi`/`e` constants, private scalar
+  mutation, and `while` loops with `break` and `continue` in behavior-checked
+  bodies. Preserve normalized behavior summaries in compiler IR snapshots.
+- Report shortest call paths for unsupported behavior, including recursive and
+  competing helper paths. Unknown bodies remain unknown rather than receiving
+  an inferred pure row. Document the scalar core and outstanding proof work.
+- Guard list payload access, push/pop and indexed writes in full/core runtimes.
+  Invalid dynamic list values now report a type failure instead of accessing
+  unrelated memory. List and string reads reject non-integer indices.
+  **Behavior change:** list assignment requires an existing index; use `push`
+  to append. Negative and past-end reads still return `nil`, and arbitrary map
+  keys retain their existing semantics.
+- Add native, LLVM, portable-core and actual loader regressions, including
+  recovery after rejected writes. Load GC probes through the runtime ABI while
+  retaining allocation-identity and root-table boundary checks.
+
+Validation includes 87 compiler verification checks, 90 native/core/LLVM list
+boundary cases, compiler-generation convergence, LLVM checks, all five
+portable-core ISA/format combinations, and macOS/Windows loader fixtures.
+Tagged publication additionally verifies reproducible packages, extracted
+installation, standalone installers and the editor extension.
+
+Maylang remains experimental. Closed rows currently cover the documented
+scalar/callable fragment and known `output`/`clock` effects. Effect polymorphism,
+closures in checked bodies, capability containment, ownership, information-flow
+security, termination and resource bounds are unfinished. Runtime guards do
+not establish memory safety or permit finite callable contracts in mutable
+containers. Compiler hosts and full-runtime bundles remain Linux x86-64,
+including x86-64 WSL 2. See [behavior support](docs/BEHAVIOR.md) and the
+[design conformance ledger](docs/BEHAVIOR_PROGRESS.md) for exact limits.
+
+---
+
 # Maylang 0.12.3 — Clover
 
 Released 2026-10-15 UTC. Improve explanations for scalar behavior contracts.
