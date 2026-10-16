@@ -8,6 +8,7 @@ import "lexer.may";
 import "parser.may";
 import "symbols.may";
 import "platform.may";
+import "behavior.may";
 // ir.may — linear three-address instructions with explicit control flow.
 // Every evaluated value has a virtual temporary. Branches name labels; no
 // syntax subtree survives in an instruction's operands.
@@ -534,6 +535,7 @@ fun ir_program(ctx: Any) -> Any {
             "cc": rec.cc, "boxed": rec.boxed, "caparr": rec.caparr,
             "foreign": rec.foreign, "ffiArgs": rec.ffiArgs, "ffiResult": rec.ffiResult,
             "ffiSlot": rec.ffiSlot, "library": rec.library, "symbol": rec.symbol};
+        if (rec.behaviorSummary != nil) { emitted.behaviorSummary = behavior_ir_summary(rec); }
         push(ctx.functions, emitted);
         ctx.functionIndex[symbol_name(rec.p, rec.l)] = emitted;
         if (rec.foreign == true) { push(ctx.foreign, emitted); }

@@ -251,3 +251,20 @@ fun behavior_report() -> Any {
     }
     return {"schema_version": 1, "scope": "scalar_effects_v1", "analysis_roots": "explicit_contracts", "functions": entries};
 }
+
+// Emission owns normalized values, never a frontend graph/body or mutable row.
+// Missing summaries stay unknown; do not manufacture an empty row for them.
+fun behavior_ir_summary(rec: Any) -> Any {
+    let summary: Any = rec.behaviorSummary;
+    if (summary == nil) { return nil; }
+    let inferred: Any = [];
+    for effect: Any in summary.effects { push(inferred, effect); }
+    mut declared: Any = nil;
+    if (rec.behaviorContract == true) {
+        declared = [];
+        for effect: Any in rec.behaviorEffects { push(declared, effect); }
+    }
+    return {"schema_version": 1, "scope": summary.scope, "classification": summary.classification,
+        "name": summary.name, "symbol": symbol_name(rec.p, rec.l),
+        "declared_effects": declared, "inferred_effects": inferred};
+}
