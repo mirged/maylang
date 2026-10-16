@@ -247,6 +247,8 @@ cases through the direct LLVM backend when Clang is installed.
 
 The complete design backlog and continuation checkpoints are tracked in
 [the implementation ledger](BEHAVIOR_PROGRESS.md).
+The [scalar core model](BEHAVIOR_CORE.md) specifies the observation boundary,
+fixed-point rules, proof obligations, and prerequisites for behavioral callables.
 
 ## Next implementation milestones
 
