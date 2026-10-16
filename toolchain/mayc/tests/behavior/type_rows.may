@@ -1,0 +1,93 @@
+import "../../src/strict.may";
+
+fun demand(value: Any, reason: Any) -> Any {
+    if (not value) { fail(reason); }
+    return 0;
+}
+fun callable(row: Any, arguments: Any, result: Any) -> Any {
+    let t: Any = st_type("Function", arguments);
+    t.result = result;
+    if (row != nil) { t.behaviorEffects = row; }
+    return t;
+}
+
+let integer: Any = st_type("Int", []);
+let pure: Any = callable([], [], integer);
+let output: Any = callable(["output"], [], integer);
+let clock: Any = callable(["clock"], [], integer);
+let both: Any = callable(["clock", "output"], [], integer);
+let unknown: Any = callable(nil, [], integer);
+
+demand(st_accept(output, pure), "pure callable must substitute for output ceiling");
+demand(not st_accept(pure, output), "output cannot substitute for pure");
+demand(not st_accept(output, clock), "incomparable rows must reject");
+demand(st_accept(both, output), "row inclusion");
+demand(st_accept(unknown, pure) and st_accept(unknown, unknown), "unknown expected row retains no guarantee");
+demand(not st_accept(pure, unknown) and not st_accept(output, unknown), "unknown actual row cannot become finite");
+demand(not st_same(pure, unknown) and not st_same(output, clock), "row identity");
+demand(st_same(both, callable(["output", "clock", "output"], [], integer)), "rows are sets");
+demand(st_show(pure) == "() -> Int ! {}", "pure display");
+demand(st_show(unknown) == "() -> Int", "unknown display preserves existing syntax");
+demand(st_same(st_join(pure, output, 0), output), "finite join widens effects");
+demand(st_same(st_join(output, clock, 0), both), "join unions rows");
+demand(st_same(st_join(pure, unknown, 0), unknown), "unknown join stays unknown");
+
+let takes_pure: Any = callable([], [pure], integer);
+let takes_output: Any = callable([], [output], integer);
+demand(st_accept(takes_pure, takes_output), "callable parameter contravariance");
+demand(not st_accept(takes_output, takes_pure), "contravariance cannot reverse row ceilings");
+let returns_pure: Any = callable([], [], pure);
+let returns_output: Any = callable([], [], output);
+demand(st_accept(returns_output, returns_pure), "callable result covariance");
+demand(not st_accept(returns_pure, returns_output), "result cannot broaden effects");
+
+let variable: Any = st_type("$T", []);
+let generic: Any = callable(["output"], [variable], variable);
+generic.variables = ["T"];
+let substituted: Any = st_substitute(generic, {"$T": integer});
+demand(st_same(substituted, callable(["output"], [integer], integer)), "substitution retains row");
+push(generic.behaviorEffects, "clock");
+demand(st_same(substituted, callable(["output"], [integer], integer)), "substitution owns its row");
+demand(len(substituted.variables) == 1 and substituted.variables[0] == "T", "substitution retains quantifiers");
+let nested_substitution: Any = st_substitute(st_type("List", [callable([], [variable], variable)]), {"$T": integer});
+demand(st_same(nested_substitution.arguments[0], callable([], [integer], integer)), "nested substitution retains row");
+
+let generic_pure: Any = callable([], [variable], variable);
+let bindings: Any = {};
+st_unify(generic_pure, callable([], [integer], integer), bindings, 0);
+demand(bindings["$T"].name == "Int", "generic callable unification");
+demand(may { st_unify(generic_pure, callable(["output"], [integer], integer), ({}), 0); false }
+    otherwise { contains(err.message, "callable effects") }, "unification cannot erase finite row");
+demand(may { st_unify(generic_pure, callable(nil, [integer], integer), ({}), 0); false }
+    otherwise { contains(err.message, "unknown") }, "unification cannot narrow unknown row");
+
+// Bindings established by another argument must be checked in the parameter's
+// contravariant direction, not as a covariant pattern during inference.
+let generic_consumer: Any = callable([], [variable], integer);
+st_unify(generic_consumer, callable([], [output], integer), {"$T": pure}, 0);
+demand(may { st_unify(generic_consumer, callable([], [pure], integer), {"$T": output}, 0); false }
+    otherwise { true }, "bound generic parameter retains contravariance");
+let nested_generic: Any = callable([], [callable([], [variable], integer)], integer);
+let nested_actual: Any = callable([], [callable(["output"], [integer], integer)], integer);
+st_unify(nested_generic, nested_actual, ({}), 0);
+demand(may { st_unify(callable([], [callable(["output"], [variable], integer)], integer),
+    callable([], [callable([], [integer], integer)], integer), ({}), 0); false }
+    otherwise { true }, "nested generic variance cannot erase callback effects");
+
+let dynamic: Any = st_any();
+demand(may { st_dynamic_require(pure, dynamic, 0); false } otherwise { true }, "Any cannot narrow to pure callable");
+demand(may { st_dynamic_require(st_type("List", [pure]), dynamic, 0); false }
+    otherwise { true }, "Any cannot launder a nested finite callable");
+demand(may { st_dynamic_require(st_type("List", [pure]), st_type("List", [unknown]), 0); false }
+    otherwise { true }, "nested unknown callable cannot become finite");
+st_dynamic_require(unknown, dynamic, 0);
+
+let declaration: Any = {"moduleSpan": 0, "body": {"span": 0}, "parr": [],
+    "returnType": integer, "behaviorContract": true, "behaviorEffects": ["clock"],
+    "behaviorSummary": {"effects": []}};
+demand(st_same(st_signature(declaration), clock), "declaration exposes its ceiling");
+declaration.behaviorContract = false;
+demand(st_same(st_signature(declaration), pure), "inferred helper retains known actual row");
+declaration.behaviorSummary = nil;
+demand(st_same(st_signature(declaration), unknown), "unchecked declaration remains unknown");
+print("behavior function type rows: passed");

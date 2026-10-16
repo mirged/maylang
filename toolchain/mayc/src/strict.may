@@ -16,8 +16,31 @@ mut ST_RESULT: Any = 0;
 mut ST_VARS: Any = [];
 fun st_type(name: Any, arguments: Any) -> Any { return TypeRef(name, arguments, 0, 0); }
 fun st_any() -> Any { return st_type("Any", []); }
+// A missing callable row is unknown. Only an explicit empty row is pure.
+fun st_effect_accept(expected: Any, actual: Any) -> Any {
+    if (expected == nil) { return true; }
+    if (actual == nil) { return false; }
+    for effect: Any in actual { if (not has(expected, effect)) { return false; } }
+    return true;
+}
+fun st_effect_same(a: Any, b: Any) -> Any { return st_effect_accept(a, b) and st_effect_accept(b, a); }
+fun st_effect_join(a: Any, b: Any) -> Any {
+    if (a == nil or b == nil) { return nil; }
+    let row: Any = {};
+    for effect: Any in a { row[effect] = true; }
+    for effect: Any in b { row[effect] = true; }
+    return sort(keys(row));
+}
+fun st_has_behavior(t: Any) -> Any {
+    if (t.name == "Function" and t.behaviorEffects != nil) { return true; }
+    for argument: Any in t.arguments { if (st_has_behavior(argument)) { return true; } }
+    return t.name == "Function" and st_has_behavior(t.result);
+}
 fun st_show(t: Any) -> Any {
-    if (t.name == "Function") { return "(" + join(map(t.arguments, st_show), ", ") + ") -> " + st_show(t.result); }
+    if (t.name == "Function") {
+        let row: Any = if (t.behaviorEffects == nil) { "" } else { " ! {" + join(st_effect_join(t.behaviorEffects, []), ", ") + "}" };
+        return "(" + join(map(t.arguments, st_show), ", ") + ") -> " + st_show(t.result) + row;
+    }
     if (t.name == "Array") { return "[" + st_show(t.arguments[0]) + "; " + str(t.arrayLength) + "]"; }
     let parts: Any = split(t.name, "::"); let name: Any = parts[len(parts) - 1];
     if (len(t.arguments) == 0) { return name; }
@@ -26,7 +49,7 @@ fun st_show(t: Any) -> Any {
 fun st_same(a: Any, b: Any) -> Any {
     if (a.name != b.name or len(a.arguments) != len(b.arguments)) { return false; }
     for i: Any in 0..len(a.arguments) { if (not st_same(a.arguments[i], b.arguments[i])) { return false; } }
-    if (a.name == "Function") { return st_same(a.result, b.result); }
+    if (a.name == "Function") { return st_same(a.result, b.result) and st_effect_same(a.behaviorEffects, b.behaviorEffects); }
     if (a.name == "Array") { return a.arrayLength == b.arrayLength; }
     return true;
 }
@@ -44,6 +67,7 @@ fun st_accept(expected: Any, actual: Any) -> Any {
     if (has(["Float", "Float32", "Float64"], expected.name) and has(["Float", "Float32", "Float64"], actual.name)) { return true; }
     if (expected.name != actual.name or len(expected.arguments) != len(actual.arguments)) { return false; }
     if (expected.name == "Function") {
+        if (not st_effect_accept(expected.behaviorEffects, actual.behaviorEffects)) { return false; }
         for i: Any in 0..len(expected.arguments) { if (not st_accept(actual.arguments[i], expected.arguments[i])) { return false; } }
         return st_accept(expected.result, actual.result);
     }
@@ -61,6 +85,9 @@ fun st_require(expected: Any, actual: Any, span: Any) -> Any {
 // Dynamic operations retain their runtime dispatch; typed storage and user
 // function signatures use st_require and never narrow Any implicitly.
 fun st_dynamic_require(expected: Any, actual: Any, span: Any) -> Any {
+    // Dynamic convenience must not erase a finite callable row, including one
+    // nested in a container, argument, or return type.
+    if (st_has_behavior(expected)) { return st_require(expected, actual, span); }
     if (actual.name == "Any") { return 0; }
     if (expected.name == actual.name and len(expected.arguments) == len(actual.arguments)) {
         for i: Any in 0..len(expected.arguments) { st_dynamic_require(expected.arguments[i], actual.arguments[i], span); }
@@ -116,6 +143,15 @@ fun st_join(a: Any, b: Any, span: Any) -> Any {
     if (b.name == "Never") { return a; }
     if (a.name == "Any" or b.name == "Any") { return st_any(); }
     if (st_same(a, b)) { return a; }
+    if (a.name == "Function" and b.name == "Function" and len(a.arguments) == len(b.arguments) and st_same(a.result, b.result)) {
+        mut same: Any = true;
+        for i: Any in 0..len(a.arguments) { if (not st_same(a.arguments[i], b.arguments[i])) { same = false; } }
+        if (same) {
+            let t: Any = st_type("Function", a.arguments); t.result = a.result;
+            t.behaviorEffects = st_effect_join(a.behaviorEffects, b.behaviorEffects);
+            t.variables = a.variables ?? []; return t;
+        }
+    }
     if (a.name == "Result" and b.name == "Result") { return st_type("Result", [st_join(a.arguments[0], b.arguments[0], span), st_join(a.arguments[1], b.arguments[1], span)]); }
     if (a.name == "Nil") { return st_type("Optional", [b]); }
     if (b.name == "Nil") { return st_type("Optional", [a]); }
@@ -209,13 +245,23 @@ fun st_signature(rec: Any) -> Any {
     let params: Any = [];
     for param: Any in rec.parr { push(params, st_annotation(param.annotation, module, variables, param.span)); }
     let result: Any = st_annotation(rec.returnType, module, variables, rec.body.span);
-    let t: Any = st_type("Function", params); t.result = result; t.variables = variables; return t;
+    let t: Any = st_type("Function", params); t.result = result; t.variables = variables;
+    if (rec.behaviorSummary != nil) {
+        // An annotated value exposes its declared ceiling, even if its current
+        // implementation happens to infer a smaller row.
+        t.behaviorEffects = st_effect_join(if (rec.behaviorContract == true) { rec.behaviorEffects } else { rec.behaviorSummary.effects }, []);
+    }
+    return t;
 }
 fun st_substitute(t: Any, bindings: Any) -> Any {
     if (has(bindings, t.name)) { return bindings[t.name]; }
     let args: Any = []; for arg: Any in t.arguments { push(args, st_substitute(arg, bindings)); }
     let result: Any = st_type(t.name, args);
-    if (t.name == "Function") { result.result = st_substitute(t.result, bindings); }
+    if (t.name == "Function") {
+        result.result = st_substitute(t.result, bindings);
+        result.behaviorEffects = st_effect_join(t.behaviorEffects, []);
+        result.variables = t.variables ?? [];
+    }
     if (t.name == "Array") { result.arrayLength = t.arrayLength; }
     return result;
 }
@@ -223,6 +269,20 @@ fun st_has_variable(t: Any) -> Any {
     if (starts_with(t.name, "$")) { return true; }
     for argument: Any in t.arguments { if (st_has_variable(argument)) { return true; } }
     return t.name == "Function" and st_has_variable(t.result);
+}
+// Discover type-variable bindings before enforcing callable variance. Checking
+// the pattern covariantly while inferring a parameter would reverse nested
+// callable effect constraints. Compatibility is checked after substitution.
+fun st_infer_variables(pattern: Any, actual: Any, bindings: Any) -> Any {
+    if (starts_with(pattern.name, "$")) {
+        if (not has(bindings, pattern.name) or (bindings[pattern.name].name == "Never" and actual.name != "Never")) { bindings[pattern.name] = actual; }
+        return 0;
+    }
+    if (pattern.name == actual.name and len(pattern.arguments) == len(actual.arguments)) {
+        for i: Any in 0..len(pattern.arguments) { st_infer_variables(pattern.arguments[i], actual.arguments[i], bindings); }
+        if (pattern.name == "Function") { st_infer_variables(pattern.result, actual.result, bindings); }
+    }
+    return 0;
 }
 fun st_unify(expected: Any, actual: Any, bindings: Any, span: Any) -> Any {
     if (starts_with(expected.name, "$")) {
@@ -236,12 +296,16 @@ fun st_unify(expected: Any, actual: Any, bindings: Any, span: Any) -> Any {
     if (expected.name == actual.name and len(expected.arguments) == len(actual.arguments)) {
         if (expected.name == "Array" and expected.arrayLength != actual.arrayLength) { st_require(expected, actual, span); return 0; }
         if (expected.name == "Function") {
+            if (not st_effect_accept(expected.behaviorEffects, actual.behaviorEffects)) {
+                diagnostic(span, "expected callable effects [" + join(expected.behaviorEffects, ", ") + "], found " + if (actual.behaviorEffects == nil) { "unknown" } else { "[" + join(actual.behaviorEffects, ", ") + "]" });
+            }
+            for i: Any in 0..len(expected.arguments) { st_infer_variables(expected.arguments[i], actual.arguments[i], bindings); }
+            st_infer_variables(expected.result, actual.result, bindings);
             for i: Any in 0..len(expected.arguments) {
                 let parameter: Any = st_substitute(expected.arguments[i], bindings);
-                if (st_has_variable(parameter)) { st_unify(parameter, actual.arguments[i], bindings, span); }
-                else { st_require(actual.arguments[i], parameter, span); }
+                st_require(actual.arguments[i], parameter, span);
             }
-            st_unify(expected.result, actual.result, bindings, span); return 0;
+            st_require(st_substitute(expected.result, bindings), actual.result, span); return 0;
         }
         for i: Any in 0..len(expected.arguments) { st_unify(expected.arguments[i], actual.arguments[i], bindings, span); }
         return 0;
