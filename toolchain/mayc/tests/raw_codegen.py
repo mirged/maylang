@@ -91,6 +91,22 @@ def address_arguments(compiler, work):
     print('PASS direct compact address operands, literal metadata liveness, single data copy and builtin shadowing', flush=True)
 
 
+def dead_expressions(compiler, work):
+    source, binary = work / 'dead.may', work / 'dead'
+    source.write_text('mut seen: Any = 0;\nfun effect(n: Any) -> Any { seen = seen * 10 + n; return n; }\nfun unused(a: Any) -> Any { (a + 3) * (a - 7); not a; a < 8; return 17; }\nfun effects() -> Any { (effect(1) + effect(2)) * 17; return seen; }\nif unused(9) != 17 or effects() != 12 { exit(44); }\nexit(0);\n')
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    body = function(disassemble(binary), 'unused')
+    assert not re.search(r'\b(?:r1[2-5])\b', body), body
+    assert not re.search(r'\b(?:add|sub|imul|cmp|neg|test)\s+(?:rax|rcx|rdx|eax)\b|\bset\w+\b', body), body
+    for expression, status in [('(1 / 0 + 3) * 7', -signal.SIGFPE),
+                               ('(load64(0) + 3) * 7', -signal.SIGSEGV)]:
+        source.write_text(expression + ';\nexit(0);')
+        compile_source(compiler, source, binary, '--raw')
+        run(binary, status)
+    print('PASS cascading raw dead expressions, removed callee-save registers, retained calls and nested faults', flush=True)
+
+
 def raw_integer(n):
     # Source literals use the compiler's tagged range; expressions can construct
     # every raw 64-bit pattern, including INT64_MIN and INT64_MAX.
@@ -308,6 +324,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
 
         call_arguments(compiler, work)
         address_arguments(compiler, work)
+        dead_expressions(compiler, work)
 
         unit = work / 'unit'
         compile_source(compiler, HERE / 'backend/x86_codegen.may', unit)

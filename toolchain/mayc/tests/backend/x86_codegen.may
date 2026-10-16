@@ -103,6 +103,20 @@ ctx.locals = [];
 let shadow: Any = Quad(S_LET, 0, a, 0, {"name": addr("len"), "length": 3, "initializer": a, "global": 0}, 0);
 require(x86_raw_allocation_block(ctx, IRBlock([shadow, intrinsic], 2)).code[1].op == E_CALL);
 
+// Cascading deletion follows actual duplicate operand visits. Trapping
+// division and multi-definition slots must remain in the allocation view.
+let deadAdd: Any = Quad(E_BIN, b, a, a, {"op": TK_PLUS, "left": a, "right": a}, 0);
+let deadBlock: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 7}, 0), deadAdd], 2);
+x86_discard_unused(deadBlock);
+require(deadBlock.code[0].op == 0 and deadBlock.code[1].op == 0);
+let trap: Any = Quad(E_BIN, b, a, a, {"op": TK_SLASH, "left": a, "right": a}, 0);
+let trapBlock: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 0}, 0), trap], 2);
+x86_discard_unused(trapBlock);
+require(trapBlock.code[0].op == E_INT and trapBlock.code[1].op == E_BIN);
+let multi: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 1}, 0), Quad(E_INT, a, 0, 0, {"value": 2}, 0)], 1);
+x86_discard_unused(multi);
+require(multi.code[0].op == E_INT and multi.code[1].op == E_INT);
+
 // A second operand read cannot rely on the one-shot rax fact. Nor may an
 // accumulator-only value cross a label where other predecessors can enter.
 let producer: Any = Quad(E_INT, a, 0, 0, {"kind": E_INT, "value": 7}, 0);
