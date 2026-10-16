@@ -122,3 +122,6 @@ The report includes PMU runtime/coverage and every sample; these measurements
 do not impose a CI threshold. Remaining large deficits include Collatz and
 automaton code. General copy propagation, address selection, and CFG-aware
 allocation remain further work for issue #76.
+
+The subsequent [literal rematerialization pass](raw-literals.md) removes
+constant temporaries and selects immediate operands.

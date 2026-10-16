@@ -41,4 +41,14 @@ let noRegisters: Any = lsra_allocate(IRBlock([define(0), use(0), define(1), use(
 require(len(noRegisters.used) == 0 and noRegisters.stackSlots == 1);
 let empty: Any = lsra_allocate(IRBlock([], 0), [12]);
 require(len(empty.used) == 0 and empty.stackSlots == 0 and len(empty.roots) == 0);
+
+// Raw literals need neither registers, stack homes, nor roots. A literal may
+// span labels, but a multiply-defined loop index must retain its private home.
+let literals: Any = lsra_plan(IRBlock([define(0), Quad(IR_LABEL, 0, 0, 0, 50, 0), use(0)], 1), [12], true);
+require(literals.locations[0].literal == 0 and literals.locations[0].register == -1);
+require(literals.locations[0].home == -1 and literals.stackSlots == 0 and len(literals.used) == 0);
+let literalLoop: Any = lsra_plan(loop, [12], true);
+require(literalLoop.locations[0].literal == nil and literalLoop.locations[0].pinned == true);
+require(literalLoop.locations[0].home >= 0);
+require(literalLoop.locations[1].literal == 1 and literalLoop.locations[1].home == -1);
 print("allocator-ok");

@@ -28,6 +28,11 @@ for test: Any in cases {
     require(ctx.code.length == len(test[1]));
     for index: Any in 0..len(test[1]) { require(load8(ctx.code.data + index) == test[1][index]); }
 }
+// The large-literal operand fallback uses r11 without clobbering rcx.
+ctx.code.length = 0;
+x86_mov_immediate(ctx, 11, 4294967296);
+require(ctx.code.length == 10 and load8(ctx.code.data) == 73 and load8(ctx.code.data + 1) == 187);
+require(load32(ctx.code.data + 2) == 0 and load32(ctx.code.data + 6) == 1);
 
 // Independent arbitrary-precision oracle values for ceil(2^(64+s)/d).
 // Include both signed multiplier encodings and tagged-integer boundary divisors.
