@@ -87,7 +87,7 @@ print(double(21), even(10), odd(9));
                      'fun root() -> Bool ! pure { return true; }',
                      ('--check',), 'global or captured value `true`')
         compile_case('dynamic', 'fun f(x: Any) -> Int ! pure { return 1; }', ('--check',), 'only Int, Bool and Float')
-        compile_case('callback', 'fun f(g: () -> Int) -> Int ! pure { return g(); }', ('--check',), 'only Int, Bool and Float')
+        compile_case('callback', 'fun f(g: () -> Int) -> Int ! pure { return g(); }', ('--check',), 'callable type requires an explicit effect row')
         compile_case('bad_contract', 'fun f() -> Int ! deterministic { return 1; }', ('--check',), 'unsupported behavior')
         compile_case('word_not', 'fun f() -> Int not pure { return 1; }', ('--check',), 'requires ! pure')
         for binding in ['let innocent = noisy;', 'let [innocent] = [noisy];',

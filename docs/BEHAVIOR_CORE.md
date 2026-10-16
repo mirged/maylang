@@ -4,9 +4,10 @@ This document specifies the current scalar effect model and the obligations for
 extending it to callable values. It supports sections 4, 5, 16 and 22 of the
 [unified behavior design](../MAYLANG_UNIFIED_BEHAVIOR_DESIGN.md). The executable
 implementation is in `toolchain/mayc/src/behavior.may`; supported syntax is listed
-in [BEHAVIOR.md](BEHAVIOR.md). The callable extension below is a specification
-target, not accepted syntax or an implemented guarantee. No mechanized soundness
-proof is claimed.
+in [BEHAVIOR.md](BEHAVIOR.md). Closed named callable contracts now implement part
+of the extension below. Effect polymorphism, closure capture, shared callable
+storage and the remaining proof obligations are still targets. No mechanized
+soundness proof is claimed.
 
 ## Scalar language and observations
 
@@ -148,13 +149,30 @@ semantic permissions.
 
 ## Callable types: extension requirements
 
-The strict checker's internal callable types now retain known scalar effect rows
-through identity, subtyping, row joins, substitution and generic unification.
-Unknown rows remain distinct from empty rows. These are internal prerequisites;
-they do not enable behavioral callback source syntax or verify callback bodies.
-The remaining requirements below still apply before that extension is admitted.
+The strict checker's callable types retain known scalar effect rows through
+identity, subtyping, row joins, substitution and generic unification. Closed source
+callable annotations trigger source-body inference and boundary checks. Unknown
+rows remain distinct from empty rows. Generic solutions are revalidated against
+all arguments so later widening cannot invalidate an earlier callback parameter.
+Shared callable storage and foreign finite callable signatures are rejected until
+their aliasing/trust boundaries can be enforced. The remaining extension and proof
+requirements below still apply.
 
-The next core adds an effect dimension to callable types:
+Source callback discovery must not attach an exact function identity to an
+ordinary value type and propagate it through generic substitution. For example,
+`choose<T>(a: T, b: T) -> T` may return `b`: retaining only `a`'s source identity
+would incorrectly attribute its behavior to the result. Rows describe all values
+admitted by the type, not an arbitrarily selected implementation.
+
+The callback prototype instead infers all source functions when explicit
+callable-row annotations occur. Unsupported bodies retain unknown behavior;
+only successfully analyzed bodies get finite rows. Strict value checking then
+enforces the declared callable ceilings at every boundary, including in functions
+without an outer effect annotation. Unknown rows cannot become finite through a
+generic API, closure, container, or foreign signature. Programs without callable
+row annotations keep the existing contract-rooted discovery scope.
+
+The closed callable core adds an effect dimension to callable types:
 
 ```text
 Fn(T1, ..., Tn) -> R ! E
@@ -173,7 +191,8 @@ parameters/results. Effect polymorphism requires explicit variables, substitutio
 and constraint solving; replacing an unresolved variable with an empty row is
 invalid. Recursive constraints require a fixed-point or equivalent sound solver.
 
-Before enabling callable values, the implementation must:
+The full callable extension must satisfy these obligations. Closed scalar rows
+have initial implementation/tests; the broader dimensions are not discharged:
 
 1. Define unambiguous parsing/binding for callable-row syntax and declaration
    ceilings, including callable return types and nested function types.

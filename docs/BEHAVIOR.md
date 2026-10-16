@@ -38,8 +38,9 @@ omitting an annotation does not grant authority.
 | `output` | The runtime `print` primitive |
 | `clock` | The runtime `time` and `clock` primitives |
 
-Parameters, returns, and local bindings must explicitly use `Int`, `Bool`, or
-`Float`. The checker accepts integer, boolean, and floating-point literals,
+Parameters, returns, and local bindings must explicitly use `Int`, `Bool`,
+`Float`, or a closed callable type described below. The checker accepts integer,
+boolean, and floating-point literals,
 parameter/local reads, unary and binary expressions, logical expressions,
 typed local bindings, blocks, conditionals, `while` loops, `break`, `continue`,
 returns, and direct calls to supported source functions and the
@@ -65,8 +66,10 @@ fun sampled_clock() -> Float ! {clock} {
 }
 ```
 
-Global reads/writes, collection mutation, strings, callbacks, closures, generic
-functions, `for` loops, FFI, and other unsupported AST forms are rejected as unknown.
+Global reads/writes, collection mutation, strings, closures, generic function
+bodies, `for` loops, FFI, and other unsupported AST forms are unknown. An explicit
+function ceiling cannot authorize them. Unannotated unknown functions cannot
+satisfy a finite callable effect row.
 Declaring all currently known effects cannot authorize unknown operations.
 Contracts require strict checking; `--legacy` cannot disable verification.
 Other proposed behavior clauses and syntax are not implemented. Programs without
@@ -103,6 +106,68 @@ Accepting a loop does not prove termination, bound its work, or limit allocation
 Unbounded iteration remains possible just as unbounded recursion does. `for`
 loops and explicit ranges/collections require additional allocation and aliasing
 rules before admission.
+
+## Closed callable contracts
+
+Callable parameters, locals and returns may declare `Fn(Types...) -> Result ! pure`
+or `! {effects}`. The parenthesized spelling `(Types...) -> Result ! {effects}`
+also works. Inputs/results of a checked callable must themselves be scalar or
+closed callable types. An omitted callable row is unknown, not pure.
+
+```may
+fun apply(f: Fn(Int) -> Int ! pure, value: Int) -> Int ! pure {
+    return f(value);
+}
+
+fun twice(value: Int) -> Int {
+    return value * 2;
+}
+
+print(apply(twice, 21));
+```
+
+Function values do not execute their bodies when constructed. Calling a local or
+parameter callable contributes its declared row to the caller. Callable arguments,
+initializers, assignments and returns must fit their expected rows, even in a
+function without its own outer behavior ceiling. A smaller row can substitute for
+a larger one; parameter types are contravariant and results covariant, including
+nested callable types. A named function with an outer declared ceiling exposes
+that ceiling as a value, even if its current inferred body is more restrictive.
+
+Callable-type rows bind from the innermost arrow outward. For a function returning
+a callable, the returned callable's row comes before the outer declaration's row:
+
+```may
+fun make_twice() -> Fn(Int) -> Int ! pure ! pure {
+    return twice;
+}
+```
+
+When any callable-row annotation occurs, the compiler infers every source function
+in the supported fragment before value checking. Unsupported unannotated bodies
+retain unknown behavior and receive no successful summary. Unknown behavior still
+fails an explicit function ceiling or finite callable boundary. This does not
+execute or grant authority to those bodies. Without callable-row annotations,
+discovery remains rooted at explicit function contracts.
+
+Ordinary generic value APIs preserve callable rows and join compatible callable
+rows when solving type variables. All arguments are rechecked against the final
+solution so a later argument cannot broaden an earlier callback's accepted inputs.
+Generic function body effects and quantified effect variables remain unsupported
+inside checked call graphs. Passing a callable through an unknown interface or
+`Any` cannot recover a finite row later.
+
+Named source function values and named local/parameter calls are supported.
+Closure captures, primitive function values, computed indirect targets, and
+foreign signatures containing finite callable rows are not supported. A source
+wrapper can expose an audited primitive through its checked body.
+
+Finite callable rows in shared containers, record/enum fields, and inferred or
+generic shared storage are rejected. Mutable aliases through `Any` could replace
+such values without preserving their rows; ownership or runtime guards must define
+that boundary before admission. An explicitly unknown callable interface may
+discard its guarantee, but a value read through that interface cannot satisfy a
+finite row. This increment adds no capability, memory-safety or isolation profile.
 
 ## Primitive audit and expansion gates
 
@@ -163,9 +228,9 @@ global or imported value named `true` or `false` is a shared value, not a litera
 exemption.
 
 The diagnostic prefix is `MB-EFFECT-001`. Ceiling violations identify the effect,
-permitted row, annotated function, contributing primitive location, and a call
-path. Effect-ceiling witnesses use the fewest call edges from the annotated
-function to a contributing primitive. Equal-length witnesses retain the first
+permitted row, annotated function, contributing primitive or callable-bound
+location, and a call path. Effect-ceiling witnesses use the fewest call edges from
+the annotated function to a contributing operation or callable bound. Equal-length witnesses retain the first
 discovered path, making selection deterministic for the same source. Recursive
 propagation also updates witnesses when a shorter path becomes available.
 Unknown-operation diagnostics identify the operation and a shortest call path
@@ -196,9 +261,13 @@ order. Each function contains its name, source file/range, normalized
 contracts both report an empty declared array. Source ranges use one-based lines
 and UTF-8 byte columns, as in compiler diagnostics.
 
-Only functions reachable from explicit contracts have summaries. An omitted
-function has unknown behavior, not an empty row. With no contracts the function
-array is empty. The report is reproducible for equal source/path/toolchain input;
+In callable-row mode the report instead uses `scope: "scalar_callable_effects_v1"`
+and `analysis_roots: "all_source_functions"`. It includes every source function
+successfully analyzed in the closed fragment; unsupported unannotated functions
+remain omitted. In the original scalar mode, only functions reachable from
+explicit function contracts have summaries. An omitted function has unknown
+behavior, not an empty row. With neither function nor callable-row contracts the
+function array is empty. The report is reproducible for equal source/path/toolchain input;
 it is inspection metadata, not a signed manifest or independently verified proof.
 
 During compilation, retained functions also carry a `behaviorSummary` in the
@@ -246,11 +315,12 @@ python3 toolchain/mayc/tests/behavior_scalars.py
 python3 toolchain/mayc/tests/behavior_control_flow.py
 python3 toolchain/mayc/tests/behavior_ir.py
 python3 toolchain/mayc/tests/behavior_function_types.py
+python3 toolchain/mayc/tests/behavior_callbacks.py
 python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/build/bin/mayc_new --features-only
 python3 toolchain/rust/test.py
 ```
 
-The seven behavior suites run through the standard native verification harness.
+The eight behavior suites run through the standard native verification harness.
 They execute recursive/imported functions, check fixed-point propagation and
 ceilings, reject global/alias/scope bypasses and unknown operations, inspect
 normalized reports, compare generated call graphs with an independent
@@ -270,10 +340,9 @@ effect-ceiling subtyping, joins and generic substitution/unification. A source
 declaration with a checked contract exposes its declared ceiling as a callable
 value; an inferred helper carries its inferred row. Dynamic `Any` compatibility
 cannot narrow to a finite callable row, including one nested inside another type.
-These type operations are tested independently. Effect-row syntax on callable
-parameters, callback analysis, effect polymorphism, and behavioral callback
-boundary checking remain prerequisites; checked scalar functions still reject
-callable parameters and indirect calls.
+These type operations and the closed source callback boundaries are tested
+independently. Effect polymorphism, captured closures, shared callable storage,
+and arbitrary computed indirect targets remain outside the implemented fragment.
 
 ## Next implementation milestones
 
@@ -283,9 +352,9 @@ callable parameters and indirect calls.
 2. Broaden the supported AST/type fragment with defined allocation, mutation,
    failure, and aliasing semantics. Preserve minimal effect-ceiling witness
    paths and shortest unknown-operation discovery paths.
-3. Carry effects in callback/function types and check behavioral subtyping at
-   assignments and calls. Add regressions for callback laundering and generic
-   substitution before enabling those forms.
+3. Extend the closed callable implementation to effect polymorphism, generic
+   function-body inference, closures/captures, and shared callable storage with
+   defined aliasing or runtime guards. Preserve boundary and laundering tests.
 4. Define stable separately compiled contracts, build identities, canonical
    digests, and public contract diffs. Inspection metadata alone is not proof.
 5. Introduce explicit capability APIs and attenuation, then isolated native

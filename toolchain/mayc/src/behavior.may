@@ -12,8 +12,26 @@ mut BEHAVIOR_PATH: Any = [];
 mut BEHAVIOR_STATES: Any = {};
 mut BEHAVIOR_GRAPHS: Any = [];
 mut BEHAVIOR_CURRENT: Any = 0;
+mut BEHAVIOR_ISSUE: Any = nil;
 fun behavior_error(span: Any, reason: Any) -> Any {
+    if (BEHAVIOR_CURRENT != 0) { BEHAVIOR_ISSUE = {"span": span, "reason": reason}; }
     diagnostic(span, "MB-EFFECT-001: behavior contract: " + reason + " [call path: " + join(BEHAVIOR_PATH, " -> ") + "]");
+    return 0;
+}
+fun behavior_value_type(annotation: Any, span: Any) -> Any {
+    if (annotation != nil and annotation != 0 and annotation.name == "Function") {
+        if (annotation.behaviorEffects == nil) { return behavior_error(span, "callable type requires an explicit effect row"); }
+        for argument: Any in annotation.arguments { behavior_value_type(argument, span); }
+        return behavior_value_type(annotation.result, span);
+    }
+    return behavior_scalar(annotation, span);
+}
+fun behavior_add_effects(effects: Any, span: Any, name: Any) -> Any {
+    for effect: Any in effects {
+        if (not has(BEHAVIOR_CURRENT.effects, effect)) {
+            BEHAVIOR_CURRENT.effects[effect] = {"span": span, "path": [BEHAVIOR_CURRENT.name, name]};
+        }
+    }
     return 0;
 }
 fun behavior_scalar(annotation: Any, span: Any) -> Any {
@@ -38,6 +56,19 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
             let shadow: Any = may { st_export_name(source_module(node.span), name, node.span, functions) } otherwise { nil };
             if (shadow == nil) { return 0; }
         }
+        if (BEHAVIOR_CALLABLES) {
+            if (node.moduleObject != nil) {
+                let alias: Any = symbol_name(node.moduleObject.name, node.moduleObject.length);
+                if (has(locals, alias) or has(functions, source_module(node.span) + "::" + alias)) {
+                    return behavior_error(node.span, "shadowed module alias has unknown behavior");
+                }
+            }
+            let key: Any = may { st_export_name(source_module(node.span), replace(name, "::", "."), node.span, functions) } otherwise { nil };
+            if (key != nil) {
+                let rec: Any = functions[key];
+                if (rec.lab != nil and rec.behaviorUnknown != true and source_module(rec.moduleSpan ?? rec.body.span) != "") { return 0; }
+            }
+        }
         return behavior_error(node.span, "global or captured value `" + name + "` is not permitted");
     }
     if (k == E_BIN or k == E_AND or k == E_OR) {
@@ -57,16 +88,21 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
             }
         }
         let name: Any = symbol_name(target.name, target.length);
-        if (has(locals, name)) { return behavior_error(node.span, "indirect calls are not supported"); }
+        if (has(locals, name)) {
+            let binding: Any = locals[name];
+            if (binding.annotation.name != "Function" or binding.annotation.behaviorEffects == nil) {
+                return behavior_error(node.span, "indirect calls are not supported");
+            }
+            behavior_add_effects(binding.annotation.behaviorEffects, node.span, name);
+            mut argument: Any = node.args;
+            while (argument != 0) { behavior_node(argument, locals, functions); argument = argument.next; }
+            return 0;
+        }
         let key: Any = may { st_export_name(source_module(node.span), replace(name, "::", "."), node.span, functions) } otherwise { behavior_error(node.span, "unresolved or primitive call `" + name + "`: " + err.message); "" };
         let callee: Any = functions[key];
         if (callee.behaviorUnknown == true) { return behavior_error(node.span, "call to `" + name + "` has unknown behavior through a global binding"); }
         if (callee.primitiveEffects != nil) {
-            for effect: Any in callee.primitiveEffects {
-                if (not has(BEHAVIOR_CURRENT.effects, effect)) {
-                    BEHAVIOR_CURRENT.effects[effect] = {"span": node.span, "path": [BEHAVIOR_CURRENT.name, name]};
-                }
-            }
+            behavior_add_effects(callee.primitiveEffects, node.span, name);
         } else {
             push(BEHAVIOR_CURRENT.calls, {"target": callee.lab});
             behavior_function(callee, functions);
@@ -100,15 +136,15 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         return 0;
     }
     if (k == S_LET) {
-        behavior_scalar(node.annotation, node.span);
+        behavior_value_type(node.annotation, node.span);
         behavior_node(node.initializer, locals, functions);
-        locals[symbol_name(node.name, node.length)] = node.mutable;
+        locals[symbol_name(node.name, node.length)] = {"mutable": node.mutable, "annotation": node.annotation};
         return 0;
     }
     if (k == S_ASSIGN) {
         let name: Any = symbol_name(node.name, node.length);
         if (not has(locals, name)) { return behavior_error(node.span, "assignment to global or captured value `" + name + "` is not permitted"); }
-        if (not locals[name]) { return behavior_error(node.span, "cannot assign to immutable local `" + name + "`"); }
+        if (not locals[name].mutable) { return behavior_error(node.span, "cannot assign to immutable local `" + name + "`"); }
         return behavior_node(node.value, locals, functions);
     }
     return behavior_error(node.span, "operation is outside the supported scalar behavior subset");
@@ -148,12 +184,29 @@ fun behavior_body(graph: Any, functions: Any) -> Any {
         return behavior_error(rec.body.span, "native and runtime calls have unknown behavior");
     }
     if (len(rec.typeParameters ?? []) != 0 or rec.nested != 0) { return behavior_error(rec.body.span, "generic and nested contracts are not supported"); }
-    behavior_scalar(rec.returnType, rec.body.span);
+    behavior_value_type(rec.returnType, rec.body.span);
     let locals: Any = {};
-    for param: Any in rec.parr { behavior_scalar(param.annotation, param.span); locals[symbol_name(param.name, param.length)] = true; }
+    for param: Any in rec.parr {
+        behavior_value_type(param.annotation, param.span);
+        locals[symbol_name(param.name, param.length)] = {"mutable": true, "annotation": param.annotation};
+    }
     behavior_node(rec.body, locals, functions);
     BEHAVIOR_PATH = []; BEHAVIOR_CURRENT = 0;
     return 0;
+}
+fun behavior_discover(graph: Any, functions: Any) -> Any {
+    let previous_span: Any = DIAGNOSTIC_SPAN;
+    BEHAVIOR_ISSUE = nil;
+    may { behavior_body(graph, functions); } otherwise {
+        if (BEHAVIOR_ISSUE == nil) { fail(err.message); }
+        graph.unknown = {"span": BEHAVIOR_ISSUE.span, "reason": BEHAVIOR_ISSUE.reason, "path": [graph.name]};
+    }
+    BEHAVIOR_CURRENT = 0; BEHAVIOR_PATH = []; BEHAVIOR_ISSUE = nil;
+    DIAGNOSTIC_SPAN = previous_span;
+    return 0;
+}
+fun behavior_analysis_scope() -> Any {
+    return if (BEHAVIOR_CALLABLES) { "scalar_callable_effects_v1" } else { "scalar_effects_v1" };
 }
 fun behavior_solve() -> Any {
     mut changed: Any = true;
@@ -162,6 +215,10 @@ fun behavior_solve() -> Any {
         for graph: Any in BEHAVIOR_GRAPHS {
             for edge: Any in graph.calls {
                 let callee: Any = BEHAVIOR_STATES[edge.target];
+                if (callee.unknown != nil and (graph.unknown == nil or len(callee.unknown.path) + 1 < len(graph.unknown.path))) {
+                    graph.unknown = {"span": callee.unknown.span, "reason": callee.unknown.reason, "path": [graph.name] + callee.unknown.path};
+                    changed = true;
+                }
                 for effect: Any in sort(keys(callee.effects)) {
                     let witness: Any = callee.effects[effect];
                     // Relax witness distances as well as effect membership.
@@ -177,8 +234,16 @@ fun behavior_solve() -> Any {
     }
     for graph: Any in BEHAVIOR_GRAPHS {
         let rec: Any = graph.record;
+        if (graph.unknown != nil) {
+            rec.behaviorSummary = nil; rec.inferredPure = false;
+            if (rec.behaviorContract == true) {
+                BEHAVIOR_PATH = graph.unknown.path;
+                return behavior_error(graph.unknown.span, graph.unknown.reason);
+            }
+            continue;
+        }
         let effects: Any = sort(keys(graph.effects));
-        rec.behaviorSummary = {"effects": effects, "classification": "proven", "scope": "scalar_effects_v1", "name": graph.name};
+        rec.behaviorSummary = {"effects": effects, "classification": "proven", "scope": behavior_analysis_scope(), "name": graph.name};
         rec.inferredPure = len(effects) == 0;
         if (rec.behaviorContract == true) {
             for effect: Any in effects {
@@ -192,9 +257,10 @@ fun behavior_solve() -> Any {
     return 0;
 }
 fun behavior_program() -> Any {
-    mut enabled: Any = false;
+    mut enabled: Any = BEHAVIOR_CALLABLES;
     for rec: Any in FUNC_HEAD { if (rec.behaviorContract == true) { enabled = true; } }
     if (not enabled) { return 0; }
+    if (BEHAVIOR_CALLABLES and not STRICT_TYPES) { return behavior_error(BEHAVIOR_CALLABLE_SPAN, "requires strict type checking; remove --legacy"); }
     BEHAVIOR_PATH = []; BEHAVIOR_STATES = {}; BEHAVIOR_GRAPHS = []; BEHAVIOR_CURRENT = 0;
     let functions: Any = {};
     for rec: Any in FUNC_HEAD {
@@ -226,8 +292,22 @@ fun behavior_program() -> Any {
             mut pending: Any = len(BEHAVIOR_GRAPHS);
             behavior_function(rec, functions);
             while (pending < len(BEHAVIOR_GRAPHS)) {
-                behavior_body(BEHAVIOR_GRAPHS[pending], functions);
+                behavior_discover(BEHAVIOR_GRAPHS[pending], functions);
                 pending += 1;
+            }
+        }
+    }
+    if (BEHAVIOR_CALLABLES) {
+        // Infer source function values without confusing value creation with
+        // execution. Unknown unannotated bodies do not acquire finite rows.
+        for rec: Any in FUNC_HEAD {
+            if (rec.nested == 0 and source_module(rec.moduleSpan ?? rec.body.span) != "") {
+                mut pending: Any = len(BEHAVIOR_GRAPHS);
+                behavior_function(rec, functions);
+                while (pending < len(BEHAVIOR_GRAPHS)) {
+                    behavior_discover(BEHAVIOR_GRAPHS[pending], functions);
+                    pending += 1;
+                }
             }
         }
     }
@@ -249,7 +329,8 @@ fun behavior_report() -> Any {
                 "inferred_effects": summary.effects, "classification": summary.classification});
         }
     }
-    return {"schema_version": 1, "scope": "scalar_effects_v1", "analysis_roots": "explicit_contracts", "functions": entries};
+    return {"schema_version": 1, "scope": behavior_analysis_scope(),
+        "analysis_roots": if (BEHAVIOR_CALLABLES) { "all_source_functions" } else { "explicit_contracts" }, "functions": entries};
 }
 
 // Emission owns normalized values, never a frontend graph/body or mutable row.

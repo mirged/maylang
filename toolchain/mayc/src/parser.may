@@ -160,7 +160,7 @@ fun parse_type() -> Any {
             adv();
         }
         expect(TK_RP); expect(TK_ARROW);
-        return TypeRef("Function", parameters, parse_type(), span);
+        return parse_callable_type(parameters, parse_type(), span);
     }
     // Fixed arrays use [Element; length]. Store length separately from the
     // element type so it remains part of the static type identity.
@@ -179,7 +179,7 @@ fun parse_type() -> Any {
             adv();
         }
         expect(TK_RP); expect(TK_ARROW);
-        return TypeRef("Function", parameters, parse_type(), span);
+        return parse_callable_type(parameters, parse_type(), span);
     }
     mut name: Any = slice_src(pstart(), plen());
     expect(TK_IDENT);
@@ -205,6 +205,15 @@ fun parse_type() -> Any {
         expect(TK_GT);
     }
     return TypeRef(name, arguments, 0, span);
+}
+
+fun parse_callable_type(parameters: Any, result: Any, span: Any) -> Any {
+    let t: Any = TypeRef("Function", parameters, result, span);
+    if (ptok() == TK_NOT and symbol_name(pstart() + SRC, plen()) == "!") {
+        t.behaviorEffects = parse_behavior_effects();
+        BEHAVIOR_CALLABLES = true; BEHAVIOR_CALLABLE_SPAN = span;
+    }
+    return t;
 }
 
 fun parse_integer_type_length() -> Any {

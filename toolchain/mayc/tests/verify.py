@@ -201,6 +201,7 @@ def main():
                              ("behavior_control_flow.py", "private scalar state and while-loop behavior contracts"),
                              ("behavior_ir.py", "behavior metadata survives frontend-to-IR snapshots"),
                              ("behavior_function_types.py", "callable effect-row type operations and variance"),
+                             ("behavior_callbacks.py", "source callable ceilings and callback laundering rejection"),
                              ("numeric_contracts.py", "numeric bounds and array lengths"),
                              ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
                              ("diagnostics.py", "structured diagnostics and recovery"),
