@@ -21,17 +21,20 @@ Completed checkpoints:
 - `072f565`, PR #69 (merged): private scalar mutation and while-loop contracts, including
   empty control-flow blocks. Local verification passed 83 checks, 46 native/LLVM
   control-flow cases, and compiler-generation convergence.
-- `e9b8e73`, PR #70: scalar core model and callable soundness obligations.
-- `5f7d3d1`, PR #71: independent normalized behavior metadata in IR snapshots;
+- `e9b8e73`, PR #70 (merged): scalar core model and callable soundness obligations.
+- `5f7d3d1`, PR #71 (merged): independent normalized behavior metadata in IR snapshots;
   local verification passed 84 checks, the full LLVM suite, repository checks,
-  and stage-2/stage-3 convergence. Merge after CI passes.
+  and stage-2/stage-3 convergence.
+- `742fd75`, PR #72 (merged): finite/unknown rows in callable type operations;
+  local verification passed 85 checks, the strict suite and compiler convergence.
 
-Active increment: retain finite/unknown callable effect rows through the strict
-checker's type operations. Check nested variance after generic substitution;
-do not infer generic callable parameters covariantly. Test unknown/Any laundering,
-joins, substitutions, source ceilings and inferred helper rows. Behavioral
-callback syntax and indirect-call acceptance remain disabled until every boundary
-and callback body can be checked.
+Active increment: closed source callback contracts and all-source inference when
+callable-row annotations occur. Unknown bodies must never get finite rows. Check
+all argument, binding, assignment and return boundaries; revalidate generic
+arguments after row joins. Reject shared callable storage until aliasing/runtime
+rules exist, reject foreign finite callable contracts, and cover module-alias
+shadowing outside annotated callers. Keep closures, effect variables and generic
+body effects unknown until their analyses are implemented.
 
 Next prerequisite: specify the scalar core and the behavioral function-type
 rules before admitting callbacks. Callable effects must survive every assignment,
@@ -42,16 +45,23 @@ Its source audit identified a concrete IR gap: `ir_program` omitted behavior
 summaries from emitted-function snapshots. The IR-retention increment now copies
 normalized rows and identities and tests them after frontend release and source
 mutation, including missing/stripped summaries. This is not yet a behavioral link
-interface. The callable-type increment addresses type operations; source syntax,
-callback body discovery, boundary checking and effect-polymorphic constraints
-remain required before enabling behavioral callbacks.
+interface. Closed callable source syntax, source-body discovery and boundary
+checking now extend those type operations. Effect-polymorphic constraints,
+captures and shared storage still need independent semantics/enforcement.
+
+Runtime audit follow-up: full/core `rt_list_len`, `rt_list_get`, `rt_list_set`
+and `rt_push` access list payloads without validating the incoming tag. Dynamic
+`Any` paths therefore need runtime type checks before any memory-safety or
+cross-component value-integrity profile can be claimed. This is separate from
+the typed-container aliasing problem; tag checks alone cannot preserve a finite
+callable row stored in an otherwise valid mutable list.
 
 ## Full design coverage
 
 | Design area | Current evidence | Required implementation and acceptance evidence |
 | --- | --- | --- |
 | 3–5: behavior types, syntax, algebra | Scalar effect ceilings, recursive fixed points, strict fail-closed fragment | Canonical behavior IR, all clause syntax, composition rules and formally specified safe fragment |
-| 4.2, 4.4: polymorphism and subtyping | Callback and generic contracts rejected | Effect-bearing callable types, substitution, recursive constraints, callback laundering and behavioral subtyping tests |
+| 4.2, 4.4: polymorphism and subtyping | Closed callable rows, variance, generic value substitution and boundary rejection tests | Effect variables/constraints, generic body inference, captures/shared storage, and broader behavioral subtyping |
 | 4.3: public sealing | Explicit per-function ceilings | Stable public interfaces and separate compilation; implementation changes cannot broaden sealed contracts |
 | 6: authority and dependency security | Ambient/foreign operations remain unknown under contracts | Explicit scoped capabilities, attenuation, revocation, delegation, dependency ceilings and actual native sandbox containment |
 | 7: information flow | No confidentiality/integrity guarantees | Independent label lattices, explicit and implicit flow, authorized declassification, sink construction, errors/logging/serialization tests |

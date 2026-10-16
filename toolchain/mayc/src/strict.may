@@ -36,6 +36,11 @@ fun st_has_behavior(t: Any) -> Any {
     for argument: Any in t.arguments { if (st_has_behavior(argument)) { return true; } }
     return t.name == "Function" and st_has_behavior(t.result);
 }
+fun st_shared_behavior(t: Any) -> Any {
+    if (t.name != "Function" and st_has_behavior(t)) { return true; }
+    for argument: Any in t.arguments { if (st_shared_behavior(argument)) { return true; } }
+    return t.name == "Function" and st_shared_behavior(t.result);
+}
 fun st_show(t: Any) -> Any {
     if (t.name == "Function") {
         let row: Any = if (t.behaviorEffects == nil) { "" } else { " ! {" + join(st_effect_join(t.behaviorEffects, []), ", ") + "}" };
@@ -102,6 +107,7 @@ fun st_has_contract(t: Any) -> Any {
     return false;
 }
 fun st_contract(node: Any, t: Any) -> Any {
+    if (node != 0 and BEHAVIOR_CALLABLES and st_shared_behavior(t)) { diagnostic(node.span, "behavioral callable storage in shared types is not supported"); }
     if (node != 0 and has(["Int8", "Int16", "Int32", "UInt8", "UInt16", "UInt32", "UInt64"], t.name)) {
         mut literal: Any = nil;
         if (node.kind == E_INT) { literal = node.value; }
@@ -201,7 +207,10 @@ fun st_annotation(annotation: Any, module: Any, variables: Any, span: Any) -> An
     let t: Any = st_type(name, args);
     if (name == "Function") {
         if (annotation.result == 0) { diagnostic(span, "use a function type such as (Int) -> Int"); }
-        t.result = st_annotation(annotation.result, module, variables, annotation.span); return t;
+        t.result = st_annotation(annotation.result, module, variables, annotation.span);
+        t.behaviorEffects = st_effect_join(annotation.behaviorEffects, []);
+        if (BEHAVIOR_CALLABLES and st_shared_behavior(t)) { diagnostic(span, "behavioral callable storage in shared types is not supported"); }
+        return t;
     }
     if (has(variables, name)) { t.name = "$" + name; return t; }
     if (has(["List", "Slice", "Optional"], name)) {
@@ -221,6 +230,7 @@ fun st_annotation(annotation: Any, module: Any, variables: Any, span: Any) -> An
         t.name = st_export_name(module, name, span, ST_RECORDS);
         if (len(args) != 0) { diagnostic(span, "record types do not accept type arguments"); }
     }
+    if (BEHAVIOR_CALLABLES and st_shared_behavior(t)) { diagnostic(span, "behavioral callable storage in shared types is not supported"); }
     return t;
 }
 fun st_scope() -> Any { push(ST_SCOPES, ({})); return 0; }
@@ -245,6 +255,10 @@ fun st_signature(rec: Any) -> Any {
     let params: Any = [];
     for param: Any in rec.parr { push(params, st_annotation(param.annotation, module, variables, param.span)); }
     let result: Any = st_annotation(rec.returnType, module, variables, rec.body.span);
+    if (rec.foreign == true) {
+        for param: Any in params { if (st_has_behavior(param)) { diagnostic(rec.moduleSpan ?? rec.body.span, "foreign callable behavior contracts are not supported"); } }
+        if (st_has_behavior(result)) { diagnostic(rec.moduleSpan ?? rec.body.span, "foreign callable behavior contracts are not supported"); }
+    }
     let t: Any = st_type("Function", params); t.result = result; t.variables = variables;
     if (rec.behaviorSummary != nil) {
         // An annotated value exposes its declared ceiling, even if its current
@@ -288,7 +302,12 @@ fun st_unify(expected: Any, actual: Any, bindings: Any, span: Any) -> Any {
     if (starts_with(expected.name, "$")) {
         if (has(bindings, expected.name)) {
             if (bindings[expected.name].name == "Never" and actual.name != "Never") { bindings[expected.name] = actual; }
-            else { st_require(bindings[expected.name], actual, span); }
+            else {
+                let previous: Any = bindings[expected.name];
+                let joined: Any = if (previous.name == "Function" and actual.name == "Function") { st_join(previous, actual, span) } else { nil };
+                if (joined != nil and joined.name == "Function") { bindings[expected.name] = joined; }
+                else { st_require(previous, actual, span); }
+            }
         }
         else { bindings[expected.name] = actual; }
         return 0;
@@ -479,6 +498,9 @@ fun st_invoke(callee: Any, args: Any, span: Any) -> Any {
     st_arity("function", args, len(callee.arguments), len(callee.arguments), span);
     let bindings: Any = {};
     for i: Any in 0..len(args) { st_unify(callee.arguments[i], args[i], bindings, span); }
+    // A later argument can widen a callable-valued type variable. Recheck all
+    // earlier arguments against the final solution, including contravariance.
+    for i: Any in 0..len(args) { st_require(st_substitute(callee.arguments[i], bindings), args[i], span); }
     return st_substitute(callee.result, bindings);
 }
 fun st_member(object: Any, name: Any, span: Any) -> Any {
@@ -531,7 +553,12 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
         if (name == "true" or name == "false") { return st_type("Bool", []); }
         if (name == "nil") { return st_type("Nil", []); }
         if (name == "err") { return st_any(); }
-        if (node.moduleObject != nil and st_local(ctx, symbol_name(node.moduleObject.name, node.moduleObject.length)) != nil) { return st_member(st_expr(ctx, node.moduleObject), symbol_name(node.span.source + node.memberStart, node.memberLength), node.span); }
+        if (node.moduleObject != nil) {
+            let alias: Any = symbol_name(node.moduleObject.name, node.moduleObject.length);
+            if (st_local(ctx, alias) != nil or has(ST_GLOBALS, source_module(node.span) + "::" + alias)) {
+                return st_member(st_expr(ctx, node.moduleObject), symbol_name(node.span.source + node.memberStart, node.memberLength), node.span);
+            }
+        }
         return st_resolve(ctx, name, node.span);
     }
     if (k == E_CALL) {
@@ -781,14 +808,23 @@ fun strict_program(ctx: Any) -> Any {
     for enumeration: Any in ENUM_DECLS { let module: Any = source_module(enumeration.span); let key: Any = if (module == "") { enumeration.name } else { module + "::" + enumeration.name }; ST_RECORDS[key] = {"fields": {"tag": st_type("Str", [])}, "variants": []}; enumeration.strictName = key; }
     for record: Any in STRUCT_DECLS {
         let params: Any = []; let fields: Any = {};
-        for field: Any in record.fields { let t: Any = st_annotation(field.annotation, source_module(record.span), [], field.span); fields[symbol_name(field.name, field.length)] = t; push(params, t); }
+        for field: Any in record.fields {
+            let t: Any = st_annotation(field.annotation, source_module(record.span), [], field.span);
+            if (BEHAVIOR_CALLABLES and st_has_behavior(t)) { diagnostic(field.span, "behavioral callable storage in shared fields is not supported"); }
+            fields[symbol_name(field.name, field.length)] = t; push(params, t);
+        }
         ST_RECORDS[record.strictName].fields = fields;
         let t: Any = st_type("Function", params); t.result = st_type(record.strictName, []);
         record.constructor.strictSignature = t; record.constructor.strictSynthetic = true;
     }
     for enumeration: Any in ENUM_DECLS {
         for variant: Any in enumeration.variants {
-            let params: Any = []; for param: Any in variant.parameters { push(params, st_annotation(param.annotation, source_module(enumeration.span), [], param.span)); }
+            let params: Any = [];
+            for param: Any in variant.parameters {
+                let t: Any = st_annotation(param.annotation, source_module(enumeration.span), [], param.span);
+                if (BEHAVIOR_CALLABLES and st_has_behavior(t)) { diagnostic(param.span, "behavioral callable storage in shared fields is not supported"); }
+                push(params, t);
+            }
             let t: Any = st_type("Function", params); t.result = st_type(enumeration.strictName, []);
             t.variantTag = variant.name; push(ST_RECORDS[enumeration.strictName].variants, variant.name);
             variant.constructor.strictSignature = t; variant.constructor.strictSynthetic = true;
