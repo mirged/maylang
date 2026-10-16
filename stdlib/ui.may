@@ -25,7 +25,7 @@ struct Rect { x: Int, y: Int, w: Int, h: Int }
 /// Internal input region retaining its concrete widget and rectangles.
 struct Hit { item: Widget, rect: Rect, full: Rect, limit: Int }
 /// Persistent window interaction state. Keep it while rebuilding views.
-pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Hit>, root: Any, active: Bool }
+pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Hit>, root: Any, active: Bool, cursor: Int }
 /// Action kind is click, toggle, edit, submit, close, resize, repaint or idle.
 pub struct Event { kind: Str, id: Str, text: Str, width: Int, height: Int }
 /// Construct an internal widget with shared defaults.
@@ -70,7 +70,7 @@ pub fun open(title: Str, width: Int, height: Int, headless: Bool) -> Window {
     if (mui_surface(width, height) == 0) { fail("ui: cannot create surface/load font; set MAYUI_FONT to a trusted TrueType font"); }
     if (not headless and mui_window_open(width, height, title) == 0) { mui_release(); fail("ui: cannot open X11 display; check DISPLAY"); }
     surface_active = true;
-    return Window(width, height, headless, "", 0, false, -1, -1, {}, [], nil, true);
+    return Window(width, height, headless, "", 0, false, -1, -1, {}, [], nil, true, 0);
 }
 /// Release native window, font and raster memory. Close is idempotent.
 pub fun close(window: Window) -> Nil { if (window.active) { mui_window_close(); mui_release(); window.active = false; surface_active = false; } return; }
@@ -245,12 +245,42 @@ pub fun dispatch(window: Window, kind: Int, a: Int, b: Int, modifiers: Int, text
 }
 /// Wait for one X11 event (up to 50 ms) and translate it to a Maylang action.
 pub fun poll(window: Window) -> Event {
-    if (window.headless or not window.active) { return action("idle", "", "", window); }
+    if (window.headless or not window.active) { 
+        return action("idle", "", "", window); 
+    }
+
+    // 1. Snapshot previous cursor coordinates:
+    let old_x: Int = window.mouse_x;
+    let old_y: Int = window.mouse_y;
+
     let raw: Ptr = mui_window_event();
-    let result: Event = dispatch(window, load64(raw), load64(raw + 8), load64(raw + 16), load64(raw + 24), mui_window_text());
-    mut cursor: Int = 0;
-    for hit: Hit in window.hits { if (hit.item.kind != "scroll" and inside(hit.rect, window.mouse_x, window.mouse_y)) { cursor = if (hit.item.kind == "entry") { 2 } else { 1 }; } }
-    mui_window_cursor(cursor); return result;
+    let result: Event = dispatch(
+        window, 
+        load64(raw), 
+        load64(raw + 8), 
+        load64(raw + 16), 
+        load64(raw + 24), 
+        mui_window_text()
+    );
+
+    // 2. Only hit-test if dispatch() actually moved the mouse:
+    if (window.mouse_x != old_x or window.mouse_y != old_y) {
+        mut next_cursor: Int = 0;
+        for hit: Hit in window.hits { 
+            if (hit.item.kind != "scroll" and inside(hit.rect, window.mouse_x, window.mouse_y)) { 
+                next_cursor = if (hit.item.kind == "entry") { 2; } else { 1; };
+                break; // Topmost hit found, stop scanning!
+            } 
+        }
+
+        // 3. Only notify X11 if the cursor type actually changed:
+        if (next_cursor != window.cursor) {
+            window.cursor = next_cursor;
+            mui_window_cursor(next_cursor);
+        }
+    }
+
+    return result;
 }
 /// Write the current surface to PNG without needing a display.
 pub fun snapshot(window: Window, path: Str) -> Nil { if (not window.active or mui_snapshot(path) == 0) { fail("ui: PNG snapshot failed: " + path); } return; }
