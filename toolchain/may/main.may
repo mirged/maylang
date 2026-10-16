@@ -16,7 +16,7 @@ fun create(directory: Str, with_ui: Bool) -> Nil {
     let targets: Any = {"app": {"kind": "app", "entry": "src/main.may"}, "tests": {"kind": "test", "root": "tests"}};
     if (with_ui) {
         targets.ui = {"kind": "native", "inputs": ["{stdlib}/ui/native"], "outputs": ["libmayui.so"],
-            "command": ["cc", "-O2", "-fPIC", "-shared", "{stdlib}/ui/native/draw.c", "{stdlib}/ui/native/window.c", "-o", "{out}/libmayui.so", "-lX11", "-lm"]};
+            "command": ["cc", "-O2", "-fPIC", "-shared", "{stdlib}/ui/native/draw.c", "{stdlib}/ui/native/sokol.c", "-o", "{out}/libmayui.so", "-lX11", "-lXi", "-lXcursor", "-lGL", "-ldl", "-pthread", "-lm"]};
         targets.app.depends = ["ui"];
     }
     write_file(root + "/may.json", json_stringify({"schema": 1, "name": name, "default": "app", "targets": targets, "dependencies": {}}) + "\n");

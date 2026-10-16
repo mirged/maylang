@@ -45,6 +45,22 @@ def inspect(profile):
             except (OSError, subprocess.TimeoutExpired):
                 pass
         checks.append(('X11 headers', headers, 'Install libx11-dev (Ubuntu/Debian).'))
+        if profile in ('ui', 'package'):
+            sokol = False
+            if cc:
+                try:
+                    sokol = subprocess.run(
+                        [cc, '-x', 'c', '-', '-o', os.devnull, '-lX11', '-lXi', '-lXcursor',
+                         '-lGL', '-ldl', '-pthread', '-lm'],
+                        input='#include <X11/extensions/XInput2.h>\n'
+                              '#include <X11/Xcursor/Xcursor.h>\n#include <GL/gl.h>\n'
+                              'int main(void) { return 0; }\n',
+                        text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=10).returncode == 0
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            checks.append(('Sokol Linux libraries', sokol,
+                           'Install libx11-dev libxi-dev libxcursor-dev libgl-dev (Ubuntu/Debian).'))
         font = Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
         checks.append(('DejaVu font', font.is_file(), 'Install fonts-dejavu-core (Ubuntu/Debian).'))
     if profile == 'browser':

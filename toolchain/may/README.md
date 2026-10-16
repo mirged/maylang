@@ -19,7 +19,8 @@ work without an environment override. The current tool host is Linux x86-64.
 
 `may new my-desktop-app --ui` creates a runnable [native UI](../../stdlib/ui/README.md)
 application and its explicit native adapter prerequisite. It needs a C compiler,
-X11 development headers, a font and X11/XWayland for interactive windows.
+X11/Xi/Xcursor/OpenGL development libraries, a font and X11/XWayland with
+OpenGL 4.3 for interactive Sokol windows.
 
 ## Workspace model
 

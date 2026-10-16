@@ -85,8 +85,9 @@ can use `maypkg` or `may migrate`. The [formatter](toolchain/mayfmt/README.md)
 also powers editor formatting.
 
 For a desktop project, use `may new my-app --ui`. The
-[native UI library](stdlib/ui/README.md) needs a C compiler, X11 development
-headers, and DejaVu fonts; windows use X11/XWayland. The complete
+[native UI library](stdlib/ui/README.md) uses Sokol and needs a C compiler,
+X11/Xi/Xcursor/OpenGL development libraries, and DejaVu fonts; windows use
+X11/XWayland and OpenGL 4.3. The complete
 [Mayboard task board](example_projects/apps/mayboard/README.md) supports a
 preview without a display:
 
@@ -94,6 +95,11 @@ preview without a display:
 cd example_projects/apps/mayboard
 may run -- --demo --snapshot /tmp/mayboard.png
 ```
+
+The [May NES emulator](example_projects/apps/maynes/README.md) is a playable
+native app with a GPU framebuffer, sound, ROM loading and persistent save states.
+Run `may run` from `example_projects/apps/maynes`; an original homebrew game is
+included.
 
 ## Language and targets
 

@@ -1,0 +1,7 @@
+import "nes/app.may" as app;
+may {
+    app.application();
+} otherwise {
+    print(err.message);
+    exit(1);
+}

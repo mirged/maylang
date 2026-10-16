@@ -54,8 +54,8 @@ mayc hello.may -o hello
 
 The compiler, project runner, formatter, package manager and language server
 are `mayc`, `may`, `mayfmt`, `maypkg` and `maylsp`. Native UI builds need a C
-compiler, X11 development headers and a TrueType font; ordinary native
-compilation needs none of those. The project runner uses `sha256sum` from
+compiler, X11/Xi/Xcursor/OpenGL development libraries and a TrueType font;
+ordinary native compilation needs none of those. The project runner uses `sha256sum` from
 coreutils for its build cache.
 
 ## Unattended setup and accessibility

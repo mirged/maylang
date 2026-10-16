@@ -1,0 +1,103 @@
+extern "libmaynes.so" {
+    fun nes_load(path: Str) -> Int;
+    fun nes_frame(buttons: Int) -> Int;
+    fun nes_pixels() -> Ptr;
+    fun nes_message() -> Str;
+    fun nes_title() -> Str;
+    fun nes_path() -> Str;
+    fun nes_storage() -> Str;
+    fun nes_mapper() -> Int;
+    fun nes_period_us() -> Int;
+    fun nes_frame_count() -> Int;
+    fun nes_frame_hash() -> Int;
+    fun nes_reset() -> Int;
+    fun nes_save() -> Int;
+    fun nes_restore() -> Int;
+    fun nes_audio(enabled: Int) -> Void;
+    fun nes_audio_clear() -> Void;
+    fun nes_audio_samples() -> Int;
+    fun nes_audio_status() -> Int;
+    fun nes_battery_flush() -> Void;
+    fun nes_pick_rom() -> Str;
+    fun nes_preferences(text: Str) -> Int;
+    fun nes_close() -> Void;
+}
+pub fun load(path: Str) -> Bool {
+    return nes_load(path) != 0;
+}
+pub fun frame(buttons: Int) -> Bool {
+    return nes_frame(buttons) != 0;
+}
+pub fun pixels() -> Ptr {
+    return nes_pixels();
+}
+pub fun message() -> Str {
+    return nes_message();
+}
+pub fun title() -> Str {
+    return nes_title();
+}
+pub fun path() -> Str {
+    return nes_path();
+}
+pub fun storage() -> Str {
+    return nes_storage();
+}
+pub fun mapper() -> Int {
+    return nes_mapper();
+}
+pub fun period() -> Int {
+    return nes_period_us();
+}
+pub fun frames() -> Int {
+    return nes_frame_count();
+}
+pub fun hash() -> Int {
+    return nes_frame_hash();
+}
+pub fun reset() -> Bool {
+    return nes_reset() != 0;
+}
+pub fun save() -> Bool {
+    return nes_save() != 0;
+}
+pub fun restore() -> Bool {
+    return nes_restore() != 0;
+}
+pub fun audio(enabled: Bool) -> Nil {
+    nes_audio(if (enabled) {
+        1
+    } else {
+        0
+    });
+    return;
+}
+pub fun silence() -> Nil {
+    nes_audio_clear();
+    return;
+}
+pub fun audio_status() -> Str {
+    return if (nes_audio_status() > 0) {
+        "48 kHz mono"
+    } else if (nes_audio_status() < 0) {
+        "Audio unavailable"
+    } else {
+        "Audio starting…"
+    };
+}
+pub fun battery_flush() -> Nil {
+    nes_battery_flush();
+    return;
+}
+pub fun pick() -> Str {
+    return nes_pick_rom();
+}
+pub fun preferences(text: Str) -> Bool {
+    return nes_preferences(text) != 0;
+}
+pub fun close() -> Nil {
+    nes_close();
+    return;
+}
+
+pub fun audio_samples() -> Int { return nes_audio_samples(); }

@@ -1,0 +1,74 @@
+{
+    "schema": 1,
+    "name": "maynes",
+    "default": "app",
+    "targets": {
+        "ui": {
+            "kind": "native",
+            "inputs": [
+                "{stdlib}/ui/native"
+            ],
+            "outputs": [
+                "libmayui.so"
+            ],
+            "command": [
+                "cc",
+                "-O2",
+                "-fPIC",
+                "-shared",
+                "{stdlib}/ui/native/draw.c",
+                "{stdlib}/ui/native/sokol.c",
+                "-o",
+                "{out}/libmayui.so",
+                "-lX11",
+                "-lXi",
+                "-lXcursor",
+                "-lGL",
+                "-ldl",
+                "-pthread",
+                "-lm"
+            ]
+        },
+        "tests": {
+            "kind": "test",
+            "root": "tests",
+            "depends": [
+                "ui",
+                "nes"
+            ]
+        },
+        "app": {
+            "kind": "app",
+            "entry": "src/main.may",
+            "depends": [
+                "ui",
+                "nes"
+            ]
+        },
+        "nes": {
+            "kind": "native",
+            "inputs": [
+                "native"
+            ],
+            "outputs": [
+                "libmaynes.so"
+            ],
+            "command": [
+                "cc",
+                "-O2",
+                "-DBINJNES_GCC",
+                "-fPIC",
+                "-shared",
+                "{root}/native/nes.c",
+                "{root}/native/vendor/binjnes/emulator.c",
+                "{root}/native/vendor/binjnes/common.c",
+                "{root}/native/vendor/binjnes/cartdb.c",
+                "-o",
+                "{out}/libmaynes.so",
+                "-ldl",
+                "-pthread",
+                "-lm"
+            ]
+        }
+    }
+}

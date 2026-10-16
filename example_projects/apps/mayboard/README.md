@@ -17,8 +17,8 @@ may test
 may dev
 ```
 
-Install `build-essential libx11-dev fonts-dejavu-core` on Debian/Ubuntu and run
-under X11/XWayland. The declared native prerequisite builds automatically.
+Install `build-essential libx11-dev libxi-dev libxcursor-dev libgl-dev fonts-dejavu-core` on Debian/Ubuntu and run
+under X11/XWayland with OpenGL 4.3 (including Mesa software rendering). The declared native prerequisite builds automatically.
 
 ```sh
 may run -- --demo

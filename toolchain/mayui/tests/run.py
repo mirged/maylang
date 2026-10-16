@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -19,7 +20,7 @@ def main():
     parser.add_argument("--require-x11", action="store_true")
     parser.add_argument("--display", help="use an existing test display instead of starting Xvfb")
     options = parser.parse_args()
-    environment = dict(os.environ, MAYLANG_STDLIB=str(ROOT / "stdlib"), MAYC=str(options.compiler.resolve()))
+    environment = dict(os.environ, MAYLANG_STDLIB=str(ROOT / "stdlib"), MAYC=str(options.compiler.resolve()), MAYUI_RENDERER="gpu")
     if options.display:
         environment["DISPLAY"] = options.display
     with tempfile.TemporaryDirectory(prefix="may-ui-") as temporary:
@@ -27,14 +28,23 @@ def main():
         environment["LD_LIBRARY_PATH"] = str(directory) + ":" + environment.get("LD_LIBRARY_PATH", "")
 
         def run(command, cwd=ROOT, timeout=90):
-            return subprocess.run(list(map(str, command)), cwd=cwd, env=environment, check=True,
-                                  text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout).stdout
+            result = subprocess.run(list(map(str, command)), cwd=cwd, env=environment,
+                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+            if result.returncode:
+                raise RuntimeError(f"{command}\n{result.stdout}\n{result.stderr}")
+            return result.stdout
 
         def compile(source, output):
             run([options.compiler, source, "-o", output])
 
         native = ROOT / "stdlib/ui/native"
-        run(["cc", "-O2", "-Wall", "-Wextra", "-Werror", "-fPIC", "-shared", native / "draw.c", native / "window.c", "-o", directory / "libmayui.so", "-lX11", "-lm"])
+        run(["cc", "-O2", "-Wall", "-Wextra", "-Werror", "-fPIC", "-shared", native / "draw.c", native / "sokol.c", "-o", directory / "libmayui.so", "-lX11", "-lXi", "-lXcursor", "-lGL", "-ldl", "-pthread", "-lm"])
+        print(run([sys.executable, Path(__file__).with_name('native.py'), directory / 'libmayui.so']).strip(), flush=True)
+        print(run([sys.executable, Path(__file__).with_name('raster.py'), directory / 'libmayui.so']).strip(), flush=True)
+        compile(ROOT / "examples/ui_showcase.may", directory / "showcase")
+        run([directory / "showcase", "--snapshot", directory / "light.png"])
+        run([directory / "showcase", "--dark", "--snapshot", directory / "dark.png"])
+        assert (directory / "light.png").read_bytes() != (directory / "dark.png").read_bytes()
         compile(ROOT / "toolchain/mayui/tests/widgets.may", directory / "widgets")
         print(run([directory / "widgets"]).strip())
         compile(ROOT / "toolchain/may/main.may", directory / "may")
@@ -68,6 +78,13 @@ def main():
                 display = os.read(read_fd, 32).decode().strip(); os.close(read_fd)
                 assert display, server.stderr.read().decode()
                 environment["DISPLAY"] = ":" + display
+            print(run([sys.executable, Path(__file__).with_name('native.py'), directory / 'libmayui.so', '--window']).strip(), flush=True)
+            software = subprocess.run([sys.executable, str(Path(__file__).with_name('native.py')),
+                                       str(directory / 'libmayui.so'), '--window'],
+                                      env=dict(environment, MAYUI_RENDERER='cpu'), capture_output=True,
+                                      text=True, timeout=90)
+            assert software.returncode == 0, (software.stdout, software.stderr)
+            print('PASS forced CPU reference in a native Sokol window', flush=True)
             compile(APP / "src/main.may", directory / "mayboard")
             data = directory / "data/tasks.json"
 

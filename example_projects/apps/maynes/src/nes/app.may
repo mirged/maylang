@@ -1,0 +1,255 @@
+import "ui" as ui;
+import "emulator.may" as nes;
+import "state.may" as model;
+import "view.may" as view;
+let clock: Str = repeat(" ", 16);
+fun now() -> Int {
+    if (syscall(228, 1, addr(clock)) != 0) {
+        fail("Monotonic clock unavailable");
+    }
+    return load64(addr(clock)) * 1000000 + load64(addr(clock) + 8) / 1000;
+}
+fun upload() -> Nil {
+    ui.upload_rgba(nes.pixels(), 256, 240);
+    return;
+}
+fun buttons(window: ui.Window) -> Int {
+    mut value: Int = 0;
+    for pair: List<Int> in [[88, 1],[90, 2],[344, 4],[257, 8],[265, 16],[264, 32],[263, 64],[262, 128]] {
+        if (ui.key_down(window, pair[0])) {
+            value += pair[1];
+        }
+    }
+    return value;
+}
+fun perform(state: model.Model, window: ui.Window, id: Str) -> Nil {
+    if (id == "open") {
+        nes.silence();
+        let path: Str = nes.pick();
+        if (path != "") {
+            model.load(state, path);
+            upload();
+        } else {
+            state.message = nes.message();
+        }
+    } else if (id == "demo") {
+        model.load(state, "");
+        upload();
+    } else if (id == "load") {
+        model.load(state, state.path);
+        upload();
+    } else if (starts_with(id, "recent:")) {
+        model.load(state, state.recent[int(substring(id, 7, len(id) - 7))]);
+        upload();
+    } else if (id == "pause") {
+        state.paused = not state.paused;
+        nes.silence();
+    } else if (id == "reset") {
+        nes.reset();
+        state.message = nes.message();
+        upload();
+    } else if (id == "save") {
+        nes.save();
+        state.message = nes.message();
+    } else if (id == "restore") {
+        nes.restore();
+        state.message = nes.message();
+        upload();
+    } else if (id == "step") {
+        state.paused = true;
+        nes.frame(buttons(window));
+        nes.silence();
+        upload();
+    } else if (id == "mute") {
+        state.muted = not state.muted;
+        nes.audio(not state.muted);
+        model.persist(state);
+    } else if (id == "integer") {
+        state.integer_scale = not state.integer_scale;
+        model.persist(state);
+    } else if (id == "autopause") {
+        state.auto_pause = not state.auto_pause;
+        model.persist(state);
+    }
+    window.focus = "";
+    return;
+}
+pub fun application() -> Nil {
+    let argv: List<Str> = args();
+    mut rom: Str = "";
+    mut snapshot: Str = "";
+    mut report: Str = "";
+    mut frames: Int = 90;
+    mut headless: Bool = false;
+    mut batch: Bool = false;
+    mut start_paused: Bool = false;
+    mut width: Int = 1280;
+    mut height: Int = 960;
+    mut index: Int = 1;
+    while (index < len(argv)) {
+        let option: Str = argv[index];
+        if (option == "--help") {
+            print("May NES — a native Maylang NES player\n  may run\n  may run -- --rom /path/to/game.nes\n  may run -- --headless --frames 180 --snapshot preview.png --report run.json\nOptions: --paused, --frames 1..100000, --width 800..2400, --height 720..1600\nControls: arrows D-pad, X A, Z B, Enter Start, right Shift Select.\nP pause, N step, R reset, O open, M mute, F5 save, F8 load.\nIncludes original Starfall homebrew; cartridges must be uncompressed iNES 1.0.");
+            return;
+        } else if (option == "--headless") {
+            headless = true;
+            batch = true;
+        } else if (option == "--paused") {
+            start_paused = true;
+        } else if ((option == "--rom" or option == "--snapshot" or option == "--report" or option == "--frames" or option == "--width" or option == "--height") and index + 1 < len(argv)) {
+            index += 1;
+            if (option == "--rom") {
+                rom = argv[index];
+            } else if (option == "--snapshot") {
+                snapshot = argv[index];
+                batch = true;
+            } else if (option == "--report") {
+                report = argv[index];
+                batch = true;
+            } else if (option == "--frames") {
+                frames = int(argv[index]);
+                batch = true;
+            } else if (option == "--width") {
+                width = int(argv[index]);
+            } else {
+                height = int(argv[index]);
+            }
+        } else {
+            fail("Unknown or incomplete option: " + option);
+        }
+        index += 1;
+    }
+    if (frames < 1 or frames > 100000 or width < 800 or width > 2400 or height < 720 or height > 1600) {
+        fail("Option outside supported range; see --help");
+    }
+    let state: model.Model = model.create();
+    if (not model.load(state, rom)) {
+        nes.close();
+        fail(state.message);
+    }
+    state.paused = start_paused;
+    let window: ui.Window = ui.open("May NES · Native player", width, height, headless);
+    ui.set_theme(window, ui.dark_theme());
+    may {
+        if (batch) {
+            let start: Int = now();
+            for frame: Int in 0 .. frames {
+                if (not nes.frame(0)) {
+                    fail(nes.message());
+                }
+            }
+            let elapsed: Int = now() - start;
+            state.cost = elapsed / frames;
+            state.rate = frames * 1000000 / int(max(1, elapsed));
+            upload();
+            ui.present(window, view.render(state, window));
+            if (snapshot != "") {
+                ui.snapshot(window, snapshot);
+            }
+            let output: Str = json_stringify({
+                "app": "May NES",
+                "rom": nes.title(),
+                "mapper": nes.mapper(), "audio_samples": nes.audio_samples(),
+                "frames": nes.frames(),
+                "core_ms": float(elapsed) / 1000.0,
+                "core_us_per_frame": elapsed / frames,
+                "frame_hash": nes.hash(),
+                "renderer": ui.renderer(window)
+            });
+            if (report != "") {
+                write_file(report, output + "\n");
+            }
+            print(output);
+        } else {
+            nes.audio(not state.muted);
+            upload();
+            ui.present(window, view.render(state, window));
+            mut deadline: Int = now();
+            mut rate_start: Int = deadline;
+            mut rate_frames: Int = 0;
+            mut running: Bool = true;
+            mut last_flush: Int = deadline;
+            while (running) {
+                let event: ui.Event = ui.poll_for(window, int(max(0, min(16,(deadline - now()) / 1000))));
+                if (event.kind == "close") {
+                    running = false;
+                    continue;
+                }
+                mut dirty: Bool = event.kind != "idle";
+                if (event.kind == "edit" and event.id == "rom-path") {
+                    state.path = event.text;
+                }
+                if (event.kind == "click" or event.kind == "toggle" or event.kind == "submit") {
+                    perform(state, window, if (event.kind == "submit") {
+                        "load"
+                    } else {
+                        event.id
+                    });
+                    deadline = now();
+                }
+                {
+                    let editing: Bool = window.focus == "rom-path";
+                    for pair: List<Str> in [["80", "pause"],["78", "step"],["82", "reset"],["79", "open"],["77", "mute"],["294", "save"],["297", "restore"]] {
+                        let pressed: Bool = ui.key_pressed(window, int(pair[0]));
+                        if (pressed and not editing) {
+                            perform(state, window, pair[1]);
+                            deadline = now();
+                            dirty = true;
+                        }
+                    }
+                }
+                let suspended: Bool = window.focus == "rom-path" or(state.auto_pause and not ui.focused(window));
+                if (suspended != state.suspended) {
+                    state.suspended = suspended;
+                    nes.silence();
+                    deadline = now();
+                    dirty = true;
+                }
+                let current: Int = now();
+                if (not state.paused and not suspended and current >= deadline) {
+                    // Follow the cartridge's region clock, with a bounded catch-up budget.
+                    mut count: Int = 0;
+                    let begin: Int = now();
+                    while (now() >= deadline and count < 3) {
+                        if (not nes.frame(buttons(window))) {
+                            state.paused = true;
+                            state.message = nes.message();
+                            break;
+                        }
+                        deadline += nes.period();
+                        count += 1;
+                        rate_frames += 1;
+                    }
+                    state.cost = (now() - begin) / int(max(1, count));
+                    if (now() - deadline > nes.period() * 3) {
+                        deadline = now() + nes.period();
+                    }
+                    upload();
+                    dirty = true;
+                } else if (state.paused or suspended) {
+                    deadline = now() + 16000;
+                }
+                if (current - rate_start >= 1000000) {
+                    state.rate = rate_frames * 1000000 /(current - rate_start);
+                    rate_frames = 0;
+                    rate_start = current;
+                    dirty = true;
+                }
+                if (current - last_flush > 5000000) {
+                    nes.battery_flush();
+                    last_flush = current;
+                }
+                if (dirty) {
+                    ui.present(window, view.render(state, window));
+                }
+            }
+        }
+    } otherwise {
+        nes.close();
+        ui.close(window);
+        fail(err.message);
+    }
+    nes.close();
+    ui.close(window);
+    return;
+}

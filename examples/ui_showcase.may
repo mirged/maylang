@@ -1,0 +1,72 @@
+import "ui" as ui;
+fun label(text: Str, size: Int, color: Int) -> ui.Widget { return ui.style(ui.label(text), -1, color, size, 0); }
+fun panel(children: List<ui.Widget>) -> ui.Widget { return ui.card(ui.spacing(ui.column(children), 24, 16)); }
+fun view(window: ui.Window, name: Str, checked: Bool, dark: Bool, message: Str) -> ui.Widget {
+    let t: ui.Theme = window.theme;
+    let brand: ui.Widget = ui.style(ui.size(ui.spacing(ui.label("m"), 15, 0), 54, 54), t.accent, t.on_accent, 32, 16);
+    let heading: ui.Widget = ui.size(ui.row([
+        brand, ui.flex(ui.column([label("A softer kind of native.", 32, t.text), label("May UI  /  Sokol graphics  /  Carefully drawn details", 14, t.muted)]), 1),
+        ui.size(ui.button("theme", if (dark) { "Light appearance" } else { "Dark appearance" }), 156, 42)
+    ]), 0, 76);
+    let chips: List<ui.Widget> = [];
+    for text: Str in ["Smooth rounded edges", "2× glyph sampling", "One GPU draw batch"] {
+        push(chips, ui.flex(ui.style(ui.spacing(ui.label(text), 14, 0), t.soft, t.muted, 14, 10), 1));
+    }
+    let editor: ui.Widget = ui.flex(panel([
+        label("YOUR WORKSPACE", 12, t.accent), label("Make room for the next idea.", 26, t.text),
+        label("A calm surface for a busy day. Every corner gets the same care.", 14, t.muted),
+        ui.spacer(2), label("Project name", 14, t.text), ui.size(ui.entry("name", name), 0, 46),
+        ui.checkbox("reminders", "Keep me in the loop with gentle reminders", checked),
+        ui.row([ui.flex(ui.primary(ui.button("create", "Create workspace")), 1), ui.button("cancel", "Reset"), ui.enabled(ui.button("disabled", "Publish"), false)]),
+        label(message, 13, t.muted)
+    ]), 2);
+    let preview: ui.Widget = ui.flex(panel([
+        label("GOOD THINGS, IN PROGRESS", 12, t.accent), label("A little more clarity.", 23, t.text),
+        label("Three small steps to something great.", 14, t.muted), ui.spacer(4),
+        ui.checkbox("step-1", "Find your direction", true),
+        ui.checkbox("step-2", "Give the details some love", true),
+        ui.checkbox("step-3", "Share what you make", false),
+        ui.flex(ui.spacer(0), 1),
+        ui.style(ui.spacing(ui.column([label("Built to feel at home.", 17, t.text), label("Soft shadows. Quiet borders. Clear focus.", 12, t.muted)]), 16, 8), t.soft, t.text, 16, 12)
+    ]), 1);
+    let surfaces: List<ui.Widget> = [];
+    for level: Int in [0, 1, 2] {
+        let tile: ui.Widget = ui.border(ui.elevated(ui.style(ui.spacing(ui.column([
+            label(if (level == 0) { "GROUND" } else if (level == 1) { "RAISED" } else { "FLOATING" }, 11, t.accent),
+            label(if (level == 0) { "Clean and considered" } else if (level == 1) { "Just enough depth" } else { "A touch of elevation" }, 18, t.text),
+            label("Concentric borders · continuous curves", 12, t.muted)
+        ]), 20, 9), t.surface, t.text, 16, 14), level), t.border, 1);
+        push(surfaces, ui.flex(tile, 1));
+    }
+    return ui.spacing(ui.column([
+        heading, ui.size(ui.row(chips), 0, 42), ui.flex(ui.row([editor, preview]), 1),
+        ui.size(ui.row(surfaces), 0, 114),
+        ui.size(ui.row([ui.flex(label("Native by nature. Thoughtful by design.", 13, t.muted), 1), label(if (window.headless) { "SOFTWARE REFERENCE" } else { "GPU RENDERED" }, 11, t.accent)]), 0, 22)
+    ]), 32, 20);
+}
+let argv: List<Str> = args();
+mut dark: Bool = false; mut snapshot: Str = "";
+for i: Int in 1..len(argv) {
+    if (argv[i] == "--dark") { dark = true; }
+    else if (argv[i] == "--snapshot" and i + 1 < len(argv)) { snapshot = argv[i + 1]; }
+}
+let window: ui.Window = ui.open("May UI · Soft surfaces", 1200, 840, snapshot != "");
+ui.set_theme(window, if (dark) { ui.dark_theme() } else { ui.light_theme() });
+mut name: Str = "A small, lovely idea"; mut checked: Bool = true;
+mut message: Str = "Start with something small. Make it feel good.";
+ui.focus(window, "name");
+mut running: Bool = true;
+while (running) {
+    ui.present(window, view(window, name, checked, dark, message));
+    if (snapshot != "") { ui.snapshot(window, snapshot); break; }
+    let event: ui.Event = ui.poll(window);
+    if (event.kind == "close") { running = false; }
+    if (event.kind == "edit" and event.id == "name") { name = event.text; }
+    if (event.kind == "toggle" and event.id == "reminders") { checked = event.text == "true"; }
+    if (event.kind == "click") {
+        if (event.id == "theme") { dark = not dark; ui.set_theme(window, if (dark) { ui.dark_theme() } else { ui.light_theme() }); }
+        if (event.id == "create") { message = "Created “" + name + "” · ready for your next idea."; }
+        if (event.id == "cancel") { name = "A small, lovely idea"; message = "A fresh start."; }
+    }
+}
+ui.close(window);

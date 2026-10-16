@@ -27,7 +27,7 @@
     "ml/optim.may": "SGD, momentum and Adam optimizer state and updates.",
     "ml/tensor.may": "Dense row-major tensors, broadcasting, reductions and matrix operations.",
     "core": "Portable core library, including typed scratch arenas and basic list/string/integer helpers.",
-    "ui.may": "Native Linux desktop widget trees, layout, Unicode inputs, focus, scrolling, virtual lists and headless PNG snapshots; requires the May UI X11 adapter."
+    "ui.may": "Native Linux desktop widget trees, themes, antialiased GPU shapes/text, layout, Unicode inputs, focus, scrolling, virtual lists and software PNG snapshots; requires the May UI Sokol adapter."
   },
   "symbols": {
     "identity": "Return the argument unchanged.",

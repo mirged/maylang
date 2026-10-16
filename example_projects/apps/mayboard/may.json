@@ -17,10 +17,15 @@
                 "-fPIC",
                 "-shared",
                 "{stdlib}/ui/native/draw.c",
-                "{stdlib}/ui/native/window.c",
+                "{stdlib}/ui/native/sokol.c",
                 "-o",
                 "{out}/libmayui.so",
                 "-lX11",
+                "-lXi",
+                "-lXcursor",
+                "-lGL",
+                "-ldl",
+                "-pthread",
                 "-lm"
             ]
         },

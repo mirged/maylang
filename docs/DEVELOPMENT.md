@@ -65,7 +65,7 @@ python3 scripts/doctor.py --profile package
 | --- | --- |
 | Test | `readelf` from binutils |
 | LLVM | Clang/LLVM; `sudo apt-get install clang llvm` |
-| UI | `libx11-dev`, `fonts-dejavu-core`; X11/XWayland for windows |
+| UI | `libx11-dev`, `libxi-dev`, `libxcursor-dev`, `libgl-dev`, `fonts-dejavu-core`; X11/XWayland and OpenGL 4.3 for Sokol windows |
 | Browser | UI dependencies, libcurl and `libduktape.so.207` |
 | Window testing | `xvfb`, `xauth`, `xdotool` |
 | Editor | Node.js and npm; CI uses Node 22 |

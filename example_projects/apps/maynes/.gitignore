@@ -1,0 +1,4 @@
+.may/
+*.png
+run*.json
+!screenshots/*.png

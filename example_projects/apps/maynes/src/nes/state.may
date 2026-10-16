@@ -1,0 +1,84 @@
+import "emulator.may" as nes;
+pub struct Model {
+    paused: Bool,
+    muted: Bool,
+    integer_scale: Bool,
+    auto_pause: Bool,
+    recent: List<Str>,
+    path: Str,
+    message: Str,
+    rate: Int,
+    cost: Int,
+    suspended: Bool
+}
+pub fun create() -> Model {
+    let model: Model = Model(false, false, true, true,[], "", "", 0, 0, false);
+    let file: Str = nes.storage() + "/library.json";
+    if (file_exists(file)) {
+        may {
+            let value: Any = json_parse(read_file(file));
+            if (type(value) != "Map" or value.schema != 1 or type(value.recent) != "List" or len(value.recent) > 6) {
+                fail("Invalid library");
+            }
+            for path: Any in value.recent {
+                if (type(path) != "Str" or len(path) > 2048) {
+                    fail("Invalid recent path");
+                }
+                push(model.recent, str(path));
+            }
+            if (type(value.muted) == "Bool") {
+                model.muted = bool(value.muted);
+            }
+            if (type(value.integer_scale) == "Bool") {
+                model.integer_scale = bool(value.integer_scale);
+            }
+            if (type(value.auto_pause) == "Bool") {
+                model.auto_pause = bool(value.auto_pause);
+            }
+        } otherwise {
+            model.recent = [];
+            model.message = "Library settings could not be read; using defaults.";
+        }
+    }
+    return model;
+}
+pub fun persist(model: Model) -> Nil {
+    if (not nes.preferences(json_stringify({
+        "schema": 1,
+        "recent": model.recent,
+        "muted": model.muted,
+        "integer_scale": model.integer_scale,
+        "auto_pause": model.auto_pause
+    }) + "\n")) {
+        model.message = "Could not save library preferences";
+    }
+    return;
+}
+pub fun remember(model: Model, path: Str) -> Nil {
+    if (path == "") {
+        return;
+    }
+    let recent: List<Str> = [path];
+    for old: Str in model.recent {
+        if (old != path and len(recent) < 6) {
+            push(recent, old);
+        }
+    }
+    model.recent = recent;
+    persist(model);
+    return;
+}
+pub fun load(model: Model, path: Str) -> Bool {
+    let success: Bool = nes.load(trim(path));
+    model.message = nes.message();
+    if (success) {
+        model.path = nes.path();
+        model.paused = false;
+        remember(model, model.path);
+    }
+    return success;
+}
+pub fun basename(path: Str) -> Str {
+    let parts: List<Str> = split(path, "/");
+    return parts[len(parts) - 1];
+}

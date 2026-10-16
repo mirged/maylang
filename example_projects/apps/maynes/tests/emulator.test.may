@@ -1,0 +1,22 @@
+import "test" as test;
+import "ui" as ui;
+import "../src/nes/emulator.may" as nes;
+test.assert_true(nes.load(""), "bundled NES cartridge loads");
+test.assert_equal(nes.title(), "Starfall", "demo metadata crosses the C ABI");
+test.assert_equal(nes.mapper(), 0, "original demo uses NROM");
+test.assert_true(nes.period() > 16000 and nes.period() < 17000, "NTSC clock");
+for frame: Int in 0 .. 90 {
+    nes.frame(0);
+}
+test.assert_equal(nes.frames(), 90, "CPU/PPU produced exactly 90 frames");
+let before: Int = nes.hash();
+for frame: Int in 0 .. 10 {
+    nes.frame(128);
+}
+test.assert_true(nes.hash() != before, "controller and animation change the frame");
+let window: ui.Window = ui.open("NES integration", 520, 500, true);
+ui.upload_rgba(nes.pixels(), 256, 240);
+ui.present(window, ui.framebuffer(256, 240, true));
+test.assert_true(ui.render_stats(window).vertices >= 12, "framebuffer participates in the GPU packet");
+ui.close(window);
+nes.close();

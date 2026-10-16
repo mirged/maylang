@@ -1,12 +1,25 @@
-// Native Linux UI: Maylang owns the widget tree, layout, focus and editing.
+// Antialiased Sokol GPU UI: Maylang owns the widget tree, layout, focus and editing.
 extern "libmayui.so" {
+    fun mui_bitmap_upload(pixels: Ptr, width: Int, height: Int) -> Int;
+    fun mui_bitmap(x: Int, y: Int, width: Int, height: Int) -> Void;
+    fun mui_window_key_down(key: Int) -> Int;
+    fun mui_window_key_pressed(key: Int) -> Int;
+    fun mui_window_focused() -> Int;
     fun mui_surface(w: Int, h: Int) -> Int;
     fun mui_release() -> Void;
     fun mui_clip(x: Int, y: Int, w: Int, h: Int) -> Void;
+    fun mui_fill(x: Int, y: Int, w: Int, h: Int, radius: Int, color: Int, opacity: Int) -> Void;
+    fun mui_stroke(x: Int, y: Int, w: Int, h: Int, radius: Int, thickness: Int, color: Int, opacity: Int) -> Void;
+    fun mui_shadow(x: Int, y: Int, w: Int, h: Int, radius: Int, blur: Int, color: Int, opacity: Int) -> Void;
+    fun mui_line(ax: Int, ay: Int, bx: Int, by: Int, thickness: Int, color: Int, opacity: Int) -> Void;
+    fun mui_draw_stat(index: Int) -> Int;
+    fun mui_window_renderer() -> Str;
+    fun mui_window_event_timeout(timeout_ms: Int) -> Ptr;
     fun mui_rect(x: Int, y: Int, w: Int, h: Int, radius: Int, color: Int) -> Void;
     fun mui_text(x: Int, y: Int, text: Str, size: Int, color: Int) -> Void;
     fun mui_measure(text: Str, size: Int) -> Int;
     fun mui_present() -> Void;
+    fun mui_software_present() -> Int;
     fun mui_snapshot(path: Str) -> Int;
     fun mui_pixel(x: Int, y: Int) -> Int;
     fun mui_window_open(w: Int, h: Int, title: Str) -> Int;
@@ -18,26 +31,53 @@ extern "libmayui.so" {
     fun mui_window_paste() -> Str;
 }
 
+/// Internal immutable decoration shared by plain widgets; helpers replace it.
+struct Decoration { border_color: Int, border_width: Int, elevation: Int, disabled: Bool }
+/// Shared undecorated state; styling helpers allocate a replacement.
+let plain_decoration: Decoration = Decoration(-1, 0, 0, false);
 /// Widget tree node; construct with label, button, entry, checkbox or containers.
-pub struct Widget { kind: Str, id: Str, text: Str, hint: Str, children: List<Widget>, width: Int, height: Int, grow: Int, pad: Int, gap: Int, background: Int, foreground: Int, font: Int, radius: Int, checked: Bool }
+pub struct Widget { kind: Str, id: Str, text: Str, hint: Str, children: List<Widget>, width: Int, height: Int, grow: Int, pad: Int, gap: Int, background: Int, foreground: Int, font: Int, radius: Int, checked: Bool, decoration: Decoration }
 /// Internal integer rectangle used by layout, clipping and hit testing.
 struct Rect { x: Int, y: Int, w: Int, h: Int }
 /// Internal input region retaining its concrete widget and rectangles.
 struct Hit { item: Widget, rect: Rect, full: Rect, limit: Int }
+/// Color palette shared by default controls. Custom style colors take precedence.
+pub struct Theme { background: Int, surface: Int, soft: Int, text: Int, muted: Int, accent: Int, on_accent: Int, border: Int }
+/// Light neutral surfaces with a violet accent.
+pub fun light_theme() -> Theme { return Theme(16119803, 16777215, 15594231, 1517112, 6583690, 7167740, 16777215, 14476783); }
+/// Dark neutral surfaces with a lavender accent.
+pub fun dark_theme() -> Theme { return Theme(1053983, 1778481, 2436928, 15594231, 9675962, 10325247, 1380646, 3424596); }
 /// Persistent window interaction state. Keep it while rebuilding views.
-pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Hit>, root: Any, active: Bool, cursor: Int }
+pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Hit>, root: Any, active: Bool, cursor: Int, theme: Theme, pressed: Str, keyboard_focus: Bool }
 /// Action kind is click, toggle, edit, submit, close, resize, repaint or idle.
 pub struct Event { kind: Str, id: Str, text: Str, width: Int, height: Int }
 /// Construct an internal widget with shared defaults.
 fun node(kind: Str, id: Str, text: Str, children: List<Widget>) -> Widget {
-    return Widget(kind, id, text, "", children, 0, 0, 0, 0, 10, -1, 2171941, 18, 8, false);
+    return Widget(kind, id, text, "", children, 0, 0, 0, 0, 10, -1, -1, 16, 10, false, plain_decoration);
 }
 /// Single-line text, clipped to available width.
 pub fun label(text: Str) -> Widget { return node("label", "", text, []); }
 /// Clickable action with a stable, unique identifier.
-pub fun button(id: Str, text: Str) -> Widget { let item: Widget = node("button", id, text, []); item.height = 40; item.pad = 14; item.background = 15198956; return item; }
+pub fun button(id: Str, text: Str) -> Widget { let item: Widget = node("button", id, text, []); item.height = 40; item.pad = 14; item.background = -2; return item; }
 /// Unicode text input; applications apply edit events to their model.
-pub fun entry(id: Str, text: Str) -> Widget { let item: Widget = node("entry", id, text, []); item.height = 44; item.pad = 12; item.background = 16777215; item.width = 220; return item; }
+pub fun entry(id: Str, text: Str) -> Widget { let item: Widget = node("entry", id, text, []); item.height = 44; item.pad = 12; item.background = -2; item.width = 220; return item; }
+/// Copy packed RGBA8 pixels into the surface's single dynamic framebuffer.
+pub fun upload_rgba(pixels: Ptr, width: Int, height: Int) -> Nil {
+    if (mui_bitmap_upload(pixels, width, height) == 0) { fail("ui: invalid RGBA framebuffer or allocation failed"); }
+    return;
+}
+/// Aspect-fit the shared framebuffer with nearest sampling; optionally use integer scaling.
+pub fun framebuffer(source_width: Int, source_height: Int, integer_scale: Bool) -> Widget {
+    if (source_width < 1 or source_height < 1) { fail("ui: framebuffer dimensions must be positive"); }
+    let item: Widget = node("framebuffer", "", str(source_width), []);
+    item.hint = str(source_height); item.width = source_width; item.height = source_height; item.checked = integer_scale; return item;
+}
+/// Query a held key using Sokol codes: ASCII uppercase letters; arrows 262..265.
+pub fun key_down(window: Window, key: Int) -> Bool { return window.active and not window.headless and mui_window_key_down(key) != 0; }
+/// Consume one key press, including short taps between polls; auto-repeat is excluded.
+pub fun key_pressed(window: Window, key: Int) -> Bool { return window.active and not window.headless and mui_window_key_pressed(key) != 0; }
+/// Whether the native window owns keyboard focus.
+pub fun focused(window: Window) -> Bool { return window.active and not window.headless and mui_window_focused() != 0; }
 /// Set an entry hint shown only while its value is empty.
 pub fun placeholder(item: Widget, hint: Str) -> Widget { if (item.kind != "entry") { fail("ui: placeholder requires an entry"); } item.hint = hint; return item; }
 /// Boolean action; toggle events report the next value as true or false.
@@ -61,6 +101,37 @@ pub fun style(item: Widget, background: Int, foreground: Int, font: Int, radius:
     if (background < -1 or background > 16777215 or foreground < 0 or foreground > 16777215 or font < 6 or font > 96 or radius < 0) { fail("ui: invalid style"); }
     item.background = background; item.foreground = foreground; item.font = font; item.radius = radius; return item;
 }
+/// Use the theme accent and its contrasting text color for a control.
+pub fun primary(item: Widget) -> Widget { item.background = -3; item.foreground = -2; return item; }
+/// Add a smooth inner border, keeping rounded corners concentric.
+pub fun border(item: Widget, color: Int, width: Int) -> Widget {
+    if (color < 0 or color > 16777215 or width < 0 or width > 8) { fail("ui: invalid border"); }
+    let d: Decoration = item.decoration; item.decoration = Decoration(color, width, d.elevation, d.disabled); return item;
+}
+/// Add a soft shadow, from zero (flat) to three (floating).
+pub fun elevated(item: Widget, level: Int) -> Widget {
+    if (level < 0 or level > 3) { fail("ui: elevation must be 0..3"); }
+    let d: Decoration = item.decoration; item.decoration = Decoration(d.border_color, d.border_width, level, d.disabled); return item;
+}
+/// Disable interaction while retaining the control's position in layout.
+pub fun enabled(item: Widget, value: Bool) -> Widget { let d: Decoration = item.decoration; item.decoration = Decoration(d.border_color, d.border_width, d.elevation, not value); return item; }
+/// A themed surface with a fine border and a soft elevation shadow.
+pub fun card(item: Widget) -> Widget {
+    item.background = -2; item.radius = 14; item.decoration = Decoration(-2, 1, 1, item.decoration.disabled); return item;
+}
+/// Replace the palette for subsequent presentations.
+pub fun set_theme(window: Window, theme: Theme) -> Nil {
+    for color: Int in [theme.background, theme.surface, theme.soft, theme.text, theme.muted, theme.accent, theme.on_accent, theme.border] {
+        if (color < 0 or color > 16777215) { fail("ui: invalid theme color"); }
+    }
+    window.theme = theme; return;
+}
+/// Blend two RGB colors by an integer percentage.
+fun mix_color(a: Int, b: Int, percent: Int) -> Int {
+    return ((a / 65536 * (100 - percent) + b / 65536 * percent) / 100) * 65536
+        + ((a / 256 % 256 * (100 - percent) + b / 256 % 256 * percent) / 100) * 256
+        + ((a % 256 * (100 - percent) + b % 256 * percent) / 100);
+}
 /// Track the single active native surface.
 mut surface_active: Bool = false;
 /// Open one window, or a display-free raster surface for snapshots/tests.
@@ -68,14 +139,14 @@ pub fun open(title: Str, width: Int, height: Int, headless: Bool) -> Window {
     if (surface_active) { fail("ui: close the existing window before opening another"); }
     if (width < 1 or height < 1 or width > 8192 or height > 8192) { fail("ui: window dimensions must be 1..8192"); }
     if (mui_surface(width, height) == 0) { fail("ui: cannot create surface/load font; set MAYUI_FONT to a trusted TrueType font"); }
-    if (not headless and mui_window_open(width, height, title) == 0) { mui_release(); fail("ui: cannot open X11 display; check DISPLAY"); }
+    if (not headless and mui_window_open(width, height, title) == 0) { mui_release(); fail("ui: cannot open Sokol window; check DISPLAY and OpenGL support"); }
     surface_active = true;
-    return Window(width, height, headless, "", 0, false, -1, -1, {}, [], nil, true, 0);
+    return Window(width, height, headless, "", 0, false, -1, -1, {}, [], nil, true, 0, light_theme(), "", false);
 }
 /// Release native window, font and raster memory. Close is idempotent.
 pub fun close(window: Window) -> Nil { if (window.active) { mui_window_close(); mui_release(); window.active = false; surface_active = false; } return; }
 /// Focus a stable input/action identifier; caret starts at the end.
-pub fun focus(window: Window, id: Str) -> Nil { window.focus = id; window.caret = 2147483647; window.selected = false; return; }
+pub fun focus(window: Window, id: Str) -> Nil { window.focus = id; window.keyboard_focus = true; window.caret = 2147483647; window.selected = false; return; }
 /// Measure content on one axis before assigning flex space.
 fun natural(item: Widget, horizontal: Bool) -> Int {
     let explicit: Int = if (horizontal) { item.width } else { item.height };
@@ -104,9 +175,26 @@ fun clip(rect: Rect) -> Nil { mui_clip(rect.x, rect.y, rect.w, rect.h); return; 
 /// Lay out and paint one subtree, recording visible input regions.
 fun draw(window: Window, item: Widget, rect: Rect, viewport: Rect, ids: Map<Str, Bool>) -> Nil {
     let visible: Rect = intersect(rect, viewport); if (visible.w <= 0 or visible.h <= 0) { return; }
+    let theme: Theme = window.theme;
+    let decoration: Decoration = item.decoration;
+    let actionable: Bool = item.kind == "button" or item.kind == "entry" or item.kind == "checkbox";
+    let hovered: Bool = actionable and not decoration.disabled and inside(visible, window.mouse_x, window.mouse_y);
+    let focused: Bool = not decoration.disabled and window.focus == item.id and item.id != "";
+    mut background: Int = if (item.background == -3) { theme.accent } else if (item.background == -2) { if (item.kind == "button") { theme.soft } else { theme.surface } } else { item.background };
+    let foreground: Int = if (decoration.disabled) { theme.muted } else if (item.foreground == -2) { theme.on_accent } else if (item.foreground == -1) { theme.text } else { item.foreground };
+    if (item.kind == "button" and not decoration.disabled and background >= 0) {
+        if (window.pressed == item.id) { background = mix_color(background, theme.text, 10); }
+        else if (hovered) { background = mix_color(background, theme.text, 4); }
+    }
+    if (decoration.disabled and background >= 0) { background = mix_color(background, theme.background, 55); }
+    clip(viewport);
+    if (decoration.elevation > 0) { mui_shadow(rect.x, rect.y + decoration.elevation, rect.w, rect.h, item.radius, decoration.elevation * 3, 0, 12 + decoration.elevation * 5); }
+    if (focused and (item.kind == "entry" or window.keyboard_focus)) { mui_shadow(rect.x, rect.y, rect.w, rect.h, item.radius + 1, 3, theme.accent, 24); }
     clip(visible);
     if (item.id != "") { if (has(ids, item.id)) { fail("ui: duplicate widget id: " + item.id); } ids[item.id] = true; }
-    if (item.background >= 0) { mui_rect(rect.x, rect.y, rect.w, rect.h, item.radius, item.background); }
+    if (background >= 0) { mui_rect(rect.x, rect.y, rect.w, rect.h, item.radius, background); }
+    if (decoration.border_width > 0) { mui_stroke(rect.x, rect.y, rect.w, rect.h, item.radius, decoration.border_width, if (decoration.border_color == -2) { theme.border } else { decoration.border_color }, 255); }
+    if (hovered and background < 0 and actionable) { mui_fill(rect.x, rect.y, rect.w, rect.h, item.radius, theme.accent, 10); }
     if (item.kind == "scroll") {
         let content: Int = natural(item.children[0], false); let limit: Int = int(max(0, content - rect.h));
         let offset: Int = int(max(0, min(window.scroll[item.id] ?? 0, limit))); window.scroll[item.id] = offset;
@@ -124,25 +212,33 @@ fun draw(window: Window, item: Widget, rect: Rect, viewport: Rect, ids: Map<Str,
             let span: Int = if (child.grow > 0) { available * child.grow / weights } else { natural(child, horizontal) };
             let next: Rect = if (horizontal) { Rect(rect.x + cursor, rect.y + item.pad, span, int(max(0, rect.h - item.pad * 2))) }
                 else { Rect(rect.x + item.pad, rect.y + cursor, int(max(0, rect.w - item.pad * 2)), span) };
-            draw(window, child, next, visible, ids); cursor += span + item.gap;
+            draw(window, child, next, viewport, ids); cursor += span + item.gap;
         }
         return;
     }
-    let actionable: Bool = has(["button", "entry", "checkbox"], item.kind);
+    if (item.kind == "framebuffer") {
+        let source_w: Int = int(item.text); let source_h: Int = int(item.hint);
+        let scale: Float = min(float(rect.w) / float(source_w), float(rect.h) / float(source_h));
+        let fit: Float = if (item.checked and scale >= 1.0) { float(int(scale)) } else { scale };
+        let w: Int = int(float(source_w) * fit); let h: Int = int(float(source_h) * fit);
+        mui_bitmap(rect.x + (rect.w - w) / 2, rect.y + (rect.h - h) / 2, w, h);
+        return;
+    }
     if (actionable) {
         if (item.id == "") { fail("ui: interactive widgets need an id"); }
-        push(window.hits, Hit(item, visible, rect, 0));
-        let border: Int = if (window.focus == item.id) { 6727794 } else { 14081243 };
-        if (item.kind == "entry" or window.focus == item.id or inside(visible, window.mouse_x, window.mouse_y)) {
-            mui_rect(rect.x, rect.y, rect.w, rect.h, item.radius, border);
-            mui_rect(rect.x + 2, rect.y + 2, int(max(0, rect.w - 4)), int(max(0, rect.h - 4)), item.radius, if (item.background >= 0) { item.background } else { 16448250 });
-        }
+        if (not decoration.disabled) { push(window.hits, Hit(item, visible, rect, 0)); }
+        if (item.kind == "entry") { mui_stroke(rect.x, rect.y, rect.w, rect.h, item.radius, if (focused) { 2 } else { 1 }, if (focused) { theme.accent } else if (hovered) { mix_color(theme.border, theme.accent, 35) } else { theme.border }, 255); }
+        else if (focused and window.keyboard_focus) { mui_stroke(rect.x, rect.y, rect.w, rect.h, item.radius, 2, theme.accent, 230); }
     }
     mut tx: Int = rect.x + item.pad; let ty: Int = rect.y + (rect.h - item.font) / 2;
     if (item.kind == "button") { tx = rect.x + int(max(6, (rect.w - mui_measure(item.text, item.font)) / 2)); }
     if (item.kind == "checkbox") {
-        mui_rect(tx + 1, rect.y + (rect.h - 22) / 2, 22, 22, 6, if (item.checked) { 6727794 } else { 14081243 });
-        if (item.checked) { mui_text(tx + 5, rect.y + (rect.h - 18) / 2, "✓", 18, 16777215); }
+        let bx: Int = tx + 1; let by: Int = rect.y + (rect.h - 20) / 2;
+        mui_rect(bx, by, 20, 20, 6, if (item.checked) { if (decoration.disabled) { theme.muted } else { theme.accent } } else { theme.surface });
+        if (item.checked) {
+            mui_line(bx + 5, by + 10, bx + 9, by + 14, 2, theme.on_accent, 255);
+            mui_line(bx + 9, by + 14, bx + 15, by + 6, 2, theme.on_accent, 255);
+        } else { mui_stroke(bx, by, 20, 20, 6, 1, if (hovered) { theme.accent } else { theme.border }, 255); }
         tx += 36;
     }
     if (item.kind == "entry") {
@@ -150,20 +246,20 @@ fun draw(window: Window, item: Widget, rect: Rect, viewport: Rect, ids: Map<Str,
         let caret: Int = int(max(0, min(window.caret, len(item.text))));
         let advance: Int = mui_measure(substring(item.text, 0, caret), item.font);
         let shift: Int = if (window.focus == item.id) { int(max(0, advance - rect.w + item.pad * 2 + 3)) } else { 0 }; tx -= shift;
-        if (window.focus == item.id and window.selected) { mui_rect(tx, ty, mui_measure(item.text, item.font), item.font + 2, 0, 14347259); }
-        mui_text(tx, ty, if (item.text == "") { item.hint } else { item.text }, item.font, if (item.text == "") { 8226961 } else { item.foreground });
-        if (window.focus == item.id) { mui_rect(tx + advance, ty, 1, item.font + 2, 0, 6727794); }
-    } else { mui_text(tx, ty, item.text, item.font, item.foreground); }
+        if (window.focus == item.id and window.selected) { mui_rect(tx, ty, mui_measure(item.text, item.font), item.font + 2, 0, mix_color(if (background >= 0) { background } else { theme.surface }, theme.accent, 22)); }
+        mui_text(tx, ty, if (item.text == "") { item.hint } else { item.text }, item.font, if (item.text == "") { theme.muted } else { foreground });
+        if (window.focus == item.id) { mui_rect(tx + advance, ty, 2, item.font + 2, 1, theme.accent); }
+    } else { mui_text(tx, ty, item.text, item.font, foreground); }
     return;
 }
 /// Paint/layout a view, replacing hit regions but retaining focus and scroll state.
 pub fun present(window: Window, root: Widget) -> Nil {
     if (not window.active) { fail("ui: window is closed"); }
     if (mui_surface(window.width, window.height) == 0) { fail("ui: surface resize failed"); }
-    mui_rect(0, 0, window.width, window.height, 0, 16448250);
+    mui_rect(0, 0, window.width, window.height, 0, window.theme.background);
     window.hits = []; window.root = root;
     draw(window, root, Rect(0, 0, window.width, window.height), Rect(0, 0, window.width, window.height), {});
-    if (not window.headless) { mui_present(); }
+    if (window.headless) { if (mui_software_present() == 0) { fail("ui: software surface allocation failed"); } } else { mui_present(); }
     return;
 }
 /// Render only visible fixed-height rows and spacers within a vertical scroller.
@@ -184,6 +280,7 @@ fun activate(item: Widget, window: Window) -> Event {
 }
 /// Handle one raw input event; useful for deterministic display-free interaction tests.
 pub fun dispatch(window: Window, kind: Int, a: Int, b: Int, modifiers: Int, text: Str) -> Event {
+    if (kind == 8) { window.pressed = ""; return action("repaint", "", "", window); }
     if (kind == 1) { return action("close", "", "", window); }
     if (kind == 3) { window.width = int(max(1, min(8192, a))); window.height = int(max(1, min(8192, b))); return action("resize", "", "", window); }
     if (kind == 2) { return action("repaint", "", "", window); }
@@ -196,7 +293,8 @@ pub fun dispatch(window: Window, kind: Int, a: Int, b: Int, modifiers: Int, text
         for hit: Hit in window.hits {
             let item: Widget = hit.item;
             if (item.kind == "scroll" or not inside(hit.rect, a, b)) { continue; }
-            focus(window, item.id);
+            focus(window, item.id); window.keyboard_focus = false;
+            if (item.kind == "button") { window.pressed = item.id; }
             if (item.kind == "entry") {
                 window.caret = len(item.text);
                 for index: Int in 0..len(item.text) + 1 { if (mui_measure(substring(item.text, 0, index), item.font) >= a - hit.full.x - item.pad) { window.caret = index; break; } }
@@ -243,8 +341,11 @@ pub fun dispatch(window: Window, kind: Int, a: Int, b: Int, modifiers: Int, text
     }
     return action("idle", "", "", window);
 }
-/// Wait for one X11 event (up to 50 ms) and translate it to a Maylang action.
-pub fun poll(window: Window) -> Event {
+/// Wait up to 16 ms for input, suitable for a responsive desktop update loop.
+pub fun poll(window: Window) -> Event { return poll_for(window, 16); }
+/// Poll with a 0..1000 ms timeout; zero never waits and suits timed animation loops.
+pub fun poll_for(window: Window, timeout_ms: Int) -> Event {
+    if (timeout_ms < 0 or timeout_ms > 1000) { fail("ui: poll timeout must be 0..1000 ms"); }
     if (window.headless or not window.active) { 
         return action("idle", "", "", window); 
     }
@@ -253,7 +354,7 @@ pub fun poll(window: Window) -> Event {
     let old_x: Int = window.mouse_x;
     let old_y: Int = window.mouse_y;
 
-    let raw: Ptr = mui_window_event();
+    let raw: Ptr = mui_window_event_timeout(timeout_ms);
     let result: Event = dispatch(
         window, 
         load64(raw), 
@@ -273,7 +374,7 @@ pub fun poll(window: Window) -> Event {
             } 
         }
 
-        // 3. Only notify X11 if the cursor type actually changed:
+        // 3. Only notify the native window if the cursor type actually changed:
         if (next_cursor != window.cursor) {
             window.cursor = next_cursor;
             mui_window_cursor(next_cursor);
@@ -286,3 +387,11 @@ pub fun poll(window: Window) -> Event {
 pub fun snapshot(window: Window, path: Str) -> Nil { if (not window.active or mui_snapshot(path) == 0) { fail("ui: PNG snapshot failed: " + path); } return; }
 /// Read a raster RGB value, or -1 outside the surface, for rendering tests.
 pub fun pixel(window: Window, x: Int, y: Int) -> Int { if (not window.active) { fail("ui: window is closed"); } return mui_pixel(x, y); }
+
+/// Renderer and graphics driver; headless windows explicitly report software rendering.
+pub fun renderer(window: Window) -> Str { return if (window.headless) { "CPU / headless" } else { mui_window_renderer() }; }
+/// Last recorded frame geometry and cumulative glyph-cache counters.
+pub fun render_stats(window: Window) -> Map<Str, Int> {
+    if (not window.active) { fail("ui: window is closed"); }
+    return {"commands": mui_draw_stat(0), "vertices": mui_draw_stat(1), "glyph_cache_hits": mui_draw_stat(2), "glyph_cache_misses": mui_draw_stat(3), "atlas_bytes": mui_draw_stat(4), "draw_calls": if (window.headless) { 0 } else if (mui_draw_stat(1) > 0) { 1 } else { 0 }};
+}

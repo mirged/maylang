@@ -84,6 +84,19 @@ def main():
         result = subprocess.run([str(bundle / 'bin/may'), 'test'], cwd=board, env=env,
                                 capture_output=True, timeout=120)
         assert result.returncode == 0 and b'PASS model.test.may' in result.stdout, result
+        nes = bundle / 'example_projects/apps/maynes'
+        nes_env = dict(env, XDG_DATA_HOME=str(work / 'data'))
+        report_path = work / 'nes.json'
+        result = subprocess.run([str(bundle / 'bin/may'), 'run', '--', '--headless', '--frames', '90',
+                                 '--snapshot', str(work / 'nes.png'), '--report', str(report_path)],
+                                cwd=nes, env=nes_env, capture_output=True, timeout=180)
+        assert result.returncode == 0 and (work / 'nes.png').read_bytes().startswith(b'\x89PNG'), result
+        report = json.loads(report_path.read_text())
+        assert report['frames'] == 90 and report['rom'] == 'Starfall' and report['audio_samples'] > 60000, report
+        result = subprocess.run([str(bundle / 'bin/may'), 'test'], cwd=nes, env=nes_env,
+                                capture_output=True, timeout=120)
+        assert result.returncode == 0 and b'PASS emulator.test.may' in result.stdout, result
+        print('PASS bundled May NES executes a real cartridge, synthesizes audio and renders its framebuffer')
         print('PASS bundled Mayboard renders a demo PNG and its model tests pass')
         print('PASS extracted checksums, version, standalone compilation, stdlib, workspace/formatter, legacy maypkg and LSP initialization')
         print('PASS installed UI scaffold builds and a headless application renders PNG')

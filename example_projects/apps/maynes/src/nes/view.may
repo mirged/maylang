@@ -1,0 +1,128 @@
+import "ui" as ui;
+import "state.may" as model;
+import "emulator.may" as nes;
+let ink: Int = 15594231;
+let muted: Int = 9675962;
+let accent: Int = 10325247;
+let green: Int = 7007399;
+fun text(value: Str, size: Int, color: Int) -> ui.Widget {
+    return ui.style(ui.label(value), - 1, color, size, 0);
+}
+fun small(value: Str) -> ui.Widget {
+    return text(value, 13, muted);
+}
+fun box(children: List < ui.Widget >, padding: Int, gap: Int) -> ui.Widget {
+    return ui.spacing(ui.column(children), padding, gap);
+}
+fun action(id: Str, label: Str) -> ui.Widget {
+    return ui.style(ui.button(id, label), 2436928, ink, 14, 9);
+}
+fun shortcut(key: Str, description: Str) -> ui.Widget {
+    return ui.size(ui.row([ui.size(text(key, 13, ink), 82, 24), small(description)]), 0, 26);
+}
+pub fun render(state: model.Model, window: ui.Window) -> ui.Widget {
+    let recent: List < ui.Widget > = [text("LIBRARY", 11, muted), ui.size(if (nes.path() == "") {
+        ui.primary(action("demo", "✦   Starfall"))
+    } else {
+        action("demo", "✦   Starfall")
+    }, 0, 42), small("Original homebrew · included")];
+    if (len(state.recent) > 0) {
+        push(recent, ui.spacer(12));
+        push(recent, text("RECENT CARTRIDGES", 11, muted));
+        for i: Int in 0 .. len(state.recent) {
+            let button: ui.Widget = action("recent:" + str(i), model.basename(state.recent[i]));
+            push(recent, ui.size(if (nes.path() == state.recent[i]) {
+                ui.primary(button)
+            } else {
+                button
+            }, 0, 38));
+        }
+    }
+    let sidebar: ui.Widget = ui.size(ui.style(box([
+        text("M / N", 30, accent),
+        text("May NES", 21, ink),
+        small("A little room for 8-bit worlds."),
+        ui.spacer(18),
+        ui.primary(action("open", "Open cartridge…")),
+        ui.spacer(10),
+        ui.flex(box(recent, 0, 9), 1),
+        text("YOUR GAMES, YOUR MACHINE", 10, muted),
+        small("Saves stay on this computer."),
+        small("iNES cartridges · NTSC / PAL"),
+        small("Maylang UI + Sokol OpenGL")
+    ], 24, 10), 1778481, ink, 14, 0), 254, 0);
+    let is_paused: Bool = state.paused or state.suspended;
+    let heading: ui.Widget = ui.size(ui.row([
+        ui.flex(box([small(if (nes.path() == "") {
+            "NOW PLAYING / HOMEBREW"
+        } else {
+            "NOW PLAYING / CARTRIDGE"
+        }), text(nes.title(), 27, ink)], 0, 6), 1),
+        text(if (is_paused) {
+            "●  Paused"
+        } else {
+            "●  Playing"
+        }, 13, if (is_paused) {
+            muted
+        } else {
+            green
+        }),
+        ui.spacer(12),
+        action("pause", if (state.paused) {
+            "Resume"
+        } else {
+            "Pause"
+        }),
+        action("reset", "Reset")
+    ]), 0, 64);
+    let path: ui.Widget = ui.size(ui.row([
+        ui.flex(ui.placeholder(ui.entry("rom-path", state.path), "Paste a .nes path, or open a cartridge…"), 1),
+        action("load", "Load")
+    ]), 0, 44);
+    let screen: ui.Widget = ui.flex(ui.border(ui.style(ui.spacing(ui.column([
+        ui.flex(ui.framebuffer(256, 240, state.integer_scale), 1)
+    ]), 12, 0), 460809, ink, 14, 14), 3424596, 1), 1);
+    let status: ui.Widget = ui.size(ui.row([
+        ui.flex(small(if (state.suspended and not state.paused) {
+            if (window.focus == "rom-path") {
+                "Paused while editing the path"
+            } else {
+                "Paused while this window is in the background"
+            }
+        } else {
+            state.message
+        }), 1),
+        small(str(state.rate) + " fps"),
+        ui.spacer(6),
+        small(str(state.cost / 1000) + "." + str(state.cost % 1000 / 100) + " ms core")
+    ]), 0, 26);
+    let controls: ui.Widget = ui.flex(ui.card(box([
+        text("CONTROLLER", 11, muted),
+        shortcut("← ↑ ↓ →", "D-pad"),
+        shortcut("Z / X", "B / A"),
+        shortcut("Enter / R Shift", "Start / Select")
+    ], 16, 3)), 1);
+    let session: ui.Widget = ui.flex(ui.card(box([
+        text("SESSION", 11, muted),
+        ui.size(ui.row([ui.flex(action("save", "Save · F5"), 1), ui.flex(action("restore", "Load · F8"), 1)]), 0, 34),
+        ui.size(ui.row([ui.flex(action("step", "Step · N"), 1), ui.flex(action("mute", if (state.muted) {
+            "Unmute · M"
+        } else {
+            "Mute · M"
+        }), 1)]), 0, 34),
+        small(if (state.muted) {
+            "Sound muted"
+        } else {
+            nes.audio_status()
+        })
+    ], 16, 6)), 1);
+    let display: ui.Widget = ui.flex(ui.card(box([
+        text("DISPLAY", 11, muted),
+        ui.size(ui.checkbox("integer", "Integer scaling", state.integer_scale), 0, 32),
+        ui.size(ui.checkbox("autopause", "Pause in background", state.auto_pause), 0, 32),
+        small("256 × 240 · nearest pixels · mapper " + str(nes.mapper()))
+    ], 16, 3)), 1);
+    let footer: ui.Widget = ui.size(ui.row([ui.flex(small("P pause   ·   R reset   ·   O open   ·   Ctrl Q quit"), 1), small("" + str(nes.frames()) + " emulated frames")]), 0, 20);
+    let main: ui.Widget = ui.flex(box([heading, path, screen, status, ui.size(ui.row([controls, session, display]), 0, 146), footer], 26, 14), 1);
+    return ui.spacing(ui.row([sidebar, main]), 0, 0);
+}
