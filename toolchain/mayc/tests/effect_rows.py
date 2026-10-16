@@ -105,7 +105,7 @@ def main():
             ('exec', 'exec(["unused"])'), ('wait', 'wait(1)'),
             ('addr', 'addr(1)'), ('load64', 'load64(0)'), ('store64', 'store64(0, 0)'),
             ('fail', 'fail("failure")'), ('int', 'int(1)'), ('abs', 'abs(1)'),
-            ('sqrt', 'sqrt(1)'), ('pi', 'pi()'),
+            ('sqrt', 'sqrt(1)'),
         ]
         for name, call in primitive_calls:
             body = '{ ' + call + '; return 0; }'

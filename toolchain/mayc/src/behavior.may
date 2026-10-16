@@ -17,9 +17,9 @@ fun behavior_error(span: Any, reason: Any) -> Any {
     return 0;
 }
 fun behavior_scalar(annotation: Any, span: Any) -> Any {
-    if (annotation == nil or annotation == 0) { return behavior_error(span, "requires explicit Int or Bool types"); }
-    if (not has(["Int", "Bool"], annotation.name) or len(annotation.arguments) != 0) {
-        return behavior_error(span, "only Int and Bool types are supported");
+    if (annotation == nil or annotation == 0) { return behavior_error(span, "requires explicit Int, Bool or Float types"); }
+    if (not has(["Int", "Bool", "Float"], annotation.name) or len(annotation.arguments) != 0) {
+        return behavior_error(span, "only Int, Bool and Float types are supported");
     }
     return 0;
 }
@@ -30,7 +30,7 @@ fun behavior_scope(locals: Any) -> Any {
 fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
     if (node == 0) { return 0; }
     let k: Any = node.kind;
-    if (k == E_INT) { return 0; }
+    if (k == E_INT or k == E_FLOAT) { return 0; }
     if (k == E_VAR) {
         let name: Any = symbol_name(node.name, node.length);
         if (has(locals, name)) { return 0; }
@@ -61,10 +61,11 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         let key: Any = may { st_export_name(source_module(node.span), replace(name, "::", "."), node.span, functions) } otherwise { behavior_error(node.span, "unresolved or primitive call `" + name + "`: " + err.message); "" };
         let callee: Any = functions[key];
         if (callee.behaviorUnknown == true) { return behavior_error(node.span, "call to `" + name + "` has unknown behavior through a global binding"); }
-        if (callee.primitiveEffect != nil) {
-            let effect: Any = callee.primitiveEffect;
-            if (not has(BEHAVIOR_CURRENT.effects, effect)) {
-                BEHAVIOR_CURRENT.effects[effect] = {"span": node.span, "path": [BEHAVIOR_CURRENT.name, name]};
+        if (callee.primitiveEffects != nil) {
+            for effect: Any in callee.primitiveEffects {
+                if (not has(BEHAVIOR_CURRENT.effects, effect)) {
+                    BEHAVIOR_CURRENT.effects[effect] = {"span": node.span, "path": [BEHAVIOR_CURRENT.name, name]};
+                }
             }
         } else {
             push(BEHAVIOR_CURRENT.calls, {"target": callee.lab});
@@ -189,9 +190,12 @@ fun behavior_program() -> Any {
     }
     // These names are runtime primitives in the existing resolver. User module
     // functions and globals still take precedence over these unqualified names.
-    functions["print"] = {"primitiveEffect": "output"};
-    functions["time"] = {"primitiveEffect": "clock"};
-    functions["clock"] = {"primitiveEffect": "clock"};
+    functions["print"] = {"primitiveEffects": ["output"]};
+    functions["time"] = {"primitiveEffects": ["clock"]};
+    functions["clock"] = {"primitiveEffects": ["clock"]};
+    // Explicit empty rows are audited rules, never a fallback for unknown calls.
+    functions["pi"] = {"primitiveEffects": []};
+    functions["e"] = {"primitiveEffects": []};
     for head: Any in [RUNTIME_BODY, MAINBODY] {
         mut statement: Any = head;
         while (statement != 0) {

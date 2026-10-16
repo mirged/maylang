@@ -38,13 +38,32 @@ omitting an annotation does not grant authority.
 | `output` | The runtime `print` primitive |
 | `clock` | The runtime `time` and `clock` primitives |
 
-Parameters, returns, and local bindings must explicitly use `Int` or `Bool`.
-The checker accepts integer/boolean literals, parameter/local reads, unary and
-binary expressions, logical expressions, immutable local bindings, blocks,
+Parameters, returns, and local bindings must explicitly use `Int`, `Bool`, or
+`Float`. The checker accepts integer, boolean, and floating-point literals,
+parameter/local reads, unary and binary expressions, logical expressions,
+immutable local bindings, blocks,
 conditionals, returns, and direct calls to supported source functions and the
-listed primitives. `clock` returns a temporary `Float`, which may be used in
-comparisons or printed; `Float` annotations and literals are not yet supported
-in this fragment. `time` returns `Int`.
+listed primitives. `clock` returns `Float`; `time` returns `Int`. Floating-point
+operations use the existing numeric typing and runtime semantics, including
+integer-to-float promotion. `Float32`, `Float64`, and dynamic `Any` annotations
+remain outside this fragment.
+
+The zero-argument primitives `pi()` and `e()` have explicitly audited empty
+effect rows and return `Float`. These rules apply only to the runtime primitives;
+source declarations and imported functions with the same names are analyzed
+normally, and local/global value shadowing cannot inherit primitive purity.
+Arguments are still analyzed and strict arity checking still applies.
+
+```may
+fun circle_area(radius: Float) -> Float ! pure {
+    return pi() * radius * radius;
+}
+
+fun sampled_clock() -> Float ! {clock} {
+    let now: Float = clock();
+    return now;
+}
+```
 
 Global reads, mutation, collections, strings, callbacks, closures, generic
 functions, loops, FFI, and other unsupported AST forms are rejected as unknown.
@@ -57,9 +76,9 @@ contracts retain their current behavior.
 
 The strict checker's builtin registry in `src/strict.may` and the runtime bodies
 in `native.may` and `runtime.may` are the starting points for this inventory.
-A value signature is not an effect summary. Only `print`, `time`, and `clock`
-currently have explicit primitive behavior rules; other builtin and runtime
-calls remain unknown, including apparently scalar mathematical operations.
+A value signature is not an effect summary. Only `print`, `time`, `clock`, `pi`,
+and `e` currently have explicit primitive behavior rules; other builtin and
+runtime calls remain unknown, including apparently scalar mathematical operations.
 
 | Remaining family | Representative calls | Required semantics before admission |
 | --- | --- | --- |
@@ -69,7 +88,7 @@ calls remain unknown, including apparently scalar mathematical operations.
 | Scheduling and lifetime | `sleep`, `spawn`, `yield`, `run`, `exit` | Define blocking, task lifetime, cancellation and termination effects; sleep is more than a clock observation. |
 | Raw memory | `addr`, `cstr`, `ptr`, `load8`–`load64`, `store8`–`store64` | Specify ownership, aliasing, reads, writes and native-memory safety. |
 | Failure and recovery | `fail`, `rt_raise`, `__longjmp` | Define typed failure, unwinding and recovery before adding a failure row. |
-| Scalar conversions and mathematics | `int`, `bool`, `abs`, `sqrt`, `pi`, `e` | Define accepted value types, dispatch, numeric failures and runtime assumptions before claiming purity. |
+| Scalar conversions and mathematics | `int`, `bool`, `abs`, `sqrt` | Define accepted value types, dispatch, numeric failures and runtime assumptions before claiming purity. |
 | Strings, JSON and collections | `str`, `json_parse`, `push`, `pop`, `map_set`, `sort` | Define allocation, mutation, aliasing and failure; distinguish copying operations from in-place operations. |
 | Callback traversal | `map`, `filter`, `reduce`, `any`, `all`, `each`, `times` | Carry callback effects through function types and prevent laundering effects through callbacks. |
 
@@ -79,7 +98,7 @@ transitive propagation, shadowing checks and report assertions. Operations with
 unresolved semantics must continue to fail closed under every supported row.
 
 The effect-row suite includes valid unannotated controls and unknown-behavior
-rejections for 22 representative calls from these families. Those checks use
+rejections for 21 representative calls from these families. Those checks use
 `--check` so process, memory, filesystem and scheduling operations never execute.
 This is representative coverage, not a complete audit of runtime entry points.
 
@@ -160,8 +179,10 @@ mechanically proved soundness theorem or containment for hostile native code.
 
 Purity does not establish termination, totality, resource bounds, failure freedom,
 or constant-time execution. Division may fail; recursion may exhaust the stack;
-runtime bookkeeping may allocate. Runtime diagnostics, crash handling, debug
-traces, and host failures are outside this effect model. The compiler does not
+runtime bookkeeping may allocate, including boxing Float values and constants.
+Floating-point contracts do not establish cross-target bitwise reproducibility.
+Runtime diagnostics, crash handling, debug traces, and host failures are outside
+this effect model. The compiler does not
 establish protected information flow, capability possession, quotas, or a verified
 execution profile. Effect declarations describe ceilings; they are not capability
 grants. Primitive availability and behavior still depend on the selected runtime.
@@ -177,11 +198,12 @@ sh toolchain/rust/build.sh
 python3 toolchain/mayc/tests/behavior.py
 python3 toolchain/mayc/tests/effect_rows.py
 python3 toolchain/mayc/tests/behavior_reports.py
+python3 toolchain/mayc/tests/behavior_scalars.py
 python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/build/bin/mayc_new --features-only
 python3 toolchain/rust/test.py
 ```
 
-The three behavior suites run through the standard native verification harness.
+The four behavior suites run through the standard native verification harness.
 They execute recursive/imported functions, check fixed-point propagation and
 ceilings, reject global/alias/scope bypasses and unknown operations, inspect
 normalized reports, compare generated call graphs with an independent
