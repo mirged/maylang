@@ -1,4 +1,6 @@
-/* X11 presentation/input only. Layout, widgets and application logic are Maylang. */
+/* X11 presentation/input only. Layout, widgets and application logic are Maylang. 
+ * Optimized: Direct 32-bit framebuffer packing (no XPutPixel), MotionNotify squashing, 60Hz poll.
+ */
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/cursorfont.h>
@@ -22,7 +24,19 @@ static XImage *image;
 static char *clipboard;
 static char *paste;
 static int width, height;
+
+/* Shift caches to avoid per-pixel while loops */
+static int r_shift, g_shift, b_shift;
+static int is_standard_rgb32;
+
 static struct { int64_t kind, a, b, modifiers; char text[128]; } event;
+
+static int calc_shift(unsigned long mask) {
+    int shift = 0;
+    if (!mask) return 0;
+    while (!(mask & 1)) { shift++; mask >>= 1; }
+    return shift;
+}
 
 void mui_window_close(void) {
     if (!display) return;
@@ -115,45 +129,67 @@ void mui_window_cursor(long kind) {
     if (display && kind >= 0 && kind < 3) XDefineCursor(display, window, cursors[kind]);
 }
 
-/* Translate visual masks rather than assuming the server uses RGB byte order. */
-static unsigned long channel(unsigned value, unsigned long mask) {
-    if (!mask) return 0;
-    unsigned shift = 0;
-    while (!(mask & 1)) { shift++; mask >>= 1; }
-    return ((value * mask + 127) / 255) << shift;
-}
-
 void mui_window_present(const unsigned char *rgb, long w, long h) {
     if (!display || !rgb || w < 1 || h < 1) return;
     if (!image || image->width != w || image->height != h) {
         if (image) XDestroyImage(image);
         int screen = DefaultScreen(display);
         image = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen),
-                             ZPixmap, 0, NULL, w, h, 32, 0);
+                             ZPixmap, 0, NULL, (unsigned int)w, (unsigned int)h, 32, 0);
         if (!image) return;
-        image->data = calloc(h, image->bytes_per_line);
+        image->data = malloc((size_t)h * image->bytes_per_line);
         if (!image->data) { XDestroyImage(image); image = NULL; return; }
+
+        /* Precompute bitshifts once per image allocation instead of per pixel */
+        r_shift = calc_shift(image->red_mask);
+        g_shift = calc_shift(image->green_mask);
+        b_shift = calc_shift(image->blue_mask);
+        is_standard_rgb32 = (image->bits_per_pixel == 32 && 
+                             image->red_mask == 0x00FF0000 && 
+                             image->green_mask == 0x0000FF00 && 
+                             image->blue_mask == 0x000000FF);
     }
-    for (long y = 0; y < h; y++) for (long x = 0; x < w; x++) {
-        const unsigned char *p = rgb + (y * w + x) * 3;
-        XPutPixel(image, x, y, channel(p[0], image->red_mask) |
-                   channel(p[1], image->green_mask) | channel(p[2], image->blue_mask));
+
+    /* Fast-path: Standard 32-bit Little-Endian X11 Framebuffer (99.9% of modern Linux) */
+    if (is_standard_rgb32) {
+        for (long y = 0; y < h; y++) {
+            const unsigned char *src = rgb + (y * w) * 3;
+            uint32_t *dst = (uint32_t *)(image->data + y * image->bytes_per_line);
+            for (long x = 0; x < w; x++, src += 3) {
+                dst[x] = ((uint32_t)src[0] << 16) | ((uint32_t)src[1] << 8) | (uint32_t)src[2];
+            }
+        }
+    } else {
+        /* General TrueColor fallback with precomputed bit shifts (zero while-loops) */
+        for (long y = 0; y < h; y++) {
+            const unsigned char *src = rgb + (y * w) * 3;
+            uint32_t *dst = (uint32_t *)(image->data + y * image->bytes_per_line);
+            for (long x = 0; x < w; x++, src += 3) {
+                dst[x] = (((uint32_t)src[0]) << r_shift) |
+                         (((uint32_t)src[1]) << g_shift) |
+                         (((uint32_t)src[2]) << b_shift);
+            }
+        }
     }
-    XPutImage(display, window, gc, image, 0, 0, 0, 0, w, h);
+
+    XPutImage(display, window, gc, image, 0, 0, 0, 0, (unsigned int)w, (unsigned int)h);
     XFlush(display);
 }
 
 void *mui_window_event(void) {
     memset(&event, 0, sizeof(event));
     if (!display) { event.kind = 1; return &event; }
+    
     if (!XPending(display)) {
         fd_set set; FD_ZERO(&set); FD_SET(ConnectionNumber(display), &set);
-        struct timeval timeout = {0, 50000};
+        struct timeval timeout = {0, 16000}; /* 16ms: responsive 60 FPS tick */
         select(ConnectionNumber(display) + 1, &set, NULL, NULL, &timeout);
         if (!XPending(display)) return &event;
     }
+
     XEvent e;
     XNextEvent(display, &e);
+
     if (e.type == SelectionRequest) {
         XSelectionRequestEvent *request = &e.xselectionrequest;
         XEvent reply = {0};
@@ -180,12 +216,23 @@ void *mui_window_event(void) {
     }
     if (e.type == MappingNotify) { XRefreshKeyboardMapping(&e.xmapping); return &event; }
     if (XFilterEvent(&e, window)) return &event;
-    if (e.type == ClientMessage && (Atom)e.xclient.data.l[0] == wm_delete) event.kind = 1;
-    else if (e.type == Expose) event.kind = 2;
-    else if (e.type == ConfigureNotify && (e.xconfigure.width != width || e.xconfigure.height != height)) {
-        width = e.xconfigure.width; height = e.xconfigure.height;
-        event.kind = 3; event.a = width; event.b = height;
+
+    if (e.type == ClientMessage && (Atom)e.xclient.data.l[0] == wm_delete) {
+        event.kind = 1;
+    } else if (e.type == Expose) {
+        /* Squash multiple expose events into one frame request */
+        while (XCheckTypedWindowEvent(display, window, Expose, &e));
+        event.kind = 2;
+    } else if (e.type == ConfigureNotify) {
+        /* Squash intermediate resize events to the final size */
+        while (XCheckTypedWindowEvent(display, window, ConfigureNotify, &e));
+        if (e.xconfigure.width != width || e.xconfigure.height != height) {
+            width = e.xconfigure.width; height = e.xconfigure.height;
+            event.kind = 3; event.a = width; event.b = height;
+        }
     } else if (e.type == MotionNotify) {
+        /* CRITICAL OPTIMIZATION: Squash all pending motion events to the newest coordinates */
+        while (XCheckTypedWindowEvent(display, window, MotionNotify, &e));
         event.kind = 4; event.a = e.xmotion.x; event.b = e.xmotion.y;
     } else if (e.type == ButtonPress) {
         if (e.xbutton.button == 4 || e.xbutton.button == 5) {
@@ -204,8 +251,11 @@ void *mui_window_event(void) {
         if (count < 0 || count >= (int)sizeof(event.text)) count = 0;
         event.text[count] = 0;
         event.kind = 7; event.a = key; event.modifiers = e.xkey.state;
-    } else if (e.type == FocusIn && input_context) XSetICFocus(input_context);
-    else if (e.type == FocusOut && input_context) XUnsetICFocus(input_context);
+    } else if (e.type == FocusIn && input_context) {
+        XSetICFocus(input_context);
+    } else if (e.type == FocusOut && input_context) {
+        XUnsetICFocus(input_context);
+    }
     return &event;
 }
 
