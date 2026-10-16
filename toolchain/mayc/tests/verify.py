@@ -198,6 +198,7 @@ def main():
                              ("effect_rows.py", "effect ceilings and recursive propagation"),
                              ("behavior_reports.py", "inspectable behavior summaries"),
                              ("behavior_scalars.py", "floating-point behavior contracts and pure constants"),
+                             ("behavior_control_flow.py", "private scalar state and while-loop behavior contracts"),
                              ("numeric_contracts.py", "numeric bounds and array lengths"),
                              ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
                              ("diagnostics.py", "structured diagnostics and recovery"),

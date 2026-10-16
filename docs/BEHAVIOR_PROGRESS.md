@@ -15,9 +15,9 @@ changes with `sh toolchain/rust/build.sh` before testing it.
 Completed checkpoints:
 
 - `c4e3233`, PR #67 (merged): shortest unknown-behavior diagnostic paths.
-- `fc66f48`, PR #68: Float contracts and explicit pure pi/e primitive rules;
+- `fc66f48`, PR #68 (merged): Float contracts and explicit pure pi/e primitive rules;
   local verification passed 82 checks and 55 native/LLVM scalar cases, including
-  stage-2/stage-3 compiler convergence. Check GitHub for current merge status.
+  stage-2/stage-3 compiler convergence.
 
 Active increment: allow private scalar mutation and `while` loops while retaining
 fail-closed checks for shared state, collections, captures, and indirect calls.

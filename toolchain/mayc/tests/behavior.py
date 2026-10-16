@@ -59,7 +59,7 @@ print(double(21), even(10), odd(9));
             'io': 'print(1); return 0;',
             'syscall': 'return syscall(39);',
             'allocation': 'let x: Int = len([1]); return x;',
-            'mutation': 'mut x: Int = 1; return x;',
+            'mutation': 'mut x: Int = 1; outside = x; return x;',
             'global': 'return outside;',
             'assignment': 'outside = 2; return 0;',
             'hidden_branch': 'if (false) { print(1); } return 0;',

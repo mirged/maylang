@@ -91,7 +91,7 @@ def main():
         for effect in ['network', 'alloc', 'unknown', 'guarded', 'pure']:
             check('unsupported_' + effect, 'fun f() -> Int ! {' + effect + '} { return 1; }', 'unsupported behavior effect')
         for name, body in [('syscall', 'return syscall(39);'), ('indirect', 'return (fun() -> Int { return 0; })();'),
-                           ('global', 'return x;'), ('mutation', 'mut x: Int = 0; return x;')]:
+                           ('global', 'return x;'), ('mutation', 'x = 0; return x;')]:
             check('unknown_' + name, 'let x: Int = 42; fun f() -> Int ! {output, clock} {' + body + '}', 'MB-EFFECT-001')
         # These calls type-check without a contract, but none has a behavior
         # rule yet. Even the widest supported ceiling must reject each one.
