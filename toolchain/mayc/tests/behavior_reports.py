@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Inspect public behavior reports, fixed-point summaries, and failure output."""
 import argparse
+from collections import deque
 import json
 import random
 from pathlib import Path
@@ -84,6 +85,50 @@ fun short_path() -> Int { print(2); return 0; }
 ''', ('--diagnostics', 'json'), 'call path: root -> short_path -> print]')
         error = json.loads(result.stderr)['diagnostics'][0]
         assert error['range']['start']['line'] == 4, error
+        unknown_program = '''let shared: Int = 7;
+fun root() -> Int ! {output, clock} { return long_path() + bad(); }
+fun long_path() -> Int { return middle(); }
+fun middle() -> Int { return bad(); }
+fun bad() -> Int { return shared; }
+'''
+        result = report(unknown_program, ('--diagnostics', 'json'), 'call path: root -> bad]')
+        repeated = report(unknown_program, ('--diagnostics', 'json'), 'call path: root -> bad]')
+        assert result.stderr == repeated.stderr, 'unknown diagnostics must be reproducible'
+        error = json.loads(result.stderr)['diagnostics'][0]
+        assert error['range']['start']['line'] == 5 and error['file'] == str(source), error
+        report('''fun root() -> Int ! pure { return long_path() + short_path(); }
+fun long_path() -> Int { return middle(); }
+fun middle() -> Int { return bad(); }
+fun short_path() -> Int { return bad(); }
+fun bad() -> Int { return syscall(39); }
+''', error='call path: root -> short_path -> bad]')
+        report('''let shared: Int = 7;
+fun root() -> Int ! pure { return a(1) + bad(); }
+fun a(n: Int) -> Int { return b(n); }
+fun b(n: Int) -> Int { if(n > 0) { return a(n-1); } return bad(); }
+fun bad() -> Int { return shared; }
+''', error='call path: root -> bad]')
+        report('''let shared: Int = 7;
+fun root() -> Int ! pure { return first() + second(); }
+fun first() -> Int { return bad(); }
+fun second() -> Int { return bad(); }
+fun bad() -> Int { return shared; }
+''', error='call path: root -> first -> bad]')
+        # Previously checked contract roots must not lengthen later discovery
+        # paths, and a direct unknown operation beats one in a queued helper.
+        report('''fun checked() -> Int ! pure { return 1; }
+fun root() -> Int ! pure { return helper() + syscall(39); }
+fun helper() -> Int { return syscall(39); }
+''', error='call path: root]')
+        (work / 'unknown.may').write_text(
+            'let shared: Int = 7;\npub fun bad() -> Int { return shared; }\n')
+        result = report('''import "unknown.may" as d;
+fun root() -> Int ! pure { return helper() + d.bad(); }
+fun helper() -> Int { return d.bad(); }
+''', ('--diagnostics', 'json'), 'call path: root -> bad]')
+        error = json.loads(result.stderr)['diagnostics'][0]
+        assert error['file'] == str(work / 'unknown.may'), error
+        assert error['range']['start']['line'] == 2, error
         for option in ['--dump-expanded', '--dump']:
             report('fun root() -> Int ! pure { return 1; }', (option,), 'cannot be combined')
         (work / 'dep.may').write_text('pub fun leaf(n: Int) -> Int { print(n); return n; }\n')
@@ -125,6 +170,36 @@ fun short_path() -> Int { print(2); return 0; }
             assert actual == expected, (case, edges, direct, data, expected)
             if expected['root']:
                 report(text.replace('! {clock, output}', '! {}'), error='exceeds declared ceiling []')
+        # Independently compute shortest paths to one unknown body in cyclic
+        # graphs. Only g0 is a root; declaration order must not select the path.
+        for case in range(12):
+            size = rng.randrange(4, 10)
+            sink = size - 1
+            edges = {i: [j for j in range(size) if rng.random() < 0.3]
+                     for i in range(sink)}
+            edges[sink] = []
+            edges[0].append(1)
+            edges[1].append(sink)
+            pending = deque([[0]])
+            seen = {0}
+            while pending:
+                path = pending.popleft()
+                if path[-1] == sink:
+                    break
+                for target in edges[path[-1]]:
+                    if target not in seen:
+                        seen.add(target)
+                        pending.append([*path, target])
+            expected_path = ' -> '.join(f'g{node}' for node in path)
+            functions = []
+            for node in range(size):
+                body = ''.join(f'g{callee}();' for callee in edges[node])
+                body += 'return shared;' if node == sink else 'return 0;'
+                contract = ' ! {clock, output}' if node == 0 else ''
+                functions.append(f'fun g{node}() -> Int{contract} {{ {body} }}')
+            rng.shuffle(functions)
+            report('let shared: Int = 7;\n' + '\n'.join(functions),
+                   error=f'call path: {expected_path}]')
     print('behavior reports: passed')
 
 

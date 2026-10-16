@@ -86,6 +86,9 @@ This is representative coverage, not a complete audit of runtime entry points.
 ## Composition and inference
 
 The checker discovers every annotated function and its reachable source helpers.
+Contract roots are visited in declaration order. For each root, newly reachable
+bodies are checked breadth first, retaining call order for equal-length paths.
+Each body is checked once; recursive edges are recorded without re-entering it.
 Helpers need explicit scalar value signatures but may omit effect annotations.
 Every discovered body is checked, including unused annotated functions and
 syntactically unreachable branches. It records direct primitive effects and call
@@ -114,8 +117,13 @@ path. Effect-ceiling witnesses use the fewest call edges from the annotated
 function to a contributing primitive. Equal-length witnesses retain the first
 discovered path, making selection deterministic for the same source. Recursive
 propagation also updates witnesses when a shorter path becomes available.
-Unknown-operation diagnostics identify the operation and discovery traversal
-path; those paths do not yet have the same minimality guarantee.
+Unknown-operation diagnostics identify the operation and a shortest call path
+from the contract root whose discovery reached it. This includes unsupported
+types, global reads, indirect calls, and native/runtime bodies. Earlier contract
+roots retain priority over later roots; the checker does not search all roots
+for a globally shortest error. The source location remains the contributing
+operation, including when it resides in an imported module. Unknown behavior
+still aborts checking and cannot produce a successful behavior report.
 
 ## Inspecting summaries
 
@@ -187,7 +195,7 @@ report or executable. Bootstrap validation checks stage-2/stage-3 binary converg
    `unknown` guarantee results when corresponding enforcement paths exist.
 2. Broaden the supported AST/type fragment with defined allocation, mutation,
    failure, and aliasing semantics. Preserve minimal effect-ceiling witness
-   paths and extend minimal witnesses to unknown-operation diagnostics.
+   paths and shortest unknown-operation discovery paths.
 3. Carry effects in callback/function types and check behavioral subtyping at
    assignments and calls. Add regressions for callback laundering and generic
    substitution before enabling those forms.

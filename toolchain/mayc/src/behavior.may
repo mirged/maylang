@@ -112,15 +112,21 @@ fun behavior_pattern(functions: Any, pattern: Any, span: Any) -> Any {
     }
     return 0;
 }
-// Build every reachable body once. Recursive edges are retained and resolved
-// by monotone set union after graph discovery; visiting is not an empty summary.
+// Queue each reachable body once. Breadth-first discovery gives unknown
+// operations a shortest path from the current explicit contract, including
+// when an earlier call takes a longer route to the same unsupported body.
 fun behavior_function(rec: Any, functions: Any) -> Any {
     if (has(BEHAVIOR_STATES, rec.lab)) { return 0; }
-    let graph: Any = {"record": rec, "name": symbol_name(rec.p, rec.l), "effects": {}, "calls": []};
+    let name: Any = symbol_name(rec.p, rec.l);
+    let graph: Any = {"record": rec, "name": name, "effects": {}, "calls": [], "path": BEHAVIOR_PATH + [name]};
     BEHAVIOR_STATES[rec.lab] = graph;
     push(BEHAVIOR_GRAPHS, graph);
-    let previous: Any = BEHAVIOR_CURRENT; BEHAVIOR_CURRENT = graph;
-    push(BEHAVIOR_PATH, graph.name);
+    return 0;
+}
+fun behavior_body(graph: Any, functions: Any) -> Any {
+    let rec: Any = graph.record;
+    BEHAVIOR_CURRENT = graph;
+    BEHAVIOR_PATH = graph.path;
     if (rec.foreign == true or source_module(rec.moduleSpan ?? rec.body.span) == "") {
         return behavior_error(rec.body.span, "native and runtime calls have unknown behavior");
     }
@@ -129,7 +135,7 @@ fun behavior_function(rec: Any, functions: Any) -> Any {
     let locals: Any = {};
     for param: Any in rec.parr { behavior_scalar(param.annotation, param.span); locals[symbol_name(param.name, param.length)] = true; }
     behavior_node(rec.body, locals, functions);
-    pop(BEHAVIOR_PATH); BEHAVIOR_CURRENT = previous;
+    BEHAVIOR_PATH = []; BEHAVIOR_CURRENT = 0;
     return 0;
 }
 fun behavior_solve() -> Any {
@@ -197,7 +203,12 @@ fun behavior_program() -> Any {
     for rec: Any in FUNC_HEAD {
         if (rec.behaviorContract == true) {
             if (not STRICT_TYPES) { return behavior_error(rec.body.span, "requires strict type checking; remove --legacy"); }
+            mut pending: Any = len(BEHAVIOR_GRAPHS);
             behavior_function(rec, functions);
+            while (pending < len(BEHAVIOR_GRAPHS)) {
+                behavior_body(BEHAVIOR_GRAPHS[pending], functions);
+                pending += 1;
+            }
         }
     }
     behavior_solve();
