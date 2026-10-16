@@ -36,7 +36,7 @@ INSPECT = '''let originals: Any = [];
             }
         }
         print(json_stringify({"summaries": summaries, "unknown": unknown, "parameter_rows": parameter_rows,
-            "frontend_released": len(FUNC_HEAD) == 0 and MAINBODY == 0 and RUNTIME_BODY == 0}));
+            "frontend_released": len(FUNC_HEAD) == 0 and MAINBODY == 0 and RUNTIME_BODY == 0 and len(TOKS) == 0 and NTOKS == 0}));
         syscall(60, 0);'''
 
 
