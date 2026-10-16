@@ -228,6 +228,20 @@ memory and nothing is stored in the executable file. A conservative mark-sweep c
 and data segment, coalesces free space and rewinds the bump pointer — see
 [`GC.md`](GC.md). Running out of heap exits with status 70.
 
+Both full and core runtime list accessors check the list tag before reading its
+header. Dynamic `push`/`pop` on a non-list fail with `expected List`. List and
+string indexing require an integer index. Out-of-range reads return nil;
+assignment requires an existing list index and rejects negative or past-end
+indices before writing. Use `push` to append. Maps retain their arbitrary key
+semantics, including numeric and Boolean keys.
+
+The full runtime reports these as recoverable `type` failures through
+`may ... otherwise`; uncaught failures exit 70. Core prints the error and exits
+70. Internal list getters/setters keep byte-offset indices and validate alignment
+and range. These checks assume well-formed tagged values; raw pointer forgery,
+ownership/lifetime proofs and callable-row invariants in mutable containers are
+separate boundaries.
+
 ## Fibers
 
 `spawn(f)` maps a 256 KiB stack for `f` (a zero-argument function value), `run()`

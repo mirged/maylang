@@ -23,6 +23,14 @@ EXPECTED = (
     '[-2, -1, 0, 1] true [1, 2, 3] heλ HEλ\n'
 ).encode()
 ARENA_EXPECTED = b'arena 1024 iterations 1073741824 scratch bytes 1052672 retained bytes\n'
+LIST_FAILURES = [
+    ('list-push-type', 'let bad: Any = nil; push(bad, 1);', b'expected List\n'),
+    ('list-pop-type', 'let bad: Any = 0; pop(bad);', b'expected List\n'),
+    ('list-slice-type', 'let bad: Any = nil; slice(bad, 0, 1);', b'expected List\n'),
+    ('list-set-negative', 'let xs: Any = [1]; xs[-1] = 2;', b'invalid list assignment\n'),
+    ('list-set-end', 'let xs: Any = [1]; xs[1] = 2;', b'invalid list assignment\n'),
+    ('list-get-type', 'let xs: Any = [1]; let i: Any = true; print(xs[i]);', b'index requires an integer\n'),
+]
 
 
 def emulate(image, target, expected=EXPECTED, status=42, slide=0):
@@ -184,7 +192,7 @@ def main():
             ('let a: Ptr = arena_new(8); arena_alloc(a, 9);', b'arena capacity exceeded\n'),
             ('let a: Ptr = arena_new(8); arena_alloc(a, -1);', b'arena capacity exceeded\n'),
             ('arena_new(-1);', b'invalid arena capacity\n'),
-        ]
+        ] + [(body, message) for _, body, message in LIST_FAILURES]
         for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
             for body, message in failures:
                 source = work / 'arithmetic.may'; source.write_text(body)
@@ -195,7 +203,7 @@ def main():
                     assert result.returncode == 70 and result.stdout == message, result
                 if have_emulation:
                     emulate(image, target, message, 70)
-        print('PASS core integer overflow and division errors on every target', flush=True)
+        print('PASS core arithmetic, arena and list errors on every target', flush=True)
         small=work/'small';small.mkdir()
         shutil.copy2(compiler_binary(options.compiler),small/'mayc')
         shutil.copytree(HERE.parent/'runtime',small/'runtime')

@@ -20,7 +20,7 @@ cases={
  'cycle_map':('let a={}; a.self=a; print(a);',None),
  'cycle_equal':('let a=[]; push(a,a); let b=[]; push(b,b); print(a == b);',None),
  'bad_call':('print(may { let x=42; x() } otherwise { "caught" });','caught\n'),
- 'bad_index':('print(may { [1,2]["oops"] } otherwise { "caught" });',None),
+ 'bad_index':('print(may { [1,2]["oops"] } otherwise { "caught" });','caught\n'),
  'negative_index':('print(may { [1,2][-1000000000] } otherwise { "caught" });',None),
  'empty_pop':('print(may { pop([]) } otherwise { "caught" });',None),
  'div_zero_float':('print(may { 1.0 / 0.0 } otherwise { "caught" });',None),
@@ -31,7 +31,7 @@ cases={
 }
 observed = {
  'cycle_list': '[<cycle>]\n', 'cycle_map': '{"self": <cycle>}\n',
- 'cycle_equal': 'false\n', 'bad_index': 'nil\n', 'negative_index': 'nil\n',
+ 'cycle_equal': 'false\n', 'negative_index': 'nil\n',
  'empty_pop': 'nil\n', 'div_zero_float': 'caught\n',
  'json_unicode': 'u00e9uD83DuDE42\n',
 }

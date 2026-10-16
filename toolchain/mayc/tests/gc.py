@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """GC allocation identity, retained graphs and global-root capacity."""
 import argparse
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+
+from backends import compiler_binary
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -16,7 +19,7 @@ def main():
     harness = r'''
 fun gc_regression() -> Any {
     STACKTOP = __sp();
-    rt_init();
+    CSTOP = STACKTOP;
     let owner: Any = rt_alloc(128);
     let roots: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
     store64(roots, owner); rt_gc_root(roots);
@@ -56,35 +59,45 @@ fun gc_regression() -> Any {
     syscall(1, 1, addr("PASS GC allocation identity and live graphs\n"), 44);
     return 0;
 }
-gc_regression();
 '''
     with tempfile.TemporaryDirectory(prefix='mayc-gc-') as directory:
         work = Path(directory)
-        source = work/'gc.may'; source.write_text(runtime + harness)
+        # Load probes as raw runtime sidecar functions. Concatenating runtime
+        # code into a user --raw module qualifies its names and cannot resolve
+        # backend-generated exception helpers reached by checked list access.
+        probe = work/'mayc'
+        shutil.copy2(compiler_binary(args.compiler), probe)
+        for name in ['native.may', 'runtime']:
+            (work/name).symlink_to(ROOT/'toolchain/mayc'/name)
+        (work/'prelude.may').symlink_to(ROOT/'stdlib/prelude.may')
+        sidecar = work/'runtime.may'; sidecar.write_text(runtime + harness)
+        source = work/'gc.may'; source.write_text('gc_regression();\n')
         binary = work/'gc'
-        result = subprocess.run([str(args.compiler.resolve()), '--raw', '--legacy', str(source), '-o', str(binary)], capture_output=True, timeout=60)
+        result = subprocess.run([str(probe), '--legacy', str(source), '-o', str(binary)], capture_output=True, timeout=60)
         assert result.returncode == 0, result.stderr.decode()
         result = subprocess.run([str(binary)], capture_output=True, timeout=30)
         assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
         print(result.stdout.decode(), end='')
-        source.write_text(runtime + r'''
+        sidecar.write_text(runtime + r'''
 fun root_capacity_regression() -> Any {
-    STACKTOP = __sp(); rt_init();
+    STACKTOP = __sp(); CSTOP = STACKTOP;
     let root: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let first: Any = GCOUNT;
     rt_gc_root(root);
     let neighbor: Any = rt_alloc(32);
-    mut count: Any = 1;
+    if (neighbor - 16 != GROOTS + 1048576) { syscall(60, 8); }
+    mut count: Any = GCOUNT;
     while (count < 131072) { rt_gc_root(root); count += 1; }
     if (GCOUNT != 131072 or load64(neighbor - 16) != 48) { syscall(60, 3); }
-    if (load64(GROOTS) != root or load64(GROOTS + 1048568) != root) { syscall(60, 4); }
+    if (load64(GROOTS + first * 8) != root or load64(GROOTS + 1048568) != root) { syscall(60, 4); }
     // A further registration used to overwrite the next allocation's header.
     rt_gc_root(root);
     syscall(60, if (load64(neighbor - 16) != 48) { 1 } else { 2 });
     return 0;
 }
-root_capacity_regression();
 ''')
-        result = subprocess.run([str(args.compiler.resolve()), '--raw', '--legacy', str(source), '-o', str(binary)], capture_output=True, timeout=60)
+        source.write_text('root_capacity_regression();\n')
+        result = subprocess.run([str(probe), '--legacy', str(source), '-o', str(binary)], capture_output=True, timeout=60)
         assert result.returncode == 0, result.stderr.decode()
         result = subprocess.run([str(binary)], capture_output=True, timeout=30)
         assert result.returncode == 70 and result.stdout == b'GC global root table exhausted\n' and not result.stderr, result
