@@ -40,7 +40,7 @@ fun x86_argument_to_rax(ctx: Any, index: Any) -> Any {
 }
 
 fun x86_call_trampoline(ctx: Any, rec: Any) -> Any {
-    rec.abiLab = newlab(ctx);
+    if (rec.abiLab == 0) { rec.abiLab = newlab(ctx); }
     placelab(ctx, rec.lab);
     x86_encode(ctx, X86Instruction([85, 72, 137, 229], 0, 0));
     x86_encode(ctx, X86Instruction([72, 131, 228], 240, 1));
@@ -54,9 +54,9 @@ fun x86_call_trampoline(ctx: Any, rec: Any) -> Any {
         i = i - 1;
     }
     i = 0;
+    let registers: Any = [7, 6, 2, 1, 8, 9];
     while (i < rec.pc and i < 6) {
-        ld_pos(ctx, 16 + 8 * (rec.pc - 1 - i));
-        mov_argreg(ctx, i);
+        x86_load_register(ctx, registers[i], 0 - (16 + 8 * (rec.pc - 1 - i)));
         i = i + 1;
     }
     call(ctx, rec.abiLab);
@@ -66,12 +66,14 @@ fun x86_call_trampoline(ctx: Any, rec: Any) -> Any {
 
 // r12-r15 are excluded from instruction-selection scratch/argument registers.
 fun x86_store_register(ctx: Any, register: Any, displacement: Any) -> Any {
-    e8(ctx, 76); e8(ctx, 137); e8(ctx, 133 + (register - 8) * 8); e32(ctx, 0 - displacement);
+    e8(ctx, if (register >= 8) { 76 } else { 72 });
+    e8(ctx, 137); e8(ctx, 133 + (register % 8) * 8); e32(ctx, 0 - displacement);
     return 0;
 }
 
 fun x86_load_register(ctx: Any, register: Any, displacement: Any) -> Any {
-    e8(ctx, 76); e8(ctx, 139); e8(ctx, 133 + (register - 8) * 8); e32(ctx, 0 - displacement);
+    e8(ctx, if (register >= 8) { 76 } else { 72 });
+    e8(ctx, 139); e8(ctx, 133 + (register % 8) * 8); e32(ctx, 0 - displacement);
     return 0;
 }
 
@@ -121,14 +123,14 @@ fun x86_get_temp(ctx: Any, value: Any, target: Any) -> Any {
     let location: Any = ctx.allocation.locations[value.slot];
     if (location.literal != nil) { x86_mov_immediate(ctx, target, location.literal); return 0; }
     if (location.borrowed != nil) {
-        e8(ctx, 72); e8(ctx, 139); e8(ctx, 133 + target * 8); e32(ctx, 0 - location.borrowed);
+        x86_load_register(ctx, target, location.borrowed);
         return 0;
     }
-    if (location.register >= 0) { e8(ctx, 76); e8(ctx, 137); e8(ctx, 192 + (location.register - 8) * 8 + target); }
-    else {
-        e8(ctx, 72); e8(ctx, 139); e8(ctx, 133 + target * 8);
-        e32(ctx, 0 - 8 * (ctx.tempBase + location.home + 1));
-    }
+    if (location.register >= 0) {
+        let rex: Any = 72 + if (location.register >= 8) { 4 } else { 0 };
+        e8(ctx, rex + if (target >= 8) { 1 } else { 0 });
+        e8(ctx, 137); e8(ctx, 192 + (location.register % 8) * 8 + target % 8);
+    } else { x86_load_register(ctx, target, 8 * (ctx.tempBase + location.home + 1)); }
     return 0;
 }
 
@@ -660,32 +662,28 @@ fun cg_un(ctx: Any, n: Any) -> Any {
 
 
 
-fun pop_reg(ctx: Any, i: Any) -> Any {
-    if (i == 0) { e8(ctx, 88); }
-    else if (i == 1) { e8(ctx, 95); }
-    else if (i == 2) { e8(ctx, 94); }
-    else if (i == 3) { e8(ctx, 90); }
-    else if (i == 4) { e8(ctx, 65); e8(ctx, 90); }
-    else if (i == 5) { e8(ctx, 65); e8(ctx, 88); }
-    else { e8(ctx, 65); e8(ctx, 89); }
+// All arguments already have stable IR homes in r12-r15 or the frame.
+// ABI destinations are disjoint, so loading one cannot destroy another source.
+fun x86_syscall_arguments(ctx: Any, args: Any, tagged: Any) -> Any {
+    let registers: Any = [0, 7, 6, 2, 10, 8, 9];
+    mut index: Any = 0;
+    mut cur: Any = args;
+    while (cur != 0) {
+        if (index >= len(registers)) { die_str("mayc: syscall accepts at most seven arguments\n"); }
+        let target: Any = registers[index];
+        x86_get_temp(ctx, cur, target);
+        if (tagged) {
+            e8(ctx, if (target >= 8) { 73 } else { 72 });
+            e8(ctx, 193); e8(ctx, 248 + target % 8); e8(ctx, 3);
+        }
+        index += 1; cur = cur.next;
+    }
     return 0;
 }
 
 fun cg_syscall(ctx: Any, args: Any) -> Any {
     if (ctx.target.os != "linux") { die_str("mayc: raw syscall is not supported for this target\n"); }
-    mut cnt: Any = 0;
-    mut cur: Any = args;
-    while (cur != 0) {
-        cg_expr(ctx, cur);
-        e8(ctx, 80);
-        cnt = cnt + 1;
-        cur = cur.next;
-    }
-    mut i: Any = cnt - 1;
-    while (i >= 0) {
-        pop_reg(ctx, i);
-        i = i - 1;
-    }
+    x86_syscall_arguments(ctx, args, false);
     e8(ctx, 15); e8(ctx, 5);
     return 0;
 }
@@ -936,27 +934,50 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     return 0;
 }
 
-fun cg_calln(ctx: Any, name: Any, sl: Any, args: Any) -> Any {
-    mut cnt: Any = 0;
+// Statically resolved calls enter the register ABI body directly. Only
+// arguments beyond the six integer registers need stack slots, in ABI order.
+// Keep the vector trampoline for closures and runtime helpers with a dynamic
+// argument count; it also adapts callers that have an unaligned scratch stack.
+fun x86_call_direct(ctx: Any, rec: Any, args: Any) -> Any {
+    let registers: Any = [7, 6, 2, 1, 8, 9];
+    let values: Any = [];
     mut cur: Any = args;
-    while (cur != 0) {
-        cg_expr(ctx, cur);
-        e8(ctx, 80);
-        cnt = cnt + 1;
-        cur = cur.next;
+    while (cur != 0 and len(values) < rec.pc) { push(values, cur); cur = cur.next; }
+    mut overflow: Any = rec.pc - 6;
+    if (overflow < 0) { overflow = 0; }
+    let total: Any = (overflow + overflow % 2) * 8;
+    if (overflow % 2 == 1) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 236); e8(ctx, 8); }
+    mut index: Any = rec.pc - 1;
+    while (index >= 6) {
+        if (index < len(values)) { cg_expr(ctx, values[index]); }
+        else { mov_imm(ctx, if (ctx.mode == 0) { 0 } else { 2 }); }
+        e8(ctx, 80); index -= 1;
     }
-    call_rt0(ctx, name, sl);
-    let total: Any = cnt * 8;
+    index = 0;
+    while (index < rec.pc and index < 6) {
+        if (index < len(values)) { x86_get_temp(ctx, values[index], registers[index]); }
+        else { x86_mov_immediate(ctx, registers[index], if (ctx.mode == 0) { 0 } else { 2 }); }
+        index += 1;
+    }
+    if (rec.abiLab == 0) { rec.abiLab = newlab(ctx); }
+    // The body label is internal; retain the owning source function too.
+    emission_reference(ctx, rec.lab);
+    call(ctx, rec.abiLab);
     if (total > 0) {
-        if (total < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, total); }
-        else { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, total); }
+        e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, total);
     }
     return 0;
 }
 
+fun cg_calln(ctx: Any, name: Any, sl: Any, args: Any) -> Any {
+    let rec: Any = backend_find_func(ctx, name, sl);
+    if (rec == 0) { die_str("mayc: missing runtime fn\n"); }
+    return x86_call_direct(ctx, rec, args);
+}
+
 // Apply a closure value held in local slot `cv` to a linked list of argument
-// expressions.  Arguments are evaluated left to right into temporary slots,
-// pushed in order, then padded with `nil` up to the closure's declared arity
+// values. IR lowering has already evaluated them left to right into stable
+// homes. Push them in vector order, then pad with nil to the declared arity
 // so a short argument list still binds its parameters correctly.
 fun cg_apply(ctx: Any, cv: Any, args: Any) -> Any {
     ld_local(ctx, 8 * (cv + 1));
@@ -967,22 +988,11 @@ fun cg_apply(ctx: Any, cv: Any, args: Any) -> Any {
         cnt = cnt + 1;
         cur = cur.next;
     }
-    mut slots: Any = [];
     mut i: Any = 0;
     cur = args;
     while (cur != 0) {
-        cg_expr(ctx, cur);
-        let si: Any = loc_add(ctx, addr("0a"), 2);
-        st_local(ctx, 8 * (si + 1));
-        push(slots, si);
-        i = i + 1;
+        cg_expr(ctx, cur); e8(ctx, 80);
         cur = cur.next;
-    }
-    i = 0;
-    while (i < cnt) {
-        ld_local(ctx, 8 * (slots[i] + 1));
-        e8(ctx, 80);
-        i = i + 1;
     }
     let lskip: Any = newlab(ctx);
     let ltop: Any = newlab(ctx);
@@ -1041,28 +1051,7 @@ fun cg_call(ctx: Any, n: Any) -> Any {
     if (li < 0  and  gi < 0) {
         let fr: Any = backend_find_func(ctx, np, nl);
         if (fr != 0) {
-            let pc: Any = fr.pc;
-            mut cnt: Any = 0;
-            mut idx: Any = 0;
-            mut cur: Any = args;
-            while (cur != 0) {
-                cg_expr(ctx, cur);
-                if (idx < pc) {
-                    e8(ctx, 80);
-                    cnt = cnt + 1;
-                }
-                idx = idx + 1;
-                cur = cur.next;
-            }
-            while (cnt < pc) {
-                if (ctx.mode == 0) { mov_imm(ctx, 0); } else { mov_imm(ctx, 2); }
-                e8(ctx, 80); cnt = cnt + 1;
-            }
-            call(ctx, fr.lab);
-            if (cnt > 0) {
-                if (cnt * 8 < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, cnt * 8); }
-                else { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, cnt * 8); }
-            }
+            x86_call_direct(ctx, fr, args);
             return 0;
         }
         if (cg_builtin(ctx, np, nl, args) == 1) { return 0; }
@@ -1245,20 +1234,7 @@ fun cg_print(ctx: Any, args: Any) -> Any {
 }
 
 fun cg_syscall_dyn(ctx: Any, args: Any) -> Any {
-    mut cnt: Any = 0;
-    mut cur: Any = args;
-    while (cur != 0) {
-        cg_expr(ctx, cur);
-        e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);   // sar rax, 3
-        e8(ctx, 80);
-        cnt = cnt + 1;
-        cur = cur.next;
-    }
-    mut i: Any = cnt - 1;
-    while (i >= 0) {
-        pop_reg(ctx, i);
-        i = i - 1;
-    }
+    x86_syscall_arguments(ctx, args, true);
     e8(ctx, 15); e8(ctx, 5);
     e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);       // shl rax, 3
     return 0;
@@ -1778,8 +1754,10 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     xor_eax(ctx);
     i = 0;
     while (i < pc) {
-        x86_argument_to_rax(ctx, i);
-        st_local(ctx, 8 * (i + 1));
+        if (i < 6) {
+            let registers: Any = [7, 6, 2, 1, 8, 9];
+            x86_store_register(ctx, registers[i], 8 * (i + 1));
+        } else { x86_argument_to_rax(ctx, i); st_local(ctx, 8 * (i + 1)); }
         i = i + 1;
     }
     i = 0;

@@ -30,6 +30,42 @@ def function(assembly, name):
     return match[1]
 
 
+def call_arguments(compiler, work):
+    source, binary = work / 'calls.may', work / 'calls'
+    declarations, checks = [], []
+    for count in range(11):
+        parameters = ', '.join(f'a{i}: Any' for i in range(count))
+        expression = ' + '.join(f'a{i} * {i + 1}' for i in range(count)) or '17'
+        arguments = ', '.join(f'bias + {i + 1}' for i in range(count))
+        expected = sum((i + 4) * (i + 1) for i in range(count)) if count else 17
+        declarations += [f'fun weighted{count}({parameters}) -> Any {{ return {expression}; }}',
+                         f'fun caller{count}(bias: Any) -> Any {{ return weighted{count}({arguments}); }}']
+        checks.append(f'if caller{count}(3) != {expected} {{ exit(30); }}')
+    declarations += [
+        'mut order: Any = 0;',
+        'fun record(n: Any) -> Any { order = order * 10 + n; return n; }',
+        'fun missing(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any, g: Any, h: Any) -> Any { return g == nil and h == nil; }',
+        'fun recurse(n: Any) -> Any { if n == 0 { return 0; } return 1 + recurse(n - 1); }']
+    checks += ['if weighted1(record(1), record(2)) != 1 or order != 12 { exit(31); }',
+               'if not missing(1, 2, 3, 4, 5, 6) { exit(32); }',
+               'if recurse(30) != 30 { exit(33); }', 'exit(0);']
+    source.write_text('\n'.join(declarations + checks))
+    for options in [('--raw', '--legacy'), ('--legacy',)]:
+        compile_source(compiler, source, binary, *options)
+        run(binary)
+        if '--raw' not in options:
+            continue
+        assembly = disassemble(binary)
+        for count in range(11):
+            body = function(assembly, f'caller{count}')
+            # The first six arguments enter the ABI body without a stack
+            # trampoline; overflow arguments alone use actual ABI stack slots.
+            assert len(re.findall(r'\bpush\s+rax\b', body)) == max(count - 6, 0), body
+            assert not re.search(r'\bpop\s+rax\b', body), body
+            assert re.search(r'\bcall\s+[^\n]*<module0::weighted' + str(count) + '>', body), body
+    print('PASS raw/tagged calls with 0..10 arguments, direct body entry, padding, extra-argument effects and recursion', flush=True)
+
+
 def raw_integer(n):
     # Source literals use the compiler's tagged range; expressions can construct
     # every raw 64-bit pattern, including INT64_MIN and INT64_MAX.
@@ -244,6 +280,8 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
             compile_source(compiler, source, binary, '--raw')
             run(binary, status)
         print(f'PASS {len(calls)} full-width signed division/remainder cases, reciprocal selection and unchanged traps', flush=True)
+
+        call_arguments(compiler, work)
 
         unit = work / 'unit'
         compile_source(compiler, HERE / 'backend/x86_codegen.may', unit)
