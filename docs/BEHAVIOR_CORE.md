@@ -181,9 +181,10 @@ Before enabling callable values, the implementation must:
 5. Reject legacy-mode erasure of behavioral callable annotations and prevent
    `Any`, containers, closures, reflection or native boundaries from laundering
    a callable's unknown behavior into a finite row.
-6. Keep resolved effect metadata through IR construction and emission. The
-   current emitter snapshots omit behavior summaries; they must not serve as
-   a claimed behavior-preserving link interface until that gap is addressed.
+6. Keep resolved effect metadata through IR construction and emission. Current
+   emitted-function snapshots retain independent normalized scalar summaries;
+   this is data retention, not a proved refinement of emitted code or a sealed
+   separately compiled link interface. Callable rows must also survive this path.
 7. Provide positive subtype cases and negative laundering cases for direct,
    imported, recursive, generic, higher-order, captured and foreign callables.
    Failed checking must produce neither successful metadata nor a new binary.

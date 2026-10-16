@@ -201,6 +201,18 @@ function has unknown behavior, not an empty row. With no contracts the function
 array is empty. The report is reproducible for equal source/path/toolchain input;
 it is inspection metadata, not a signed manifest or independently verified proof.
 
+During compilation, retained functions also carry a `behaviorSummary` in the
+emission context. This internal version-1 snapshot contains the scope,
+classification, display name, resolved source symbol, declared ceiling (null for
+inferred helpers), and inferred row. Rows are copied so frontend mutation or
+release cannot change the emission snapshot. Functions without an analyzed
+summary have no snapshot; missing metadata never means pure. Unreachable functions
+are not emitted even if they have an explicit contract.
+
+This retention preserves analysis data across the frontend/IR boundary. It does
+not serialize metadata into the executable, seal a separately compiled public
+interface, or verify the backend's refinement of source behavior.
+
 ## Exact guarantee boundary
 
 An accepted contract establishes that explicit supported operations in the
@@ -232,11 +244,12 @@ python3 toolchain/mayc/tests/effect_rows.py
 python3 toolchain/mayc/tests/behavior_reports.py
 python3 toolchain/mayc/tests/behavior_scalars.py
 python3 toolchain/mayc/tests/behavior_control_flow.py
+python3 toolchain/mayc/tests/behavior_ir.py
 python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/build/bin/mayc_new --features-only
 python3 toolchain/rust/test.py
 ```
 
-The five behavior suites run through the standard native verification harness.
+The six behavior suites run through the standard native verification harness.
 They execute recursive/imported functions, check fixed-point propagation and
 ceilings, reject global/alias/scope bypasses and unknown operations, inspect
 normalized reports, compare generated call graphs with an independent

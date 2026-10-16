@@ -34,9 +34,12 @@ rules before admitting callbacks. Callable effects must survive every assignment
 argument, return, substitution, and trust boundary; unannotated callable behavior
 must remain unknown. Do not enable callback syntax with erased effect metadata.
 The [core model](BEHAVIOR_CORE.md) records these rules and proof obligations.
-Its source audit identified a concrete IR gap: `ir_program` omits behavior
-summaries from emitted-function snapshots. Retain normalized summaries and test
-their preservation before presenting emission metadata as a behavioral interface.
+Its source audit identified a concrete IR gap: `ir_program` omitted behavior
+summaries from emitted-function snapshots. The IR-retention increment now copies
+normalized rows and identities and tests them after frontend release and source
+mutation, including missing/stripped summaries. This is not yet a behavioral link
+interface. Next, preserve effect rows through all callable type operations before
+enabling behavioral callback syntax.
 
 ## Full design coverage
 
