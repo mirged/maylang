@@ -27,10 +27,10 @@ Completed checkpoints:
   and stage-2/stage-3 convergence.
 - `742fd75`, PR #72 (merged): finite/unknown rows in callable type operations;
   local verification passed 85 checks, the strict suite and compiler convergence.
-- `21b3acc`, PR #73: closed named callable source contracts and all-source
+- `21b3acc`, PR #73 (merged): closed named callable source contracts and all-source
   inference in callable mode; 54 native/LLVM callback cases, 86 verification
   checks, the full LLVM suite and source-bootstrap convergence passed locally.
-  Merge after CI passes. The current cached native compiler includes this work.
+  The current cached native compiler includes this work.
 
 Active increment: runtime list type/index guards before further shared-state
 admission. Reproduce invalid dynamic push/pop in bounded child processes with
@@ -40,8 +40,7 @@ reject invalid assignments before writes. Validate native, LLVM and core targets
 and source-bootstrap convergence before merging. Finite callable shared storage
 must remain rejected: these guards do not establish a per-container effect row.
 
-Next prerequisite: specify the scalar core and the behavioral function-type
-rules before admitting callbacks. Callable effects must survive every assignment,
+Ongoing invariant: callable effects must survive every assignment,
 argument, return, substitution, and trust boundary; unannotated callable behavior
 must remain unknown. Do not enable callback syntax with erased effect metadata.
 The [core model](BEHAVIOR_CORE.md) records these rules and proof obligations.
@@ -53,16 +52,15 @@ interface. Closed callable source syntax, source-body discovery and boundary
 checking now extend those type operations. Effect-polymorphic constraints,
 captures and shared storage still need independent semantics/enforcement.
 
-Runtime audit follow-up: full/core `rt_list_len`, `rt_list_get`, `rt_list_set`
-and `rt_push` access list payloads without validating the incoming tag. Dynamic
-`Any` paths therefore need runtime type checks before any memory-safety or
-cross-component value-integrity profile can be claimed. This is separate from
-the typed-container aliasing problem; tag checks alone cannot preserve a finite
-callable row stored in an otherwise valid mutable list.
-Full-runtime `rt_index_set` also lacks the range checks already present in
-`runtime/core.may`; inspect negative, non-integer and past-end assignments before
-allowing a store. Internal byte-offset getters/setters should preserve their
-valid offset convention while rejecting malformed access.
+The list-guard increment now validates full/core list tags before payload reads,
+checks byte-offset getter/setter alignment/range, and guards append/pop. Full
+indexing now checks index types and rejects invalid assignments before writes.
+The original `push(nil, 1)` dynamic case reproduced SIGSEGV with core dumps disabled;
+the focused suite now passes 90 native/core/LLVM cases with controlled failures.
+Portable failure fixtures are included in core emulation and native-loader CI.
+This does not establish a memory-safety profile or a finite callable row inside
+a mutable container. Raw pointer integrity, ownership and typed aliasing remain
+separate requirements.
 
 ## Full design coverage
 

@@ -686,26 +686,29 @@ fun rt_list_new(cap: Any) -> Any {
 }
 
 fun rt_list_len(v: Any) -> Any {
+    if (v % 8 != 5) { return rt_failtype(rt_from(addr("expected List"), 13)); }
     return load64(v - 5);
 }
 
 fun rt_list_set(l: Any, i: Any, x: Any) -> Any {
+    let n: Any = rt_list_len(l);
+    if (i % 8 != 0 or i < 0 or i / 8 >= n) { return rt_failtype(rt_from(addr("invalid list assignment"), 23)); }
     let p: Any = l - 5;
     let d: Any = load64(p + 16);
     store64(d + i, x);
-    let idx: Any = i / 8;
-    if (idx + 1 > load64(p)) { store64(p, idx + 1); }
     return x;
 }
 
 fun rt_list_get(l: Any, i: Any) -> Any {
+    let n: Any = rt_list_len(l);
+    if (i % 8 != 0 or i < 0 or i / 8 >= n) { return rt_failtype(rt_from(addr("invalid list index"), 18)); }
     let d: Any = load64(l - 5 + 16);
     return load64(d + i);
 }
 
 fun rt_push(l: Any, x: Any) -> Any {
+    let len: Any = rt_list_len(l);
     let p: Any = l - 5;
-    let len: Any = load64(p);
     let cap: Any = load64(p + 8);
     if (len >= cap) {
         mut nc: Any = cap * 2;
@@ -792,11 +795,13 @@ fun utf8_encode(c: Any) -> Any {
 fun rt_index_get(a: Any, i: Any) -> Any {
     let t: Any = a % 8;
     if (t == 5) {
+        if (i % 8 != 0) { return rt_failtype(rt_from(addr("index requires an integer"), 25)); }
         if (i < 0 or i >= rt_list_len(a) * 8) { return 2; }
         return rt_list_get(a, i);
     }
     if (t == 7) { return rt_map_get(a, i); }
     if (t == 1) {
+        if (i % 8 != 0) { return rt_failtype(rt_from(addr("index requires an integer"), 25)); }
         let cp: Any = i / 8;
         if (cp < 0 or cp >= utf8_cplen(a)) { return 2; }
         return utf8_encode(utf8_decode(a, utf8_off(a, cp)));
@@ -806,9 +811,9 @@ fun rt_index_get(a: Any, i: Any) -> Any {
 
 fun rt_index_set(a: Any, i: Any, x: Any) -> Any {
     let t: Any = a % 8;
-    if (t == 5) { rt_list_set(a, i, x); }
-    if (t == 7) { rt_map_set(a, i, x); }
-    return x;
+    if (t == 5) { return rt_list_set(a, i, x); }
+    if (t == 7) { return rt_map_set(a, i, x); }
+    return rt_failtype(rt_from(addr("invalid indexed assignment"), 26));
 }
 
 fun rt_print_list(v: Any) -> Any {
@@ -1627,8 +1632,8 @@ fun rt_pow(a: Any, b: Any) -> Any {
 }
 
 fun rt_pop(l: Any) -> Any {
+    let n: Any = rt_list_len(l);
     let p: Any = l - 5;
-    let n: Any = load64(p);
     if (n == 0) { return 2; }
     let d: Any = load64(p + 16);
     let x: Any = load64(d + (n - 1) * 8);
