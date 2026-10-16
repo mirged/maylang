@@ -245,11 +245,12 @@ python3 toolchain/mayc/tests/behavior_reports.py
 python3 toolchain/mayc/tests/behavior_scalars.py
 python3 toolchain/mayc/tests/behavior_control_flow.py
 python3 toolchain/mayc/tests/behavior_ir.py
+python3 toolchain/mayc/tests/behavior_function_types.py
 python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/build/bin/mayc_new --features-only
 python3 toolchain/rust/test.py
 ```
 
-The six behavior suites run through the standard native verification harness.
+The seven behavior suites run through the standard native verification harness.
 They execute recursive/imported functions, check fixed-point propagation and
 ceilings, reject global/alias/scope bypasses and unknown operations, inspect
 normalized reports, compare generated call graphs with an independent
@@ -262,6 +263,17 @@ The complete design backlog and continuation checkpoints are tracked in
 [the implementation ledger](BEHAVIOR_PROGRESS.md).
 The [scalar core model](BEHAVIOR_CORE.md) specifies the observation boundary,
 fixed-point rules, proof obligations, and prerequisites for behavioral callables.
+
+Internally, callable value types now distinguish unknown rows from explicit
+empty rows. Known rows participate in identity, parameter/result variance,
+effect-ceiling subtyping, joins and generic substitution/unification. A source
+declaration with a checked contract exposes its declared ceiling as a callable
+value; an inferred helper carries its inferred row. Dynamic `Any` compatibility
+cannot narrow to a finite callable row, including one nested inside another type.
+These type operations are tested independently. Effect-row syntax on callable
+parameters, callback analysis, effect polymorphism, and behavioral callback
+boundary checking remain prerequisites; checked scalar functions still reject
+callable parameters and indirect calls.
 
 ## Next implementation milestones
 

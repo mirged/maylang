@@ -148,6 +148,12 @@ semantic permissions.
 
 ## Callable types: extension requirements
 
+The strict checker's internal callable types now retain known scalar effect rows
+through identity, subtyping, row joins, substitution and generic unification.
+Unknown rows remain distinct from empty rows. These are internal prerequisites;
+they do not enable behavioral callback source syntax or verify callback bodies.
+The remaining requirements below still apply before that extension is admitted.
+
 The next core adds an effect dimension to callable types:
 
 ```text
