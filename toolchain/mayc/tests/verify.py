@@ -114,7 +114,10 @@ def architecture(compiler):
 
 
 def targets(compiler):
-    sources = sorted((ROOT / "examples").glob("*.may"))
+    # Interactive UI programs need the native UI library and a window/snapshot
+    # harness. Their runtime checks live in toolchain/mayui/tests/run.py.
+    showcase = ROOT / "examples/ui_showcase.may"
+    sources = [source for source in sorted((ROOT / "examples").glob("*.may")) if source != showcase]
     sources += [ROOT / "examples/modules/app.may"]
     sources += [
         ROOT / "example_projects/apps/maytasks/main.may",
@@ -124,8 +127,9 @@ def targets(compiler):
         ROOT / "example_projects/simulations/ecosystem/main.may",
     ]
     print(f"Testing {len(sources)} current entrypoints", flush=True)
-    ui = run([compiler, "--check", ROOT / "example_projects/apps/mayboard/src/main.may"])
-    record("target mayboard UI type contracts", ui.returncode == 0, ui.stderr.decode())
+    for source, label in [(ROOT / "example_projects/apps/mayboard/src/main.may", "mayboard"), (showcase, "showcase")]:
+        ui = run([compiler, "--check", source])
+        record(f"target {label} UI type contracts", ui.returncode == 0, ui.stderr.decode())
     shutil.copy2(COMPILER / "runtime.may", WORK / "runtime.may")
     shutil.copy2(COMPILER / "native.may", WORK / "native.may")
     for index, source in enumerate(sources):

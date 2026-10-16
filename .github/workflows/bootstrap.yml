@@ -21,7 +21,7 @@ jobs:
       - name: Install build requirements
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc binutils clang llvm python3 libx11-dev fonts-dejavu-core xvfb xdotool
+          sudo apt-get install -y gcc binutils clang llvm python3 libx11-dev libxi-dev libxcursor-dev libgl-dev fonts-dejavu-core xvfb xdotool
           rustup toolchain install stable --profile minimal
           rustup default stable
       - name: Check the unified Rust workspace
