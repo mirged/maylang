@@ -18,6 +18,9 @@ Completed checkpoints:
 - `fc66f48`, PR #68 (merged): Float contracts and explicit pure pi/e primitive rules;
   local verification passed 82 checks and 55 native/LLVM scalar cases, including
   stage-2/stage-3 compiler convergence.
+- `072f565`, PR #69: private scalar mutation and while-loop contracts, including
+  empty control-flow blocks. Local verification passed 83 checks, 46 native/LLVM
+  control-flow cases, and compiler-generation convergence. Merge after CI passes.
 
 Active increment: allow private scalar mutation and `while` loops while retaining
 fail-closed checks for shared state, collections, captures, and indirect calls.
@@ -25,6 +28,11 @@ Analyze loop conditions and all body statements, including unreachable code;
 preserve scopes, effect propagation, and diagnostic paths. Do not infer termination
 or a resource bound from loop acceptance. Add native/LLVM execution, negative
 scope/shadowing cases, and report assertions before merging.
+
+Next prerequisite: specify the scalar core and the behavioral function-type
+rules before admitting callbacks. Callable effects must survive every assignment,
+argument, return, substitution, and trust boundary; unannotated callable behavior
+must remain unknown. Do not enable callback syntax with erased effect metadata.
 
 ## Full design coverage
 
