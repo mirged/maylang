@@ -106,9 +106,18 @@ fun x86_root_registers(ctx: Any) -> Any {
 }
 
 fun cg_expr(ctx: Any, value: Any) -> Any {
+    return x86_get_temp(ctx, value, 0);
+}
+
+// Operands are already evaluated IR temporaries. Loading one cannot call,
+// modify another home, or clobber the other scratch register (rax/rcx).
+fun x86_get_temp(ctx: Any, value: Any, target: Any) -> Any {
     let location: Any = ctx.allocation.locations[value.slot];
-    if (location.register >= 0) { e8(ctx, 76); e8(ctx, 137); e8(ctx, 192 + (location.register - 8) * 8); }
-    else { ld_local(ctx, 8 * (ctx.tempBase + location.home + 1)); }
+    if (location.register >= 0) { e8(ctx, 76); e8(ctx, 137); e8(ctx, 192 + (location.register - 8) * 8 + target); }
+    else {
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 133 + target * 8);
+        e32(ctx, 0 - 8 * (ctx.tempBase + location.home + 1));
+    }
     return 0;
 }
 
@@ -149,10 +158,28 @@ fun x86_handler_end(ctx: Any) -> Any {
 }
 
 fun cg_ir(ctx: Any, block: Any) -> Any {
+    mut fusedBranch: Any = -1;
     for instruction: Any in block.code {
         ctx.allocation.position += 1;
+        if (ctx.allocation.position <= fusedBranch) { continue; }
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
+        if (ctx.mode == 0) {
+            if (x86_dead_copy(ctx, instruction)) { continue; }
+            let branch: Any = x86_branch_comparison(ctx, block, instruction);
+            if (branch >= 0) {
+                cg_expr(ctx, payload.left);
+                x86_rax_operand(ctx, payload.right, 59, false); // cmp rax, r/m64
+                let jump: Any = block.code[branch];
+                mut condition: Any = x86_comparison_condition(payload.op);
+                if (jump.op == IR_FALSE) {
+                    condition = if (condition % 2 == 0) { condition + 1 } else { condition - 1 };
+                }
+                jcc(ctx, condition, jump.extra);
+                fusedBranch = branch;
+                continue;
+            }
+        }
         if (op == IR_LABEL) { placelab(ctx, payload); }
         else if (op == IR_JUMP) { jmp(ctx, payload); }
         else if (op == IR_COPY) { cg_expr(ctx, instruction.arg1); }
@@ -213,7 +240,14 @@ fun jmp(ctx: Any, lab: Any) -> Any { e8(ctx, 233); let o: Any = ctx.code.length;
 fun jcc(ctx: Any, op: Any, lab: Any) -> Any { e8(ctx, 15); e8(ctx, op); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
 fun call(ctx: Any, lab: Any) -> Any { x86_root_registers(ctx); e8(ctx, 232); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
 
-fun mov_imm(ctx: Any, v: Any) -> Any { e8(ctx, 72); e8(ctx, 184); e64(ctx, v); return 0; }
+fun mov_imm(ctx: Any, v: Any) -> Any {
+    // mov eax zero-extends; C7 /0 sign-extends. Preserve flags, as the old
+    // movabs did, and retain all 64 bits outside these two proven ranges.
+    if (v >= 0 and v <= 4294967295) { e8(ctx, 184); e32(ctx, v); }
+    else if (v >= -2147483648 and v < 0) { e8(ctx, 72); e8(ctx, 199); e8(ctx, 192); e32(ctx, v); }
+    else { e8(ctx, 72); e8(ctx, 184); e64(ctx, v); }
+    return 0;
+}
 fun addr_of(ctx: Any, off: Any) -> Any { e8(ctx, 72); e8(ctx, 184); let o: Any = ctx.code.length; e64(ctx, 0); fx(ctx, 1, o, off); return 0; }
 
 fun ld_local(ctx: Any, d: Any) -> Any { e8(ctx, 72); e8(ctx, 139); e8(ctx, 133); e32(ctx, 0 - d); return 0; }
@@ -309,6 +343,46 @@ fun x86_signed_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) 
     return 0;
 }
 
+fun x86_comparison_condition(op: Any) -> Any {
+    if (op == TK_EQ) { return 132; }
+    if (op == TK_NE) { return 133; }
+    if (op == TK_LT) { return 140; }
+    if (op == TK_LE) { return 142; }
+    if (op == TK_GT) { return 143; }
+    if (op == TK_GE) { return 141; }
+    return -1;
+}
+
+fun x86_dead_copy(ctx: Any, instruction: Any) -> Any {
+    return instruction.op == IR_COPY and ctx.allocation.locations[instruction.result.slot].uses == 0;
+}
+
+fun x86_branch_comparison(ctx: Any, block: Any, instruction: Any) -> Any {
+    if (instruction.op != E_BIN or x86_comparison_condition(instruction.extra.op) < 0) { return -1; }
+    let location: Any = ctx.allocation.locations[instruction.result.slot];
+    if (location.definitions != 1 or location.start != ctx.allocation.position) { return -1; }
+    mut next: Any = ctx.allocation.position + 1;
+    // Statement ifs leave unused result copies between the comparison and
+    // branch. Only copies with no readers anywhere in the block may be skipped.
+    while (next < len(block.code) and x86_dead_copy(ctx, block.code[next])) { next += 1; }
+    if (next >= len(block.code) or location.end != next) { return -1; }
+    let branch: Any = block.code[next];
+    if ((branch.op == IR_FALSE or branch.op == IR_TRUE) and branch.arg1.slot == instruction.result.slot) { return next; }
+    return -1;
+}
+
+// Emit op rax, r/m64 directly from an allocated register or spill home.
+// rax is scratch; allocated r12-r15 and private spill homes remain untouched.
+fun x86_rax_operand(ctx: Any, value: Any, opcode: Any, extended: Any) -> Any {
+    let location: Any = ctx.allocation.locations[value.slot];
+    e8(ctx, if (location.register >= 0) { 73 } else { 72 });
+    if (extended) { e8(ctx, 15); }
+    e8(ctx, opcode);
+    if (location.register >= 0) { e8(ctx, 192 + location.register - 8); }
+    else { e8(ctx, 133); e32(ctx, 0 - 8 * (ctx.tempBase + location.home + 1)); }
+    return 0;
+}
+
 fun cg_bin(ctx: Any, n: Any) -> Any {
     let op: Any = n.op;
     // Signed power-of-two division/remainder: bias negatives before shifting.
@@ -322,24 +396,17 @@ fun cg_bin(ctx: Any, n: Any) -> Any {
         }
     }
     cg_expr(ctx, n.left);
-    e8(ctx, 80);
-    cg_expr(ctx, n.right);
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);      // mov rcx, rax
-    e8(ctx, 88);
-    if (op == TK_PLUS) { e8(ctx, 72); e8(ctx, 1); e8(ctx, 200); }
-    else if (op == TK_MINUS) { e8(ctx, 72); e8(ctx, 41); e8(ctx, 200); }
-    else if (op == TK_STAR) { e8(ctx, 72); e8(ctx, 15); e8(ctx, 175); e8(ctx, 193); }
-    else if (op == TK_SLASH) { e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249); }
-    else if (op == TK_PCT) {
+    if (op == TK_PLUS) { x86_rax_operand(ctx, n.right, 3, false); }
+    else if (op == TK_MINUS) { x86_rax_operand(ctx, n.right, 43, false); }
+    else if (op == TK_STAR) { x86_rax_operand(ctx, n.right, 175, true); }
+    else if (op == TK_SLASH or op == TK_PCT) {
+        x86_get_temp(ctx, n.right, 1);
         e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249);
-        e8(ctx, 72); e8(ctx, 137); e8(ctx, 208);  // mov rax, rdx
+        if (op == TK_PCT) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 208); }
+    } else {
+        x86_rax_operand(ctx, n.right, 59, false);
+        setcc(ctx, x86_comparison_condition(op) + 16);
     }
-    else if (op == TK_EQ) { cmp_rcx(ctx); setcc(ctx, 148); }
-    else if (op == TK_NE) { cmp_rcx(ctx); setcc(ctx, 149); }
-    else if (op == TK_LT) { cmp_rcx(ctx); setcc(ctx, 156); }
-    else if (op == TK_LE) { cmp_rcx(ctx); setcc(ctx, 158); }
-    else if (op == TK_GT) { cmp_rcx(ctx); setcc(ctx, 159); }
-    else { cmp_rcx(ctx); setcc(ctx, 157); }
     return 0;
 }
 
@@ -389,10 +456,7 @@ fun cg_syscall(ctx: Any, args: Any) -> Any {
 
 fun cg_store(ctx: Any, args: Any, width: Any) -> Any {
     cg_expr(ctx, args);
-    e8(ctx, 80);
-    cg_expr(ctx, args.next);
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);      // mov rcx, rax
-    e8(ctx, 88);
+    x86_get_temp(ctx, args.next, 1);
     if (width == 1) { e8(ctx, 136); e8(ctx, 8); }
     else if (width == 2) { e8(ctx, 102); e8(ctx, 137); e8(ctx, 8); }
     else if (width == 4) { e8(ctx, 137); e8(ctx, 8); }

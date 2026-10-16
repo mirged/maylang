@@ -4,7 +4,7 @@ import "state.may";
 // Basic linear scan: inclusive live intervals, furthest-end eviction, and
 // reusable stack homes. Control-flow/multi-definition intervals are pinned to
 // private homes; this avoids assuming SSA or ignoring back-edge liveness.
-struct LiveInterval { slot: Any, start: Any, end: Any, definitions: Any, register: Any, home: Any, pinned: Any, next: Any }
+struct LiveInterval { slot: Any, start: Any, end: Any, definitions: Any, register: Any, home: Any, pinned: Any, next: Any, uses: Any }
 struct RegisterAllocation { locations: Any, used: Any, stackSlots: Any, roots: Any, position: Any, saves: Any }
 
 fun lsra_touch(intervals: Any, value: Any, position: Any, definition: Any) -> Any {
@@ -13,6 +13,9 @@ fun lsra_touch(intervals: Any, value: Any, position: Any, definition: Any) -> An
     if (position < interval.start) { interval.start = position; }
     if (position > interval.end) { interval.end = position; }
     if (definition) { interval.definitions += 1; }
+    // Conservative operand visits (some payloads repeat arg1/arg2). A zero
+    // count proves a result has no readers; allocation/liveness is unchanged.
+    else { interval.uses += 1; }
     return 0;
 }
 
@@ -63,7 +66,7 @@ fun lsra_allocate(block: Any, registers: Any) -> Any {
     let count: Any = len(block.code);
     let intervals: Any = [];
     for slot: Any in 0..block.temporaries {
-        push(intervals, LiveInterval(slot, count, -1, 0, -1, -1, false, 0));
+        push(intervals, LiveInterval(slot, count, -1, 0, -1, -1, false, 0, 0));
     }
     let boundaries: Any = [0];
     let buckets: Any = [];

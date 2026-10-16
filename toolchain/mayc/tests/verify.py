@@ -174,6 +174,8 @@ def main():
         record("module identities and visibility", modules.returncode == 0, (modules.stdout + modules.stderr).decode())
         backends = run(["python3", COMPILER / "tests/backends.py", "--compiler", compiler], timeout=180)
         record("backend contexts and cross-target formats", backends.returncode == 0, (backends.stdout + backends.stderr).decode())
+        raw_codegen = run(["python3", COMPILER / "tests/raw_codegen.py", "--compiler", compiler], timeout=180)
+        record("raw x86-64 code generation and workload checksums", raw_codegen.returncode == 0, (raw_codegen.stdout + raw_codegen.stderr).decode())
         allocator = run(["python3", COMPILER / "tests/regalloc.py", "--compiler", compiler], timeout=180)
         record("linear-scan allocation and GC roots", allocator.returncode == 0, (allocator.stdout + allocator.stderr).decode())
         core = run(["python3", COMPILER / "tests/core_runtime.py", "--compiler", compiler], timeout=180)

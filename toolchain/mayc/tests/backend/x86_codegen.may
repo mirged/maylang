@@ -1,0 +1,70 @@
+import "../../src/backend/x86_64.may";
+import "../../src/emitter.may";
+import "../../src/ir.may";
+import "../../src/lexer.may";
+import "../../src/ast.may";
+import "../../src/regalloc.may";
+
+fun require(ok: Bool) -> Nil { if not ok { fail("x86 codegen invariant failed"); } return; }
+fun value(slot: Any) -> Any { return IRValue(IR_TEMP, slot, 0, 0, 0, 0, 0); }
+
+let ctx: Any = emitter_new({"alignment": 4096});
+// Check short encodings at zero/sign-extension boundaries and imm64 fallback.
+let cases: Any = [
+    [0, [184, 0, 0, 0, 0]],
+    [1, [184, 1, 0, 0, 0]],
+    [2147483648, [184, 0, 0, 0, 128]],
+    [4294967295, [184, 255, 255, 255, 255]],
+    [-1, [72, 199, 192, 255, 255, 255, 255]],
+    [-2147483648, [72, 199, 192, 0, 0, 0, 128]],
+    [4294967296, [72, 184, 0, 0, 0, 0, 1, 0, 0, 0]],
+    [-2147483649, [72, 184, 255, 255, 255, 127, 255, 255, 255, 255]],
+    [1152921504606846975, [72, 184, 255, 255, 255, 255, 255, 255, 255, 15]],
+    [-1152921504606846976, [72, 184, 0, 0, 0, 0, 0, 0, 0, 240]]
+];
+for test: Any in cases {
+    ctx.code.length = 0;
+    mov_imm(ctx, test[0]);
+    require(ctx.code.length == len(test[1]));
+    for index: Any in 0..len(test[1]) { require(load8(ctx.code.data + index) == test[1][index]); }
+}
+
+let a: Any = value(0); let b: Any = value(1); let result: Any = value(2); let unused: Any = value(3);
+for direction: Any in [IR_FALSE, IR_TRUE] {
+    for op: Any in [TK_EQ, TK_NE, TK_LT, TK_LE, TK_GT, TK_GE] {
+        let target: Any = newlab(ctx);
+        let compare: Any = Quad(E_BIN, result, a, b, {"kind": E_BIN, "op": op, "left": a, "right": b}, 0);
+        let code: Any = [Quad(E_INT, a, 0, 0, {"kind": E_INT, "value": -1}, 0),
+            Quad(E_INT, b, 0, 0, {"kind": E_INT, "value": 2}, 0), compare,
+            Quad(IR_COPY, unused, result, 0, 0, 0), Quad(direction, 0, result, 0, target, 0)];
+        let block: Any = IRBlock(code, 4);
+        ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]);
+        ctx.allocation.position = 2;
+        require(x86_branch_comparison(ctx, block, compare) == 4);
+        require(x86_dead_copy(ctx, code[3]) == true);
+        ctx.allocation.position = -1; ctx.code.length = 0;
+        cg_ir(ctx, block);
+        mut condition: Any = x86_comparison_condition(op);
+        if direction == IR_FALSE { condition = if condition % 2 == 0 { condition + 1 } else { condition - 1 }; }
+        // No materialization or copy after cmp: the last instruction is jcc.
+        require(load8(ctx.code.data + ctx.code.length - 6) == 15);
+        require(load8(ctx.code.data + ctx.code.length - 5) == condition);
+        // An additional user must preserve materialization.
+        push(code, Quad(IR_RETURN, 0, result, 0, 0, 0));
+        ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]); ctx.allocation.position = 2;
+        require(x86_branch_comparison(ctx, block, compare) == -1);
+        pop(code);
+        // Copy observable through another result must also block fusion.
+        push(code, Quad(IR_RETURN, 0, unused, 0, 0, 0));
+        ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]); ctx.allocation.position = 2;
+        require(x86_branch_comparison(ctx, block, compare) == -1);
+        pop(code);
+        // Non-SSA definitions retain private homes and cannot be fused.
+        push(code, Quad(IR_COPY, result, a, 0, 0, 0));
+        ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]); ctx.allocation.position = 2;
+        require(ctx.allocation.locations[2].pinned == true);
+        require(x86_branch_comparison(ctx, block, compare) == -1);
+    }
+}
+emitter_release(ctx);
+print("x86-codegen-ok");
