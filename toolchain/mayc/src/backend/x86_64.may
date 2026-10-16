@@ -119,6 +119,10 @@ fun x86_get_temp(ctx: Any, value: Any, target: Any) -> Any {
     if (ctx.mode == 0 and target == 0 and accumulator == value.slot) { return 0; }
     let location: Any = ctx.allocation.locations[value.slot];
     if (location.literal != nil) { x86_mov_immediate(ctx, target, location.literal); return 0; }
+    if (location.borrowed != nil) {
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 133 + target * 8); e32(ctx, 0 - location.borrowed);
+        return 0;
+    }
     if (location.register >= 0) { e8(ctx, 76); e8(ctx, 137); e8(ctx, 192 + (location.register - 8) * 8 + target); }
     else {
         e8(ctx, 72); e8(ctx, 139); e8(ctx, 133 + target * 8);
@@ -172,7 +176,7 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
         if (ctx.mode == 0) {
-            if (x86_omitted_instruction(ctx, instruction)) { continue; }
+            if (x86_omitted_instruction(ctx, block, instruction)) { continue; }
             if (not x86_forwardable(ctx, instruction)) { ctx.allocation.accumulator = -1; }
             let branch: Any = x86_branch_comparison(ctx, block, instruction);
             if (branch >= 0) {
@@ -435,18 +439,37 @@ fun x86_dead_copy(ctx: Any, instruction: Any) -> Any {
     return instruction.op == IR_COPY and ctx.allocation.locations[instruction.result.slot].uses == 0;
 }
 
-fun x86_omitted_instruction(ctx: Any, instruction: Any) -> Any {
+fun x86_omitted_instruction(ctx: Any, block: Any, instruction: Any) -> Any {
     let op: Any = instruction.op;
     if (op == E_INT and ctx.allocation.locations[instruction.result.slot].literal != nil) { return true; }
     if (op == IR_NIL and ctx.allocation.locations[instruction.result.slot].uses == 0) { return true; }
+    if (op == E_VAR and x86_borrow_operand(ctx, block, instruction)) { return true; }
     return x86_dead_copy(ctx, instruction);
+}
+
+fun x86_borrow_operand(ctx: Any, block: Any, instruction: Any) -> Any {
+    if (ctx.dynamic != 0) { return false; }
+    let location: Any = ctx.allocation.locations[instruction.result.slot];
+    if (location.definitions != 1 or location.uses != 2 or location.end != location.start + 1) { return false; }
+    let definition: Any = block.code[location.start];
+    if (definition.op != E_VAR or definition.result.slot != instruction.result.slot) { return false; }
+    let reader: Any = block.code[location.end];
+    if (reader.op != E_BIN or reader.extra.right.slot != instruction.result.slot) { return false; }
+    // Only the immediately following pure binary instruction can read this
+    // snapshot. No call, assignment, memory store, or control-flow edge moves
+    // between the variable read and its use. Boxed/global reads stay explicit.
+    let payload: Any = instruction.extra;
+    let local: Any = loc_find(ctx, payload.name, payload.length);
+    if (local < 0 or is_boxed(ctx, payload.name, payload.length) == 1) { return false; }
+    location.borrowed = 8 * (local + 1);
+    return true;
 }
 
 fun x86_accumulator_only(ctx: Any, block: Any, instruction: Any) -> Any {
     let location: Any = ctx.allocation.locations[instruction.result.slot];
     if (location.definitions != 1 or location.start != ctx.allocation.position) { return false; }
     mut next: Any = ctx.allocation.position + 1;
-    while (next < len(block.code) and x86_omitted_instruction(ctx, block.code[next])) { next += 1; }
+    while (next < len(block.code) and x86_omitted_instruction(ctx, block, block.code[next])) { next += 1; }
     if (next >= len(block.code) or location.end != next) { return false; }
     let reader: Any = block.code[next];
     if (not x86_forwardable(ctx, reader)) { return false; }
@@ -500,6 +523,11 @@ fun x86_branch_comparison(ctx: Any, block: Any, instruction: Any) -> Any {
 // rax is scratch; allocated r12-r15 and private spill homes remain untouched.
 fun x86_rax_operand(ctx: Any, value: Any, opcode: Any, extended: Any) -> Any {
     let location: Any = ctx.allocation.locations[value.slot];
+    if (location.borrowed != nil) {
+        e8(ctx, 72); if (extended) { e8(ctx, 15); }
+        e8(ctx, opcode); e8(ctx, 133); e32(ctx, 0 - location.borrowed);
+        return 0;
+    }
     if (location.literal != nil) {
         let literal: Any = location.literal;
         if (literal >= -2147483648 and literal <= 2147483647) {

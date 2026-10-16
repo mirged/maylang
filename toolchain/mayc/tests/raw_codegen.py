@@ -76,6 +76,7 @@ def main():
         source.write_text('''
 mut sequence: Any = 0;
 fun step(n: Any) -> Any { sequence = sequence * 10 + n; return n; }
+fun snapshot() -> Any { let before: Any = sequence; return sequence + step(1) - before; }
 fun pure(a: Any, b: Any) -> Any { return (a + b) * (a - b); }
 fun immediate(a: Any) -> Any { return (a + 7) * 73 - 129; }
 fun wide(a: Any) -> Any { return (a + 4294967295) * 4294967296 - 4294967297; }
@@ -137,7 +138,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
                    'if sequence != 123456789 { exit(16); }',
                    'if false and step(1) == 1 { exit(17); }',
                    'if true or step(2) == 2 {} else { exit(18); }',
-                   'if sequence != 123456789 { exit(19); }', 'exit(0);']
+                   'if sequence != 123456789 { exit(19); }', 'if snapshot() != 1 { exit(20); }', 'exit(0);']
         source.write_text(source.read_text() + '\n'.join(checks))
         compile_source(compiler, source, binary, '--raw')
         run(binary)
@@ -149,6 +150,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
                 assert not re.search(r'\b(?:set\w+|movzx|test)\b', body), (name, body)
                 assert re.search(r'\bcmp\b[^\n]*\n[^\n]*\bj(?:e|ne|l|le|g|ge)\b', body), (name, body)
         assert re.search(r'\badd\s+rax,QWORD PTR \[rbp-', function(assembly, 'spilled'))
+        assert re.search(r'\badd\s+rax,QWORD PTR \[rbp-', function(assembly, 'pure'))
         immediate = function(assembly, 'immediate')
         assert re.search(r'\badd\s+rax,0x7\b', immediate)
         assert re.search(r'\bimul\s+rax,rax,0x49\b', immediate)

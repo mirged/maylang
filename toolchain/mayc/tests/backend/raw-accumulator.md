@@ -53,3 +53,6 @@ to 128,248,166. Static instructions fall from 1,906 to 1,543. This run had
 more timing dispersion than the preceding report; every sample and PMU
 runtime/coverage is retained. The host was pinned, not isolated, and no
 machine-specific timing threshold is used. All six workload checksums match.
+
+The next [local memory operand pass](raw-local-operands.md) folds an adjacent,
+single-reader local snapshot into the binary instruction's memory operand.
