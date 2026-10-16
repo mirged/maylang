@@ -4,7 +4,7 @@ import "state.may";
 // Basic linear scan: inclusive live intervals, furthest-end eviction, and
 // reusable stack homes. Control-flow/multi-definition intervals are pinned to
 // private homes; this avoids assuming SSA or ignoring back-edge liveness.
-struct LiveInterval { slot: Any, start: Any, end: Any, definitions: Any, register: Any, home: Any, pinned: Any, next: Any, uses: Any, literal: Any, borrowed: Any, maximum: Any }
+struct LiveInterval { slot: Any, start: Any, end: Any, definitions: Any, register: Any, home: Any, pinned: Any, next: Any, uses: Any, literal: Any, borrowed: Any, maximum: Any, address: Any }
 struct RegisterAllocation { locations: Any, used: Any, stackSlots: Any, roots: Any, position: Any, saves: Any, accumulator: Any }
 
 fun lsra_touch(intervals: Any, value: Any, position: Any, definition: Any) -> Any {
@@ -70,7 +70,7 @@ fun lsra_plan(block: Any, registers: Any, rematerialize: Any) -> Any {
     let count: Any = len(block.code);
     let intervals: Any = [];
     for slot: Any in 0..block.temporaries {
-        push(intervals, LiveInterval(slot, count, -1, 0, -1, -1, false, 0, 0, nil, nil, nil));
+        push(intervals, LiveInterval(slot, count, -1, 0, -1, -1, false, 0, 0, nil, nil, nil, nil));
     }
     let boundaries: Any = [0];
     let buckets: Any = [];
@@ -87,6 +87,8 @@ fun lsra_plan(block: Any, registers: Any, rematerialize: Any) -> Any {
         for instruction: Any in block.code {
             if (instruction.op == E_INT and intervals[instruction.result.slot].definitions == 1) {
                 intervals[instruction.result.slot].literal = instruction.extra.value;
+            } else if (instruction.op == E_STR and intervals[instruction.result.slot].definitions == 1) {
+                intervals[instruction.result.slot].address = instruction.extra;
             }
         }
     }
@@ -108,7 +110,7 @@ fun lsra_plan(block: Any, registers: Any, rematerialize: Any) -> Any {
     for register: Any in registers { push(free, register); }
     mut active: Any = [];
     for current: Any in ordered {
-        if (not current.pinned and current.literal == nil) {
+        if (not current.pinned and current.literal == nil and current.address == nil and (not rematerialize or current.uses > 0)) {
             let remaining: Any = [];
             for interval: Any in active {
                 if (interval.end < current.start) { push(free, interval.register); }
@@ -140,11 +142,11 @@ fun lsra_plan(block: Any, registers: Any, rematerialize: Any) -> Any {
     // alone cannot justify reusing their slots around loops or exception edges.
     mut stackSlots: Any = 0;
     for interval: Any in ordered {
-        if (interval.pinned and interval.literal == nil) { interval.home = stackSlots; stackSlots += 1; }
+        if (interval.pinned and interval.literal == nil and interval.address == nil and (not rematerialize or interval.uses > 0)) { interval.home = stackSlots; stackSlots += 1; }
     }
     active = []; free = [];
     for current: Any in ordered {
-        if (not current.pinned and current.literal == nil) {
+        if (not current.pinned and current.literal == nil and current.address == nil and (not rematerialize or current.uses > 0)) {
             let remaining: Any = [];
             for interval: Any in active {
                 if (interval.end < current.start) { push(free, interval.home); }

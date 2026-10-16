@@ -66,6 +66,31 @@ def call_arguments(compiler, work):
     print('PASS raw/tagged calls with 0..10 arguments, direct body entry, padding, extra-argument effects and recursion', flush=True)
 
 
+def address_arguments(compiler, work):
+    source, binary = work / 'addresses.may', work / 'addresses'
+    source.write_text('fun emit() -> Any { return syscall(1, 1, addr("Hello, world!\\n"), 14); }\n'
+                      'if len("a\\nb") != 3 { exit(40); }\n'
+                      'if load8(cstr("A")) != 65 { exit(41); }\n'
+                      'fun offset() -> Any { return 1 + addr("ABC"); }\n'
+                      'if load8(offset()) != 66 { exit(42); }\n'
+                      'emit();\n')
+    compile_source(compiler, source, binary, '--raw', '--legacy')
+    assert run(binary) == 'Hello, world!\n'
+    assembly = disassemble(binary)
+    body = function(assembly, 'emit')
+    assert not re.search(r'\b(?:r1[2-5]|movabs)\b|\b(?:push|pop)\s+rax\b', body), body
+    assert re.search(r'\bmov\s+esi,0x[0-9a-f]+', body), body
+    # The source literal is consumed as metadata; store only one NUL-terminated
+    # copy and emit no discarded pointer definition or callee-save register.
+    assert binary.read_bytes().count(b'Hello, world!\n\0') == 1
+    for name in ['addr', 'cstr', 'len']:
+        source.write_text(f'fun {name}(s: Any) -> Any {{ return load8(s); }}\n'
+                          f'if {name}("Q") != 81 {{ exit(43); }}\nexit(0);\n')
+        compile_source(compiler, source, binary, '--raw')
+        run(binary)
+    print('PASS direct compact address operands, literal metadata liveness, single data copy and builtin shadowing', flush=True)
+
+
 def raw_integer(n):
     # Source literals use the compiler's tagged range; expressions can construct
     # every raw 64-bit pattern, including INT64_MIN and INT64_MAX.
@@ -282,6 +307,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         print(f'PASS {len(calls)} full-width signed division/remainder cases, reciprocal selection and unchanged traps', flush=True)
 
         call_arguments(compiler, work)
+        address_arguments(compiler, work)
 
         unit = work / 'unit'
         compile_source(compiler, HERE / 'backend/x86_codegen.may', unit)

@@ -134,6 +134,7 @@ def main():
                   'revision': capture(['git', 'rev-parse', 'HEAD']), 'status': capture(['git', 'status', '--short']),
                   'source_sha256': {str(path.relative_to(ROOT)): digest(path) for path in [
                       ROOT / 'toolchain/mayc/src/backend/x86_64.may', ROOT / 'toolchain/mayc/src/regalloc.may',
+                      ROOT / 'toolchain/mayc/src/ir.may', ROOT / 'toolchain/mayc/src/emitter.may',
                       HERE / 'backend/raw_performance.may', HERE / 'backend/raw_performance.c']},
                   'uname': capture(['uname', '-a']), 'lscpu': capture(['lscpu']),
                   'gcc': capture(['gcc', '--version']), 'cpu': args.cpu,

@@ -126,7 +126,7 @@ fun lab_off(ctx: Any, id: Any) -> Any { return ctx.labels[id]; }
 fun fx(ctx: Any, kind: Any, off: Any, tgt: Any) -> Any {
     // Data offsets share the same integer space as labels; only code
     // relocations participate in function reachability.
-    if (kind == 0 or kind == 6 or kind == 100 or kind == 102 or kind == 104) { emission_reference(ctx, tgt); }
+    if (kind == 0 or kind == 6 or kind == 26 or kind == 100 or kind == 102 or kind == 104) { emission_reference(ctx, tgt); }
     push(ctx.fixups, {"kind": kind, "off": off, "tgt": tgt});
     return 0;
 }

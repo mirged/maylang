@@ -46,3 +46,22 @@ The difference between the two recent compiler medians is smaller than the
 observed dispersion. Every workload checksum matched; samples, source hashes,
 compiler hashes, PMU coverage and host details are retained in the report.
 The complete compiler verification suite passed 115 checks with zero failures.
+
+A separate [call benchmark](raw-call-overhead.json) measures one million calls
+per sample with 50 samples after ten warmups, pinned to CPU 2. Run it with
+`python3 toolchain/mayc/tests/raw_calls.py --compiler toolchain/mayc/mayc_new`
+and optional saved `--baseline-compiler`/`--baseline-revision` pairs. Each sample
+checks all four checksums before recording its times.
+
+| Arguments | Vector call (`113ec54`) | Direct call (`0563a35`) | Address pass |
+|---|---:|---:|---:|
+| 1 | 1.508 ns/iteration | 0.989 ns/iteration | 0.987 ns/iteration |
+| 6 | 3.010 ns/iteration | 1.812 ns/iteration | 1.802 ns/iteration |
+| 7 | 3.484 ns/iteration | 2.269 ns/iteration | 2.267 ns/iteration |
+| 8 | 3.866 ns/iteration | 2.446 ns/iteration | 2.460 ns/iteration |
+
+These loops improve roughly 35–40% with direct calls. The samples include loop
+control, argument/parameter access and arithmetic, so these numbers are not
+isolated call-instruction latencies. This benchmark has no C comparison and
+makes no claims about other machines. The address pass has little effect on
+these call-heavy loops, as expected. The JSON includes every sample and spread.

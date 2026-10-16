@@ -52,4 +52,11 @@ require(literalLoop.locations[0].literal == nil and literalLoop.locations[0].pin
 require(literalLoop.locations[0].home >= 0);
 require(literalLoop.locations[0].maximum == nil);
 require(literalLoop.locations[1].literal == 1 and literalLoop.locations[1].home == -1);
+// Raw address constants and unread results must never reserve a callee-save
+// register or frame home. Default allocation retains its existing behavior.
+let address: Any = {"span": 0, "start": 0, "length": 3};
+let addressPlan: Any = lsra_plan(IRBlock([Quad(E_STR, value(0), 0, 0, address, 0), use(0)], 1), [12], true);
+require(addressPlan.locations[0].address == address and addressPlan.stackSlots == 0 and len(addressPlan.used) == 0);
+let unread: Any = lsra_plan(IRBlock([Quad(E_CALL, value(0), 0, 0, {"args": 0}, 0)], 1), [12], true);
+require(unread.locations[0].register == -1 and unread.locations[0].home == -1 and unread.stackSlots == 0);
 print("allocator-ok");
