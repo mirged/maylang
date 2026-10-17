@@ -318,6 +318,7 @@ fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
         ctx.allocation.localRegisters = locals.registers;
         for register: Any in locals.used { push(ctx.allocation.used, register); }
         ctx.allocation.induction = x86_induction_locals(ctx, planned);
+        ctx.allocation.jumps = x86_label_jumps(block);
     }
     if (ctx.mode == 0) {
         for location: Any in ctx.allocation.locations {
@@ -1595,6 +1596,38 @@ fun x86_select_diamond(ctx: Any, block: Any, plan: Any, position: Any) -> Any {
     return cursor;
 }
 
+// Jumps per label. Short-circuit chains (#85) can reach a diamond's labels
+// from outside it, so a selected region must own every jump to its labels.
+fun x86_label_jumps(block: Any) -> Any {
+    let jumps: Any = {};
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        if (op == IR_JUMP or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL) {
+            jumps[instruction.extra] = if (has(jumps, instruction.extra)) { jumps[instruction.extra] + 1 } else { 1 };
+        }
+    }
+    return jumps;
+}
+
+fun x86_select_owns_labels(ctx: Any, block: Any, start: Any, end: Any) -> Any {
+    let inside: Any = {};
+    for index: Any in start..(end + 1) {
+        let op: Any = block.code[index].op;
+        if (op == IR_JUMP or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL) {
+            let label: Any = block.code[index].extra;
+            inside[label] = if (has(inside, label)) { inside[label] + 1 } else { 1 };
+        }
+    }
+    for index: Any in start..(end + 1) {
+        if (block.code[index].op != IR_LABEL) { continue; }
+        let label: Any = block.code[index].extra;
+        let all: Any = if (has(ctx.allocation.jumps, label)) { ctx.allocation.jumps[label] } else { 0 };
+        let own: Any = if (has(inside, label)) { inside[label] } else { 0 };
+        if (all != own) { return false; }
+    }
+    return true;
+}
+
 // Try one top-level diamond whose predicate starts at `start`. Returns the
 // last consumed position, or -1 with no bytes emitted.
 fun x86_select_region(ctx: Any, block: Any, start: Any) -> Any {
@@ -1619,6 +1652,7 @@ fun x86_select_region(ctx: Any, block: Any, start: Any) -> Any {
             if (result != 0 and ctx.allocation.locations[result.slot].end > end) { plan.valid = false; }
         }
     }
+    if (end >= 0 and plan.valid and not x86_select_owns_labels(ctx, block, start, end)) { plan.valid = false; }
     if (end < 0 or not plan.valid) { ctx.code.length = origin; return -1; }
     for name: Any in keys(plan.env) {
         x86_move_register(ctx, ctx.allocation.localRegisters[name], plan.env[name]);

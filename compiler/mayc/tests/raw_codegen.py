@@ -241,6 +241,123 @@ def wide_powers(compiler, work):
     print(f'PASS {len(names) * len(inputs)} wide power-of-two quotients/remainders and {len(shifts) * len(inputs)} divisibility checks without idiv', flush=True)
 
 
+def logical_branches(compiler, work):
+    # #85: and/or that only steer a branch become jump chains. Leaves record
+    # their evaluation order, so short-circuiting and effect order are checked.
+    source, binary = work / 'logical-branches.may', work / 'logical-branches'
+    rng = random.Random(85)
+    comparisons = ['<', '<=', '>', '>=', '==', '!=']
+
+    def tree(depth):
+        if depth == 0 or rng.random() < 0.3:
+            kind = rng.randrange(3)
+            if kind == 0:
+                return ('probe', rng.randrange(1, 9), rng.choice('ab'), rng.choice(comparisons), rng.randrange(-3, 4))
+            if kind == 1:
+                return ('compare', rng.choice('ab'), rng.choice(comparisons), rng.randrange(-3, 4))
+            return ('truth', rng.choice('ab'))
+        return (rng.choice(['and', 'or']), tree(depth - 1), tree(depth - 1))
+
+    def render(node):
+        if node[0] == 'probe':
+            return f'probe({node[1]}, {node[2]}) {node[3]} {node[4]}'
+        if node[0] == 'compare':
+            return f'{node[1]} {node[2]} {node[3]}'
+        if node[0] == 'truth':
+            return node[1]
+        return f'({render(node[1])} {node[0]} {render(node[2])})'
+
+    def evaluate(node, env, trace):
+        if node[0] == 'probe':
+            trace.append(node[1])
+            return eval(f'{env[node[2]]} {node[3]} {node[4]}')
+        if node[0] == 'compare':
+            return eval(f'{env[node[1]]} {node[2]} {node[3]}')
+        if node[0] == 'truth':
+            return env[node[1]] != 0
+        left = evaluate(node[1], env, trace)
+        if node[0] == 'and':
+            return left and evaluate(node[2], env, trace)
+        return left or evaluate(node[2], env, trace)
+
+    def sequence(trace):
+        value = 0
+        for item in trace:
+            value = (value * 31 + item) % 1000000007
+        return value
+
+    declarations = ['mut sequence: Any = 0;',
+                    'fun probe(k: Any, v: Any) -> Any { sequence = (sequence * 31 + k) % 1000000007; return v; }']
+    checks, functions = [], 0
+    pairs = [(a, b) for a in range(-2, 3) for b in (0, 3)]
+    for index in range(40):
+        # Only and/or results are normalized to 0/1, so the root is always one.
+        node = (rng.choice(['and', 'or']), tree(2), tree(2))
+        condition = render(node)
+        forms = [
+            (f'fun r{index}(a: Any, b: Any) -> Any {{ if {condition} {{ return 7; }} else {{ return 3; }} }}',
+             f'r{index}', lambda truth: 7 if truth else 3),
+            (f'fun s{index}(a: Any, b: Any) -> Any {{ mut x: Any = 1; if {condition} {{ x = 5; }} return x; }}',
+             f's{index}', lambda truth: 5 if truth else 1),
+            (f'fun e{index}(a: Any, b: Any) -> Any {{ mut x: Any = 1; if {condition} {{ x = 5; }} else {{ x = 2; }} return x; }}',
+             f'e{index}', lambda truth: 5 if truth else 2),
+            (f'fun v{index}(a: Any, b: Any) -> Any {{ return if {condition} {{ 9 }}; }}',
+             f'v{index}', lambda truth: 9 if truth else 0),
+            (f'fun b{index}(a: Any, b: Any) -> Any {{ let flag: Any = {condition}; return flag; }}',
+             f'b{index}', lambda truth: 1 if truth else 0)]
+        for declaration, name, expected in forms:
+            declarations.append(declaration)
+            functions += 1
+            for a, b in pairs:
+                trace = []
+                truth = evaluate(node, {'a': a, 'b': b}, trace)
+                checks.append(f'sequence = 0; if {name}({a}, {b}) != {expected(truth)} or sequence != {sequence(trace)} {{ exit(60); }}')
+        # A loop condition re-evaluates the chain on every iteration.
+        declarations.append(f'fun w{index}(a: Any, b: Any) -> Any {{ mut n: Any = 0; '
+                            f'while n < 3 and {condition} {{ n = n + 1; }} return n; }}')
+        functions += 1
+        for a, b in pairs:
+            trace, n = [], 0
+            while n < 3 and evaluate(node, {'a': a, 'b': b}, trace):
+                n += 1
+            checks.append(f'sequence = 0; if w{index}({a}, {b}) != {n} or sequence != {sequence(trace)} {{ exit(61); }}')
+    declarations += [
+        # The right operand's load runs only when the guard allows it.
+        'fun guarded(p: Any) -> Any { if p != 0 and load64(p) > 5 { return 7; } return 3; }',
+        'fun either(p: Any) -> Any { if p == 0 or load64(p) > 5 { return 7; } return 3; }',
+        'fun scan(p: Any, n: Any, key: Any) -> Any { mut j: Any = n - 1; '
+        'while j >= 0 and load64(p + j * 8) > key { j = j - 1; } return j; }',
+        'fun observed(a: Any, b: Any) -> Any { let flag: Any = a > 0 and b > 0; return flag + 1; }',
+        # Earlier operands jump to the else label of a cmov-eligible final diamond (#78).
+        'fun shared(a: Any) -> Any { let b: Any = a + 0; mut x: Any = 1; '
+        'if (b < -1 and b != -2) and b == 3 { x = 5; } else { x = 2; } return x + b + b + b; }']
+    guards = ['let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0);',
+              'store64(p, 1); store64(p + 8, 9); store64(p + 16, 8);',
+              'if guarded(0) != 3 or guarded(p + 8) != 7 or guarded(p) != 3 { exit(62); }',
+              'if either(0) != 7 or either(p + 8) != 7 or either(p) != 3 { exit(63); }',
+              'if scan(p, 3, 5) != 0 or scan(p, 3, 0) != -1 or scan(p, 0, 5) != -1 { exit(64); }',
+              'if observed(1, 2) != 2 or observed(1, 0) != 1 { exit(65); }',
+              'if shared(0) != 2 or shared(-5) != -13 or shared(-2) != -4 { exit(66); }']
+    # Keep compiler memory bounded while growing the oracle.
+    for offset in range(0, len(checks), 600):
+        source.write_text('\n'.join(declarations + checks[offset:offset + 600] + guards + ['exit(0);']))
+        compile_source(compiler, source, binary, '--raw')
+        run(binary)
+    assembly = disassemble(binary)
+    for name in ['guarded', 'either', 'scan']:
+        body = function(assembly, name)
+        assert not re.search(r'\bset\w+\b', body), body
+    # Observable Booleans keep their materialized value.
+    assert re.search(r'\bset\w+\b', function(assembly, 'observed'))
+    for source_text, status in [('if 0 != 0 and load64(0) > 5 { exit(1); } exit(0);', 0),
+                                ('if 1 != 0 and load64(0) > 5 { exit(1); } exit(0);', -signal.SIGSEGV),
+                                ('if 1 == 1 or load64(0) > 5 { exit(0); } exit(1);', 0)]:
+        source.write_text(source_text)
+        compile_source(compiler, source, binary, '--raw')
+        run(binary, status)
+    print(f'PASS {len(checks)} short-circuit branch oracles over {functions} functions; effect order, load guards, faults and observable Booleans hold', flush=True)
+
+
 def small_multipliers(compiler, work):
     source, binary = work / 'multipliers.may', work / 'multipliers'
     rng = random.Random(7611)
@@ -989,6 +1106,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         dead_branch_copies(compiler, work)
         remainder_branches(compiler, work)
         wide_powers(compiler, work)
+        logical_branches(compiler, work)
         small_multipliers(compiler, work)
         local_recurrences(compiler, work)
         local_registers(compiler, work)
