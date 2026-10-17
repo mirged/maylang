@@ -2,6 +2,10 @@ import "state.may";
 import "sema.may";
 // ByteSink owns its mapping; all accesses must fit before touching memory.
 struct ByteSink { data: Any, length: Any, capacity: Any }
+// Relocations are kind/offset/target integer triples, at most 1,024 per chunk.
+// This avoids a growing contiguous list allocation in the fragmented managed
+// heap during large compiler builds, without rooting per-relocation maps.
+struct FixupTable { chunks: Any, count: Any }
 struct ImageLayout { base: Any, codeOffset: Any, codeAddress: Any, dataOffset: Any, dataAddress: Any, alignment: Any }
 struct EmissionContext { code: Any, data: Any, image: Any, labels: Any, fixups: Any, maxLocals: Any, locals: Any, globals: Any, returnLabel: Any, mode: Any, envSlot: Any, envCaptures: Any, envCount: Any, fiberLabel: Any, globalBytes: Any, rodataOffset: Any, ffiStartSlot: Any, tempBase: Any, restartLabel: Any, boxed: Any, target: Any, layout: Any, functions: Any, foreign: Any, mainIR: Any, dynamic: Any, mainBoxed: Any, allocation: Any, runtime: Any, platform: Any, functionIndex: Any, reachability: Any }
 
@@ -23,8 +27,10 @@ fun sink_release(sink: Any) -> Any {
 }
 
 fun emitter_new(target: Any) -> Any {
-    return EmissionContext(sink_new(16777216), sink_new(4194304), sink_new(33554432), [0, 0], [], 0, [], [], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], target, 0, [], [], 0, 0, [], 0, "none", [], {}, 0);
+    return EmissionContext(sink_new(16777216), sink_new(4194304), sink_new(33554432), [0, 0], fixups_new(), 0, [], [], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], target, 0, [], [], 0, 0, [], 0, "none", [], {}, 0);
 }
+
+fun fixups_new() -> Any { return FixupTable([], 0); }
 
 // Backend-generated runtime calls and function addresses are graph edges too.
 // Discover them while emitting main and then drain a deduplicated worklist.
@@ -127,7 +133,11 @@ fun fx(ctx: Any, kind: Any, off: Any, tgt: Any) -> Any {
     // Data offsets share the same integer space as labels; only code
     // relocations participate in function reachability.
     if (kind == 0 or kind == 6 or kind == 26 or kind == 100 or kind == 102 or kind == 104) { emission_reference(ctx, tgt); }
-    push(ctx.fixups, {"kind": kind, "off": off, "tgt": tgt});
+    let table: Any = ctx.fixups;
+    if (table.count % 1024 == 0) { push(table.chunks, []); }
+    let chunk: Any = table.chunks[len(table.chunks) - 1];
+    push(chunk, kind); push(chunk, off); push(chunk, tgt);
+    table.count += 1;
     return 0;
 }
 

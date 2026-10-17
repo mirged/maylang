@@ -1,0 +1,45 @@
+import "../../src/backend/x86_64.may";
+import "../../src/emitter.may";
+
+fun require_fixup(ok: Bool) -> Nil {
+    if (not ok) { fail("large relocation table regression"); }
+    return;
+}
+
+let ctx: Any = emitter_new({"alignment": 4096});
+ctx.layout = ImageLayout(0, 0, 4294967296, 0, 8589934592, 4096);
+// Empty tables and multiple contexts must not share append state.
+patch_all(ctx);
+let other: Any = emitter_new({"alignment": 4096});
+fx(other, 1, 0, 99);
+let label: Any = newlab(ctx); ctx.labels[label] = 24;
+// Cross both chunk boundaries and the old 65,536-element backing-array
+// threshold. The Python harness runs this program with only an 8 MiB heap.
+let count: Any = 65537;
+mut index: Any = 0;
+while (index < count) {
+    let offset: Any = ctx.code.length;
+    e64(ctx, -1);
+    if (index % 2 == 0) { fx(ctx, 0, offset, label); }
+    else { fx(ctx, 1, offset, index * 17); }
+    index += 1;
+}
+require_fixup(ctx.fixups.count == count and other.fixups.count == 1);
+patch_all(ctx);
+index = 0;
+while (index < count) {
+    let pointer: Any = ctx.code.data + index * 8;
+    if (index % 2 == 0) {
+        let expected: Any = (24 - (index * 8 + 4) + 4294967296) % 4294967296;
+        require_fixup(load32(pointer) == expected);
+        require_fixup(load32(pointer + 4) == 4294967295);
+    } else { require_fixup(load64(pointer) == 8589934592 + index * 17); }
+    index += 1;
+}
+// A replacement table starts empty and leaves another context intact.
+ctx.fixups = fixups_new();
+fx(ctx, 1, 0, 42); patch_all(ctx);
+require_fixup(ctx.fixups.count == 1 and other.fixups.count == 1);
+require_fixup(load64(ctx.code.data) == 8589934634);
+emitter_release(ctx); emitter_release(other);
+print("fixups-ok");

@@ -98,26 +98,31 @@ fun arm64_trap(ctx: Any) -> Any {
 }
 
 fun arm64_patch(ctx: Any) -> Any {
-    for fixup: Any in ctx.fixups {
-        let pointer: Any = ctx.code.data + fixup.off;
-        if (fixup.kind == 101) {
-            let value: Any = ctx.layout.dataAddress + fixup.tgt;
-            let pc: Any = ctx.layout.codeAddress + fixup.off;
-            let pages: Any = value / 4096 - pc / 4096;
-            if (pages < -1048576 or pages >= 1048576) { die_str("mayc: ARM64 data address out of range\n"); }
-            let encoded: Any = (pages + 2097152) % 2097152;
-            // ADRP/ADD follow an ASLR slide; absolute MOVZ/MOVK addresses do not.
-            store32(pointer, 2415919104 + (encoded % 4) * 536870912 + (encoded / 4) * 32 + 9);
-            store32(pointer + 4, 2432696320 + (value % 4096) * 1024 + 9 * 32 + 9);
-            store32(pointer + 8, 3573751839); store32(pointer + 12, 3573751839);
-        } else {
-            let delta: Any = lab_off(ctx, fixup.tgt) - fixup.off;
-            let limit: Any = if (fixup.kind == 100) { 134217728 } else { 1048576 };
-            if (delta % 4 != 0 or delta < 0 - limit or delta >= limit) { die_str("mayc: ARM64 branch out of range\n"); }
-            let words: Any = (delta + limit * 2) / 4;
-            let opcode: Any = load32(pointer);
-            if (fixup.kind == 100) { store32(pointer, opcode + words % 67108864); }
-            else { store32(pointer, opcode + (words % 524288) * 32); }
+    for chunk: Any in ctx.fixups.chunks {
+        for index: Any in 0..(len(chunk) / 3) {
+            let kind: Any = chunk[index * 3];
+            let off: Any = chunk[index * 3 + 1];
+            let target: Any = chunk[index * 3 + 2];
+            let pointer: Any = ctx.code.data + off;
+            if (kind == 101) {
+                let value: Any = ctx.layout.dataAddress + target;
+                let pc: Any = ctx.layout.codeAddress + off;
+                let pages: Any = value / 4096 - pc / 4096;
+                if (pages < -1048576 or pages >= 1048576) { die_str("mayc: ARM64 data address out of range\n"); }
+                let encoded: Any = (pages + 2097152) % 2097152;
+                // ADRP/ADD follow an ASLR slide; absolute MOVZ/MOVK addresses do not.
+                store32(pointer, 2415919104 + (encoded % 4) * 536870912 + (encoded / 4) * 32 + 9);
+                store32(pointer + 4, 2432696320 + (value % 4096) * 1024 + 9 * 32 + 9);
+                store32(pointer + 8, 3573751839); store32(pointer + 12, 3573751839);
+            } else {
+                let delta: Any = lab_off(ctx, target) - off;
+                let limit: Any = if (kind == 100) { 134217728 } else { 1048576 };
+                if (delta % 4 != 0 or delta < 0 - limit or delta >= limit) { die_str("mayc: ARM64 branch out of range\n"); }
+                let words: Any = (delta + limit * 2) / 4;
+                let opcode: Any = load32(pointer);
+                if (kind == 100) { store32(pointer, opcode + words % 67108864); }
+                else { store32(pointer, opcode + (words % 524288) * 32); }
+            }
         }
     }
     return 0;
