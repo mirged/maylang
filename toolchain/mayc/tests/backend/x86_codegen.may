@@ -4,6 +4,7 @@ import "../../src/ir.may";
 import "../../src/lexer.may";
 import "../../src/ast.may";
 import "../../src/regalloc.may";
+import "../../src/sema.may";
 
 fun require(ok: Bool) -> Nil { if not ok { fail("x86 codegen invariant failed"); } return; }
 fun value(slot: Any) -> Any { return IRValue(IR_TEMP, slot, 0, 0, 0, 0, 0); }
@@ -231,23 +232,38 @@ let localRead: Any = Quad(E_VAR, value(6), 0, 0, {"name": addr(stateName), "leng
 let localBody: Any = IRBlock([recurrenceCode[0], declare, stateRead, factor, product, modulus, reduce, update, localRead], 7);
 let localPlan: Any = x86_plan_local_registers(ctx, localBody);
 require(localPlan != 0 and localPlan.registers[stateName] == 3);
-require(len(localPlan.used) == 1 and len(localPlan.temporaries) == 4);
+// Call-free bodies also use the volatile r8-r10 for temporaries (#79).
+require(len(localPlan.used) == 1 and len(localPlan.temporaries) == 7);
+require(localPlan.temporaries[0] == 10 and localPlan.temporaries[1] == 9 and localPlan.temporaries[2] == 8);
 ctx.envCount = 1;
 require(x86_plan_local_registers(ctx, localBody) == 0);
 ctx.envCount = 0;
 push(ctx.locals, [addr(stateName), len(stateName)]);
-require(x86_plan_local_registers(ctx, localBody) == 0);
+// A parameter name cannot be promoted; the call-free body keeps r8-r10.
+let parameterPlan: Any = x86_plan_local_registers(ctx, localBody);
+require(len(keys(parameterPlan.registers)) == 0 and len(parameterPlan.temporaries) == 7);
 ctx.locals = []; ctx.boxed = [[addr(stateName), len(stateName)]];
 require(x86_plan_local_registers(ctx, localBody) == 0);
 ctx.boxed = [];
-push(localBody.code, Quad(E_CALL, 0, 0, 0, {"args": 0}, 0));
+push(localBody.code, Quad(E_CALL, 0, 0, 0, {"name": addr("one"), "length": 3, "args": 0}, 0));
+require(x86_plan_local_registers(ctx, localBody) == 0);
+pop(localBody.code);
+// Unshadowed RAW memory intrinsics keep promotion; a shadowing local does not.
+for name: Any in ["load8", "load64", "store8", "store64"] {
+    push(localBody.code, Quad(E_CALL, 0, 0, 0, {"name": addr(name), "length": len(name), "args": 0}, 0));
+    require(x86_plan_local_registers(ctx, localBody).registers[stateName] == 3);
+    push(ctx.locals, [addr(name), len(name)]);
+    require(x86_plan_local_registers(ctx, localBody) == 0);
+    pop(ctx.locals); pop(localBody.code);
+}
+push(localBody.code, Quad(E_CALL, 0, 0, 0, {"name": addr("syscall"), "length": 7, "args": 0}, 0));
 require(x86_plan_local_registers(ctx, localBody) == 0);
 pop(localBody.code);
 push(localBody.code, Quad(E_VAR, value(7), 0, 0, {"name": addr("unknown"), "length": 7}, 0));
 require(x86_plan_local_registers(ctx, localBody) == 0);
 pop(localBody.code);
 push(localBody.code, declare);
-require(x86_plan_local_registers(ctx, localBody) == 0);
+require(len(keys(x86_plan_local_registers(ctx, localBody).registers)) == 0);
 pop(localBody.code);
 localBody.code = [stateRead, recurrenceCode[0], declare, factor, product, modulus, reduce, update, localRead];
 require(x86_plan_local_registers(ctx, localBody) == 0);
@@ -259,7 +275,7 @@ for name: Any in poolNames {
     for visit: Any in 0..3 { push(poolCode, Quad(E_VAR, a, 0, 0, {"name": addr(name), "length": len(name)}, 0)); }
 }
 let fullPool: Any = x86_plan_local_registers(ctx, IRBlock(poolCode, 6));
-require(len(fullPool.used) == 5 and len(fullPool.temporaries) == 0);
+require(len(fullPool.used) == 5 and len(fullPool.temporaries) == 3);
 for index: Any in 0..5 { require(fullPool.registers[poolNames[index]] == if (index == 0) { 3 } else { 11 + index }); }
 ctx.allocation = lsra_plan(recurrence, [12, 13], true);
 let bounds: Any = x86_local_recurrences(ctx, recurrence);
@@ -379,6 +395,48 @@ for direction: Any in [IR_FALSE, IR_TRUE] {
         require(x86_branch_comparison(ctx, block, compare) == -1);
     }
 }
+// Fused RAW addresses (#79): load64(base + index * 8 + 16) absorbs local
+// snapshots, the scale and the displacement; every guard leaves no address.
+fun address_var(slot: Any, name: Any) -> Any { return Quad(E_VAR, value(slot), 0, 0, {"name": addr(name), "length": len(name)}, 0); }
+fun address_int(slot: Any, literal: Any) -> Any { return Quad(E_INT, value(slot), 0, 0, {"value": literal}, 0); }
+fun address_bin(slot: Any, op: Any, left: Any, right: Any) -> Any {
+    return Quad(E_BIN, value(slot), value(left), value(right), {"op": op, "left": value(left), "right": value(right)}, 0);
+}
+fun address_load(slot: Any, pointer: Any, name: Any) -> Any {
+    return Quad(E_CALL, value(slot), 0, 0, {"name": addr(name), "length": len(name), "args": value(pointer)}, 0);
+}
+fun address_code(gap: Any, displacement: Any) -> Any {
+    let code: Any = [address_var(0, "base"), address_var(1, "index"), address_int(2, 8), address_bin(3, TK_STAR, 1, 2),
+        address_bin(4, TK_PLUS, 0, 3), address_int(5, displacement), address_bin(6, TK_PLUS, 4, 5)];
+    for instruction: Any in gap { push(code, instruction); }
+    push(code, address_load(7, 6, "load64"));
+    return code;
+}
+ctx.locals = [[addr("base"), 4], [addr("index"), 5]];
+let fused: Any = IRBlock(address_code([], 16), 12);
+let fusedPlan: Any = x86_address_plan(ctx, fused);
+let fusedAt: Any = len(fused.code) - 1;
+require(has(fusedPlan, fusedAt));
+let fusedAddress: Any = fusedPlan[fusedAt];
+require(fusedAddress.scale == 8 and fusedAddress.displacement == 16);
+require(symbol_name(fusedAddress.base.name, fusedAddress.base.length) == "base");
+require(symbol_name(fusedAddress.index.name, fusedAddress.index.length) == "index");
+// Absorbed instructions lose their definitions; the access reads nothing else.
+for at: Any in 0..fusedAt { require(fused.code[at].op == 0); }
+require(fused.code[fusedAt].extra.args == 0);
+let assignment: Any = Quad(S_ASSIGN, 0, value(8), 0, {"name": addr("index"), "length": 5, "value": value(8)}, 0);
+let guards: Any = [[address_int(8, 1), assignment], [Quad(IR_LABEL, 0, 0, 0, newlab(ctx), 0)]];
+let spaced: Any = []; for index: Any in 0..17 { push(spaced, Quad(0, 0, 0, 0, 0, 0)); }
+push(guards, spaced);
+for gap: Any in guards { require(len(keys(x86_address_plan(ctx, IRBlock(address_code(gap, 16), 12)))) == 0); }
+require(len(keys(x86_address_plan(ctx, IRBlock(address_code([], 2147483648), 12)))) == 0);
+// A local named like the intrinsic, or a pointer with another reader, keeps its call.
+let shadowed: Any = address_code([], 16);
+let shadow: Any = Quad(S_LET, 0, value(9), 0, {"name": addr("load64"), "length": 6, "initializer": value(9), "global": 0}, 0);
+require(len(keys(x86_address_plan(ctx, IRBlock([address_int(9, 0), shadow] + shadowed, 12)))) == 0);
+let shared: Any = address_code([], 16); push(shared, Quad(IR_RETURN, 0, value(6), 0, 0, 0));
+require(len(keys(x86_address_plan(ctx, IRBlock(shared, 12)))) == 0);
+ctx.locals = [];
 // Branch-free diamonds (#78): `if d == 2 { x = x + k } else { x = x - 1 }`
 // over dedicated registers selects with cmov; rejected shapes emit nothing.
 fun select_var(slot: Any, name: Any) -> Any { return Quad(E_VAR, value(slot), 0, 0, {"name": addr(name), "length": len(name)}, 0); }

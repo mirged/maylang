@@ -160,12 +160,160 @@ fun x86_discard_unused(block: Any) -> Any {
     return block;
 }
 
+// RAW load/store addresses (#79). A pointer built from single-use additions,
+// multiplications by 1, 2, 4 or 8, imm32 literals and local snapshots becomes
+// one [base + index*scale + displacement] operand. The access then lists only
+// the surviving temporaries as operands, so allocation extends their intervals
+// to it; absorbed instructions lose their definitions and emit nothing. Local
+// snapshots stay valid: the name is not written or redeclared before the
+// access. The window has no CFG boundary and at most 16 instructions. Memory
+// accesses keep their order, widths and faults; only pure arithmetic moves.
+struct X86AddressTerm { value: Any, name: Any, length: Any, scale: Any, position: Any }
+struct X86Address { base: Any, index: Any, scale: Any, displacement: Any, value: Any }
+let X86_ADDRESS_WINDOW: Any = 16;
+
+fun x86_memory_intrinsic(name: Any) -> Any {
+    return name == "load8" or name == "load16" or name == "load32" or name == "load64" or
+        name == "store8" or name == "store16" or name == "store32" or name == "store64";
+}
+
+fun x86_address_plan(ctx: Any, block: Any) -> Any {
+    let addresses: Any = {};
+    let count: Any = len(block.code);
+    let intervals: Any = [];
+    for slot: Any in 0..block.temporaries {
+        push(intervals, LiveInterval(slot, count, -1, 0, -1, -1, false, 0, 0, nil, nil, nil, nil));
+    }
+    mut position: Any = 0;
+    for instruction: Any in block.code {
+        lsra_operands(intervals, instruction, position);
+        lsra_touch(intervals, instruction.result, position, true);
+        position += 1;
+    }
+    let locals: Any = {};
+    for local: Any in ctx.locals { locals[symbol_name(local[0], local[1])] = true; }
+    position = -1;
+    for instruction: Any in block.code {
+        position += 1;
+        let payload: Any = instruction.extra;
+        if (instruction.op == S_LET and payload.global == 0) { locals[symbol_name(payload.name, payload.length)] = true; continue; }
+        if (instruction.op != E_CALL or payload.args == 0) { continue; }
+        let name: Any = symbol_name(payload.name, payload.length);
+        if (not x86_memory_intrinsic(name) or has(locals, name) or glob_find(ctx, payload.name, payload.length) >= 0 or
+            backend_find_func(ctx, payload.name, payload.length) != 0) { continue; }
+        let terms: Any = []; let absorbed: Any = [];
+        let displacement: Any = x86_address_terms(ctx, block, intervals, locals, payload.args, position, 1, 1, terms, absorbed, 0);
+        if (displacement == nil or len(absorbed) == 0) { continue; }
+        mut base: Any = 0; mut index: Any = 0;
+        for term: Any in terms {
+            if (term.scale == 1 and base == 0) { base = term; }
+            else if (index == 0) { index = term; }
+            else { base = nil; }
+        }
+        if (base == 0 or base == nil or displacement < -2147483648 or displacement > 2147483647) { continue; }
+        // A store value that only snapshots a local is read at the access too.
+        mut stored: Any = 0;
+        let value: Any = payload.args.next;
+        if (value != 0) {
+            let interval: Any = intervals[value.slot];
+            let definition: Any = if (interval.definitions == 1 and interval.start < position) { block.code[interval.start] } else { 0 };
+            if (definition != 0 and definition.op == E_VAR and interval.uses == 1 and position - interval.start <= X86_ADDRESS_WINDOW and
+                has(locals, symbol_name(definition.extra.name, definition.extra.length)) and is_boxed(ctx, definition.extra.name, definition.extra.length) == 0) {
+                stored = X86AddressTerm(0, definition.extra.name, definition.extra.length, 1, interval.start);
+                push(terms, stored); push(absorbed, interval.start);
+            }
+        }
+        // No boundary, write or redeclaration may separate absorbed
+        // instructions or local snapshots from the access.
+        mut first: Any = position;
+        for at: Any in absorbed { if (at < first) { first = at; } }
+        if (position - first > X86_ADDRESS_WINDOW) { continue; }
+        mut valid: Any = true;
+        for at: Any in first..position {
+            let between: Any = block.code[at];
+            if (lsra_boundary(between.op)) { valid = false; }
+            if (between.op == S_LET or between.op == S_ASSIGN) {
+                let written: Any = symbol_name(between.extra.name, between.extra.length);
+                for term: Any in terms { if (term.value == 0 and term.position < at and symbol_name(term.name, term.length) == written) { valid = false; } }
+            }
+        }
+        if (not valid) { continue; }
+        // Rewrite the planned block: the access reads the remaining temporaries.
+        mut operands: Any = 0; mut last: Any = 0;
+        mut remaining: Any = [];
+        for term: Any in [base, index] { if (term != 0 and term.value != 0) { push(remaining, term.value); } }
+        if (payload.args.next != 0 and stored == 0) { push(remaining, payload.args.next); }
+        for value: Any in remaining {
+            let operand: Any = ir_use(value);
+            if (last == 0) { operands = operand; } else { last.next = operand; }
+            last = operand;
+        }
+        for at: Any in absorbed { block.code[at] = Quad(0, 0, 0, 0, 0, block.code[at].span); }
+        block.code[position] = Quad(E_CALL, instruction.result, 0, 0,
+            {"name": payload.name, "length": payload.length, "args": operands}, instruction.span);
+        addresses[position] = X86Address(base, index, if (index == 0) { 1 } else { index.scale }, displacement, stored);
+    }
+    return addresses;
+}
+
+// Collect address terms for `value`, recording absorbed definitions. Returns
+// the accumulated displacement, or nil when the address cannot be formed.
+fun x86_address_terms(ctx: Any, block: Any, intervals: Any, locals: Any, value: Any, consumer: Any, scale: Any, visits: Any, terms: Any, absorbed: Any, depth: Any) -> Any {
+    let interval: Any = intervals[value.slot];
+    let definition: Any = if (interval.definitions == 1 and interval.start < consumer) { block.code[interval.start] } else { 0 };
+    let exclusive: Any = definition != 0 and interval.uses == visits;
+    if (exclusive and definition.op == E_INT and scale == 1) { push(absorbed, interval.start); return definition.extra.value; }
+    if (exclusive and depth < 3 and definition.op == E_BIN and definition.extra.left.slot != definition.extra.right.slot) {
+        let left: Any = definition.extra.left; let right: Any = definition.extra.right;
+        if (definition.extra.op == TK_PLUS and scale == 1) {
+            let low: Any = x86_address_terms(ctx, block, intervals, locals, left, consumer, 1, 2, terms, absorbed, depth + 1);
+            if (low == nil) { return nil; }
+            let high: Any = x86_address_terms(ctx, block, intervals, locals, right, consumer, 1, 2, terms, absorbed, depth + 1);
+            if (high == nil) { return nil; }
+            push(absorbed, interval.start);
+            return low + high;
+        }
+        if (definition.extra.op == TK_STAR and scale == 1) {
+            for pair: Any in [[right, left], [left, right]] {
+                let factor: Any = x86_single_literal(block, intervals, pair[0]);
+                if (factor == 1 or factor == 2 or factor == 4 or factor == 8) {
+                    let before: Any = len(terms);
+                    let offset: Any = x86_address_terms(ctx, block, intervals, locals, pair[1], consumer, factor, 2, terms, absorbed, depth + 1);
+                    if (offset == nil or len(terms) != before + 1) { return nil; }
+                    push(absorbed, interval.start); push(absorbed, intervals[pair[0].slot].start);
+                    return offset;
+                }
+            }
+        }
+    }
+    if (exclusive and definition.op == E_VAR) {
+        let name: Any = definition.extra;
+        if (has(locals, symbol_name(name.name, name.length)) and is_boxed(ctx, name.name, name.length) == 0) {
+            push(absorbed, interval.start);
+            push(terms, X86AddressTerm(0, name.name, name.length, scale, interval.start));
+            return 0;
+        }
+    }
+    push(terms, X86AddressTerm(value, 0, 0, scale, -1));
+    return 0;
+}
+
+fun x86_single_literal(block: Any, intervals: Any, value: Any) -> Any {
+    let interval: Any = intervals[value.slot];
+    if (interval.definitions != 1 or interval.uses != 2 or interval.start < 0) { return nil; }
+    let definition: Any = block.code[interval.start];
+    return if (definition.op == E_INT) { definition.extra.value } else { nil };
+}
+
 fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
     ctx.tempBase = len(ctx.locals);
     let planned: Any = if (ctx.mode == 0) { x86_raw_allocation_block(ctx, block) } else { block };
     if (ctx.mode == 0 and ctx.dynamic == 0) { x86_discard_unused(planned); }
+    // Rank locals before address planning absorbs their reads.
     let locals: Any = if (ctx.mode == 0 and ctx.dynamic == 0) { x86_plan_local_registers(ctx, planned) } else { 0 };
+    let addresses: Any = if (ctx.mode == 0 and ctx.dynamic == 0) { x86_address_plan(ctx, planned) } else { {} };
     ctx.allocation = lsra_plan(planned, if (locals != 0) { locals.temporaries } else { [12, 13, 14, 15] }, ctx.mode == 0);
+    ctx.allocation.addresses = addresses;
     if (locals != 0) {
         ctx.allocation.localRegisters = locals.registers;
         for register: Any in locals.used { push(ctx.allocation.used, register); }
@@ -182,6 +330,7 @@ fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
     }
     for index: Any in 0..ctx.allocation.stackSlots { loc_add(ctx, addr("0temporary"), 10); }
     for register: Any in ctx.allocation.used {
+        if (register >= 8 and register <= 10) { continue; }
         let slot: Any = loc_add(ctx, addr("0saved"), 6);
         push(ctx.allocation.saves, [register, 8 * (slot + 1)]);
     }
@@ -609,14 +758,24 @@ struct X86LocalCandidate { name: Any, score: Any, valid: Any, register: Any }
 
 // Reserve dedicated callee-saved registers for frequently used scalar locals.
 // Their homes last for the whole function, including every join/backedge. This
-// does not relax virtual-temporary liveness or alias raw frame memory: calls,
-// memory operations, captures and other non-scalar constructs exclude a body.
+// does not relax virtual-temporary liveness: calls, captures and other
+// non-scalar constructs exclude a body. Unshadowed RAW load/store intrinsics
+// are allowed (#79). Maylang has no address-of operator for locals, so no
+// pointer can name a local's frame slot, and only __sp exposes the stack, which
+// remains excluded. The intrinsics clobber rax/rcx/rdx only and promotion does
+// not reorder memory accesses or their faults.
 fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
     if (ctx.envCount > 0 or len(ctx.boxed) > 0) { return 0; }
     let names: Any = {}; let seen: Any = {}; let ordered: Any = [];
     for local: Any in ctx.locals { seen[symbol_name(local[0], local[1])] = true; }
     for instruction: Any in block.code {
         let op: Any = instruction.op; let payload: Any = instruction.extra;
+        if (op == E_CALL) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (x86_memory_intrinsic(name) and not has(seen, name) and glob_find(ctx, payload.name, payload.length) < 0 and
+                backend_find_func(ctx, payload.name, payload.length) == 0) { continue; }
+            return 0;
+        }
         if (not x86_scalar_instruction(op)) { return 0; }
         if (op == S_LET or op == S_ASSIGN or op == E_VAR) {
             let name: Any = symbol_name(payload.name, payload.length);
@@ -639,8 +798,10 @@ fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
         if (best == 0) { break; }
         best.register = register; registers[best.name] = register; push(used, register);
     }
-    if (len(used) == 0) { return 0; }
-    let temporaries: Any = [];
+    // These bodies cannot call or syscall, so the volatile r8-r10 also hold
+    // temporaries (#79). Operand encodings require extended registers; r11
+    // remains the large-literal scratch.
+    let temporaries: Any = [10, 9, 8];
     for register: Any in [12, 13, 14, 15] {
         mut reserved: Any = false;
         for local: Any in used { if (local == register) { reserved = true; } }
@@ -1579,6 +1740,65 @@ fun cg_syscall(ctx: Any, args: Any) -> Any {
     return 0;
 }
 
+// Encode ModRM/SIB/displacement for [base + index*scale + displacement].
+// A REX prefix is emitted when required or for 64-bit operands.
+fun x86_memory(ctx: Any, wide: Any, opcode: Any, register: Any, base: Any, index: Any, scale: Any, displacement: Any) -> Any {
+    let rex: Any = (if (wide) { 8 } else { 0 }) + (if (register >= 8) { 4 } else { 0 }) +
+        (if (index >= 8) { 2 } else { 0 }) + (if (base >= 8) { 1 } else { 0 });
+    if (rex != 0) { e8(ctx, 64 + rex); }
+    for byte: Any in opcode { e8(ctx, byte); }
+    let narrow: Any = displacement >= -128 and displacement <= 127;
+    // [rbp]/[r13] has no displacement-free form.
+    let mode: Any = if (displacement == 0 and base % 8 != 5) { 0 } else if (narrow) { 64 } else { 128 };
+    if (index < 0 and base % 8 != 4) { e8(ctx, mode + (register % 8) * 8 + base % 8); }
+    else {
+        e8(ctx, mode + (register % 8) * 8 + 4);
+        let bits: Any = if (scale == 8) { 192 } else if (scale == 4) { 128 } else if (scale == 2) { 64 } else { 0 };
+        e8(ctx, bits + (if (index < 0) { 4 } else { index % 8 }) * 8 + base % 8);
+    }
+    if (mode == 64) { e8(ctx, displacement); } else if (mode == 128) { e32(ctx, displacement); }
+    return 0;
+}
+
+// Give an address term a register: temporaries in registers and dedicated
+// locals are used in place; other homes, literals and frame locals load into
+// the scratch register.
+fun x86_address_register(ctx: Any, term: Any, scratch: Any) -> Any {
+    if (term.value != 0) {
+        let location: Any = ctx.allocation.locations[term.value.slot];
+        if (location.register >= 0 and location.literal == nil and location.address == nil and location.borrowed == nil) { return location.register; }
+        x86_get_temp(ctx, term.value, scratch);
+        return scratch;
+    }
+    let register: Any = x86_local_register(ctx, term.name, term.length);
+    if (register >= 0) { return register; }
+    x86_load_register(ctx, scratch, 8 * (loc_find(ctx, term.name, term.length) + 1));
+    return scratch;
+}
+
+fun x86_fused_access(ctx: Any, name: Any, args: Any) -> Any {
+    let address: Any = ctx.allocation.addresses[ctx.allocation.position];
+    let store: Any = starts_with(name, "store");
+    // Store values load first: rax may still forward the base temporary.
+    if (store and address.value != 0) {
+        let register: Any = x86_address_register(ctx, address.value, 1);
+        x86_move_register(ctx, 1, register);
+    } else if (store) { x86_get_temp(ctx, args.next, 1); }
+    let base: Any = x86_address_register(ctx, address.base, 0);
+    let index: Any = if (address.index == 0) { -1 } else { x86_address_register(ctx, address.index, if (store) { 2 } else { 1 }) };
+    let scale: Any = address.scale; let displacement: Any = address.displacement;
+    if (name == "load8") { x86_memory(ctx, false, [15, 182], 0, base, index, scale, displacement); }
+    else if (name == "load16") { x86_memory(ctx, false, [15, 183], 0, base, index, scale, displacement); }
+    else if (name == "load32") { x86_memory(ctx, false, [139], 0, base, index, scale, displacement); }
+    else if (name == "load64") { x86_memory(ctx, true, [139], 0, base, index, scale, displacement); }
+    else if (name == "store8") { x86_memory(ctx, false, [136], 1, base, index, scale, displacement); }
+    else if (name == "store16") { e8(ctx, 102); x86_memory(ctx, false, [137], 1, base, index, scale, displacement); }
+    else if (name == "store32") { x86_memory(ctx, false, [137], 1, base, index, scale, displacement); }
+    else if (name == "store64") { x86_memory(ctx, true, [137], 1, base, index, scale, displacement); }
+    else { return false; }
+    return true;
+}
+
 fun cg_store(ctx: Any, args: Any, width: Any) -> Any {
     cg_expr(ctx, args);
     x86_get_temp(ctx, args.next, 1);
@@ -1659,6 +1879,7 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
             return 1;
         }
         if (name_eq(np, nl, addr("ptr"), len("ptr")) == 1) { cg_expr(ctx, args); return 1; }
+        if (ctx.allocation != 0 and has(ctx.allocation.addresses, ctx.allocation.position) and x86_fused_access(ctx, platformName, args)) { return 1; }
         if (name_eq(np, nl, addr("load8"), len("load8")) == 1) { cg_expr(ctx, args); e8(ctx, 15); e8(ctx, 182); e8(ctx, 0); return 1; }
         if (name_eq(np, nl, addr("load16"), len("load16")) == 1) { cg_expr(ctx, args); e8(ctx, 15); e8(ctx, 183); e8(ctx, 0); return 1; }
         if (name_eq(np, nl, addr("load32"), len("load32")) == 1) { cg_expr(ctx, args); e8(ctx, 139); e8(ctx, 0); return 1; }

@@ -348,9 +348,10 @@ fun memory(p: Any) -> Any { mut i: Any = 0; while i < 20 { store8(p, i); i = i +
     body = function(assembly, 'counter')
     assert re.search(r'\brbx\b', body), body
     assert not re.search(r'\b(?:mov|add|cmp)\s+rax,QWORD PTR \[rbp-', body), body
-    for name in ['calls', 'memory']:
-        assert not re.search(r'\brbx\b', function(assembly, name)), name
-    print('PASS whole-function local registers, full-width snapshots/spills, nested loop joins/break/continue, live caller values and call/memory exclusion', flush=True)
+    # Calls still exclude promotion; RAW load/store intrinsics no longer do (#79).
+    assert not re.search(r'\brbx\b', function(assembly, 'calls'))
+    assert re.search(r'\brbx\b', function(assembly, 'memory'))
+    print('PASS whole-function local registers, full-width snapshots/spills, nested loop joins/break/continue, live caller values, call exclusion and memory-loop promotion', flush=True)
 
 
 def direct_local_operations(compiler, work):
@@ -397,6 +398,151 @@ def direct_local_operations(compiler, work):
     print(f'PASS {5 * len(specs) * len(seeds)} full-width direct-local arithmetic cases across RBX/R12-R15, observable assignments and division traps', flush=True)
 
 
+REGISTERS = ['rax', 'rcx', 'rdx', 'rbx', 'rsp', 'rbp', 'rsi', 'rdi'] + [f'r{n}' for n in range(8, 16)]
+
+
+def memory_encodings(compiler, work):
+    """Decode every x86_memory form with objdump as an independent oracle (#79)."""
+    binary = work / 'memory-encoding'
+    compile_source(compiler, HERE / 'backend/x86_memory_encoding.may', binary)
+    rows, blob = [], bytearray()
+    for line in run(binary).splitlines():
+        base, index, scale, displacement, wide, text = line.split()
+        rows.append((len(blob), int(base), int(index), int(scale), int(displacement), wide == 'true'))
+        blob += bytes.fromhex(text)
+    raw = work / 'memory-encoding.bin'
+    raw.write_bytes(blob)
+    listing = subprocess.check_output(['objdump', '-D', '-b', 'binary', '-m', 'i386:x86-64', '-Mintel',
+                                       '--no-show-raw-insn', str(raw)], text=True)
+    decoded = {int(match[1], 16): match[2].strip() for match in re.finditer(r'^\s*([0-9a-f]+):\s+(.*)$', listing, re.M)}
+    for offset, base, index, scale, displacement, wide in rows:
+        address = REGISTERS[base] + (f'+{REGISTERS[index]}*{scale}' if index >= 0 else '')
+        if displacement or base % 8 == 5:
+            address += f'+0x{displacement:x}' if displacement >= 0 else f'-0x{-displacement:x}'
+        expected = f"mov    {'rcx' if wide else 'ecx'},{'QWORD' if wide else 'DWORD'} PTR [{address}]"
+        assert decoded.get(offset) == expected, (offset, decoded.get(offset), expected)
+    print(f'PASS {len(rows)} base/index/scale/displacement encodings decoded by objdump', flush=True)
+
+
+def fused_addresses(compiler, work):
+    """Differential oracle for fused RAW addresses and memory-loop locals (#79)."""
+    source, binary = work / 'addresses.may', work / 'addresses'
+    rng = random.Random(79)
+    wrap = lambda n: (n + (1 << 63)) % (1 << 64) - (1 << 63)
+    widths = [8, 16, 32, 64]
+
+    def address():
+        base, index = rng.choice(['b', 'c']), rng.choice(['i', 'j'])
+        scale, offset = rng.choice([1, 2, 4, 8]), rng.choice([0, 1, -1, 8, 127, 128, -129, 4096, -4096])
+        forms = [(f'{base} + {index}', lambda e: e[base] + e[index]),
+                 (f'{base} + {index} * {scale}', lambda e: e[base] + e[index] * scale),
+                 (f'{base} + {index} * {scale} + {offset}', lambda e: e[base] + e[index] * scale + offset),
+                 (f'{index} * {scale} + {base}', lambda e: e[index] * scale + e[base]),
+                 (f'{scale} * {index} + {base}', lambda e: scale * e[index] + e[base]),
+                 (f'{base} + {offset}', lambda e: e[base] + offset),
+                 (f'{base} + ({index} + {offset})', lambda e: e[base] + e[index] + offset),
+                 (f'({base} + {offset}) + {index} * {scale}', lambda e: e[base] + offset + e[index] * scale),
+                 (f'{base} + {index} * {scale} - 64', lambda e: e[base] + e[index] * scale - 64),
+                 (f'{base}', lambda e: e[base])]
+        return rng.choice(forms)
+
+    def value():
+        return rng.choice([('i * 37 + j', lambda e: wrap(e['i'] * 37 + e['j'])), ('acc', lambda e: e['acc']),
+                           ('j - i', lambda e: wrap(e['j'] - e['i'])),
+                           ('1152921504606846975', lambda e: 1152921504606846975)])
+
+    memory = bytearray(65536)
+
+    def load(at, width):
+        # Narrow loads zero-extend; load64 yields the signed 64-bit pattern.
+        return wrap(int.from_bytes(memory[at:at + width // 8], 'little'))
+
+    def remainder(n, d):
+        return -(-n % d) if n < 0 else n % d
+
+    def store(at, width, number):
+        memory[at:at + width // 8] = (number % (1 << width)).to_bytes(width // 8, 'little')
+
+    declarations, checks = ['fun nop() -> Any { return 0; }'], []
+    expected = []
+    for index in range(120):
+        rounds, body, actions = rng.randint(1, 24), [], []
+        for count in range(rng.randint(2, 4)):
+            kind, width = rng.random(), rng.choice(widths)
+            text, at = address()
+            if kind < 0.35:
+                shown, compute = value()
+                body.append(f'store{width}({text}, {shown});')
+                actions.append(('store', at, width, compute))
+            elif kind < 0.7:
+                body.append(f'acc = acc + load{width}({text});')
+                actions.append(('add', at, width))
+            elif kind < 0.85:
+                body.append(f'acc = acc * 3 + load{width}({text}) % 7;')
+                actions.append(('mix', at, width))
+            else:
+                target, other = address(), rng.choice(widths)
+                body.append(f'let t{count}: Any = load{width}({text}); store{other}({target[0]}, t{count} + 1);')
+                actions.append(('copy', at, width, target[1], other))
+        call = rng.random() < 0.2
+        declarations.append(f'fun memory{index}(p: Any) -> Any {{ let b: Any = p + 32768; let c: Any = p + 16384; '
+                            f'mut acc: Any = 0; mut j: Any = 3; mut i: Any = 0; while i < {rounds} {{ {" ".join(body)} '
+                            f'{"acc = acc + nop(); " if call else ""}j = (j * 5 + 1) % 23; i = i + 1; }} return acc; }}')
+        env = {'b': 32768, 'c': 16384, 'acc': 0, 'j': 3}
+        for i in range(rounds):
+            env['i'] = i
+            for action in actions:
+                if action[0] == 'store':
+                    store(action[1](env), action[2], action[3](env))
+                elif action[0] == 'add':
+                    env['acc'] = wrap(env['acc'] + load(action[1](env), action[2]))
+                elif action[0] == 'mix':
+                    env['acc'] = wrap(env['acc'] * 3 + remainder(load(action[1](env), action[2]), 7))
+                else:
+                    store(action[3](env), action[4], load(action[1](env), action[2]) + 1)
+            env['j'] = (env['j'] * 5 + 1) % 23
+        checks.append(f'if memory{index}(p) != {raw_integer(env["acc"])} {{ exit(72); }}')
+    # Snapshots: the store address uses i before the value expression changes it.
+    declarations += [
+        'fun snapshot(p: Any) -> Any { mut i: Any = 5; let b: Any = p + 100; '
+        'store8(b + i, if i > 0 { i = i + 1; i } else { 0 }); store8(b + i, 9); return load8(b + 5) * 100 + load8(b + 6) * 10 + i; }',
+        'fun widths(p: Any) -> Any { let b: Any = p + 200; mut i: Any = 0; mut total: Any = 0; '
+        'while i < 4 { store64(b + i * 8, -1); store32(b + i * 8 + 1, 0); store16(b + i * 8 + 5, 4660); store8(b + i * 8 + 7, 128); '
+        'total = total + load64(b + i * 8) % 1000003 + load32(b + i * 8 + 4) + load16(b + i * 8 + 6) + load8(b + i * 8); i = i + 1; } return total; }',
+        # The second displacement sum exceeds imm32 and must not be fused.
+        'fun far(p: Any) -> Any { let b: Any = p - 2147483000; let c: Any = p - 3000000000; store8(b + 2147483003, 77); '
+        'return load8(b + 2147483003) * 1000 + load8(c + 2000000000 + 1000000003); }',
+    ]
+    word = (-1 % (1 << 64)) & ~(((1 << 32) - 1) << 8)
+    word = (word & ~(0xffff << 40)) | (4660 << 40)
+    word = (word & ~(0xff << 56)) | (128 << 56)
+    raw_word = word - (1 << 64)
+    remainder = -(-raw_word % 1000003) if raw_word < 0 else raw_word % 1000003
+    each = remainder + ((word >> 32) & 0xffffffff) + ((word >> 48) & 0xffff) + (word & 0xff)
+    checks += [f'if snapshot(p + 60000) != {6 * 100 + 9 * 10 + 6} {{ exit(73); }}',
+               f'if widths(p + 60000) != {raw_integer(4 * each)} {{ exit(74); }}',
+               'if far(p) != 77077 { exit(75); }', 'exit(0);']
+    source.write_text('\n'.join(declarations + ['let p: Any = syscall(9, 0, 196608, 3, 34, -1, 0);'] + checks))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    fused = sum(1 for index in range(120) if re.search(r'PTR \[r\w+\+r\w+\*[248]', function(assembly, f'memory{index}')))
+    promoted = [index for index in range(120) if 'acc = acc + nop()' not in declarations[index + 1]]
+    for index in range(120):
+        body = function(assembly, f'memory{index}')
+        if index in promoted:
+            assert re.search(r'\brbx\b', body), index
+        else:
+            assert not re.search(r'\br(?:8|9|10)\b', body), index
+    assert fused >= 30, fused
+    # Faults keep their order: the write happens before the faulting load.
+    source.write_text('fun fault(p: Any) -> Any { mut i: Any = 0; mut total: Any = 0; '
+                      'while i < 2 { syscall(1, 1, addr("A"), 1); total = total + load8(p + i * 8); i = i + 1; } return total; } exit(fault(0));')
+    compile_source(compiler, source, binary, '--raw')
+    result = subprocess.run([str(binary)], capture_output=True, timeout=15)
+    assert result.returncode == -signal.SIGSEGV and result.stdout == b'A', result
+    print(f'PASS {len(checks) - 1} fused-address memory oracles; {fused}/120 functions use scaled indexes; '
+          'snapshots, widths, displacements, call exclusion and fault order hold', flush=True)
 def select_diamonds(compiler, work):
     """Differential oracle for branch-free scalar diamonds (#78)."""
     source, binary = work / 'select.may', work / 'select'
@@ -786,6 +932,8 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         local_recurrences(compiler, work)
         local_registers(compiler, work)
         direct_local_operations(compiler, work)
+        memory_encodings(compiler, work)
+        fused_addresses(compiler, work)
         select_diamonds(compiler, work)
 
         unit = work / 'unit'
