@@ -654,12 +654,27 @@ fun cg_var(ctx: Any, n: Any) -> Any {
     return 0;
 }
 
+// Positive powers of two up to 2^59, the largest the compiler's own tagged
+// integers represent (#84). Shifts above 30 cannot use an imm32 bias or mask.
 fun x86_divisor_shift(value: Any) -> Any {
     if (value.kind != E_INT or value.value <= 0) { return -1; }
     mut power: Any = 1; mut shift: Any = 0;
-    // The bias/mask uses a positive sign-extended imm32.
-    while (power < value.value and power < 1073741824) { power *= 2; shift += 1; }
+    while (power < value.value and shift < 59) { power *= 2; shift += 1; }
     return if (power == value.value) { shift } else { -1 };
+}
+
+// Lowerings that encode divisor - 1 as a positive sign-extended imm32.
+fun x86_compact_divisor_shift(value: Any) -> Any {
+    let shift: Any = x86_divisor_shift(value);
+    return if (shift <= 30) { shift } else { -1 };
+}
+
+// rax &= 2^shift - 1 for shift above 30: mov eax, eax or shl/shr.
+fun x86_wide_mask_rax(ctx: Any, shift: Any) -> Any {
+    if (shift == 32) { e8(ctx, 137); e8(ctx, 192); return 0; }
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 64 - shift);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 232); e8(ctx, 64 - shift);
+    return 0;
 }
 
 fun x86_signed_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) -> Any {
@@ -667,10 +682,12 @@ fun x86_signed_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) 
     // toward zero; subtract the same bias to give remainder the dividend's sign.
     for byte: Any in [72,137,193,72,193] { e8(ctx, byte); }
     e8(ctx, if (shift == 1) { 233 } else { 249 }); e8(ctx, 63);
-    if (shift != 1) { e8(ctx, 72); e8(ctx, 129); e8(ctx, 225); e32(ctx, divisor - 1); }
+    if (shift > 30) { e8(ctx, 72); e8(ctx, 193); e8(ctx, 233); e8(ctx, 64 - shift); } // shr rcx: 2^shift - 1 or 0
+    else if (shift != 1) { e8(ctx, 72); e8(ctx, 129); e8(ctx, 225); e32(ctx, divisor - 1); }
     e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
     if (remainder) {
-        e8(ctx, 72); e8(ctx, 37); e32(ctx, divisor - 1);
+        if (shift > 30) { x86_wide_mask_rax(ctx, shift); }
+        else { e8(ctx, 72); e8(ctx, 37); e32(ctx, divisor - 1); }
         e8(ctx, 72); e8(ctx, 41); e8(ctx, 200);
     } else { e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, shift); }
     return 0;
@@ -849,6 +866,7 @@ fun x86_unsigned_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any
     if (remainder) {
         let mask: Any = divisor - 1;
         if (mask == 0) { mov_imm(ctx, 0); }
+        else if (shift > 30) { x86_wide_mask_rax(ctx, shift); }
         else {
             e8(ctx, 72); e8(ctx, if (mask <= 127) { 131 } else { 129 }); e8(ctx, 224);
             if (mask <= 127) { e8(ctx, mask); } else { e32(ctx, mask); }
@@ -970,7 +988,7 @@ fun x86_local_operation(ctx: Any, block: Any, instruction: Any) -> Any {
         return branch;
     }
     let divide: Any = op == TK_SLASH or op == TK_PCT;
-    let shift: Any = if (divide) { x86_divisor_shift(operation.extra.right) } else { -1 };
+    let shift: Any = if (divide) { x86_compact_divisor_shift(operation.extra.right) } else { -1 };
     if (op != TK_PLUS and op != TK_MINUS and op != TK_STAR and (not divide or shift < 0)) { return -1; }
     mut result: Any = operation.result;
     mut offset: Any = 0;
@@ -1129,7 +1147,7 @@ fun x86_branch_comparison_at(ctx: Any, block: Any, instruction: Any, position: A
 fun x86_remainder_branch(ctx: Any, block: Any, instruction: Any) -> Any {
     if (ctx.dynamic != 0 or instruction.op != E_BIN or instruction.extra.op != TK_PCT) { return -1; }
     let payload: Any = instruction.extra;
-    if (x86_divisor_shift(payload.right) < 0) { return -1; }
+    if (x86_compact_divisor_shift(payload.right) < 0) { return -1; }
     if (ctx.allocation.locations[payload.right.slot].literal != payload.right.value) { return -1; }
     let location: Any = ctx.allocation.locations[instruction.result.slot];
     if (location.definitions != 1 or location.uses != 2 or location.start != ctx.allocation.position or location.end <= location.start) { return -1; }
@@ -1268,7 +1286,7 @@ fun x86_select_binary(ctx: Any, plan: Any, instruction: Any) -> Any {
         return true;
     }
     if (op == TK_PCT or op == TK_SLASH) {
-        let shift: Any = x86_divisor_shift(payload.right);
+        let shift: Any = x86_compact_divisor_shift(payload.right);
         if (shift < 0 or b.kind != 1 or b.literal != payload.right.value or a.kind == 1) { return false; }
         let source: Any = x86_select_materialize(ctx, plan, a);
         if (source < 0) { return false; }

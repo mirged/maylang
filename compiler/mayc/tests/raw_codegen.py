@@ -184,12 +184,69 @@ def remainder_branches(compiler, work):
     print(f'PASS {len(names) * len(inputs)} full-width signed divisibility branches, reversed operands, observed remainders and retained load faults', flush=True)
 
 
+def truncating(n, d):
+    quotient = abs(n) // d * (1 if n >= 0 else -1)
+    return quotient, n - quotient * d
+
+
+def wide_powers(compiler, work):
+    # #84: powers of two above imm32 masks use shifts instead of idiv.
+    source, binary = work / 'wide-powers.may', work / 'wide-powers'
+    shifts = [30, 31, 32, 33, 40, 47, 58, 59]
+    rng = random.Random(84)
+    inputs = [-(1 << 63), (1 << 63) - 1, -(1 << 62), 1 << 62, -1, 0, 1]
+    for shift in shifts:
+        inputs += [(1 << shift) - 1, 1 << shift, (1 << shift) + 1, -(1 << shift) + 1, -(1 << shift), -(1 << shift) - 1]
+    inputs += [rng.randrange(-(1 << 63), 1 << 63) for _ in range(24)]
+    declarations, checks, names = [], [], []
+    for shift in shifts:
+        divisor = 1 << shift
+        for op, index in [('/', 0), ('%', 1)]:
+            name = f'{"quotient" if op == "/" else "remainder"}{shift}'
+            names.append(name)
+            declarations.append(f'fun {name}(n: Any) -> Any {{ return n {op} {divisor}; }}')
+            for n in inputs:
+                expected = truncating(n, divisor)[index]
+                checks.append(f'if {name}({raw_integer(n)}) != {raw_integer(expected)} {{ exit(52); }}')
+        # A remainder only compared with zero takes the general path above imm32.
+        declarations.append(f'fun divisible{shift}(n: Any) -> Any {{ if n % {divisor} == 0 {{ return 7; }} return 3; }}')
+        for n in inputs:
+            checks.append(f'if divisible{shift}({raw_integer(n)}) != {7 if n % divisor == 0 else 3} {{ exit(53); }}')
+    declarations += [
+        # load32 * 1024 is proven nonnegative, so the remainder is a plain mask.
+        'fun bounded(p: Any) -> Any { return (load32(p) * 1024) % 4294967296 + (load32(p) * 1024) / 4294967296; }',
+        'fun hash(n: Any) -> Any { mut h: Any = 2166136261; mut i: Any = 0; '
+        'while i < n { h = (h * 16777619 + i % 251 + 1) % 4294967296; i = i + 1; } return h; }']
+    h = 2166136261
+    for i in range(1000):
+        h = (h * 16777619 + i % 251 + 1) % 4294967296
+    checks += ['let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0); store32(p, 4294967295);',
+               f'if bounded(p) != {(4294967295 * 1024) % 4294967296 + (4294967295 * 1024) // 4294967296} {{ exit(54); }}',
+               f'if hash(1000) != {h} {{ exit(55); }}', 'exit(0);']
+    source.write_text('\n'.join(declarations + checks))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    for name in names + ['bounded', 'hash']:
+        assert not re.search(r'\bidiv\b', function(assembly, name)), name
+    assert 'mov    eax,eax' in function(assembly, 'remainder32')
+    assert not re.search(r'\bsar\b', function(assembly, 'bounded'))
+    # Tagged code shares the signed sequence; check it executes too.
+    source.write_text('fun r(n: Any) -> Any { return n % 4294967296; }\n'
+                      'fun q(n: Any) -> Any { return n / 4294967296; }\n'
+                      'if r(-4294967297) != -1 or q(-4294967297) != -1 or r(12884901893) != 5 or q(12884901893) != 3 { exit(56); }\n'
+                      'exit(0);')
+    compile_source(compiler, source, binary)
+    run(binary)
+    print(f'PASS {len(names) * len(inputs)} wide power-of-two quotients/remainders and {len(shifts) * len(inputs)} divisibility checks without idiv', flush=True)
+
+
 def small_multipliers(compiler, work):
     source, binary = work / 'multipliers.may', work / 'multipliers'
     rng = random.Random(7611)
     inputs = [-(1 << 63), (1 << 63) - 1, -(1 << 62), -17, -1, 0, 1, 17, 1 << 62]
     inputs += [rng.randrange(-(1 << 63), 1 << 63) for _ in range(20)]
-    factors = [0, 1, 2, 3, 4, 5, 7, 8, 9, 64, 1 << 30, 1 << 31, -3]
+    factors = [0, 1, 2, 3, 4, 5, 7, 8, 9, 64, 1 << 30, 1 << 31, 1 << 40, 1 << 59, 6, -3]
     declarations, checks = [], []
     for index, factor in enumerate(factors):
         declarations.append(f'fun multiply{index}(n: Any) -> Any {{ return n * {factor}; }}')
@@ -204,7 +261,7 @@ def small_multipliers(compiler, work):
         body = function(assembly, f'multiply{index}')
         if factor in [3, 5, 9]:
             assert re.search(r'\blea\s+rax,', body) and not re.search(r'\bimul\b', body), body
-        elif factor in [2, 4, 8, 64, 1 << 30]:
+        elif factor in [2, 4, 8, 64, 1 << 30, 1 << 31, 1 << 40, 1 << 59]:
             assert re.search(r'\bshl\s+rax,', body) and not re.search(r'\bimul\b', body), body
         elif factor in [0, 1]:
             assert not re.search(r'\b(?:imul|shl|lea)\s+rax,', body), body
@@ -894,8 +951,11 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
                 if divisor > 0 and divisor & (divisor - 1):
                     assert not re.search(r'\bidiv\b', body), (divisor, body)
                     assert re.search(r'\bimul\s+rdx\b', body), (divisor, body)
-                elif divisor < 0 or divisor > 1 << 30:
+                elif divisor < 0:
                     assert re.search(r'\bidiv\b', body), (divisor, body)
+                else:
+                    # Every positive power of two the compiler represents uses shifts (#84).
+                    assert not re.search(r'\bidiv\b', body), (divisor, body)
         assert seen == set(range(len(divisors)))
         sweeps = []
         for divisor in range(3, 64):
@@ -928,6 +988,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         dead_expressions(compiler, work)
         dead_branch_copies(compiler, work)
         remainder_branches(compiler, work)
+        wide_powers(compiler, work)
         small_multipliers(compiler, work)
         local_recurrences(compiler, work)
         local_registers(compiler, work)
