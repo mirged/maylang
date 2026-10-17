@@ -17,6 +17,11 @@ The subsequent [signed constant-division pass](raw-constant-division.md)
 implements non-power-of-two literal division and records a fresh, interleaved
 comparison of the original compiler, this first pass, and the combined changes.
 
+The latest [signed divisibility branch report](raw-divisibility.md) records the
+complete branch at 25.791 ms versus 44.251 ms for the original compiler, with
+100 interleaved runs, all checksums matching, and remaining workload regressions
+reported alongside the gains.
+
 ## Reproduce
 
 Save the old compiler with its runtime sidecars before rebuilding. Run from the

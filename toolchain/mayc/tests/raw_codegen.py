@@ -114,6 +114,48 @@ def raw_integer(n):
     return f'({high} * 4294967296 + {low})'
 
 
+def remainder_branches(compiler, work):
+    source, binary = work / 'remainder-branches.may', work / 'remainder-branches'
+    declarations, checks, names = [], [], []
+    rng = random.Random(76)
+    inputs = [-(1 << 63), (1 << 63) - 1, -4097, -128, -3, -2, -1, 0, 1, 2, 3, 128, 4097]
+    inputs += [rng.randrange(-(1 << 63), 1 << 63) for _ in range(20)]
+    for shift in [0, 1, 2, 7, 16, 30]:
+        divisor = 1 << shift
+        for op in ['==', '!=']:
+            for reversed in [False, True]:
+                name = f'branch{len(names)}'
+                names.append(name)
+                comparison = f'0 {op} n % {divisor}' if reversed else f'n % {divisor} {op} 0'
+                declarations.append(f'fun {name}(n: Any) -> Any {{ if {comparison} {{ return 7; }} else {{ return 3; }} }}')
+                for n in inputs:
+                    divisible = n % divisor == 0
+                    expected = 7 if divisible == (op == '==') else 3
+                    checks.append(f'if {name}({raw_integer(n)}) != {expected} {{ exit(48); }}')
+    declarations += ['fun observed_remainder(n: Any) -> Any { let r: Any = n % 8; if r == 0 { return r + 7; } return r; }',
+                     'fun nonzero(n: Any) -> Any { if n % 8 == 1 { return 7; } return 3; }',
+                     'fun other_divisor(n: Any) -> Any { if n % 3 == 0 { return 7; } return 3; }',
+                     'fun effects(p: Any) -> Any { if load64(p) % 8 == 0 { return 7; } return 3; }']
+    checks += ['if observed_remainder(-9) != -1 or observed_remainder(-8) != 7 { exit(49); }',
+               'if nonzero(-7) != 3 or nonzero(9) != 7 or other_divisor(-9) != 7 { exit(50); }',
+               'let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0); store64(p, -8); if effects(p) != 7 { exit(51); }',
+               'exit(0);']
+    source.write_text('\n'.join(declarations + checks))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    for name in names:
+        body = function(assembly, name)
+        assert re.search(r'\btest\s+rax,0x[0-9a-f]+', body), body
+        assert not re.search(r'\b(?:sar|shr|and|idiv|set\w+)\b', body), body
+    for name in ['observed_remainder', 'nonzero']:
+        assert re.search(r'\bsar\b', function(assembly, name)), name
+    source.write_text('if load64(0) % 8 == 0 { exit(0); } exit(1);')
+    compile_source(compiler, source, binary, '--raw')
+    run(binary, -signal.SIGSEGV)
+    print(f'PASS {len(names) * len(inputs)} full-width signed divisibility branches, reversed operands, observed remainders and retained load faults', flush=True)
+
+
 def reciprocal_oracle():
     # Independent arbitrary-precision model of the sufficient reciprocal error
     # bound. Exhaust every signed dividend/non-power divisor at small widths.
@@ -325,6 +367,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         call_arguments(compiler, work)
         address_arguments(compiler, work)
         dead_expressions(compiler, work)
+        remainder_branches(compiler, work)
 
         unit = work / 'unit'
         compile_source(compiler, HERE / 'backend/x86_codegen.may', unit)

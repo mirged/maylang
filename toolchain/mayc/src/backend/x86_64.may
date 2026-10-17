@@ -271,6 +271,12 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
         if (ctx.mode == 0) {
+            let remainderBranch: Any = x86_remainder_branch(ctx, block, instruction);
+            if (remainderBranch >= 0) {
+                ctx.allocation.accumulator = -1;
+                fusedBranch = remainderBranch;
+                continue;
+            }
             if (x86_omitted_instruction(ctx, block, instruction)) { continue; }
             if (not x86_forwardable(ctx, instruction)) { ctx.allocation.accumulator = -1; }
             let branch: Any = x86_branch_comparison(ctx, block, instruction);
@@ -605,6 +611,13 @@ fun x86_dead_copy(ctx: Any, instruction: Any) -> Any {
     return instruction.op == IR_COPY and ctx.allocation.locations[instruction.result.slot].uses == 0;
 }
 
+// These instructions emit nothing and cannot change a predicate. Keep this
+// stricter than general omission: no deferred loads or control-flow edges.
+fun x86_predicate_gap(ctx: Any, instruction: Any) -> Any {
+    if (instruction.op == 0 or x86_dead_copy(ctx, instruction)) { return true; }
+    return instruction.op == E_INT and ctx.allocation.locations[instruction.result.slot].literal != nil;
+}
+
 fun x86_omitted_instruction(ctx: Any, block: Any, instruction: Any) -> Any {
     let op: Any = instruction.op;
     if (instruction.result != 0) {
@@ -682,10 +695,14 @@ fun x86_forwardable(ctx: Any, instruction: Any) -> Any {
 }
 
 fun x86_branch_comparison(ctx: Any, block: Any, instruction: Any) -> Any {
+    return x86_branch_comparison_at(ctx, block, instruction, ctx.allocation.position);
+}
+
+fun x86_branch_comparison_at(ctx: Any, block: Any, instruction: Any, position: Any) -> Any {
     if (instruction.op != E_BIN or x86_comparison_condition(instruction.extra.op) < 0) { return -1; }
     let location: Any = ctx.allocation.locations[instruction.result.slot];
-    if (location.definitions != 1 or location.start != ctx.allocation.position) { return -1; }
-    mut next: Any = ctx.allocation.position + 1;
+    if (location.definitions != 1 or location.start != position) { return -1; }
+    mut next: Any = position + 1;
     // Statement ifs leave unused result copies between the comparison and
     // branch. Only copies with no readers anywhere in the block may be skipped.
     while (next < len(block.code) and x86_dead_copy(ctx, block.code[next])) { next += 1; }
@@ -693,6 +710,38 @@ fun x86_branch_comparison(ctx: Any, block: Any, instruction: Any) -> Any {
     let branch: Any = block.code[next];
     if ((branch.op == IR_FALSE or branch.op == IR_TRUE) and branch.arg1.slot == instruction.result.slot) { return next; }
     return -1;
+}
+
+// Signed n % 2^k is zero exactly when n's low k bits are zero, including
+// negative n and INT64_MIN. The remainder itself must remain unobservable.
+fun x86_remainder_branch(ctx: Any, block: Any, instruction: Any) -> Any {
+    if (ctx.dynamic != 0 or instruction.op != E_BIN or instruction.extra.op != TK_PCT) { return -1; }
+    let payload: Any = instruction.extra;
+    if (x86_divisor_shift(payload.right) < 0) { return -1; }
+    if (ctx.allocation.locations[payload.right.slot].literal != payload.right.value) { return -1; }
+    let location: Any = ctx.allocation.locations[instruction.result.slot];
+    if (location.definitions != 1 or location.uses != 2 or location.start != ctx.allocation.position or location.end <= location.start) { return -1; }
+    for index: Any in (location.start + 1)..location.end {
+        if (not x86_predicate_gap(ctx, block.code[index])) { return -1; }
+    }
+    let compare: Any = block.code[location.end];
+    if (compare.op != E_BIN or (compare.extra.op != TK_EQ and compare.extra.op != TK_NE)) { return -1; }
+    let left: Any = compare.extra.left; let right: Any = compare.extra.right;
+    if (left.slot == instruction.result.slot) {
+        if (ctx.allocation.locations[right.slot].literal != 0) { return -1; }
+    } else if (right.slot == instruction.result.slot) {
+        if (ctx.allocation.locations[left.slot].literal != 0) { return -1; }
+    } else { return -1; }
+    let branch: Any = x86_branch_comparison_at(ctx, block, compare, location.end);
+    if (branch < 0) { return -1; }
+    cg_expr(ctx, payload.left);
+    e8(ctx, 72); e8(ctx, 169); e32(ctx, payload.right.value - 1); // test rax, imm32
+    mut condition: Any = x86_comparison_condition(compare.extra.op);
+    if (block.code[branch].op == IR_FALSE) {
+        condition = if (condition % 2 == 0) { condition + 1 } else { condition - 1 };
+    }
+    jcc(ctx, condition, block.code[branch].extra);
+    return branch;
 }
 
 // Emit op rax, r/m64 directly from an allocated register or spill home.

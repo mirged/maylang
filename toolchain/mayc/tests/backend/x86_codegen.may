@@ -146,6 +146,58 @@ let separatedLocal: Any = IRBlock([variable, Quad(IR_LABEL, 0, 0, 0, 50, 0), bin
 ctx.allocation = lsra_allocate(separatedLocal, [12, 13]);
 require(x86_borrow_operand(ctx, separatedLocal, variable) == false);
 ctx.locals = [];
+// Divisibility is a branch predicate, not a replacement for observable signed
+// remainder. Check both branch polarities and either comparison operand order.
+let power: Any = IRValue(E_INT, 1, 8, 0, 0, 0, 0);
+let zero: Any = IRValue(E_INT, 4, 0, 0, 0, 0, 0);
+for direction: Any in [IR_FALSE, IR_TRUE] {
+    for op: Any in [TK_EQ, TK_NE] {
+        for reversed: Any in [false, true] {
+            let target: Any = newlab(ctx);
+            let remainder: Any = Quad(E_BIN, result, a, power,
+                {"op": TK_PCT, "left": a, "right": power}, 0);
+            let left: Any = if (reversed) { zero } else { result };
+            let right: Any = if (reversed) { result } else { zero };
+            let compare: Any = Quad(E_BIN, unused, left, right,
+                {"op": op, "left": left, "right": right}, 0);
+            let code: Any = [Quad(E_INT, a, 0, 0, {"value": -9}, 0),
+                Quad(E_INT, power, 0, 0, {"value": 8}, 0), remainder,
+                Quad(E_INT, zero, 0, 0, {"value": 0}, 0), compare,
+                Quad(direction, 0, unused, 0, target, 0)];
+            let block: Any = IRBlock(code, 5);
+            ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+            ctx.code.length = 0;
+            require(x86_remainder_branch(ctx, block, remainder) == 5);
+            require(load8(ctx.code.data + ctx.code.length - 12) == 72);
+            require(load8(ctx.code.data + ctx.code.length - 11) == 169);
+            require(load32(ctx.code.data + ctx.code.length - 10) == 7);
+            mut condition: Any = x86_comparison_condition(op);
+            if (direction == IR_FALSE) { condition += if (op == TK_EQ) { 1 } else { -1 }; }
+            require(load8(ctx.code.data + ctx.code.length - 5) == condition);
+            ctx.dynamic = 1;
+            require(x86_remainder_branch(ctx, block, remainder) == -1);
+            ctx.dynamic = 0;
+            // Observing either the signed remainder or the comparison result
+            // elsewhere blocks this fusion.
+            for observed: Any in [result, unused] {
+                push(code, Quad(IR_RETURN, 0, observed, 0, 0, 0));
+                ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+                require(x86_remainder_branch(ctx, block, remainder) == -1);
+                pop(code);
+            }
+            push(code, Quad(E_INT, power, 0, 0, {"value": 16}, 0));
+            ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+            require(x86_remainder_branch(ctx, block, remainder) == -1);
+            pop(code);
+            code[3].extra.value = 1;
+            ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+            require(x86_remainder_branch(ctx, block, remainder) == -1);
+            code[3] = Quad(IR_LABEL, 0, 0, 0, target, 0);
+            ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+            require(x86_remainder_branch(ctx, block, remainder) == -1);
+        }
+    }
+}
 for direction: Any in [IR_FALSE, IR_TRUE] {
     for op: Any in [TK_EQ, TK_NE, TK_LT, TK_LE, TK_GT, TK_GE] {
         let target: Any = newlab(ctx);
