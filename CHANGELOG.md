@@ -1,3 +1,18 @@
+# Unreleased
+
+- Lower signed power-of-two division and remainder up to 2^59 with shifts
+  instead of `idiv` (#84).
+- Branch directly on RAW `and`/`or` conditions instead of materializing a
+  Boolean, keeping short-circuit order, effects and faults (#85).
+- Keep parameters and loop-weighted locals in dedicated registers, including
+  bodies with direct user calls and syscalls (#86), and hold values that no call
+  clobbers in volatile registers so fewer callee-saved registers are saved;
+  drop unreachable and fallthrough jumps (#87). The extended suite is 33%
+  faster than 0.13.102 and runs at 1.32× GCC's time
+  ([report](compiler/mayc/tests/backend/raw-call-gaps.md)).
+- Add an eleven-workload extended RAW benchmark suite
+  ([report](compiler/mayc/tests/backend/raw-extended-suite.md)).
+
 # Maylang 0.13.102 — Dahlia
 
 Released 2026-10-17 UTC. Branch-free RAW scalar diamonds, fused memory

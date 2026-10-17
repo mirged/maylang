@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 from backends import compiler_binary, compile_source
-from raw_performance import CHECKSUMS, parse_output
+from raw_performance import CHECKSUMS, EXTENDED_CHECKSUMS, parse_output
 
 HERE = Path(__file__).resolve().parent
 
@@ -184,12 +184,186 @@ def remainder_branches(compiler, work):
     print(f'PASS {len(names) * len(inputs)} full-width signed divisibility branches, reversed operands, observed remainders and retained load faults', flush=True)
 
 
+def truncating(n, d):
+    quotient = abs(n) // d * (1 if n >= 0 else -1)
+    return quotient, n - quotient * d
+
+
+def wide_powers(compiler, work):
+    # #84: powers of two above imm32 masks use shifts instead of idiv.
+    source, binary = work / 'wide-powers.may', work / 'wide-powers'
+    shifts = [30, 31, 32, 33, 40, 47, 58, 59]
+    rng = random.Random(84)
+    inputs = [-(1 << 63), (1 << 63) - 1, -(1 << 62), 1 << 62, -1, 0, 1]
+    for shift in shifts:
+        inputs += [(1 << shift) - 1, 1 << shift, (1 << shift) + 1, -(1 << shift) + 1, -(1 << shift), -(1 << shift) - 1]
+    inputs += [rng.randrange(-(1 << 63), 1 << 63) for _ in range(24)]
+    declarations, checks, names = [], [], []
+    for shift in shifts:
+        divisor = 1 << shift
+        for op, index in [('/', 0), ('%', 1)]:
+            name = f'{"quotient" if op == "/" else "remainder"}{shift}'
+            names.append(name)
+            declarations.append(f'fun {name}(n: Any) -> Any {{ return n {op} {divisor}; }}')
+            for n in inputs:
+                expected = truncating(n, divisor)[index]
+                checks.append(f'if {name}({raw_integer(n)}) != {raw_integer(expected)} {{ exit(52); }}')
+        # A remainder only compared with zero takes the general path above imm32.
+        declarations.append(f'fun divisible{shift}(n: Any) -> Any {{ if n % {divisor} == 0 {{ return 7; }} return 3; }}')
+        for n in inputs:
+            checks.append(f'if divisible{shift}({raw_integer(n)}) != {7 if n % divisor == 0 else 3} {{ exit(53); }}')
+    declarations += [
+        # load32 * 1024 is proven nonnegative, so the remainder is a plain mask.
+        'fun bounded(p: Any) -> Any { return (load32(p) * 1024) % 4294967296 + (load32(p) * 1024) / 4294967296; }',
+        'fun hash(n: Any) -> Any { mut h: Any = 2166136261; mut i: Any = 0; '
+        'while i < n { h = (h * 16777619 + i % 251 + 1) % 4294967296; i = i + 1; } return h; }']
+    h = 2166136261
+    for i in range(1000):
+        h = (h * 16777619 + i % 251 + 1) % 4294967296
+    checks += ['let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0); store32(p, 4294967295);',
+               f'if bounded(p) != {(4294967295 * 1024) % 4294967296 + (4294967295 * 1024) // 4294967296} {{ exit(54); }}',
+               f'if hash(1000) != {h} {{ exit(55); }}', 'exit(0);']
+    source.write_text('\n'.join(declarations + checks))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    for name in names + ['bounded', 'hash']:
+        assert not re.search(r'\bidiv\b', function(assembly, name)), name
+    assert 'mov    eax,eax' in function(assembly, 'remainder32')
+    assert not re.search(r'\bsar\b', function(assembly, 'bounded'))
+    # Tagged code shares the signed sequence; check it executes too.
+    source.write_text('fun r(n: Any) -> Any { return n % 4294967296; }\n'
+                      'fun q(n: Any) -> Any { return n / 4294967296; }\n'
+                      'if r(-4294967297) != -1 or q(-4294967297) != -1 or r(12884901893) != 5 or q(12884901893) != 3 { exit(56); }\n'
+                      'exit(0);')
+    compile_source(compiler, source, binary)
+    run(binary)
+    print(f'PASS {len(names) * len(inputs)} wide power-of-two quotients/remainders and {len(shifts) * len(inputs)} divisibility checks without idiv', flush=True)
+
+
+def logical_branches(compiler, work):
+    # #85: and/or that only steer a branch become jump chains. Leaves record
+    # their evaluation order, so short-circuiting and effect order are checked.
+    source, binary = work / 'logical-branches.may', work / 'logical-branches'
+    rng = random.Random(85)
+    comparisons = ['<', '<=', '>', '>=', '==', '!=']
+
+    def tree(depth):
+        if depth == 0 or rng.random() < 0.3:
+            kind = rng.randrange(3)
+            if kind == 0:
+                return ('probe', rng.randrange(1, 9), rng.choice('ab'), rng.choice(comparisons), rng.randrange(-3, 4))
+            if kind == 1:
+                return ('compare', rng.choice('ab'), rng.choice(comparisons), rng.randrange(-3, 4))
+            return ('truth', rng.choice('ab'))
+        return (rng.choice(['and', 'or']), tree(depth - 1), tree(depth - 1))
+
+    def render(node):
+        if node[0] == 'probe':
+            return f'probe({node[1]}, {node[2]}) {node[3]} {node[4]}'
+        if node[0] == 'compare':
+            return f'{node[1]} {node[2]} {node[3]}'
+        if node[0] == 'truth':
+            return node[1]
+        return f'({render(node[1])} {node[0]} {render(node[2])})'
+
+    def evaluate(node, env, trace):
+        if node[0] == 'probe':
+            trace.append(node[1])
+            return eval(f'{env[node[2]]} {node[3]} {node[4]}')
+        if node[0] == 'compare':
+            return eval(f'{env[node[1]]} {node[2]} {node[3]}')
+        if node[0] == 'truth':
+            return env[node[1]] != 0
+        left = evaluate(node[1], env, trace)
+        if node[0] == 'and':
+            return left and evaluate(node[2], env, trace)
+        return left or evaluate(node[2], env, trace)
+
+    def sequence(trace):
+        value = 0
+        for item in trace:
+            value = (value * 31 + item) % 1000000007
+        return value
+
+    declarations = ['mut sequence: Any = 0;',
+                    'fun probe(k: Any, v: Any) -> Any { sequence = (sequence * 31 + k) % 1000000007; return v; }']
+    checks, functions = [], 0
+    pairs = [(a, b) for a in range(-2, 3) for b in (0, 3)]
+    for index in range(40):
+        # Only and/or results are normalized to 0/1, so the root is always one.
+        node = (rng.choice(['and', 'or']), tree(2), tree(2))
+        condition = render(node)
+        forms = [
+            (f'fun r{index}(a: Any, b: Any) -> Any {{ if {condition} {{ return 7; }} else {{ return 3; }} }}',
+             f'r{index}', lambda truth: 7 if truth else 3),
+            (f'fun s{index}(a: Any, b: Any) -> Any {{ mut x: Any = 1; if {condition} {{ x = 5; }} return x; }}',
+             f's{index}', lambda truth: 5 if truth else 1),
+            (f'fun e{index}(a: Any, b: Any) -> Any {{ mut x: Any = 1; if {condition} {{ x = 5; }} else {{ x = 2; }} return x; }}',
+             f'e{index}', lambda truth: 5 if truth else 2),
+            (f'fun v{index}(a: Any, b: Any) -> Any {{ return if {condition} {{ 9 }}; }}',
+             f'v{index}', lambda truth: 9 if truth else 0),
+            (f'fun b{index}(a: Any, b: Any) -> Any {{ let flag: Any = {condition}; return flag; }}',
+             f'b{index}', lambda truth: 1 if truth else 0)]
+        for declaration, name, expected in forms:
+            declarations.append(declaration)
+            functions += 1
+            for a, b in pairs:
+                trace = []
+                truth = evaluate(node, {'a': a, 'b': b}, trace)
+                checks.append(f'sequence = 0; if {name}({a}, {b}) != {expected(truth)} or sequence != {sequence(trace)} {{ exit(60); }}')
+        # A loop condition re-evaluates the chain on every iteration.
+        declarations.append(f'fun w{index}(a: Any, b: Any) -> Any {{ mut n: Any = 0; '
+                            f'while n < 3 and {condition} {{ n = n + 1; }} return n; }}')
+        functions += 1
+        for a, b in pairs:
+            trace, n = [], 0
+            while n < 3 and evaluate(node, {'a': a, 'b': b}, trace):
+                n += 1
+            checks.append(f'sequence = 0; if w{index}({a}, {b}) != {n} or sequence != {sequence(trace)} {{ exit(61); }}')
+    declarations += [
+        # The right operand's load runs only when the guard allows it.
+        'fun guarded(p: Any) -> Any { if p != 0 and load64(p) > 5 { return 7; } return 3; }',
+        'fun either(p: Any) -> Any { if p == 0 or load64(p) > 5 { return 7; } return 3; }',
+        'fun scan(p: Any, n: Any, key: Any) -> Any { mut j: Any = n - 1; '
+        'while j >= 0 and load64(p + j * 8) > key { j = j - 1; } return j; }',
+        'fun observed(a: Any, b: Any) -> Any { let flag: Any = a > 0 and b > 0; return flag + 1; }',
+        # Earlier operands jump to the else label of a cmov-eligible final diamond (#78).
+        'fun shared(a: Any) -> Any { let b: Any = a + 0; mut x: Any = 1; '
+        'if (b < -1 and b != -2) and b == 3 { x = 5; } else { x = 2; } return x + b + b + b; }']
+    guards = ['let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0);',
+              'store64(p, 1); store64(p + 8, 9); store64(p + 16, 8);',
+              'if guarded(0) != 3 or guarded(p + 8) != 7 or guarded(p) != 3 { exit(62); }',
+              'if either(0) != 7 or either(p + 8) != 7 or either(p) != 3 { exit(63); }',
+              'if scan(p, 3, 5) != 0 or scan(p, 3, 0) != -1 or scan(p, 0, 5) != -1 { exit(64); }',
+              'if observed(1, 2) != 2 or observed(1, 0) != 1 { exit(65); }',
+              'if shared(0) != 2 or shared(-5) != -13 or shared(-2) != -4 { exit(66); }']
+    # Keep compiler memory bounded while growing the oracle.
+    for offset in range(0, len(checks), 600):
+        source.write_text('\n'.join(declarations + checks[offset:offset + 600] + guards + ['exit(0);']))
+        compile_source(compiler, source, binary, '--raw')
+        run(binary)
+    assembly = disassemble(binary)
+    for name in ['guarded', 'either', 'scan']:
+        body = function(assembly, name)
+        assert not re.search(r'\bset\w+\b', body), body
+    # Observable Booleans keep their materialized value.
+    assert re.search(r'\bset\w+\b', function(assembly, 'observed'))
+    for source_text, status in [('if 0 != 0 and load64(0) > 5 { exit(1); } exit(0);', 0),
+                                ('if 1 != 0 and load64(0) > 5 { exit(1); } exit(0);', -signal.SIGSEGV),
+                                ('if 1 == 1 or load64(0) > 5 { exit(0); } exit(1);', 0)]:
+        source.write_text(source_text)
+        compile_source(compiler, source, binary, '--raw')
+        run(binary, status)
+    print(f'PASS {len(checks)} short-circuit branch oracles over {functions} functions; effect order, load guards, faults and observable Booleans hold', flush=True)
+
+
 def small_multipliers(compiler, work):
     source, binary = work / 'multipliers.may', work / 'multipliers'
     rng = random.Random(7611)
     inputs = [-(1 << 63), (1 << 63) - 1, -(1 << 62), -17, -1, 0, 1, 17, 1 << 62]
     inputs += [rng.randrange(-(1 << 63), 1 << 63) for _ in range(20)]
-    factors = [0, 1, 2, 3, 4, 5, 7, 8, 9, 64, 1 << 30, 1 << 31, -3]
+    factors = [0, 1, 2, 3, 4, 5, 7, 8, 9, 64, 1 << 30, 1 << 31, 1 << 40, 1 << 59, 6, -3]
     declarations, checks = [], []
     for index, factor in enumerate(factors):
         declarations.append(f'fun multiply{index}(n: Any) -> Any {{ return n * {factor}; }}')
@@ -204,7 +378,7 @@ def small_multipliers(compiler, work):
         body = function(assembly, f'multiply{index}')
         if factor in [3, 5, 9]:
             assert re.search(r'\blea\s+rax,', body) and not re.search(r'\bimul\b', body), body
-        elif factor in [2, 4, 8, 64, 1 << 30]:
+        elif factor in [2, 4, 8, 64, 1 << 30, 1 << 31, 1 << 40, 1 << 59]:
             assert re.search(r'\bshl\s+rax,', body) and not re.search(r'\bimul\b', body), body
         elif factor in [0, 1]:
             assert not re.search(r'\b(?:imul|shl|lea)\s+rax,', body), body
@@ -348,10 +522,117 @@ fun memory(p: Any) -> Any { mut i: Any = 0; while i < 20 { store8(p, i); i = i +
     body = function(assembly, 'counter')
     assert re.search(r'\brbx\b', body), body
     assert not re.search(r'\b(?:mov|add|cmp)\s+rax,QWORD PTR \[rbp-', body), body
-    # Calls still exclude promotion; RAW load/store intrinsics no longer do (#79).
-    assert not re.search(r'\brbx\b', function(assembly, 'calls'))
+    # Direct calls (#86) and RAW load/store intrinsics (#79) allow promotion.
+    assert re.search(r'\brbx\b', function(assembly, 'calls'))
     assert re.search(r'\brbx\b', function(assembly, 'memory'))
-    print('PASS whole-function local registers, full-width snapshots/spills, nested loop joins/break/continue, live caller values, call exclusion and memory-loop promotion', flush=True)
+    print('PASS whole-function local registers, full-width snapshots/spills, nested loop joins/break/continue, live caller values, call and memory-loop promotion', flush=True)
+
+
+def promoted_parameters(compiler, work):
+    # #86: parameters and locals of bodies with direct calls use RBX/r12-r15.
+    source, binary = work / 'promoted-parameters.may', work / 'promoted-parameters'
+    wrap = lambda n: (n + (1 << 63)) % (1 << 64) - (1 << 63)
+    declarations = '''
+fun leaf(x: Any) -> Any { return x * 3 + 1; }
+fun clobber(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any) -> Any {
+    mut i: Any = 0; mut s: Any = 0;
+    while i < 10 { s = s + a * i + b - c + d * e - f; i = i + 1; }
+    return s;
+}
+fun keeps(a: Any, b: Any, c: Any) -> Any {
+    mut t: Any = 0; mut i: Any = 0;
+    while i < 30 { t = t + leaf(i) + clobber(i, a, b, c, t % 7, i) % 1000 + a - b * c; i = i + 1; }
+    return t + a + b + c;
+}
+fun nine(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any, g: Any, h: Any, k: Any) -> Any {
+    mut t: Any = 0; mut i: Any = 0;
+    while i < 12 { t = t + a * i + b + c * d - e + f * g + h - k + leaf(t % 5); i = i + 1; }
+    return t * 2 + k + h + g;
+}
+fun fib(n: Any) -> Any { if n < 2 { return n; } return fib(n - 1) + fib(n - 2); }
+fun ackermann(m: Any, n: Any) -> Any {
+    if m == 0 { return n + 1; }
+    if n == 0 { return ackermann(m - 1, 1); }
+    return ackermann(m - 1, ackermann(m, n - 1));
+}
+fun pids(n: Any) -> Any {
+    mut i: Any = 0; mut t: Any = 0; let pid: Any = syscall(39);
+    while i < n { t = t + syscall(39) - pid + i * n; i = i + 1; }
+    return t + n;
+}
+fun scan(p: Any, n: Any, key: Any) -> Any {
+    mut count: Any = 0; mut i: Any = 0;
+    while i < n { if load64(p + i * 8) > key { count = count + 1; } i = i + 1; }
+    return count;
+}
+fun stack(n: Any) -> Any { mut i: Any = 0; mut t: Any = 0; while i < n { t = t + i; i = i + 1; } return t + __sp() * 0; }
+fun mapped(size: Any, flags: Any, fd: Any, offset: Any) -> Any {
+    mut total: Any = 0; mut i: Any = 0;
+    while i < 3 {
+        // syscall arguments use r10/r8/r9, so their values cannot live there (#87).
+        let p: Any = syscall(9, 0, size + i - i, 3, flags + i - i, fd + i - i, offset + i - i);
+        if p < 0 { return p; }
+        store64(p, i + size); total = total + load64(p); i = i + 1;
+    }
+    return total;
+}
+'''
+    def leaf(x):
+        return wrap(x * 3 + 1)
+    def clobber(a, b, c, d, e, f):
+        s = 0
+        for i in range(10):
+            s = wrap(s + a * i + b - c + d * e - f)
+        return s
+    def mod(n, d):
+        return abs(n) % d * (-1 if n < 0 else 1)
+    def keeps(a, b, c):
+        t = 0
+        for i in range(30):
+            t = wrap(t + leaf(i) + mod(clobber(i, a, b, c, mod(t, 7), i), 1000) + a - b * c)
+        return wrap(t + a + b + c)
+    def nine(a, b, c, d, e, f, g, h, k):
+        t = 0
+        for i in range(12):
+            t = wrap(t + a * i + b + c * d - e + f * g + h - k + leaf(mod(t, 5)))
+        return wrap(t * 2 + k + h + g)
+    def ackermann(m, n):
+        while m:
+            n = 1 if n == 0 else ackermann(m, n - 1)
+            m -= 1
+        return n + 1
+    checks = []
+    for a, b, c in [(0, 0, 0), (7, -3, 11), (-100, 55, -9), (123456789, -987654321, 31337)]:
+        checks.append(f'if keeps({a}, {b}, {c}) != {keeps(a, b, c)} {{ exit(70); }}')
+    for args in [(1, 2, 3, 4, 5, 6, 7, 8, 9), (-9, 8, -7, 6, -5, 4, -3, 2, -1), (0, 0, 0, 0, 0, 0, 0, 0, 1 << 40)]:
+        checks.append(f'if nine({", ".join(map(str, args))}) != {nine(*args)} {{ exit(71); }}')
+    checks += [f'if fib(20) != 6765 or ackermann(2, 3) != {ackermann(2, 3)} {{ exit(72); }}',
+               f'if pids(40) != {sum(i * 40 for i in range(40)) + 40} {{ exit(73); }}',
+               'let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0);',
+               'mut i: Any = 0; while i < 64 { store64(p + i * 8, i * 7 % 13); i = i + 1; }',
+               f'if scan(p, 64, 6) != {sum(1 for i in range(64) if i * 7 % 13 > 6)} or stack(10) != 45 {{ exit(74); }}',
+               'if mapped(4096, 34, -1, 0) != 3 + 3 * 4096 { exit(75); }',
+               'exit(0);']
+    source.write_text(declarations + '\n'.join(checks))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    for name in ['keeps', 'nine', 'pids', 'scan']:
+        assert re.search(r'\brbx\b', function(assembly, name)), name
+    # Promoted parameters are never reloaded from their frame slots.
+    for name in ['scan', 'keeps']:
+        assert not re.search(r'PTR \[rbp-0x(?:8|10|18)\]', function(assembly, name)), function(assembly, name)
+    # #87: call arguments use r10, only values spanning a call take callee-saved
+    # registers, and no jump targets the next instruction.
+    body = function(assembly, 'fib')
+    assert re.search(r'\bmov\s+rdi,r10\b', body) and not re.search(r'\br1[34]\b', body), body
+    lines = re.findall(r'^\s*([0-9a-f]+):\s+(\w+)\s*(.*)$', body, re.M)
+    for (address, mnemonic, operand), following in zip(lines, lines[1:]):
+        if mnemonic == 'jmp':
+            assert not operand.startswith(following[0] + ' '), body
+    # __sp still exposes the stack and excludes the body.
+    assert not re.search(r'\b(?:rbx|r12)\b', function(assembly, 'stack')), function(assembly, 'stack')
+    print('PASS promoted parameters, stack arguments, locals across calls/recursion/syscalls and __sp exclusion', flush=True)
 
 
 def direct_local_operations(compiler, work):
@@ -372,8 +653,10 @@ def direct_local_operations(compiler, work):
         result = 'n' + ''.join(f' + g{i}' for i in range(place))
         for index, (expression, oracle) in enumerate(specs):
             name = f'local{place}_{index}'
-            declarations.append(f'fun {name}(seed: Any) -> Any {{ {prefix} mut n: Any = seed; mut i: Any = 0; '
-                                f'while i < 1 {{ n = {expression}; {updates} i = i + 1; }} return {result}; }}')
+            # Straight-line bodies rank by declaration order, so g0..g{place-1}
+            # take the first registers and n the next one.
+            declarations.append(f'fun {name}(seed: Any) -> Any {{ {prefix} mut n: Any = seed; '
+                                f'n = {expression}; {updates} return {result}; }}')
             for n in seeds:
                 checks.append(f'if {name}({raw_integer(n)}) != {raw_integer(wrap(oracle(n) + place))} {{ exit(63); }}')
     declarations += ['fun observed(seed: Any) -> Any { mut n: Any = seed; mut i: Any = 0; mut result: Any = 0; '
@@ -527,13 +810,10 @@ def fused_addresses(compiler, work):
     run(binary)
     assembly = disassemble(binary)
     fused = sum(1 for index in range(120) if re.search(r'PTR \[r\w+\+r\w+\*[248]', function(assembly, f'memory{index}')))
-    promoted = [index for index in range(120) if 'acc = acc + nop()' not in declarations[index + 1]]
+    # Direct calls keep promotion (#86); values spanning them avoid r8-r10 (#87),
+    # which the byte-array oracle above checks by execution.
     for index in range(120):
-        body = function(assembly, f'memory{index}')
-        if index in promoted:
-            assert re.search(r'\brbx\b', body), index
-        else:
-            assert not re.search(r'\br(?:8|9|10)\b', body), index
+        assert re.search(r'\brbx\b', function(assembly, f'memory{index}')), index
     assert fused >= 30, fused
     # Faults keep their order: the write happens before the faulting load.
     source.write_text('fun fault(p: Any) -> Any { mut i: Any = 0; mut total: Any = 0; '
@@ -542,7 +822,7 @@ def fused_addresses(compiler, work):
     result = subprocess.run([str(binary)], capture_output=True, timeout=15)
     assert result.returncode == -signal.SIGSEGV and result.stdout == b'A', result
     print(f'PASS {len(checks) - 1} fused-address memory oracles; {fused}/120 functions use scaled indexes; '
-          'snapshots, widths, displacements, call exclusion and fault order hold', flush=True)
+          'snapshots, widths, displacements, calls and fault order hold', flush=True)
 def select_diamonds(compiler, work):
     """Differential oracle for branch-free scalar diamonds (#78)."""
     source, binary = work / 'select.may', work / 'select'
@@ -894,8 +1174,11 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
                 if divisor > 0 and divisor & (divisor - 1):
                     assert not re.search(r'\bidiv\b', body), (divisor, body)
                     assert re.search(r'\bimul\s+rdx\b', body), (divisor, body)
-                elif divisor < 0 or divisor > 1 << 30:
+                elif divisor < 0:
                     assert re.search(r'\bidiv\b', body), (divisor, body)
+                else:
+                    # Every positive power of two the compiler represents uses shifts (#84).
+                    assert not re.search(r'\bidiv\b', body), (divisor, body)
         assert seen == set(range(len(divisors)))
         sweeps = []
         for divisor in range(3, 64):
@@ -928,9 +1211,12 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         dead_expressions(compiler, work)
         dead_branch_copies(compiler, work)
         remainder_branches(compiler, work)
+        wide_powers(compiler, work)
+        logical_branches(compiler, work)
         small_multipliers(compiler, work)
         local_recurrences(compiler, work)
         local_registers(compiler, work)
+        promoted_parameters(compiler, work)
         direct_local_operations(compiler, work)
         memory_encodings(compiler, work)
         fused_addresses(compiler, work)
@@ -950,6 +1236,13 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
                         str(HERE / 'backend/raw_performance.c'), '-o', str(reference)], check=True)
         assert {name: row['checksum'] for name, row in parse_output(run(reference)).items()} == CHECKSUMS
         print('PASS all six issue #76 workload checksums across three runs', flush=True)
+
+        compile_source(compiler, HERE / 'backend/raw_suite.may', binary, '--raw')
+        assert parse_output(run(binary), EXTENDED_CHECKSUMS).keys() == EXTENDED_CHECKSUMS.keys()
+        subprocess.run(['gcc', '-O3', '-march=native', '-std=c11',
+                        str(HERE / 'backend/raw_suite.c'), '-o', str(reference)], check=True)
+        assert parse_output(run(reference), EXTENDED_CHECKSUMS).keys() == EXTENDED_CHECKSUMS.keys()
+        print('PASS all eleven extended-suite workload checksums against C', flush=True)
 
 
 if __name__ == '__main__':

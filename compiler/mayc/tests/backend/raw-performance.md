@@ -26,6 +26,10 @@ the predictability tradeoffs that keep some branches. The
 [fused-address report](raw-addressing.md) (#79) measures the automaton 38.6% and
 the byte histogram 19.9% faster than that baseline, and documents a Collatz
 loop-placement effect.
+The [extended suite](raw-extended-suite.md) measures eleven further workloads
+across f551c97, 0.13.101 and 0.13.102 against GCC and records the largest
+remaining gaps; [#84–#87](raw-call-gaps.md) close four of them and make that
+suite 33% faster.
 
 ## Reproduce
 

@@ -211,6 +211,31 @@ fun ir_contract(ctx: Any, value: Any, t: Any, span: Any) -> Any {
     return value;
 }
 
+fun ir_logical(node: Any) -> Any {
+    return IR_RAW_MODE == 1 and (node.kind == E_AND or node.kind == E_OR);
+}
+
+// Jump to label when node's truthiness equals sense. RAW and/or conditions that
+// only steer a branch become jump chains instead of materialized Booleans (#85).
+// The right operand, with its effects and faults, still runs only when the left
+// operand does not decide the result.
+fun ir_branch(ctx: Any, node: Any, label: Any, sense: Any, span: Any) -> Any {
+    if (ir_logical(node)) {
+        if ((node.kind == E_OR) == sense) {
+            ir_branch(ctx, node.left, label, sense, span);
+            ir_branch(ctx, node.right, label, sense, span);
+        } else {
+            let decided: Any = newlab(ctx);
+            ir_branch(ctx, node.left, decided, not sense, span);
+            ir_branch(ctx, node.right, label, sense, span);
+            ir_label(decided);
+        }
+        return 0;
+    }
+    ir_emit(if (sense) { IR_TRUE } else { IR_FALSE }, 0, ir_node(ctx, node), 0, label, span);
+    return 0;
+}
+
 fun ir_node(ctx: Any, node: Any) -> Any {
     let value: Any = ir_node_value(ctx, node);
     return ir_contract(ctx, value, if (node == 0) { nil } else { node.contract }, if (node == 0) { 0 } else { node.span });
@@ -337,6 +362,17 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         ir_pattern(node.pattern, value, node.global);
         return value;
     }
+    if (kind == S_IF and ir_logical(node.condition)) {
+        // A false RAW and/or is 0, the value an else-less if produces.
+        let result: Any = ir_temp(span);
+        let elseLabel: Any = newlab(ctx); let done: Any = newlab(ctx);
+        ir_branch(ctx, node.condition, elseLabel, false, span);
+        ir_copy(result, ir_node(ctx, node.thenBranch)); ir_jump(done);
+        ir_label(elseLabel);
+        ir_copy(result, if (node.elseBranch != 0) { ir_node(ctx, node.elseBranch) } else { ir_integer(0, span) });
+        ir_label(done);
+        return result;
+    }
     if (kind == S_IF) {
         let condition: Any = ir_node(ctx, node.condition);
         let result: Any = ir_copy(ir_temp(span), condition);
@@ -352,7 +388,7 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         let top: Any = newlab(ctx); let done: Any = newlab(ctx);
         push(IR_BREAKS, [done, IR_HANDLERS]); push(IR_CONTINUES, [top, IR_HANDLERS]);
         ir_label(top);
-        ir_emit(IR_FALSE, 0, ir_node(ctx, node.condition), 0, done, span);
+        ir_branch(ctx, node.condition, done, false, span);
         ir_node(ctx, node.body); ir_jump(top); ir_label(done);
         pop(IR_BREAKS); pop(IR_CONTINUES);
         return ir_nil(span);
@@ -452,7 +488,7 @@ fun ir_return_node(ctx: Any, node: Any) -> Any {
         if (node.kind == S_RETURN) { return ir_return_node(ctx, node.value); }
         if (node.kind == S_IF and node.elseBranch != 0) {
             let elseLabel: Any = newlab(ctx);
-            ir_emit(IR_FALSE, 0, ir_node(ctx, node.condition), 0, elseLabel, node.span);
+            ir_branch(ctx, node.condition, elseLabel, false, node.span);
             ir_return_node(ctx, node.thenBranch);
             ir_label(elseLabel);
             return ir_return_node(ctx, node.elseBranch);

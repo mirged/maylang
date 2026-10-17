@@ -1,0 +1,420 @@
+// Extended Maylang raw benchmark suite. Linux x86-64 only.
+// No standard library, runtime, floats, managed objects, or print().
+// Matches raw_suite.c. See ../raw_performance.py --suite extended for checks and measurements.
+// Compile: compiler/mayc/mayc_new --raw compiler/mayc/tests/backend/raw_suite.may -o /tmp/suite_may
+
+fun now_ns(ts: Any) -> Any {
+    let rc: Any = syscall(228, 1, ts);
+    if rc < 0 { exit(2); }
+    return load64(ts) * 1000000000 + load64(ts + 8);
+}
+
+fun write_bytes(address: Any, length: Any) -> Any {
+    syscall(1, 1, address, length);
+    return 0;
+}
+
+fun write_spaces(count: Any) -> Any {
+    mut i: Any = 0;
+    while i < count {
+        syscall(1, 1, addr(" "), 1);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fun write_int(value: Any, width: Any, scratch: Any) -> Any {
+    mut number: Any = value;
+    mut count: Any = 0;
+    mut negative: Any = 0;
+    if number < 0 {
+        negative = 1;
+        number = 0 - number;
+    }
+    if number == 0 {
+        store8(scratch, 48);
+        count = 1;
+    }
+    while number > 0 {
+        store8(scratch + count, 48 + number % 10);
+        count = count + 1;
+        number = number / 10;
+    }
+    if negative == 1 {
+        store8(scratch + count, 45);
+        count = count + 1;
+    }
+    write_spaces(width - count);
+    mut i: Any = count;
+    while i > 0 {
+        i = i - 1;
+        syscall(1, 1, scratch + i, 1);
+    }
+    return 0;
+}
+
+fun report(label: Any, label_len: Any, result: Any, elapsed: Any, digits: Any) -> Any {
+    write_bytes(label, label_len);
+    write_spaces(18 - label_len);
+    write_int(result, 14, digits);
+    write_bytes(addr(" "), 1);
+    write_int(elapsed, 14, digits);
+    write_bytes(addr("\n"), 1);
+    return 0;
+}
+
+fun sieve_bench(flags: Any) -> Any {
+    let n: Any = 2000000;
+    mut i: Any = 0;
+    while i < n {
+        store8(flags + i, 1);
+        i = i + 1;
+    }
+    store8(flags, 0);
+    store8(flags + 1, 0);
+    i = 2;
+    while i * i < n {
+        if load8(flags + i) != 0 {
+            mut j: Any = i * i;
+            while j < n {
+                store8(flags + j, 0);
+                j = j + i;
+            }
+        }
+        i = i + 1;
+    }
+    mut count: Any = 0;
+    i = 0;
+    while i < n {
+        count = count + load8(flags + i);
+        i = i + 1;
+    }
+    return count;
+}
+
+fun matmul_bench(memory: Any) -> Any {
+    let n: Any = 96;
+    let a: Any = memory;
+    let b: Any = memory + n * n * 8;
+    let c: Any = memory + 2 * n * n * 8;
+    mut i: Any = 0;
+    while i < n {
+        mut j: Any = 0;
+        while j < n {
+            store64(a + (i * n + j) * 8, (i * 7 + j * 3) % 17 - 8);
+            store64(b + (i * n + j) * 8, (i * 5 + j * 11) % 13 - 6);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while i < n {
+        mut j: Any = 0;
+        while j < n {
+            mut sum: Any = 0;
+            mut k: Any = 0;
+            while k < n {
+                sum = sum + load64(a + (i * n + k) * 8) * load64(b + (k * n + j) * 8);
+                k = k + 1;
+            }
+            store64(c + (i * n + j) * 8, sum);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    mut checksum: Any = 0;
+    i = 0;
+    while i < n * n {
+        checksum = checksum + load64(c + i * 8) * (i % 31 + 1);
+        i = i + 1;
+    }
+    return checksum;
+}
+
+fun fib(n: Any) -> Any {
+    if n < 2 { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fun fib_bench() -> Any {
+    return fib(27);
+}
+
+fun sort_bench(a: Any) -> Any {
+    let n: Any = 4000;
+    mut state: Any = 1;
+    mut i: Any = 0;
+    while i < n {
+        state = state * 48271 % 2147483647;
+        store64(a + i * 8, state % 100000);
+        i = i + 1;
+    }
+    i = 1;
+    while i < n {
+        let key: Any = load64(a + i * 8);
+        mut j: Any = i - 1;
+        while j >= 0 and load64(a + j * 8) > key {
+            store64(a + (j + 1) * 8, load64(a + j * 8));
+            j = j - 1;
+        }
+        store64(a + (j + 1) * 8, key);
+        i = i + 1;
+    }
+    mut checksum: Any = 0;
+    i = 0;
+    while i < n {
+        checksum = checksum + (i + 1) * load64(a + i * 8);
+        i = i + 1;
+    }
+    return checksum;
+}
+
+fun gcd_bench() -> Any {
+    mut total: Any = 0;
+    mut i: Any = 1;
+    while i <= 300 {
+        mut j: Any = 1;
+        while j <= 300 {
+            mut x: Any = i;
+            mut y: Any = j;
+            while y != 0 {
+                let r: Any = x % y;
+                x = y;
+                y = r;
+            }
+            total = total + x;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return total;
+}
+
+fun hash_bench(data: Any) -> Any {
+    let n: Any = 1048576;
+    mut i: Any = 0;
+    while i < n {
+        store8(data + i, (i * 131 + i / 7) % 256);
+        i = i + 1;
+    }
+    mut h: Any = 2166136261;
+    mut pass: Any = 0;
+    while pass < 4 {
+        i = 0;
+        while i < n {
+            h = (h * 16777619 + load8(data + i) + 1) % 4294967296;
+            i = i + 1;
+        }
+        pass = pass + 1;
+    }
+    return h;
+}
+
+fun search_bench(a: Any) -> Any {
+    let n: Any = 65536;
+    mut i: Any = 0;
+    while i < n {
+        store64(a + i * 8, i * 3 + i % 3);
+        i = i + 1;
+    }
+    mut state: Any = 7;
+    mut total: Any = 0;
+    mut q: Any = 0;
+    while q < 150000 {
+        state = state * 48271 % 2147483647;
+        let key: Any = state % 196608;
+        mut low: Any = 0;
+        mut high: Any = n;
+        while low < high {
+            let middle: Any = (low + high) / 2;
+            if load64(a + middle * 8) < key { low = middle + 1; } else { high = middle; }
+        }
+        total = total + low;
+        q = q + 1;
+    }
+    return total;
+}
+
+fun mandelbrot_bench() -> Any {
+    mut total: Any = 0;
+    mut y: Any = 0;
+    while y < 120 {
+        let ci: Any = y * 8192 / 120 - 4096;
+        mut x: Any = 0;
+        while x < 160 {
+            let cr: Any = x * 12288 / 160 - 8192;
+            mut zr: Any = 0;
+            mut zi: Any = 0;
+            mut iteration: Any = 0;
+            while iteration < 64 {
+                let zr2: Any = zr * zr / 4096;
+                let zi2: Any = zi * zi / 4096;
+                if zr2 + zi2 > 16384 { break; }
+                zi = 2 * zr * zi / 4096 + ci;
+                zr = zr2 - zi2 + cr;
+                iteration = iteration + 1;
+            }
+            total = total + iteration;
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return total;
+}
+
+fun queens(row: Any, n: Any, columns: Any, rising: Any, falling: Any) -> Any {
+    if row == n { return 1; }
+    mut count: Any = 0;
+    mut column: Any = 0;
+    while column < n {
+        if load8(columns + column) == 0 and load8(rising + row + column) == 0 and load8(falling + row - column + n) == 0 {
+            store8(columns + column, 1);
+            store8(rising + row + column, 1);
+            store8(falling + row - column + n, 1);
+            count = count + queens(row + 1, n, columns, rising, falling);
+            store8(columns + column, 0);
+            store8(rising + row + column, 0);
+            store8(falling + row - column + n, 0);
+        }
+        column = column + 1;
+    }
+    return count;
+}
+
+fun queens_bench(memory: Any) -> Any {
+    mut i: Any = 0;
+    while i < 96 {
+        store8(memory + i, 0);
+        i = i + 1;
+    }
+    return queens(0, 10, memory, memory + 32, memory + 64);
+}
+
+fun dot_bench(memory: Any) -> Any {
+    let n: Any = 131072;
+    let a: Any = memory;
+    let b: Any = memory + n * 8;
+    mut i: Any = 0;
+    while i < n {
+        store64(a + i * 8, i % 1000 - 500);
+        store64(b + i * 8, i * 7 % 1000 - 500);
+        i = i + 1;
+    }
+    mut total: Any = 0;
+    mut round: Any = 0;
+    while round < 20 {
+        mut sum: Any = 0;
+        i = 0;
+        while i < n {
+            sum = sum + load64(a + i * 8) * load64(b + i * 8);
+            i = i + 1;
+        }
+        total = total + sum + round;
+        round = round + 1;
+    }
+    return total;
+}
+
+fun knapsack_bench(best: Any) -> Any {
+    let capacity: Any = 10000;
+    mut c: Any = 0;
+    while c <= capacity {
+        store64(best + c * 8, 0);
+        c = c + 1;
+    }
+    mut item: Any = 0;
+    while item < 200 {
+        let weight: Any = 10 + item * 37 % 90;
+        let value: Any = 20 + item * 53 % 200;
+        c = capacity;
+        while c >= weight {
+            let candidate: Any = load64(best + (c - weight) * 8) + value;
+            if candidate > load64(best + c * 8) { store64(best + c * 8, candidate); }
+            c = c - 1;
+        }
+        item = item + 1;
+    }
+    return load64(best + capacity * 8);
+}
+
+let memory: Any = syscall(9, 0, 8388608, 3, 34, -1, 0);
+if memory < 0 { exit(1); }
+let timespec: Any = memory;
+let digits: Any = memory + 32;
+let work: Any = memory + 4096;
+
+write_bytes(addr("RAW SUITE (Linux x86-64)\n"), 25);
+write_bytes(addr("Benchmark               Checksum        Time (ns)\n"), 50);
+write_bytes(addr("------------------------------------------------\n"), 49);
+
+mut total_ns: Any = 0;
+mut start: Any = now_ns(timespec);
+let sieve: Any = sieve_bench(work);
+let dt_sieve: Any = now_ns(timespec) - start;
+report(addr("Sieve"), 5, sieve, dt_sieve, digits);
+total_ns = total_ns + dt_sieve;
+
+start = now_ns(timespec);
+let matmul: Any = matmul_bench(work);
+let dt_matmul: Any = now_ns(timespec) - start;
+report(addr("Matrix multiply"), 15, matmul, dt_matmul, digits);
+total_ns = total_ns + dt_matmul;
+
+start = now_ns(timespec);
+let fibonacci: Any = fib_bench();
+let dt_fib: Any = now_ns(timespec) - start;
+report(addr("Recursive fib"), 13, fibonacci, dt_fib, digits);
+total_ns = total_ns + dt_fib;
+
+start = now_ns(timespec);
+let sorted: Any = sort_bench(work);
+let dt_sort: Any = now_ns(timespec) - start;
+report(addr("Insertion sort"), 14, sorted, dt_sort, digits);
+total_ns = total_ns + dt_sort;
+
+start = now_ns(timespec);
+let gcd: Any = gcd_bench();
+let dt_gcd: Any = now_ns(timespec) - start;
+report(addr("GCD grid"), 8, gcd, dt_gcd, digits);
+total_ns = total_ns + dt_gcd;
+
+start = now_ns(timespec);
+let hash: Any = hash_bench(work);
+let dt_hash: Any = now_ns(timespec) - start;
+report(addr("Hash"), 4, hash, dt_hash, digits);
+total_ns = total_ns + dt_hash;
+
+start = now_ns(timespec);
+let search: Any = search_bench(work);
+let dt_search: Any = now_ns(timespec) - start;
+report(addr("Binary search"), 13, search, dt_search, digits);
+total_ns = total_ns + dt_search;
+
+start = now_ns(timespec);
+let mandelbrot: Any = mandelbrot_bench();
+let dt_mandelbrot: Any = now_ns(timespec) - start;
+report(addr("Mandelbrot"), 10, mandelbrot, dt_mandelbrot, digits);
+total_ns = total_ns + dt_mandelbrot;
+
+start = now_ns(timespec);
+let solutions: Any = queens_bench(work);
+let dt_queens: Any = now_ns(timespec) - start;
+report(addr("N-queens"), 8, solutions, dt_queens, digits);
+total_ns = total_ns + dt_queens;
+
+start = now_ns(timespec);
+let dot: Any = dot_bench(work);
+let dt_dot: Any = now_ns(timespec) - start;
+report(addr("Dot product"), 11, dot, dt_dot, digits);
+total_ns = total_ns + dt_dot;
+
+start = now_ns(timespec);
+let knapsack: Any = knapsack_bench(work);
+let dt_knapsack: Any = now_ns(timespec) - start;
+report(addr("Knapsack"), 8, knapsack, dt_knapsack, digits);
+total_ns = total_ns + dt_knapsack;
+
+write_bytes(addr("------------------------------------------------\n"), 49);
+report(addr("TOTAL"), 5, 0, total_ns, digits);
+syscall(11, memory, 8388608);
+exit(0);
