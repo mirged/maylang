@@ -17,10 +17,12 @@ The subsequent [signed constant-division pass](raw-constant-division.md)
 implements non-power-of-two literal division and records a fresh, interleaved
 comparison of the original compiler, this first pass, and the combined changes.
 
-The latest [dedicated local-register report](raw-local-registers.md) records the
-complete branch at 21.700 ms versus 44.499 ms for the original compiler, with
+The [dedicated local-register report](raw-local-registers.md) records the
+complete #76 branch at 21.700 ms versus 44.499 ms for the original compiler, with
 100 interleaved runs, all checksums matching, and remaining workload regressions
-reported alongside the gains.
+reported alongside the gains. The [fused-address report](raw-addressing.md)
+(#79) then measures the automaton 38.6% and the byte histogram 19.9% faster than
+the merged baseline, and documents a Collatz loop-placement effect.
 
 ## Reproduce
 
