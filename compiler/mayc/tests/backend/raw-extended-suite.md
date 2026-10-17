@@ -89,6 +89,9 @@ The largest remaining gaps, from the disassembly in the report artifacts:
   product (no-vec: 1.329 ms) and unrolls both; RAW does one scalar step per
   iteration.
 
+Issues #84–#87 address the first four; see the
+[follow-up report](raw-call-gaps.md).
+
 [`raw_performance.py --suite extended`](../raw_performance.py) reproduces the
 measurement with the same options as the core suite; pass saved compilers with
 `--baseline-compiler`.
