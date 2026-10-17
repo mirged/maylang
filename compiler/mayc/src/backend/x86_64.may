@@ -774,35 +774,82 @@ fun x86_scalar_instruction(op: Any) -> Any {
 
 struct X86LocalCandidate { name: Any, score: Any, valid: Any, register: Any }
 
-// Reserve dedicated callee-saved registers for frequently used scalar locals.
-// Their homes last for the whole function, including every join/backedge. This
-// does not relax virtual-temporary liveness: calls, captures and other
-// non-scalar constructs exclude a body. Unshadowed RAW load/store intrinsics
-// are allowed (#79). Maylang has no address-of operator for locals, so no
-// pointer can name a local's frame slot, and only __sp exposes the stack, which
-// remains excluded. The intrinsics clobber rax/rcx/rdx only and promotion does
-// not reorder memory accesses or their faults.
+// Loop nesting per IR position: the last backward jump to each label closes
+// one loop, so continue edges do not count twice (#86).
+fun x86_loop_depths(block: Any) -> Any {
+    let labels: Any = {}; let ends: Any = {}; let depths: Any = [];
+    mut position: Any = 0;
+    for instruction: Any in block.code {
+        if (instruction.op == IR_LABEL) { labels[instruction.extra] = position; }
+        push(depths, 0); position += 1;
+    }
+    position = 0;
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        if ((op == IR_JUMP or op == IR_FALSE or op == IR_TRUE) and has(labels, instruction.extra) and
+            labels[instruction.extra] < position) { ends[instruction.extra] = position; }
+        position += 1;
+    }
+    for label: Any in keys(ends) {
+        for index: Any in labels[label]..(ends[label] + 1) { depths[index] += 1; }
+    }
+    return depths;
+}
+
+// RAW calls that keep RBX/r12-r15 and every local intact (#86): resolved,
+// non-foreign user functions save the callee-saved registers they use, and
+// syscall/exit clobber rax/rcx/r11 only. Builtins named __* are dispatched
+// before user functions and stay excluded, including __sp.
+fun x86_preserving_call(ctx: Any, payload: Any, name: Any) -> Any {
+    if (name == "syscall" or name == "exit" or name == "addr" or name == "cstr" or name == "len" or name == "ptr") { return true; }
+    if (starts_with(name, "__")) { return false; }
+    let callee: Any = backend_find_func(ctx, payload.name, payload.length);
+    return callee != 0 and callee.foreign != true;
+}
+
+// Reserve dedicated callee-saved registers for frequently used scalar locals
+// and parameters (#86). Their homes last for the whole function, including
+// every join/backedge. This does not relax virtual-temporary liveness:
+// captures, closures and other non-scalar constructs exclude a body.
+// Unshadowed RAW load/store intrinsics (#79) and preserving calls are allowed.
+// Maylang has no address-of operator for locals, so no pointer can name a
+// local's frame slot, and only __sp exposes the stack, which remains excluded.
+// Promotion does not reorder memory accesses, calls or their faults.
 fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
     if (ctx.envCount > 0 or len(ctx.boxed) > 0) { return 0; }
     let names: Any = {}; let seen: Any = {}; let ordered: Any = [];
-    for local: Any in ctx.locals { seen[symbol_name(local[0], local[1])] = true; }
+    mut calls: Any = false;
+    // Each visit weighs 8x per enclosing loop, up to three levels.
+    let depths: Any = x86_loop_depths(block);
+    mut position: Any = -1;
+    // The prologue moves each promoted parameter from its ABI location.
+    for local: Any in ctx.locals {
+        let name: Any = symbol_name(local[0], local[1]);
+        if (has(names, name)) { names[name].valid = false; continue; }
+        let candidate: Any = X86LocalCandidate(name, 0, true, -1);
+        names[name] = candidate; push(ordered, candidate); seen[name] = true;
+    }
     for instruction: Any in block.code {
         let op: Any = instruction.op; let payload: Any = instruction.extra;
+        position += 1;
         if (op == E_CALL) {
             let name: Any = symbol_name(payload.name, payload.length);
-            if (x86_memory_intrinsic(name) and not has(seen, name) and glob_find(ctx, payload.name, payload.length) < 0 and
-                backend_find_func(ctx, payload.name, payload.length) == 0) { continue; }
+            if (has(seen, name) or glob_find(ctx, payload.name, payload.length) >= 0) { return 0; }
+            if (x86_memory_intrinsic(name) and backend_find_func(ctx, payload.name, payload.length) == 0) { continue; }
+            if (x86_preserving_call(ctx, payload, name)) { calls = true; continue; }
             return 0;
         }
         if (not x86_scalar_instruction(op)) { return 0; }
         if (op == S_LET or op == S_ASSIGN or op == E_VAR) {
             let name: Any = symbol_name(payload.name, payload.length);
+            let depth: Any = if (depths[position] > 3) { 3 } else { depths[position] };
+            let weight: Any = if (depth == 0) { 1 } else if (depth == 1) { 8 } else if (depth == 2) { 64 } else { 512 };
             if (op == S_LET) {
                 if (has(names, name)) { names[name].valid = false; continue; }
-                let candidate: Any = X86LocalCandidate(name, 1, payload.global == 0 and
+                let candidate: Any = X86LocalCandidate(name, weight, payload.global == 0 and
                     not has(seen, name) and is_boxed(ctx, payload.name, payload.length) == 0, -1);
                 names[name] = candidate; push(ordered, candidate); seen[name] = true;
-            } else if (has(names, name)) { names[name].score += 1; }
+            } else if (has(names, name)) { names[name].score += weight; }
             else if (not has(seen, name)) { return 0; }
         }
     }
@@ -816,10 +863,10 @@ fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
         if (best == 0) { break; }
         best.register = register; registers[best.name] = register; push(used, register);
     }
-    // These bodies cannot call or syscall, so the volatile r8-r10 also hold
-    // temporaries (#79). Operand encodings require extended registers; r11
-    // remains the large-literal scratch.
-    let temporaries: Any = [10, 9, 8];
+    // Call-free bodies also hold temporaries in the volatile r8-r10 (#79);
+    // calls and syscalls take arguments there. Operand encodings require
+    // extended registers; r11 remains the large-literal scratch.
+    let temporaries: Any = if (calls) { [] } else { [10, 9, 8] };
     for register: Any in [12, 13, 14, 15] {
         mut reserved: Any = false;
         for local: Any in used { if (local == register) { reserved = true; } }
@@ -1365,27 +1412,45 @@ fun x86_select_binary(ctx: Any, plan: Any, instruction: Any) -> Any {
     return true;
 }
 
-// Locals written only as v = literal or v = v +/- literal. Their predicates
-// follow periodic or monotone patterns that branch predictors learn, so
-// diamonds testing only these values and literals keep the branch form.
+// Locals written only as v = literal, v = v +/- literal or v = u +/- literal
+// for another such local u (left = i - 1, #86). Their predicates follow
+// periodic or monotone patterns that branch predictors learn, so diamonds
+// testing only these values and literals keep the branch form.
 fun x86_induction_locals(ctx: Any, block: Any) -> Any {
-    let result: Any = {};
+    let result: Any = {}; let sources: Any = {};
     for instruction: Any in block.code {
         let op: Any = instruction.op;
         if (op != S_LET and op != S_ASSIGN) { continue; }
         let payload: Any = instruction.extra;
         let name: Any = symbol_name(payload.name, payload.length);
         let value: Any = if (op == S_LET) { payload.initializer } else { payload.value };
-        mut regular: Any = ctx.allocation.locations[value.slot].literal != nil;
-        if (not regular and op == S_ASSIGN) {
+        mut source: Any = nil;
+        if (ctx.allocation.locations[value.slot].literal != nil) { source = name; }
+        else {
             let step: Any = x86_single_definition(ctx, block, value);
             if (step != 0 and step.op == E_BIN and (step.extra.op == TK_PLUS or step.extra.op == TK_MINUS) and
                 ctx.allocation.locations[step.extra.right.slot].literal != nil) {
                 let previous: Any = x86_single_definition(ctx, block, step.extra.left);
-                regular = previous != 0 and previous.op == E_VAR and symbol_name(previous.extra.name, previous.extra.length) == name;
+                if (previous != 0 and previous.op == E_VAR) {
+                    source = symbol_name(previous.extra.name, previous.extra.length);
+                    // A declaration cannot step its own (outer) name.
+                    if (op == S_LET and source == name) { source = nil; }
+                }
             }
         }
-        result[name] = regular and (not has(result, name) or result[name]);
+        if (not has(sources, name)) { sources[name] = []; }
+        push(sources[name], source);
+        result[name] = source != nil and (not has(result, name) or result[name]);
+    }
+    mut changed: Any = true;
+    while (changed) {
+        changed = false;
+        for name: Any in keys(result) {
+            if (not result[name]) { continue; }
+            for source: Any in sources[name] {
+                if (source != name and (not has(result, source) or not result[source])) { result[name] = false; changed = true; }
+            }
+        }
     }
     return result;
 }
@@ -2913,10 +2978,15 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     xor_eax(ctx);
     i = 0;
     while (i < pc) {
+        let promoted: Any = x86_local_register(ctx, parr[i].name, parr[i].length);
         if (i < 6) {
             let registers: Any = [7, 6, 2, 1, 8, 9];
-            x86_store_register(ctx, registers[i], 8 * (i + 1));
-        } else { x86_argument_to_rax(ctx, i); st_local(ctx, 8 * (i + 1)); }
+            if (promoted >= 0) { x86_move_register(ctx, promoted, registers[i]); }
+            else { x86_store_register(ctx, registers[i], 8 * (i + 1)); }
+        } else {
+            x86_argument_to_rax(ctx, i);
+            if (promoted >= 0) { x86_move_register(ctx, promoted, 0); } else { st_local(ctx, 8 * (i + 1)); }
+        }
         i = i + 1;
     }
     i = 0;

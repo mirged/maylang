@@ -239,12 +239,16 @@ ctx.envCount = 1;
 require(x86_plan_local_registers(ctx, localBody) == 0);
 ctx.envCount = 0;
 push(ctx.locals, [addr(stateName), len(stateName)]);
-// A parameter name cannot be promoted; the call-free body keeps r8-r10.
+// A declaration that shadows a parameter cannot be promoted; the call-free body keeps r8-r10.
 let parameterPlan: Any = x86_plan_local_registers(ctx, localBody);
 require(len(keys(parameterPlan.registers)) == 0 and len(parameterPlan.temporaries) == 7);
+// A frequently read parameter is promoted (#86).
+let parameterBody: Any = IRBlock([stateRead, localRead, stateRead, localRead], 7);
+require(x86_plan_local_registers(ctx, parameterBody).registers[stateName] == 3);
 ctx.locals = []; ctx.boxed = [[addr(stateName), len(stateName)]];
 require(x86_plan_local_registers(ctx, localBody) == 0);
 ctx.boxed = [];
+// An unresolved callee excludes the body.
 push(localBody.code, Quad(E_CALL, 0, 0, 0, {"name": addr("one"), "length": 3, "args": 0}, 0));
 require(x86_plan_local_registers(ctx, localBody) == 0);
 pop(localBody.code);
@@ -256,7 +260,16 @@ for name: Any in ["load8", "load64", "store8", "store64"] {
     require(x86_plan_local_registers(ctx, localBody) == 0);
     pop(ctx.locals); pop(localBody.code);
 }
+// syscall preserves RBX/r12-r15 (#86) but takes arguments in r8-r10.
 push(localBody.code, Quad(E_CALL, 0, 0, 0, {"name": addr("syscall"), "length": 7, "args": 0}, 0));
+let syscallPlan: Any = x86_plan_local_registers(ctx, localBody);
+require(syscallPlan.registers[stateName] == 3 and len(syscallPlan.temporaries) == 4 and syscallPlan.temporaries[0] == 12);
+push(ctx.locals, [addr("syscall"), 7]);
+require(x86_plan_local_registers(ctx, localBody) == 0);
+pop(ctx.locals);
+pop(localBody.code);
+// __sp exposes the stack and stays excluded.
+push(localBody.code, Quad(E_CALL, 0, 0, 0, {"name": addr("__sp"), "length": 4, "args": 0}, 0));
 require(x86_plan_local_registers(ctx, localBody) == 0);
 pop(localBody.code);
 push(localBody.code, Quad(E_VAR, value(7), 0, 0, {"name": addr("unknown"), "length": 7}, 0));

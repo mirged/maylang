@@ -522,10 +522,98 @@ fun memory(p: Any) -> Any { mut i: Any = 0; while i < 20 { store8(p, i); i = i +
     body = function(assembly, 'counter')
     assert re.search(r'\brbx\b', body), body
     assert not re.search(r'\b(?:mov|add|cmp)\s+rax,QWORD PTR \[rbp-', body), body
-    # Calls still exclude promotion; RAW load/store intrinsics no longer do (#79).
-    assert not re.search(r'\brbx\b', function(assembly, 'calls'))
+    # Direct calls (#86) and RAW load/store intrinsics (#79) allow promotion.
+    assert re.search(r'\brbx\b', function(assembly, 'calls'))
     assert re.search(r'\brbx\b', function(assembly, 'memory'))
-    print('PASS whole-function local registers, full-width snapshots/spills, nested loop joins/break/continue, live caller values, call exclusion and memory-loop promotion', flush=True)
+    print('PASS whole-function local registers, full-width snapshots/spills, nested loop joins/break/continue, live caller values, call and memory-loop promotion', flush=True)
+
+
+def promoted_parameters(compiler, work):
+    # #86: parameters and locals of bodies with direct calls use RBX/r12-r15.
+    source, binary = work / 'promoted-parameters.may', work / 'promoted-parameters'
+    wrap = lambda n: (n + (1 << 63)) % (1 << 64) - (1 << 63)
+    declarations = '''
+fun leaf(x: Any) -> Any { return x * 3 + 1; }
+fun clobber(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any) -> Any {
+    mut i: Any = 0; mut s: Any = 0;
+    while i < 10 { s = s + a * i + b - c + d * e - f; i = i + 1; }
+    return s;
+}
+fun keeps(a: Any, b: Any, c: Any) -> Any {
+    mut t: Any = 0; mut i: Any = 0;
+    while i < 30 { t = t + leaf(i) + clobber(i, a, b, c, t % 7, i) % 1000 + a - b * c; i = i + 1; }
+    return t + a + b + c;
+}
+fun nine(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any, g: Any, h: Any, k: Any) -> Any {
+    mut t: Any = 0; mut i: Any = 0;
+    while i < 12 { t = t + a * i + b + c * d - e + f * g + h - k + leaf(t % 5); i = i + 1; }
+    return t * 2 + k + h + g;
+}
+fun fib(n: Any) -> Any { if n < 2 { return n; } return fib(n - 1) + fib(n - 2); }
+fun ackermann(m: Any, n: Any) -> Any {
+    if m == 0 { return n + 1; }
+    if n == 0 { return ackermann(m - 1, 1); }
+    return ackermann(m - 1, ackermann(m, n - 1));
+}
+fun pids(n: Any) -> Any {
+    mut i: Any = 0; mut t: Any = 0; let pid: Any = syscall(39);
+    while i < n { t = t + syscall(39) - pid + i * n; i = i + 1; }
+    return t + n;
+}
+fun scan(p: Any, n: Any, key: Any) -> Any {
+    mut count: Any = 0; mut i: Any = 0;
+    while i < n { if load64(p + i * 8) > key { count = count + 1; } i = i + 1; }
+    return count;
+}
+fun stack(n: Any) -> Any { mut i: Any = 0; mut t: Any = 0; while i < n { t = t + i; i = i + 1; } return t + __sp() * 0; }
+'''
+    def leaf(x):
+        return wrap(x * 3 + 1)
+    def clobber(a, b, c, d, e, f):
+        s = 0
+        for i in range(10):
+            s = wrap(s + a * i + b - c + d * e - f)
+        return s
+    def mod(n, d):
+        return abs(n) % d * (-1 if n < 0 else 1)
+    def keeps(a, b, c):
+        t = 0
+        for i in range(30):
+            t = wrap(t + leaf(i) + mod(clobber(i, a, b, c, mod(t, 7), i), 1000) + a - b * c)
+        return wrap(t + a + b + c)
+    def nine(a, b, c, d, e, f, g, h, k):
+        t = 0
+        for i in range(12):
+            t = wrap(t + a * i + b + c * d - e + f * g + h - k + leaf(mod(t, 5)))
+        return wrap(t * 2 + k + h + g)
+    def ackermann(m, n):
+        while m:
+            n = 1 if n == 0 else ackermann(m, n - 1)
+            m -= 1
+        return n + 1
+    checks = []
+    for a, b, c in [(0, 0, 0), (7, -3, 11), (-100, 55, -9), (123456789, -987654321, 31337)]:
+        checks.append(f'if keeps({a}, {b}, {c}) != {keeps(a, b, c)} {{ exit(70); }}')
+    for args in [(1, 2, 3, 4, 5, 6, 7, 8, 9), (-9, 8, -7, 6, -5, 4, -3, 2, -1), (0, 0, 0, 0, 0, 0, 0, 0, 1 << 40)]:
+        checks.append(f'if nine({", ".join(map(str, args))}) != {nine(*args)} {{ exit(71); }}')
+    checks += [f'if fib(20) != 6765 or ackermann(2, 3) != {ackermann(2, 3)} {{ exit(72); }}',
+               f'if pids(40) != {sum(i * 40 for i in range(40)) + 40} {{ exit(73); }}',
+               'let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0);',
+               'mut i: Any = 0; while i < 64 { store64(p + i * 8, i * 7 % 13); i = i + 1; }',
+               f'if scan(p, 64, 6) != {sum(1 for i in range(64) if i * 7 % 13 > 6)} or stack(10) != 45 {{ exit(74); }}',
+               'exit(0);']
+    source.write_text(declarations + '\n'.join(checks))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    for name in ['keeps', 'nine', 'pids', 'scan']:
+        assert re.search(r'\brbx\b', function(assembly, name)), name
+    # Promoted parameters are never reloaded from their frame slots.
+    for name in ['scan', 'keeps']:
+        assert not re.search(r'PTR \[rbp-0x(?:8|10|18)\]', function(assembly, name)), function(assembly, name)
+    # __sp still exposes the stack and excludes the body.
+    assert not re.search(r'\b(?:rbx|r12)\b', function(assembly, 'stack')), function(assembly, 'stack')
+    print('PASS promoted parameters, stack arguments, locals across calls/recursion/syscalls and __sp exclusion', flush=True)
 
 
 def direct_local_operations(compiler, work):
@@ -546,8 +634,10 @@ def direct_local_operations(compiler, work):
         result = 'n' + ''.join(f' + g{i}' for i in range(place))
         for index, (expression, oracle) in enumerate(specs):
             name = f'local{place}_{index}'
-            declarations.append(f'fun {name}(seed: Any) -> Any {{ {prefix} mut n: Any = seed; mut i: Any = 0; '
-                                f'while i < 1 {{ n = {expression}; {updates} i = i + 1; }} return {result}; }}')
+            # Straight-line bodies rank by declaration order, so g0..g{place-1}
+            # take the first registers and n the next one.
+            declarations.append(f'fun {name}(seed: Any) -> Any {{ {prefix} mut n: Any = seed; '
+                                f'n = {expression}; {updates} return {result}; }}')
             for n in seeds:
                 checks.append(f'if {name}({raw_integer(n)}) != {raw_integer(wrap(oracle(n) + place))} {{ exit(63); }}')
     declarations += ['fun observed(seed: Any) -> Any { mut n: Any = seed; mut i: Any = 0; mut result: Any = 0; '
@@ -1110,6 +1200,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         small_multipliers(compiler, work)
         local_recurrences(compiler, work)
         local_registers(compiler, work)
+        promoted_parameters(compiler, work)
         direct_local_operations(compiler, work)
         memory_encodings(compiler, work)
         fused_addresses(compiler, work)
