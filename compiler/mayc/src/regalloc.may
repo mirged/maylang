@@ -67,6 +67,28 @@ fun lsra_allocate(block: Any, registers: Any) -> Any {
 }
 
 fun lsra_plan(block: Any, registers: Any, rematerialize: Any) -> Any {
+    return lsra_plan_calls(block, registers, rematerialize, [], []);
+}
+
+fun lsra_member(list: Any, item: Any) -> Bool {
+    for candidate: Any in list { if (candidate == item) { return true; } }
+    return false;
+}
+
+// Volatile registers a call cannot clobber for this interval (#87). calls[p]
+// is 1 for a user call, whose arguments never use volatile[0], and 2 for any
+// other clobbering call. Any volatile register fits when no call lies in
+// (start, end]; only volatile[0] fits when the one such call is a user call at
+// the interval's end, where the value is an argument.
+fun lsra_volatile(interval: Any, volatile: Any, calls: Any, before: Any) -> Any {
+    if (len(volatile) == 0 or interval.end <= interval.start) { return volatile; }
+    if (before[interval.end] - before[interval.start + 1] > 0) { return []; }
+    let last: Any = calls[interval.end];
+    if (last == 0) { return volatile; }
+    return if (last == 1) { [volatile[0]] } else { [] };
+}
+
+fun lsra_plan_calls(block: Any, registers: Any, rematerialize: Any, volatile: Any, calls: Any) -> Any {
     let count: Any = len(block.code);
     let intervals: Any = [];
     for slot: Any in 0..block.temporaries {
@@ -106,25 +128,47 @@ fun lsra_plan(block: Any, registers: Any, rematerialize: Any) -> Any {
         mut interval: Any = head;
         while (interval != 0) { push(ordered, interval); interval = interval.next; }
     }
+    // before[p] counts clobbering calls at positions below p.
+    let before: Any = [0];
+    for index: Any in 0..count {
+        push(before, before[index] + if (len(calls) > 0 and calls[index] != 0) { 1 } else { 0 });
+    }
     mut free: Any = [];
     for register: Any in registers { push(free, register); }
+    mut spare: Any = [];
+    for register: Any in volatile { push(spare, register); }
     mut active: Any = [];
     for current: Any in ordered {
         if (not current.pinned and current.literal == nil and current.address == nil and (not rematerialize or current.uses > 0)) {
             let remaining: Any = [];
             for interval: Any in active {
-                if (interval.end < current.start) { push(free, interval.register); }
-                else { push(remaining, interval); }
+                if (interval.end < current.start) {
+                    if (lsra_member(volatile, interval.register)) { push(spare, interval.register); }
+                    else { push(free, interval.register); }
+                } else { push(remaining, interval); }
             }
             active = remaining;
-            if (len(free) > 0) {
-                current.register = pop(free); push(active, current);
+            // Prefer a fitting volatile register so callee-saved ones stay
+            // unsaved. Take them from the back: volatile[0] is the only one
+            // that call arguments can use.
+            let fitting: Any = lsra_volatile(current, volatile, calls, before);
+            mut chosen: Any = -1;
+            for register: Any in fitting { if (lsra_member(spare, register)) { chosen = register; } }
+            if (chosen >= 0) {
+                let rest: Any = [];
+                for register: Any in spare { if (register != chosen) { push(rest, register); } }
+                spare = rest;
+            } else if (len(free) > 0) { chosen = pop(free); }
+            if (chosen >= 0) {
+                current.register = chosen; push(active, current);
             } else if (len(active) > 0) {
-                mut farthest: Any = 0;
-                for index: Any in 1..len(active) {
-                    if (active[index].end > active[farthest].end) { farthest = index; }
+                mut farthest: Any = -1;
+                for index: Any in 0..len(active) {
+                    let register: Any = active[index].register;
+                    if ((not lsra_member(volatile, register) or lsra_member(fitting, register)) and
+                        (farthest < 0 or active[index].end > active[farthest].end)) { farthest = index; }
                 }
-                if (active[farthest].end > current.end) {
+                if (farthest >= 0 and active[farthest].end > current.end) {
                     current.register = active[farthest].register;
                     active[farthest].register = -1;
                     active[farthest] = current;
@@ -133,6 +177,11 @@ fun lsra_plan(block: Any, registers: Any, rematerialize: Any) -> Any {
         }
     }
     let used: Any = [];
+    for register: Any in volatile {
+        mut present: Any = false;
+        for interval: Any in intervals { if (interval.register == register) { present = true; } }
+        if (present) { push(used, register); }
+    }
     for register: Any in registers {
         mut present: Any = false;
         for interval: Any in intervals { if (interval.register == register) { present = true; } }

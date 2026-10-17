@@ -312,7 +312,8 @@ fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
     // Rank locals before address planning absorbs their reads.
     let locals: Any = if (ctx.mode == 0 and ctx.dynamic == 0) { x86_plan_local_registers(ctx, planned) } else { 0 };
     let addresses: Any = if (ctx.mode == 0 and ctx.dynamic == 0) { x86_address_plan(ctx, planned) } else { {} };
-    ctx.allocation = lsra_plan(planned, if (locals != 0) { locals.temporaries } else { [12, 13, 14, 15] }, ctx.mode == 0);
+    ctx.allocation = if (locals != 0) { lsra_plan_calls(planned, locals.temporaries, ctx.mode == 0, locals.volatile, locals.calls) }
+        else { lsra_plan(planned, [12, 13, 14, 15], ctx.mode == 0) };
     ctx.allocation.addresses = addresses;
     if (locals != 0) {
         ctx.allocation.localRegisters = locals.registers;
@@ -435,14 +436,35 @@ fun x86_handler_end(ctx: Any) -> Any {
     return 0;
 }
 
+// True when no bytes separate a jump at `position` from its target (#87).
+// Instructions up to the next label are unreachable and emit nothing, and
+// labels emit no bytes. The return label follows the block directly.
+fun x86_falls_into(block: Any, position: Any, label: Any, toReturn: Any) -> Any {
+    mut index: Any = position + 1;
+    while (index < len(block.code) and block.code[index].op != IR_LABEL) { index += 1; }
+    while (index < len(block.code) and block.code[index].op == IR_LABEL) {
+        if (not toReturn and block.code[index].extra == label) { return true; }
+        index += 1;
+    }
+    return toReturn and index >= len(block.code);
+}
+
 fun cg_ir(ctx: Any, block: Any) -> Any {
     mut fusedBranch: Any = -1;
     ctx.allocation.accumulator = -1;
+    // RAW code after an unconditional jump or return is unreachable until the
+    // next label (#87); only labels are jump targets.
+    let raw: Any = ctx.mode == 0 and ctx.dynamic == 0;
+    mut unreachable: Any = false;
     for instruction: Any in block.code {
         ctx.allocation.position += 1;
         if (ctx.allocation.position <= fusedBranch) { continue; }
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
+        if (raw) {
+            if (op == IR_LABEL) { unreachable = false; }
+            else if (unreachable) { continue; }
+        }
         if (ctx.mode == 0) {
             let selected: Any = x86_select_region(ctx, block, ctx.allocation.position);
             if (selected >= 0) {
@@ -479,7 +501,10 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
             }
         }
         if (op == IR_LABEL) { placelab(ctx, payload); }
-        else if (op == IR_JUMP) { jmp(ctx, payload); }
+        else if (op == IR_JUMP) {
+            if (not raw or not x86_falls_into(block, ctx.allocation.position, payload, false)) { jmp(ctx, payload); }
+            unreachable = raw;
+        }
         else if (op == IR_COPY) { cg_expr(ctx, instruction.arg1); }
         else if (op == IR_NIL) {
             if (ctx.mode == 0) { mov_imm(ctx, 0); } else { mov_imm(ctx, 2); }
@@ -497,7 +522,11 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
             e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, 2);
             if (op == IR_ISNIL) { jcc(ctx, 132, payload); } else { jcc(ctx, 133, payload); }
         } else if (op == IR_RUNTIME) { cg_calln(ctx, addr(payload), len(payload), instruction.arg1); }
-        else if (op == IR_RETURN) { cg_expr(ctx, instruction.arg1); jmp(ctx, ctx.returnLabel); }
+        else if (op == IR_RETURN) {
+            cg_expr(ctx, instruction.arg1);
+            if (not raw or not x86_falls_into(block, ctx.allocation.position, 0, true)) { jmp(ctx, ctx.returnLabel); }
+            unreachable = raw;
+        }
         else if (op == IR_TAILCALL) {
             mut arg: Any = instruction.arg1;
             mut i: Any = 0;
@@ -819,6 +848,8 @@ fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
     if (ctx.envCount > 0 or len(ctx.boxed) > 0) { return 0; }
     let names: Any = {}; let seen: Any = {}; let ordered: Any = [];
     mut calls: Any = false;
+    // Per position: 1 for a user call, 2 for syscall/exit (#87).
+    let clobbers: Any = [];
     // Each visit weighs 8x per enclosing loop, up to three levels.
     let depths: Any = x86_loop_depths(block);
     mut position: Any = -1;
@@ -832,11 +863,17 @@ fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
     for instruction: Any in block.code {
         let op: Any = instruction.op; let payload: Any = instruction.extra;
         position += 1;
+        push(clobbers, 0);
         if (op == E_CALL) {
             let name: Any = symbol_name(payload.name, payload.length);
             if (has(seen, name) or glob_find(ctx, payload.name, payload.length) >= 0) { return 0; }
             if (x86_memory_intrinsic(name) and backend_find_func(ctx, payload.name, payload.length) == 0) { continue; }
-            if (x86_preserving_call(ctx, payload, name)) { calls = true; continue; }
+            if (x86_preserving_call(ctx, payload, name)) {
+                calls = true;
+                if (name == "syscall" or name == "exit") { clobbers[position] = 2; }
+                else if (name != "addr" and name != "cstr" and name != "len" and name != "ptr") { clobbers[position] = 1; }
+                continue;
+            }
             return 0;
         }
         if (not x86_scalar_instruction(op)) { return 0; }
@@ -863,16 +900,18 @@ fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
         if (best == 0) { break; }
         best.register = register; registers[best.name] = register; push(used, register);
     }
-    // Call-free bodies also hold temporaries in the volatile r8-r10 (#79);
-    // calls and syscalls take arguments there. Operand encodings require
-    // extended registers; r11 remains the large-literal scratch.
+    // Call-free bodies also hold temporaries in the volatile r8-r10 (#79).
+    // With calls, intervals that no call clobbers use them (#87); calls and
+    // syscalls take arguments there. Operand encodings require extended
+    // registers; r11 remains the large-literal scratch.
     let temporaries: Any = if (calls) { [] } else { [10, 9, 8] };
     for register: Any in [12, 13, 14, 15] {
         mut reserved: Any = false;
         for local: Any in used { if (local == register) { reserved = true; } }
         if (not reserved) { push(temporaries, register); }
     }
-    return {"registers": registers, "used": used, "temporaries": temporaries};
+    return {"registers": registers, "used": used, "temporaries": temporaries,
+        "volatile": if (calls) { [10, 9, 8] } else { [] }, "calls": if (calls) { clobbers } else { [] }};
 }
 
 // Prove an inductive bound for x = x * c % d. Every write is checked;

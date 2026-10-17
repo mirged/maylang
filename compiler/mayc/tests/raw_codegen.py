@@ -566,6 +566,16 @@ fun scan(p: Any, n: Any, key: Any) -> Any {
     return count;
 }
 fun stack(n: Any) -> Any { mut i: Any = 0; mut t: Any = 0; while i < n { t = t + i; i = i + 1; } return t + __sp() * 0; }
+fun mapped(size: Any, flags: Any, fd: Any, offset: Any) -> Any {
+    mut total: Any = 0; mut i: Any = 0;
+    while i < 3 {
+        // syscall arguments use r10/r8/r9, so their values cannot live there (#87).
+        let p: Any = syscall(9, 0, size + i - i, 3, flags + i - i, fd + i - i, offset + i - i);
+        if p < 0 { return p; }
+        store64(p, i + size); total = total + load64(p); i = i + 1;
+    }
+    return total;
+}
 '''
     def leaf(x):
         return wrap(x * 3 + 1)
@@ -601,6 +611,7 @@ fun stack(n: Any) -> Any { mut i: Any = 0; mut t: Any = 0; while i < n { t = t +
                'let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0);',
                'mut i: Any = 0; while i < 64 { store64(p + i * 8, i * 7 % 13); i = i + 1; }',
                f'if scan(p, 64, 6) != {sum(1 for i in range(64) if i * 7 % 13 > 6)} or stack(10) != 45 {{ exit(74); }}',
+               'if mapped(4096, 34, -1, 0) != 3 + 3 * 4096 { exit(75); }',
                'exit(0);']
     source.write_text(declarations + '\n'.join(checks))
     compile_source(compiler, source, binary, '--raw')
@@ -611,6 +622,14 @@ fun stack(n: Any) -> Any { mut i: Any = 0; mut t: Any = 0; while i < n { t = t +
     # Promoted parameters are never reloaded from their frame slots.
     for name in ['scan', 'keeps']:
         assert not re.search(r'PTR \[rbp-0x(?:8|10|18)\]', function(assembly, name)), function(assembly, name)
+    # #87: call arguments use r10, only values spanning a call take callee-saved
+    # registers, and no jump targets the next instruction.
+    body = function(assembly, 'fib')
+    assert re.search(r'\bmov\s+rdi,r10\b', body) and not re.search(r'\br1[34]\b', body), body
+    lines = re.findall(r'^\s*([0-9a-f]+):\s+(\w+)\s*(.*)$', body, re.M)
+    for (address, mnemonic, operand), following in zip(lines, lines[1:]):
+        if mnemonic == 'jmp':
+            assert not operand.startswith(following[0] + ' '), body
     # __sp still exposes the stack and excludes the body.
     assert not re.search(r'\b(?:rbx|r12)\b', function(assembly, 'stack')), function(assembly, 'stack')
     print('PASS promoted parameters, stack arguments, locals across calls/recursion/syscalls and __sp exclusion', flush=True)
@@ -791,13 +810,10 @@ def fused_addresses(compiler, work):
     run(binary)
     assembly = disassemble(binary)
     fused = sum(1 for index in range(120) if re.search(r'PTR \[r\w+\+r\w+\*[248]', function(assembly, f'memory{index}')))
-    promoted = [index for index in range(120) if 'acc = acc + nop()' not in declarations[index + 1]]
+    # Direct calls keep promotion (#86); values spanning them avoid r8-r10 (#87),
+    # which the byte-array oracle above checks by execution.
     for index in range(120):
-        body = function(assembly, f'memory{index}')
-        if index in promoted:
-            assert re.search(r'\brbx\b', body), index
-        else:
-            assert not re.search(r'\br(?:8|9|10)\b', body), index
+        assert re.search(r'\brbx\b', function(assembly, f'memory{index}')), index
     assert fused >= 30, fused
     # Faults keep their order: the write happens before the faulting load.
     source.write_text('fun fault(p: Any) -> Any { mut i: Any = 0; mut total: Any = 0; '
@@ -806,7 +822,7 @@ def fused_addresses(compiler, work):
     result = subprocess.run([str(binary)], capture_output=True, timeout=15)
     assert result.returncode == -signal.SIGSEGV and result.stdout == b'A', result
     print(f'PASS {len(checks) - 1} fused-address memory oracles; {fused}/120 functions use scaled indexes; '
-          'snapshots, widths, displacements, call exclusion and fault order hold', flush=True)
+          'snapshots, widths, displacements, calls and fault order hold', flush=True)
 def select_diamonds(compiler, work):
     """Differential oracle for branch-free scalar diamonds (#78)."""
     source, binary = work / 'select.may', work / 'select'

@@ -37,6 +37,25 @@ let pinned: Any = lsra_allocate(loop, [12]);
 require(pinned.locations[0].pinned == true and pinned.locations[0].register == -1);
 require(pinned.locations[0].home != pinned.locations[2].home);
 
+// Volatile registers (#87) hold only intervals no call clobbers. calls[p] is
+// 1 for a user call and 2 for a syscall; volatile[0] may carry an argument.
+let site: Any = Quad(E_CALL, value(2), 0, 0, {"args": value(1)}, 0);
+let spanning: Any = IRBlock([define(0), define(1), site, use(0), use(2)], 3);
+let user: Any = lsra_plan_calls(spanning, [12, 13], false, [10, 9, 8], [0, 0, 1, 0, 0]);
+// 0 spans the call; 1 is its argument; 2 is defined by it.
+require(user.locations[0].register == 12 or user.locations[0].register == 13);
+require(user.locations[1].register == 10 and user.locations[2].register == 8);
+let system: Any = lsra_plan_calls(spanning, [12, 13], false, [10, 9, 8], [0, 0, 2, 0, 0]);
+require(system.locations[1].register >= 12 and system.locations[2].register == 8);
+require(lsra_member(system.used, 8) and lsra_member(system.used, 12));
+// Without a call every interval may take a volatile register, back first.
+let free: Any = lsra_plan_calls(IRBlock([define(0), use(0)], 1), [12], false, [10, 9, 8], [0, 0]);
+require(free.locations[0].register == 8 and not lsra_member(free.used, 12));
+// Without a fitting register, a call-spanning interval spills rather than
+// evicting a volatile one.
+let tight: Any = lsra_plan_calls(spanning, [], false, [10, 9, 8], [0, 0, 1, 0, 0]);
+require(tight.locations[0].register == -1 and tight.locations[1].register == 10);
+
 let noRegisters: Any = lsra_allocate(IRBlock([define(0), use(0), define(1), use(1)], 2), []);
 require(len(noRegisters.used) == 0 and noRegisters.stackSlots == 1);
 let empty: Any = lsra_allocate(IRBlock([], 0), [12]);
