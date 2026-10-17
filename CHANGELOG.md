@@ -1,17 +1,75 @@
-# Unreleased
+# Maylang 0.13.102 — Dahlia
+
+Released 2026-10-17 UTC. Branch-free RAW scalar diamonds, fused memory
+addressing with register-resident memory loops, and a repository layout
+organized by role.
+
+## Compiler and RAW code generation
+
+- Lower short scalar if/else diamonds over dedicated local registers with
+  conditional moves instead of branches. Both arms are speculated only when
+  they are pure, nontrapping and within a bounded cost; predicates over
+  induction locals (written only as `v = literal` or `v = v ± literal`) keep
+  their predictable branches
+  ([report](compiler/mayc/tests/backend/raw-if-conversion.md), #78).
+- Fuse `load8`–`load64`/`store8`–`store64` pointer arithmetic built from
+  single-use additions, scales of 1, 2, 4 or 8, imm32 literals and local
+  snapshots into one `[base + index*scale + displacement]` operand. Memory
+  accesses keep their order, widths and faults
+  ([report](compiler/mayc/tests/backend/raw-addressing.md), #79).
+- Keep locals in dedicated registers in functions whose only non-scalar
+  operations are unshadowed RAW loads and stores, and allocate their
+  temporaries in volatile r8–r10. `__sp`, `syscall` and other calls still
+  exclude promotion.
+
+## Recorded performance
+
+Committed 100-run interleaved measurements on an Intel i5-13500H, pinned
+performance CPU 2, GCC 14.2, against the 0.13.101 compiler `c3d3ea8`. All six
+checksums match in every sample; these are saved pre-release measurements.
+
+| Measurement | 0.13.101 | 0.13.102 |
+| --- | ---: | ---: |
+| Six-kernel end-to-end median | 21.693 ms | 15.991 ms |
+| GCC `-O3 -march=native`, same trial | 18.042 ms | 18.042 ms |
+
+Median runtime falls **26.3%**; RAW output now runs at **0.89×** GCC's time
+on this suite. Branch-free diamonds alone reach 16.742 ms; address fusion and
+memory-loop registers cut the automaton kernel 38.6% and the histogram 19.9%.
+Collatz loop timing still varies by up to 12% with code placement alone;
+function and loop-head alignment is tracked in
+[#83](https://github.com/mirged/maylang/issues/83). No machine-specific speed
+threshold is added to CI.
+
+## Repository layout
 
 - Reorganize the repository by role: `compiler/` (mayc, Rust bootstrap),
   `tools/`, `platform/`, `dist/`, `tests/`, a single `examples/` tree and
   grouped `docs/` with the generated reference under `docs/reference/`.
-  The `toolchain/` compatibility entry points are removed; release bundles ship
-  sample apps under `examples/apps/`. See the
-  [path migration table](docs/REPOSITORY.md#path-migration).
-- Lower short RAW scalar diamonds over dedicated local registers with
-  conditional moves; predicates over induction locals keep their branches
-  ([report](compiler/mayc/tests/backend/raw-if-conversion.md), #78).
-- Fuse RAW load/store address arithmetic into base/index/scale/displacement
-  operands and keep locals in registers in call-free memory loops
-  ([report](compiler/mayc/tests/backend/raw-addressing.md), #79).
+  **Behavior change:** the `toolchain/` compatibility entry points are
+  removed, and release bundles ship sample apps under `examples/apps/`. See
+  the [path migration table](docs/REPOSITORY.md#path-migration).
+
+## Verification
+
+- Decode 4,698 addressing encodings with objdump as an independent oracle,
+  check 120 generated memory loops against a byte-array model, and check 480
+  calls of 160 generated diamond functions against an exact 64-bit Python
+  oracle, including `INT64_MIN`/`INT64_MAX` inputs and untaken traps that must
+  keep their branches. IR tests cover absorbed instructions, snapshots, CFG
+  boundaries and shadowed intrinsics.
+- The source passed **115 compiler verifier checks**, compliance cases, Rust
+  workspace tests, source-bootstrap convergence, LLVM and native macOS/Windows
+  loader checks in CI.
+- Synchronize compiler, release metadata, README and editor extension
+  versions to 0.13.102.
+
+Maylang remains experimental; platform support and runtime limits are
+unchanged from 0.13.101.
+
+[Full Git changelog: v0.13.101...v0.13.102](https://github.com/mirged/maylang/compare/v0.13.101...v0.13.102).
+
+---
 
 # Maylang 0.13.101 — Dahlia
 
