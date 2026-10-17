@@ -17,8 +17,8 @@ The subsequent [signed constant-division pass](raw-constant-division.md)
 implements non-power-of-two literal division and records a fresh, interleaved
 comparison of the original compiler, this first pass, and the combined changes.
 
-The latest [bounded scalar arithmetic report](raw-recurrences.md) records the
-complete branch at 24.694 ms versus 44.291 ms for the original compiler, with
+The latest [unread branch-copy report](raw-branch-copies.md) records the
+complete branch at 24.086 ms versus 44.287 ms for the original compiler, with
 100 interleaved runs, all checksums matching, and remaining workload regressions
 reported alongside the gains.
 

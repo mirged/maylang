@@ -107,6 +107,34 @@ def dead_expressions(compiler, work):
     print('PASS cascading raw dead expressions, removed callee-save registers, retained calls and nested faults', flush=True)
 
 
+def dead_branch_copies(compiler, work):
+    source, binary = work / 'branch-copies.may', work / 'branch-copies'
+    source.write_text('''
+mut seen: Any = 0;
+fun effect(n: Any) -> Any { seen = seen * 10 + n; return n; }
+fun chain(n: Any) -> Any {
+    mut result: Any = 0;
+    if n == 0 { result = 11; }
+    else if n == 1 { result = 22; }
+    else if n == 2 { result = 33; }
+    else { result = 44; }
+    return result;
+}
+fun observed(n: Any) -> Any { return if n == 0 { 11 } else if n == 1 { 22 } else { 33 }; }
+fun effects(n: Any) -> Any { if n == 0 { effect(1); } else if n == 1 { effect(2); } else { effect(3); } return seen; }
+if chain(0) != 11 or chain(1) != 22 or chain(2) != 33 or chain(3) != 44 { exit(56); }
+if observed(0) != 11 or observed(1) != 22 or observed(2) != 33 { exit(57); }
+if effects(0) != 1 or effects(1) != 12 or effects(2) != 123 { exit(58); }
+exit(0);
+''')
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    body = function(disassemble(binary), 'chain')
+    assert len(re.findall(r'\bcmp\b', body)) == 3, body
+    assert not re.search(r'\bset\w+\b|\btest\s+rax,rax\b', body), body
+    print('PASS cascading unread branch copies, direct else-if comparisons, observable joins and retained branch effects', flush=True)
+
+
 def raw_integer(n):
     # Source literals use the compiler's tagged range; expressions can construct
     # every raw 64-bit pattern, including INT64_MIN and INT64_MAX.
@@ -457,6 +485,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         call_arguments(compiler, work)
         address_arguments(compiler, work)
         dead_expressions(compiler, work)
+        dead_branch_copies(compiler, work)
         remainder_branches(compiler, work)
         small_multipliers(compiler, work)
         local_recurrences(compiler, work)

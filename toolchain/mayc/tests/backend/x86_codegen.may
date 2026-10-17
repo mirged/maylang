@@ -116,6 +116,15 @@ require(trapBlock.code[0].op == E_INT and trapBlock.code[1].op == E_BIN);
 let multi: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 1}, 0), Quad(E_INT, a, 0, 0, {"value": 2}, 0)], 1);
 x86_discard_unused(multi);
 require(multi.code[0].op == E_INT and multi.code[1].op == E_INT);
+let copies: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 7}, 0),
+    Quad(IR_COPY, b, a, 0, 0, 0), Quad(IR_LABEL, 0, 0, 0, 50, 0), Quad(IR_COPY, b, a, 0, 0, 0)], 2);
+x86_discard_unused(copies);
+require(copies.code[0].op == 0 and copies.code[1].op == 0 and copies.code[3].op == 0);
+require(copies.code[2].op == IR_LABEL);
+let observedCopies: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 7}, 0),
+    Quad(IR_COPY, b, a, 0, 0, 0), Quad(IR_COPY, b, a, 0, 0, 0), Quad(IR_RETURN, 0, b, 0, 0, 0)], 2);
+x86_discard_unused(observedCopies);
+require(observedCopies.code[1].op == IR_COPY and observedCopies.code[2].op == IR_COPY);
 
 // A second operand read cannot rely on the one-shot rax fact. Nor may an
 // accumulator-only value cross a label where other predecessors can enter.

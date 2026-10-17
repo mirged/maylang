@@ -108,7 +108,8 @@ fun x86_raw_allocation_block(ctx: Any, block: Any) -> Any {
 
 // Remove unused, nontrapping raw expressions backwards so their operands
 // can become dead too. Calls, loads, stores and division/remainder stay live
-// for their effects or faults. Multiple definitions remain conservative.
+// for their effects or faults. Only unread copies may have multiple definitions;
+// every definition is removed separately, without changing CFG positions.
 fun x86_discardable(instruction: Any) -> Any {
     let op: Any = instruction.op;
     if (op == E_INT or op == E_STR or op == IR_NIL or op == IR_COPY or op == IR_BOOL or op == E_UN) { return true; }
@@ -141,7 +142,7 @@ fun x86_discard_unused(block: Any) -> Any {
         let instruction: Any = block.code[position];
         if (instruction.result != 0) {
             let location: Any = intervals[instruction.result.slot];
-            if (location.definitions == 1 and location.uses == 0 and x86_discardable(instruction)) {
+            if ((location.definitions == 1 or instruction.op == IR_COPY) and location.uses == 0 and x86_discardable(instruction)) {
                 x86_drop_reads(intervals, instruction.arg1); x86_drop_reads(intervals, instruction.arg2);
                 if (instruction.op == E_BIN) {
                     intervals[instruction.extra.left.slot].uses -= 1;
@@ -150,7 +151,7 @@ fun x86_discard_unused(block: Any) -> Any {
                 // Preserve instruction positions/CFG boundaries for the real
                 // block. A zero-definition slot identifies an omitted result.
                 block.code[position] = Quad(0, 0, 0, 0, 0, instruction.span);
-                location.definitions = 0;
+                location.definitions -= 1;
             }
         }
         position -= 1;
