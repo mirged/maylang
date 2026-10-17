@@ -8,13 +8,11 @@ Use Linux x86-64 for compiler and toolchain development. Start with
 
 The [repository map](docs/REPOSITORY.md) describes component ownership.
 Keep compiler work in `compiler/mayc`, shared Rust/bootstrap work in
-`compiler/rust`, public libraries in `stdlib`, and component tests beside
-their implementation. Distribution work belongs in `dist`;
-checkout setup and repository checks belong in `scripts`.
-
-Existing `toolchain/install.*`, `package.py`, and `update.py` paths are
-compatibility entry points. Change their implementations in `distribution/`.
-Compiler sidecars must travel with copied executables.
+`compiler/rust`, developer tools in `tools`, public libraries in `stdlib`, and
+component tests beside their implementation. Distribution work and its tests
+belong in `dist`; only suites spanning components go in `tests`. Checkout setup
+and repository checks belong in `scripts`. Compiler sidecars must travel with
+copied executables.
 
 ## Choose checks for the change
 

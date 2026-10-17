@@ -1,3 +1,12 @@
+# Unreleased
+
+- Reorganize the repository by role: `compiler/` (mayc, Rust bootstrap),
+  `tools/`, `platform/`, `dist/`, `tests/`, a single `examples/` tree and
+  grouped `docs/` with the generated reference under `docs/reference/`.
+  The `toolchain/` compatibility entry points are removed; release bundles ship
+  sample apps under `examples/apps/`. See the
+  [path migration table](docs/REPOSITORY.md#path-migration).
+
 # Maylang 0.13.0 — Dahlia
 
 Released 2026-10-16 UTC. Closed callable behavior contracts and a broader

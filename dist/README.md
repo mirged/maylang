@@ -1,9 +1,8 @@
 # Toolchain distribution
 
 This directory owns packaging, installation and environment migration.
-Checkout setup lives in [scripts](../scripts/README.md). Existing
-`dist/package.py`, `update.py`, `install.sh` and `install.ps1` forward to
-these implementations for users and automation.
+Checkout setup lives in [scripts](../scripts/README.md); this directory's
+regression tests live in `tests/`.
 
 Everyday installation starts with the repository-root [download script](../install.sh),
 published as the `maylang-init.sh` release asset. It verifies and launches the

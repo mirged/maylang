@@ -130,16 +130,19 @@ macOS program execution is covered by the [native target suite](docs/internals/N
 
 | Directory | Contents |
 | --- | --- |
-| [toolchain/](tools/README.md) | Compiler, workspace runner, formatter, LSP, legacy manager, browser, OS |
-| [dist/](dist/README.md) | Release packaging, installers, environment migration |
-| [scripts/](scripts/README.md) | Checkout setup, prerequisite checks, repository validation |
+| [compiler/](compiler/README.md) | Self-hosted `mayc` compiler and the Rust source bootstrap |
+| [tools/](tools/README.md) | Workspace runner, formatter, language server, legacy package manager |
+| [platform/](platform/README.md) | Browser and operating-system experiments |
 | [stdlib/](stdlib/README.md) | Standard library, UI and experimental ML modules |
-| [examples/](examples/) | Small language examples |
-| [example_projects/](examples/README.md) | Complete apps, games, simulations, and learning projects |
-| [docs/](docs/README.md) | Setup, language, architecture, audit and release guides |
-| [docs/reference/](docs/reference/README.md) | Generated language and library reference |
+| [dist/](dist/README.md) | Release packaging, installers, environment migration |
+| [tests/](tests/README.md) | Cross-component compliance, documentation and UI suites |
+| [examples/](examples/README.md) | Small language examples plus complete apps, games and simulations |
+| [docs/](docs/README.md) | Guides, internals, design notes, history and the generated [reference](docs/reference/README.md) |
 | [editors/vscode/](editors/vscode/README.md) | VS Code extension |
-| [tests/compliance/](tests/compliance/README.md) | Runtime and language boundary regressions |
+| [scripts/](scripts/README.md) | Checkout setup, prerequisite checks, repository validation |
+
+The [repository map](docs/REPOSITORY.md) lists component boundaries, their
+checks, and where paths from the earlier `toolchain/` layout moved.
 
 ## Project status and contributions
 

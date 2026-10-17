@@ -1,5 +1,18 @@
 # Repository map
 
+```text
+compiler/    mayc (self-hosted compiler) and rust (source bootstrap, shared crates)
+tools/       may, mayfmt, maylsp, maypkg and their shared formatter
+platform/    maybrowser and mayos experiments built on the toolchain
+stdlib/      public libraries, native UI and experimental ML
+dist/        packaging, installers, update and migration scripts
+tests/       cross-component suites: compliance, docs, ui
+examples/    single-file examples and complete apps, games, simulations
+docs/        guides, internals, design, history and generated reference
+editors/     VS Code extension
+scripts/     checkout setup, prerequisite and repository checks
+```
+
 | Boundary | Purpose | Validation |
 | --- | --- | --- |
 | `compiler/mayc/` | Self-hosted frontend, IR, backends, formats and runtime sidecars | `make test-compiler test-compliance` |
@@ -8,22 +21,42 @@
 | `tools/mayfmt/` | Shared command-line/editor formatter | `make test-tools` |
 | `tools/maylsp/` | Active Maylang language server | `make test-tools` |
 | `tools/maypkg/` | Legacy manager and shared filesystem/import helpers | `make test-tools` |
-| `dist/` | Packaging, installers and Bash migration | `make test-distribution package` |
+| `tools/shared/` | Formatter core shared by `may`, `mayfmt` and `maylsp` | `make test-tools` |
 | `platform/maybrowser/` | Experimental browser and native adapter | `make test-browser` |
 | `platform/mayos/` | OS/kernel experiment | Component Makefile and README |
 | `stdlib/` | Public libraries, UI and experimental ML | Compiler contracts and `make test-ui` |
-| `examples/`, `example_projects/` | Small examples and complete apps/games/simulations | Compiler verification and component workflows |
+| `dist/` | Packaging, installers and Bash migration; tests in `dist/tests/` | `make test-distribution package` |
 | `tests/compliance/` | Legacy runtime/coercion and boundary regressions | `make test-compliance` |
-| `editors/vscode/` | Extension, grammar and snippets | `make editor` |
+| `tests/docs/` | Runnable documentation examples | `make test-docs` |
+| `tests/ui/` | Native UI harness and demo for `stdlib/ui` | `make test-ui` |
+| `examples/` | Small examples and complete apps/games/simulations | Compiler verification and component workflows |
 | `docs/reference/` | Generated API/language documentation | `make check test-docs` |
+| `editors/vscode/` | Extension, grammar and snippets | `make editor` |
 | `scripts/` | Checkout setup, dependency and repository checks | `make test-distribution` |
 | `.github/` | CI, contribution forms, PR template and labels | Repository checks and GitHub CI |
 
-Keep components beside their tests. Public compiler/runtime paths stay stable:
-import graphs, bootstraps, sidecars and editors consume them. The October 2026
-restructuring moves distribution implementations behind compatibility entry
-points, provides root developer commands, and separates active roadmap work
-from completed history.
+Component tests stay beside their implementation; `tests/` holds only suites
+that span components. Directory depth was preserved where possible, so
+relative imports between `compiler/`, `tools/` and `platform/` siblings use
+`../../<group>/<component>/`.
+
+## Path migration
+
+The October 2026 re-layout replaced `toolchain/`, `example_projects/` and the top-level
+`reference/`. Update scripts, editor settings and bookmarks as follows:
+
+| Before | After |
+| --- | --- |
+| `toolchain/mayc/`, `toolchain/rust/` | `compiler/mayc/`, `compiler/rust/` |
+| `toolchain/{may,mayfmt,maylsp,maypkg,shared}/` | `tools/…/` |
+| `toolchain/{maybrowser,mayos}/` | `platform/…/` |
+| `toolchain/distribution/`, `toolchain/{install.sh,install.ps1,package.py,update.py}` | `dist/` |
+| `toolchain/tests/` | `dist/tests/`; `documentation.py` is now `tests/docs/run.py` |
+| `toolchain/mayui/` | `tests/ui/` |
+| `example_projects/<group>/` | `examples/<group>/`, also inside release bundles |
+| `reference/` | `docs/reference/` |
+| `MAYLANG_UNIFIED_BEHAVIOR_DESIGN.md` | `docs/design/UNIFIED_BEHAVIOR.md` |
+| `docs/*.md` | `docs/{guide,internals,design,history}/` |
 
 Further extraction should follow tests and measured hotspots. The
 [audit](AUDIT.md) tracks typed compiler state, shared tooling helpers, runtime

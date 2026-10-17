@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`compiler/mayc/` contains the active self-hosted compiler: `main.may`, frontend/IR modules in `src/`, architecture backends, executable formats, and runtime sidecars. `compiler/rust/crates/` provides the source bootstrap and shared Rust components. `tools/maylsp/`, `maypkg/`, and `maybrowser/` contain developer tools with their own tests. Library modules live in `stdlib/`; sample programs in `examples/` and `example_projects/`. Use `docs/` for architecture documentation and `editors/vscode/` for extension code, grammars, and snippets. Browser HTML fixtures live in `platform/maybrowser/examples/`.
+`compiler/mayc/` contains the active self-hosted compiler: `main.may`, frontend/IR modules in `src/`, architecture backends, executable formats, and runtime sidecars. `compiler/rust/crates/` provides the source bootstrap and shared Rust components. `tools/` holds `may`, `mayfmt`, `maylsp`, and `maypkg`, each with its own tests; `platform/` holds the `maybrowser` and `mayos` experiments. Library modules live in `stdlib/`; packaging and installers in `dist/`; cross-component suites in `tests/`; sample programs and complete projects in `examples/`. Use `docs/` for guides, internals, design notes and the generated `docs/reference/`, and `editors/vscode/` for extension code, grammars, and snippets. Browser HTML fixtures live in `platform/maybrowser/examples/`. `docs/REPOSITORY.md` maps every boundary.
 
 ## Build, Test, and Development Commands
 
