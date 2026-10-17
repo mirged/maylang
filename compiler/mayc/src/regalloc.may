@@ -5,7 +5,7 @@ import "state.may";
 // reusable stack homes. Control-flow/multi-definition intervals are pinned to
 // private homes; this avoids assuming SSA or ignoring back-edge liveness.
 struct LiveInterval { slot: Any, start: Any, end: Any, definitions: Any, register: Any, home: Any, pinned: Any, next: Any, uses: Any, literal: Any, borrowed: Any, maximum: Any, address: Any }
-struct RegisterAllocation { locations: Any, used: Any, stackSlots: Any, roots: Any, position: Any, saves: Any, accumulator: Any, localRegisters: Any }
+struct RegisterAllocation { locations: Any, used: Any, stackSlots: Any, roots: Any, position: Any, saves: Any, accumulator: Any, localRegisters: Any, addresses: Any, induction: Any }
 
 fun lsra_touch(intervals: Any, value: Any, position: Any, definition: Any) -> Any {
     if (value == 0 or value == nil) { return 0; }
@@ -163,5 +163,5 @@ fun lsra_plan(block: Any, registers: Any, rematerialize: Any) -> Any {
             for index: Any in (current.start + 1)..(current.end + 1) { push(roots[index], current); }
         }
     }
-    return RegisterAllocation(intervals, used, stackSlots, roots, -1, [], -1, {});
+    return RegisterAllocation(intervals, used, stackSlots, roots, -1, [], -1, {}, {}, {});
 }

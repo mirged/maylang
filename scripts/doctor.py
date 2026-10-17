@@ -81,7 +81,7 @@ def main():
     if ready:
         print(f'Ready for {args.profile}. See CONTRIBUTING.md for commands.')
     else:
-        print('Resolve the missing requirements and rerun this command. See docs/DEVELOPMENT.md.')
+        print('Resolve the missing requirements and rerun this command. See docs/guide/DEVELOPMENT.md.')
     return 0 if ready else 1
 
 

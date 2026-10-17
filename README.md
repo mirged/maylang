@@ -3,7 +3,7 @@
 An experimental programming language with a self-hosted compiler, strict
 checking by default, and direct native executable output.
 
-[![Maylang 0.13.0 — Dahlia](https://img.shields.io/badge/Maylang-0.13.0%20Dahlia-green)](https://github.com/mirged/maylang/releases/tag/v0.13.0)
+[![Maylang 0.13.101 — Dahlia](https://img.shields.io/badge/Maylang-0.13.101%20Dahlia-green)](https://github.com/mirged/maylang/releases/tag/v0.13.101)
 
 [Releases](https://github.com/mirged/maylang/releases) ·
 [Install](docs/guide/INSTALL.md) · [Language guide](docs/guide/STRICT.md) ·

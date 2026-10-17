@@ -6,6 +6,169 @@
   The `toolchain/` compatibility entry points are removed; release bundles ship
   sample apps under `examples/apps/`. See the
   [path migration table](docs/REPOSITORY.md#path-migration).
+- Lower short RAW scalar diamonds over dedicated local registers with
+  conditional moves; predicates over induction locals keep their branches
+  ([report](compiler/mayc/tests/backend/raw-if-conversion.md), #78).
+- Fuse RAW load/store address arithmetic into base/index/scale/displacement
+  operands and keep locals in registers in call-free memory loops
+  ([report](compiler/mayc/tests/backend/raw-addressing.md), #79).
+
+# Maylang 0.13.101 — Dahlia
+
+Released 2026-10-17 UTC. This release includes all changes since 0.13.0:
+faster Linux x86-64 RAW code generation, native GPU UI rendering, the May NES
+example application, and fixes for compiler-build heap fragmentation.
+
+## Compiler and RAW code generation
+
+- Use allocated registers and spill homes directly for binary operands and
+  store values. Forward a single-use accumulator result into its adjacent
+  consumer, and borrow adjacent local reads as memory or register operands
+  when snapshots and evaluation order permit it.
+- Fuse exclusive signed branch comparisons and zero/nonzero power-of-two
+  remainder tests into direct conditional branches. Keep observable Boolean
+  and remainder results, short-circuit effects, extra readers and CFG barriers.
+- Select compact immediate moves with correct sign/zero extension and a
+  full-width fallback. Rematerialize integer literals and string addresses,
+  use checked compact ELF address relocations, and retain full-width paths for
+  high layouts, including Windows PE addresses.
+- Lower positive non-power-of-two literal division and remainder with verified
+  signed reciprocal arithmetic. Preserve negative-dividend corrections,
+  negative-divisor fallbacks, division by zero and `INT64_MIN / -1` traps.
+  Proven nonnegative snapshots and bounded scalar recurrences permit shorter
+  signed arithmetic; multiplication uses shifts or LEA where appropriate.
+- Pass resolved user-call and syscall arguments directly in their ABI
+  locations when safe, preserving order, stack arguments, alignment and
+  clobbers. Keep an additional call-heavy benchmark alongside the six kernels.
+- Remove unread nontrapping expression trees, address allocations and branch
+  result copies, including copies with multiple definitions. Preserve calls,
+  memory operations, faults, observable joins and private spill homes.
+- Keep frequently used locals in up to five dedicated callee-saved registers
+  in eligible freestanding scalar functions. Direct counter, affine-update,
+  signed power-of-two arithmetic and comparison instructions operate on these
+  homes across joins, nested loops, break and continue. Calls, memory accesses,
+  captures, boxed values and unknown bindings exclude promotion; virtual
+  temporary liveness and GC-root rules retain their existing guarantees.
+- Store relocation kind/offset/target triples in bounded chunks of 1,024
+  records instead of a doubling list of maps. This fixes compiler-build OOMs
+  where a 512 KiB contiguous allocation could not fit despite about 162 MiB
+  of fragmented free heap. x86-64, ARM64 and RISC-V patchers retain relocation
+  ordering. Production heap sizing and collector policy are unchanged.
+
+## Recorded performance
+
+The committed 100-run interleaved experiment on an Intel i5-13500H, performance
+CPU 2, GCC 14.2, compares the pre-optimization compiler `f551c97` with the
+optimized RAW backend. These are saved pre-release measurements, not a new
+release-build timing trial. All six checksums match in every sample.
+
+| Measurement | Original RAW | Optimized RAW |
+| --- | ---: | ---: |
+| End-to-end median | 44.499 ms | 21.700 ms |
+| Standard deviation | 0.772 ms | 0.322 ms |
+| Dynamic instructions, five-run median | 778,075,220 | 181,598,885 |
+| Cycles, five-run median | 202,904,018 | 96,883,675 |
+
+Median runtime falls **51.2%**, a **2.05× speedup**; instructions fall **76.7%**
+and cycles **52.3%**. The same trial records GCC at **18.057 ms** with
+`-O3 -march=native`, or **17.593 ms** with tree vectorization disabled.
+The host was pinned, not isolated. Samples, dispersion, source/compiler hashes,
+checksums, disassembly notes and PMU coverage are retained in the
+[design report](compiler/mayc/tests/backend/raw-local-registers.md) and
+[complete measurement data](compiler/mayc/tests/backend/raw-local-register-performance.json).
+No machine-specific speed threshold is added to CI.
+
+Merged [PR #77](https://github.com/mirged/maylang/pull/77) completes
+[issue #76](https://github.com/mirged/maylang/issues/76). Remaining branch
+if-conversion and memory-address/loop-state opportunities are tracked in
+[#78](https://github.com/mirged/maylang/issues/78) and
+[#79](https://github.com/mirged/maylang/issues/79). This release does not claim
+GCC parity on every workload.
+
+## Native UI and rendering
+
+- Render clipped widget geometry, rounded edges, concentric borders, soft
+  shadows, lines and text through a Sokol/OpenGL GPU batch. A dedicated Linux
+  graphics thread receives immutable geometry/atlas packets; widgets, layout,
+  interaction and application state remain Maylang.
+- Cache fractional-position Unicode glyphs in an oversampled atlas, reuse
+  geometry and framebuffer storage, bound glyph/measurement caches, and upload
+  atlas content only when it changes. Keep software rendering for headless
+  surfaces, snapshots and pixel inspection.
+- Add light/dark themes, primary controls, borders, elevation, cards and
+  disabled controls, with hover/pressed states and keyboard-focus decoration.
+  Reduce redundant cursor changes and repeated hit-region searches. Retain
+  layout recalculation for mutable trees and resizing.
+- Add `upload_rgba`, an aspect-fit framebuffer widget with optional integer
+  scaling, held/pressed key queries and native focus reporting. Add
+  `poll_for`, renderer identification and rendering/cache statistics.
+- Update the UI scaffold, Mayboard workspace, showcase, package native build,
+  dependency doctor and library reference for the new renderer. Vendor Sokol
+  headers and preserve upstream license/provenance records; builds need no
+  dependency download.
+
+**UI build migration:** existing native targets compiling `window.c` must use
+`sokol.c` and link X11, Xi, Xcursor, OpenGL, `dl`, pthread and `m`. Install
+`libx11-dev libxi-dev libxcursor-dev libgl-dev` and a TrueType font on
+Debian/Ubuntu. Native windows require X11/XWayland and OpenGL 4.3; Mesa software
+rendering works. Public `Widget`/`Window` records gained fields; prefer the
+documented constructors and helpers when updating applications. See the
+[UI guide](stdlib/ui/README.md).
+
+## May NES example application
+
+- Add a Maylang desktop NES player using the vendored MIT-licensed binjnes core
+  for CPU/PPU/APU/cartridge emulation. Include the original MIT-licensed Starfall
+  homebrew ROM and its reproducible builder; no other games are bundled.
+- Support uncompressed iNES 1.0 cartridge loading, recent paths/preferences,
+  aspect-fit or integer scaling, simultaneous controller keys, pause/resume,
+  frame stepping, reset, mute and NTSC/PAL frame scheduling.
+- Add optional PulseAudio/PipeWire audio, a file-picker/path-entry workflow,
+  background/text-entry pause, manual save/restore and periodic battery SRAM
+  persistence. Validate state identity/size/checksums and write persistence
+  through exclusive temporary files, synchronization and atomic rename.
+- Add headless screenshots/reports, deterministic core/state/persistence
+  checks, sanitizer coverage for cartridge switching and isolated desktop
+  tests for actual GPU output and interaction. See the
+  [May NES guide](examples/apps/maynes/README.md) for controls,
+  dependencies, mapper coverage and format limits.
+
+## Verification, CI and distribution
+
+- Add RAW execution/IR/disassembly regressions for operand locations, snapshots,
+  spills, nested loops, effects, full-width signed arithmetic, constant
+  division, ABI/syscall clobbers and every benchmark checksum. Dedicated-local
+  arithmetic coverage includes 720 full-width cases across RBX and r12-r15.
+- Extend Windows emulation to verify RBX preservation. Keep forced-GC,
+  portable-core and LLVM checks; move interactive UI execution into its
+  dependency-aware native harness instead of the generic entrypoint runner.
+- Add the 65,537-relocation ordering, context-isolation and replacement
+  regression under an 8 MiB runtime heap. The former representation exhausts
+  that heap. Repeated IR-inspection builds and byte-identical bootstrap
+  generations verify the compiler-build fix.
+- The merged source passed **115 compiler verifier checks**, **69 compliance
+  cases**, Rust workspace tests, source-bootstrap convergence, LLVM,
+  documentation/tooling/UI, extracted release/installer checks, portable-core
+  emulation and native macOS/Windows loader checks. Tagged publication runs
+  release checks, compares two generated bundles/installers, and publishes the
+  Linux archive, editor extension, standalone installers and checksums.
+- Synchronize compiler, release metadata, README and editor extension versions
+  to 0.13.101. Install the new renderer's development dependencies explicitly
+  in the tagged-release workflow.
+
+Maylang remains experimental. Compiler hosts and full-runtime release bundles
+remain Linux x86-64, including x86-64 WSL 2. The native UI currently supports
+one active surface and the Linux OpenGL backend; accessibility integration,
+IME composition, rich text and general image collections remain unfinished.
+May NES does not implement NES 2.0, ZIP/FDS loading, gamepads or a second
+controller; save states are local to the build/architecture. The supported
+behavior-contract fragment and its security/resource-proof limits are unchanged
+from 0.13.0; see [behavior support](docs/internals/BEHAVIOR.md) and the
+[conformance ledger](docs/design/BEHAVIOR_PROGRESS.md).
+
+[Full Git changelog: v0.13.0...v0.13.101](https://github.com/mirged/maylang/compare/v0.13.0...v0.13.101).
+
+---
 
 # Maylang 0.13.0 — Dahlia
 
