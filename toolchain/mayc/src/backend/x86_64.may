@@ -477,8 +477,9 @@ fun x86_divisor_shift(value: Any) -> Any {
 fun x86_signed_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) -> Any {
     // rax is an untagged signed integer. Bias negatives so shifting truncates
     // toward zero; subtract the same bias to give remainder the dividend's sign.
-    for byte: Any in [72,137,193,72,193,249,63,72,129,225] { e8(ctx, byte); }
-    e32(ctx, divisor - 1);
+    for byte: Any in [72,137,193,72,193] { e8(ctx, byte); }
+    e8(ctx, if (shift == 1) { 233 } else { 249 }); e8(ctx, 63);
+    if (shift != 1) { e8(ctx, 72); e8(ctx, 129); e8(ctx, 225); e32(ctx, divisor - 1); }
     e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
     if (remainder) {
         e8(ctx, 72); e8(ctx, 37); e32(ctx, divisor - 1);
@@ -488,8 +489,10 @@ fun x86_signed_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) 
 }
 
 // maximum != nil means the complete raw value is proven in [0, maximum].
-// Facts belong only to single-definition values, never mutable loop cells.
+// Facts belong to single-definition snapshots. Mutable locals require the
+// separate inductive proof below; their allocation and private homes stay fixed.
 fun x86_unsigned_ranges(ctx: Any, block: Any) -> Any {
+    let recurrences: Any = if (ctx.dynamic == 0) { x86_local_recurrences(ctx, block) } else { {} };
     let shadowed: Any = {};
     for local: Any in ctx.locals { shadowed[symbol_name(local[0], local[1])] = true; }
     for instruction: Any in block.code {
@@ -503,7 +506,10 @@ fun x86_unsigned_ranges(ctx: Any, block: Any) -> Any {
         if (location.definitions != 1 or location.start != position) { continue; }
         let op: Any = instruction.op; let payload: Any = instruction.extra;
         if (op == E_INT and payload.value >= 0) { location.maximum = payload.value; }
-        else if (op == IR_NIL) { location.maximum = 0; }
+        else if (op == E_VAR) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (has(recurrences, name) and recurrences[name].valid) { location.maximum = recurrences[name].maximum; }
+        } else if (op == IR_NIL) { location.maximum = 0; }
         else if (op == IR_BOOL or (op == E_UN and payload.op == TK_NOT)) { location.maximum = 1; }
         else if (op == IR_COPY) { location.maximum = ctx.allocation.locations[instruction.arg1.slot].maximum; }
         else if (op == E_CALL) {
@@ -529,6 +535,66 @@ fun x86_unsigned_ranges(ctx: Any, block: Any) -> Any {
         }
     }
     return 0;
+}
+
+fun x86_single_definition(ctx: Any, block: Any, value: Any) -> Any {
+    let location: Any = ctx.allocation.locations[value.slot];
+    if (location.definitions != 1 or location.start < 0) { return 0; }
+    return block.code[location.start];
+}
+
+fun x86_recurrence_step(ctx: Any, block: Any, value: Any, name: Any) -> Any {
+    let remainder: Any = x86_single_definition(ctx, block, value);
+    if (remainder == 0 or remainder.op != E_BIN or remainder.extra.op != TK_PCT) { return 0; }
+    let divisor: Any = ctx.allocation.locations[remainder.extra.right.slot].literal;
+    if (divisor == nil or divisor <= 0) { return 0; }
+    let product: Any = x86_single_definition(ctx, block, remainder.extra.left);
+    if (product == 0 or product.op != E_BIN or product.extra.op != TK_STAR) { return 0; }
+    let factor: Any = ctx.allocation.locations[product.extra.right.slot].literal;
+    if (factor == nil or factor < 0) { return 0; }
+    let previous: Any = x86_single_definition(ctx, block, product.extra.left);
+    if (previous == 0 or previous.op != E_VAR or
+        symbol_name(previous.extra.name, previous.extra.length) != name) { return 0; }
+    return [divisor - 1, factor];
+}
+
+struct X86LocalRecurrence { maximum: Any, factor: Any, valid: Any }
+
+// Prove an inductive bound for x = x * c % d. Every write is checked;
+// the initial value and every d-1 fit the bound, and bound*c cannot wrap.
+// Only scalar functions without calls, memory operations, captures or aliasing
+// constructs qualify. Duplicate declarations and reads before declaration
+// exclude a name. This analysis never changes allocation or loop-cell homes.
+fun x86_local_recurrences(ctx: Any, block: Any) -> Any {
+    let locals: Any = {}; let seen: Any = {};
+    for local: Any in ctx.locals { seen[symbol_name(local[0], local[1])] = true; }
+    for instruction: Any in block.code {
+        let op: Any = instruction.op; let payload: Any = instruction.extra;
+        if (op != 0 and op != E_INT and op != E_VAR and op != E_BIN and op != E_UN and
+            op != IR_COPY and op != IR_BOOL and op != IR_NIL and op != S_LET and op != S_ASSIGN and
+            op != IR_LABEL and op != IR_JUMP and op != IR_FALSE and op != IR_TRUE and op != IR_RETURN) { return {}; }
+        if (op == E_VAR or op == S_LET or op == S_ASSIGN) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (op == S_LET) {
+                if (has(locals, name)) { locals[name].valid = false; continue; }
+                let initial: Any = ctx.allocation.locations[payload.initializer.slot].literal;
+                locals[name] = X86LocalRecurrence(initial, 0, initial != nil and initial >= 0 and
+                    payload.global == 0 and not has(seen, name) and is_boxed(ctx, payload.name, payload.length) == 0);
+                seen[name] = true;
+            } else if (not has(locals, name)) { seen[name] = true; }
+            else if (op == S_ASSIGN and locals[name].valid) {
+                let step: Any = x86_recurrence_step(ctx, block, payload.value, name);
+                if (step == 0) { locals[name].valid = false; continue; }
+                if (step[0] > locals[name].maximum) { locals[name].maximum = step[0]; }
+                if (step[1] > locals[name].factor) { locals[name].factor = step[1]; }
+            }
+        }
+    }
+    for name: Any in keys(locals) {
+        let local: Any = locals[name];
+        if (local.valid and local.factor > 0 and local.maximum > 1152921504606846975 / local.factor) { local.valid = false; }
+    }
+    return locals;
 }
 
 fun x86_unsigned_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) -> Any {
@@ -586,9 +652,13 @@ fun x86_signed_constant_divide(ctx: Any, n: Any, magic: Any, remainder: Any) -> 
         e8(ctx, 72); e8(ctx, 1); e8(ctx, 202); // add rdx, rcx
     }
     if (magic.shift > 0) { e8(ctx, 72); e8(ctx, 193); e8(ctx, 250); e8(ctx, magic.shift); }
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 200); // mov rax, rcx
-    e8(ctx, 72); e8(ctx, 193); e8(ctx, 232); e8(ctx, 63); // shr rax, 63
-    e8(ctx, 72); e8(ctx, 1); e8(ctx, 208); // add rax, rdx: truncated quotient
+    if (ctx.allocation.locations[n.left.slot].maximum != nil) {
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 208); // mov rax, rdx: nonnegative quotient
+    } else {
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 200); // mov rax, rcx
+        e8(ctx, 72); e8(ctx, 193); e8(ctx, 232); e8(ctx, 63); // shr rax, 63
+        e8(ctx, 72); e8(ctx, 1); e8(ctx, 208); // add rax, rdx: truncated quotient
+    }
     if (remainder) {
         x86_rax_operand(ctx, n.right, 175, true); // q*d; operand home is untouched
         e8(ctx, 72); e8(ctx, 41); e8(ctx, 193); // sub rcx, rax
@@ -808,7 +878,19 @@ fun cg_bin(ctx: Any, n: Any) -> Any {
     cg_expr(ctx, n.left);
     if (op == TK_PLUS) { x86_rax_operand(ctx, n.right, 3, false); }
     else if (op == TK_MINUS) { x86_rax_operand(ctx, n.right, 43, false); }
-    else if (op == TK_STAR) { x86_rax_operand(ctx, n.right, 175, true); }
+    else if (op == TK_STAR) {
+        let literal: Any = ctx.allocation.locations[n.right.slot].literal;
+        if (literal == 0) { mov_imm(ctx, 0); }
+        else if (literal == 1) { return 0; }
+        else if (literal == 3 or literal == 5 or literal == 9) {
+            e8(ctx, 72); e8(ctx, 141); e8(ctx, 4);
+            e8(ctx, if (literal == 3) { 64 } else if (literal == 5) { 128 } else { 192 });
+        } else {
+            let shift: Any = x86_divisor_shift(n.right);
+            if (literal != nil and shift > 0) { e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, shift); }
+            else { x86_rax_operand(ctx, n.right, 175, true); }
+        }
+    }
     else if (op == TK_SLASH or op == TK_PCT) {
         x86_get_temp(ctx, n.right, 1);
         e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249);

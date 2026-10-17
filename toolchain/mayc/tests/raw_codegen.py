@@ -156,6 +156,96 @@ def remainder_branches(compiler, work):
     print(f'PASS {len(names) * len(inputs)} full-width signed divisibility branches, reversed operands, observed remainders and retained load faults', flush=True)
 
 
+def small_multipliers(compiler, work):
+    source, binary = work / 'multipliers.may', work / 'multipliers'
+    rng = random.Random(7611)
+    inputs = [-(1 << 63), (1 << 63) - 1, -(1 << 62), -17, -1, 0, 1, 17, 1 << 62]
+    inputs += [rng.randrange(-(1 << 63), 1 << 63) for _ in range(20)]
+    factors = [0, 1, 2, 3, 4, 5, 7, 8, 9, 64, 1 << 30, 1 << 31, -3]
+    declarations, checks = [], []
+    for index, factor in enumerate(factors):
+        declarations.append(f'fun multiply{index}(n: Any) -> Any {{ return n * {factor}; }}')
+        for n in inputs:
+            expected = (n * factor + (1 << 63)) % (1 << 64) - (1 << 63)
+            checks.append(f'if multiply{index}({raw_integer(n)}) != {raw_integer(expected)} {{ exit(52); }}')
+    source.write_text('\n'.join(declarations + checks + ['exit(0);']))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    for index, factor in enumerate(factors):
+        body = function(assembly, f'multiply{index}')
+        if factor in [3, 5, 9]:
+            assert re.search(r'\blea\s+rax,', body) and not re.search(r'\bimul\b', body), body
+        elif factor in [2, 4, 8, 64, 1 << 30]:
+            assert re.search(r'\bshl\s+rax,', body) and not re.search(r'\bimul\b', body), body
+        elif factor in [0, 1]:
+            assert not re.search(r'\b(?:imul|shl|lea)\s+rax,', body), body
+        else:
+            assert re.search(r'\bimul\b', body), body
+    source.write_text('mut seen: Any = 0; fun effect() -> Any { seen = seen + 1; return 7; }\n'
+                      'if effect() * 0 != 0 or seen != 1 { exit(53); } exit(0);')
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    source.write_text('load64(0) * 0; exit(0);')
+    compile_source(compiler, source, binary, '--raw')
+    run(binary, -signal.SIGSEGV)
+    print(f'PASS {len(inputs) * len(factors)} full-width constant products, wraparound, instruction selection and retained effects/faults', flush=True)
+
+
+def local_recurrences(compiler, work):
+    source, binary = work / 'recurrences.may', work / 'recurrences'
+    cases = [
+        ('bounded', 1, 5, 97, ''),
+        ('negative', -1, 5, 97, ''),
+        ('overflow', 8, (1 << 60) - 1, 97, ''),
+        ('reset', 1, 5, 97, 'if i == 7 { state = -5; }'),
+        ('memory', 1, 5, 97, 'load8(addr("Q"));'),
+        ('unknown', 1, 5, 97, 'if i == 7 { state = seed; }')]
+    rng = random.Random(7612)
+    for index in range(24):
+        divisor = rng.randrange(3, 10000)
+        factor = rng.randrange(1, 1000000)
+        cases.append((f'bounded{index}', rng.randrange(divisor), factor, divisor, ''))
+    for index in range(16):
+        cases.append((f'overflow{index}', rng.randrange(2, 97), rng.randrange(1 << 58, 1 << 60), 97, ''))
+    declarations, checks = [], []
+    for name, initial, factor, divisor, extra in cases:
+        declarations.append(f'fun {name}(seed: Any) -> Any {{ mut state: Any = {initial}; mut i: Any = 0; '
+                            f'while i < 20 {{ state = state * {factor} % {divisor}; {extra} i = i + 1; }} return state % 4; }}')
+        state = initial
+        for i in range(20):
+            product = (state * factor + (1 << 63)) % (1 << 64) - (1 << 63)
+            quotient = abs(product) // divisor * (-1 if product < 0 else 1)
+            state = product - quotient * divisor
+            if i == 7 and name in ['reset', 'unknown']:
+                state = -5
+        expected = abs(state) % 4 * (-1 if state < 0 else 1)
+        checks.append(f'if {name}(-5) != {expected} {{ exit(54); }}')
+    # Two recurrence steps share one inductive bound, including backedges and
+    # nested branches. A constant reset is deliberately outside this rule.
+    declarations.append('fun alternatives() -> Any { mut state: Any = 1; mut i: Any = 0; while i < 40 { '
+                        'if i % 2 == 0 { state = state * 5 % 97; } else { state = state * 7 % 101; } '
+                        'i = i + 1; } return state % 4; }')
+    state = 1
+    for i in range(40):
+        state = state * (5 if i % 2 == 0 else 7) % (97 if i % 2 == 0 else 101)
+    checks += [f'if alternatives() != {state % 4} {{ exit(55); }}', 'exit(0);']
+    source.write_text('\n'.join(declarations + checks))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    bounded = function(assembly, 'bounded')
+    assert re.search(r'\band\s+rax,0x3\b', bounded), bounded
+    assert not re.search(r'\b(?:sar\s+rcx|shr\s+rax),0x3f\b', bounded), bounded
+    for name, *_ in cases:
+        body = function(assembly, name)
+        if name.startswith('bounded'):
+            assert not re.search(r'\b(?:sar\s+rcx|shr\s+rax),0x3f\b', body), (name, body)
+        else:
+            assert re.search(r'\bsar\s+rcx,0x3f\b', body), (name, body)
+    print(f'PASS {len(cases) + 1} local recurrence oracles, alternative steps, negative/unknown/reset values, overflow and memory barriers', flush=True)
+
+
 def reciprocal_oracle():
     # Independent arbitrary-precision model of the sufficient reciprocal error
     # bound. Exhaust every signed dividend/non-power divisor at small widths.
@@ -285,7 +375,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         bounded = function(assembly, 'bounded')
         assert re.search(r'\band\s+rax,0x1\b', bounded) and not re.search(r'\bsar\b', bounded), bounded
         assert re.search(r'\bshr\s+rax,0x3\b', function(assembly, 'halve'))
-        assert re.search(r'\bsar\s+rcx,0x3f\b', function(assembly, 'wrapped'))
+        assert re.search(r'\bshr\s+rcx,0x3f\b', function(assembly, 'wrapped'))
         for name in operations:
             assert re.search(r'\bset\w+\b', function(assembly, 'value_' + name))
         assert re.search(r'\bsetl\b', function(assembly, 'reused'))
@@ -368,6 +458,8 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         address_arguments(compiler, work)
         dead_expressions(compiler, work)
         remainder_branches(compiler, work)
+        small_multipliers(compiler, work)
+        local_recurrences(compiler, work)
 
         unit = work / 'unit'
         compile_source(compiler, HERE / 'backend/x86_codegen.may', unit)

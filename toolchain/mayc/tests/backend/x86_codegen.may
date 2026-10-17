@@ -146,6 +146,53 @@ let separatedLocal: Any = IRBlock([variable, Quad(IR_LABEL, 0, 0, 0, 50, 0), bin
 ctx.allocation = lsra_allocate(separatedLocal, [12, 13]);
 require(x86_borrow_operand(ctx, separatedLocal, variable) == false);
 ctx.locals = [];
+// Inductive local ranges require a literal nonnegative initializer and every
+// write to preserve x = x*c%d without overflow. No register homes are changed.
+let stateName: Any = "state";
+let initial: Any = IRValue(E_INT, 5, 1, 0, 0, 0, 0);
+let declare: Any = Quad(S_LET, 0, initial, 0,
+    {"name": addr(stateName), "length": len(stateName), "initializer": initial, "global": 0}, 0);
+let stateRead: Any = Quad(E_VAR, a, 0, 0, {"name": addr(stateName), "length": len(stateName)}, 0);
+let factor: Any = Quad(E_INT, b, 0, 0, {"value": 5}, 0);
+let product: Any = Quad(E_BIN, result, a, b, {"op": TK_STAR, "left": a, "right": b}, 0);
+let divisor: Any = value(4);
+let modulus: Any = Quad(E_INT, divisor, 0, 0, {"value": 97}, 0);
+let reduce: Any = Quad(E_BIN, unused, result, divisor, {"op": TK_PCT, "left": result, "right": divisor}, 0);
+let update: Any = Quad(S_ASSIGN, 0, unused, 0,
+    {"name": addr(stateName), "length": len(stateName), "value": unused}, 0);
+let recurrenceCode: Any = [Quad(E_INT, initial, 0, 0, {"value": 1}, 0), declare,
+    stateRead, factor, product, modulus, reduce, update];
+let recurrence: Any = IRBlock(recurrenceCode, 6);
+ctx.allocation = lsra_plan(recurrence, [12, 13], true);
+let bounds: Any = x86_local_recurrences(ctx, recurrence);
+require(bounds[stateName].valid == true and bounds[stateName].maximum == 96);
+push(ctx.locals, [addr(stateName), len(stateName)]);
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+ctx.locals = []; ctx.boxed = [[addr(stateName), len(stateName)]];
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+ctx.boxed = [];
+push(recurrenceCode, Quad(E_CALL, 0, 0, 0, {"args": 0}, 0));
+require(len(keys(x86_local_recurrences(ctx, recurrence))) == 0);
+pop(recurrenceCode);
+push(recurrenceCode, declare);
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+pop(recurrenceCode);
+update.extra.value = initial;
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+update.extra.value = unused;
+for replacement: Any in [-5, 1152921504606846975] {
+    factor.extra.value = replacement;
+    ctx.allocation = lsra_plan(recurrence, [12, 13], true);
+    require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+}
+factor.extra.value = 5;
+recurrenceCode[0].extra.value = -1;
+ctx.allocation = lsra_plan(recurrence, [12, 13], true);
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+recurrenceCode[0].extra.value = 1;
+recurrence.code = [stateRead, recurrenceCode[0], declare, factor, product, modulus, reduce, update];
+ctx.allocation = lsra_plan(recurrence, [12, 13], true);
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
 // Divisibility is a branch predicate, not a replacement for observable signed
 // remainder. Check both branch polarities and either comparison operand order.
 let power: Any = IRValue(E_INT, 1, 8, 0, 0, 0, 0);
