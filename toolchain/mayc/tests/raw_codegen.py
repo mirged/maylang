@@ -397,6 +397,178 @@ def direct_local_operations(compiler, work):
     print(f'PASS {5 * len(specs) * len(seeds)} full-width direct-local arithmetic cases across RBX/R12-R15, observable assignments and division traps', flush=True)
 
 
+def select_diamonds(compiler, work):
+    """Differential oracle for branch-free scalar diamonds (#78)."""
+    source, binary = work / 'select.may', work / 'select'
+    rng = random.Random(78)
+    wrap = lambda n: (n + (1 << 63)) % (1 << 64) - (1 << 63)
+    names = ['x', 'y', 'z', 'w']
+    literals = [0, 1, 2, 3, 7, 127, 128, 2147483647, 4294967296, 1152921504606846975]
+    powers = [1, 2, 4, 8, 1 << 30]
+
+    def divide(n, d):
+        return abs(n) // d * (-1 if n < 0 else 1)
+
+    def expression():
+        v, u, k = rng.choice(names), rng.choice(names), rng.choice(literals)
+        p = rng.choice(powers)
+        return rng.choice([('var', v), ('lit', k), ('+', ('var', v), ('lit', k)), ('-', ('var', v), ('lit', k)),
+                           ('-', ('lit', k), ('var', v)), ('+', ('var', v), ('var', u)), ('-', ('var', v), ('var', u)),
+                           ('*', ('var', v), ('lit', rng.choice([0, 1, 2, 3, 5, 8, 9, 10, 1 << 20]))),
+                           ('*', ('lit', rng.choice([3, 7])), ('var', v)), ('*', ('var', v), ('var', u)),
+                           ('neg', ('var', v)), ('/', ('var', v), ('lit', p)), ('%', ('var', v), ('lit', p)),
+                           ('+', ('*', ('var', v), ('lit', 3)), ('lit', 1))])
+
+    def condition():
+        v, u, k = rng.choice(names), rng.choice(names), rng.choice(literals[:8])
+        op = rng.choice(['<', '<=', '>', '>=', '==', '!='])
+        p = rng.choice(powers[1:])
+        return rng.choice([(op, ('var', v), ('lit', k)), (op, ('lit', k), ('var', v)), (op, ('var', v), ('var', u)),
+                           ('==', ('%', ('var', v), ('lit', p)), ('lit', 0)), ('!=', ('%', ('var', v), ('lit', p)), ('lit', 0)),
+                           ('==', ('lit', 0), ('%', ('var', v), ('lit', p))), ('truthy', ('%', ('var', v), ('lit', p))),
+                           ('truthy', ('var', v))])
+
+    def statements(depth):
+        result = []
+        for _ in range(rng.randint(0 if depth else 1, 2)):
+            choice = rng.random()
+            if depth < 3 and choice < 0.45:
+                otherwise = None
+                if rng.random() < 0.7:
+                    otherwise = [statements(depth + 1)[0]] if rng.random() < 0.4 and depth < 2 else statements(depth + 1)
+                result.append(('if', condition(), statements(depth + 1), otherwise))
+            elif choice < 0.52:
+                result.append(('ifexpr', rng.choice(names), condition(), expression(), expression()))
+            else:
+                result.append(('assign', rng.choice(names), expression()))
+        return result or [('assign', rng.choice(names), expression())]
+
+    def render(node):
+        kind = node[0]
+        if kind == 'var':
+            return node[1]
+        if kind == 'lit':
+            return str(node[1])
+        if kind == 'neg':
+            return f'(-{render(node[1])})'
+        if kind == 'truthy':
+            return render(node[1])
+        return f'({render(node[1])} {kind} {render(node[2])})'
+
+    def render_statements(items):
+        out = []
+        for item in items:
+            if item[0] == 'assign':
+                out.append(f'{item[1]} = {render(item[2])};')
+            elif item[0] == 'ifexpr':
+                out.append(f'{item[1]} = if {render(item[2])} {{ {render(item[3])} }} else {{ {render(item[4])} }};')
+            else:
+                text = f'if {render(item[1])} {{ {" ".join(render_statements(item[2]))} }}'
+                if item[3] is not None:
+                    if len(item[3]) == 1 and item[3][0][0] == 'if':
+                        text += ' else ' + render_statements(item[3])[0]
+                    else:
+                        text += f' else {{ {" ".join(render_statements(item[3]))} }}'
+                out.append(text)
+        return out
+
+    def value(node, env):
+        kind = node[0]
+        if kind == 'var':
+            return env[node[1]]
+        if kind == 'lit':
+            return node[1]
+        if kind == 'neg':
+            return wrap(-value(node[1], env))
+        if kind == 'truthy':
+            return int(value(node[1], env) != 0)
+        a, b = value(node[1], env), value(node[2], env)
+        return {'+': lambda: wrap(a + b), '-': lambda: wrap(a - b), '*': lambda: wrap(a * b),
+                '/': lambda: divide(a, b), '%': lambda: a - divide(a, b) * b,
+                '<': lambda: int(a < b), '<=': lambda: int(a <= b), '>': lambda: int(a > b),
+                '>=': lambda: int(a >= b), '==': lambda: int(a == b), '!=': lambda: int(a != b)}[kind]()
+
+    def execute(items, env):
+        for item in items:
+            if item[0] == 'assign':
+                env[item[1]] = value(item[2], env)
+            elif item[0] == 'ifexpr':
+                env[item[1]] = value(item[3] if value(item[2], env) else item[4], env)
+            elif value(item[1], env):
+                execute(item[2], env)
+            elif item[3] is not None:
+                execute(item[3], env)
+
+    seeds = [(-(1 << 63), (1 << 63) - 1), (-1, 0), (0, 1), (5, -7), (1 << 40, 3), (6, 6), (-(1 << 62), -9)]
+    declarations, checks = [], []
+    for index in range(160):
+        body = statements(0)
+        rounds = rng.randint(1, 4)
+        declarations.append(f'fun select{index}(a: Any, b: Any) -> Any {{ mut x: Any = a; mut y: Any = b; mut z: Any = a - b; '
+                            f'mut w: Any = 3; mut i: Any = 0; while i < {rounds} {{ {" ".join(render_statements(body))} i = i + 1; }} '
+                            'return x + y * 3 + z * 5 + w * 7; }')
+        for a, b in rng.sample(seeds, 3):
+            env = {'x': a, 'y': b, 'z': wrap(a - b), 'w': 3}
+            for _ in range(rounds):
+                execute(body, env)
+            expected = wrap(env['x'] + env['y'] * 3 + env['z'] * 5 + env['w'] * 7)
+            checks.append(f'if select{index}({raw_integer(a)}, {raw_integer(b)}) != {raw_integer(expected)} {{ exit(65); }}')
+    # Fixed contracts: untaken traps and loads never run, if-results stay
+    # observable, sequential aliasing keeps its order and wrapping is exact.
+    declarations += [
+        'fun walk(seed: Any) -> Any { mut s: Any = seed; mut x: Any = 0; mut y: Any = 0; mut i: Any = 0; '
+        'while i < 64 { s = s * 16807 % 2147483647; let d: Any = s % 4; '
+        'if d == 0 { x = x + 1; } else if d == 1 { x = x - 1; } else if d == 2 { y = y + 1; } else { y = y - 1; } i = i + 1; } '
+        'return x * 1000 + y; }',
+        'fun guarded(n: Any, d: Any) -> Any { mut q: Any = n; mut i: Any = 0; mut r: Any = 0; '
+        'while i < 2 { if d == 0 { q = q + 1; } else { q = q / 3; } if q == 12345 { r = q / 0; } i = i + 1; } return q + r; }',
+        'fun minimum(n: Any) -> Any { mut q: Any = n; mut i: Any = 0; while i < 1 { if q != -1 { q = q / 2; } else { q = q % 4; } i = i + 1; } return q; }',
+        'fun swap(a: Any, b: Any) -> Any { mut x: Any = a; mut y: Any = b; mut i: Any = 0; '
+        'while i < 3 { if x < y { x = y; y = x; } else { y = x + 1; x = y - 2; } i = i + 1; } return x * 7 + y; }',
+        'fun wide(n: Any) -> Any { mut x: Any = n; mut i: Any = 0; while i < 2 { if x > 0 { x = x + 4294967296; } else { x = x - 1; } i = i + 1; } return x; }',
+        'fun loaded(p: Any, n: Any) -> Any { mut x: Any = n; mut i: Any = 0; while i < 4 { if p != 0 { x = x + load8(p); } i = i + 1; } return x; }',
+        'fun empty(n: Any) -> Any { mut x: Any = n; mut i: Any = 0; while i < 3 { if x > 0 { } else { } x = x + 1; i = i + 1; } return x; }',
+    ]
+    s, x, y = 7, 0, 0
+    for _ in range(64):
+        s = s * 16807 % 2147483647
+        d = s % 4
+        x, y = x + (d == 0) - (d == 1), y + (d == 2) - (d == 3)
+    big = (1 << 63) - 1
+
+    def swap(x, y):
+        for _ in range(3):
+            if x < y:
+                x = y
+            else:
+                y = x + 1
+                x = y - 2
+        return x * 7 + y
+
+    def wide(x):
+        for _ in range(2):
+            x = wrap(x + 4294967296) if x > 0 else x - 1
+        return x
+    checks += [f'if walk(7) != {x * 1000 + y} {{ exit(66); }}',
+               'if guarded(100, 0) != 102 or guarded(100, 5) != 11 { exit(67); }',
+               f'if minimum({raw_integer(-(1 << 63))}) != {raw_integer(-(1 << 62))} or minimum(-1) != -1 or minimum(-7) != -3 {{ exit(68); }}',
+               f'if swap(1, 5) != {swap(1, 5)} or swap(9, 2) != {swap(9, 2)} {{ exit(69); }}',
+               f'if wide({raw_integer(big)}) != {raw_integer(wide(big))} or wide(0) != {wide(0)} {{ exit(70); }}',
+               'if loaded(0, 3) != 3 or empty(-1) != 2 { exit(71); }', 'exit(0);']
+    source.write_text('\n'.join(declarations + checks))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    converted = sum(1 for index in range(160) if re.search(r'\bcmov', function(assembly, f'select{index}')))
+    walk = function(assembly, 'walk')
+    assert re.search(r'\bcmove\b', walk) and len(re.findall(r'\bj(?!mp)\w+', walk)) == 1, walk
+    for name in ['guarded', 'loaded']:
+        assert re.search(r'\bj(?!mp)\w+', function(assembly, name)), name
+    assert converted >= 40, converted
+    print(f'PASS {len(checks) - 1} branch-free diamond oracles; {converted}/160 random functions use cmov; '
+          'traps, loads, if-results and aliasing keep exact behavior', flush=True)
+
+
 def reciprocal_oracle():
     # Independent arbitrary-precision model of the sufficient reciprocal error
     # bound. Exhaust every signed dividend/non-power divisor at small widths.
@@ -614,6 +786,7 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         local_recurrences(compiler, work)
         local_registers(compiler, work)
         direct_local_operations(compiler, work)
+        select_diamonds(compiler, work)
 
         unit = work / 'unit'
         compile_source(compiler, HERE / 'backend/x86_codegen.may', unit)

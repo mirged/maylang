@@ -169,6 +169,7 @@ fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
     if (locals != 0) {
         ctx.allocation.localRegisters = locals.registers;
         for register: Any in locals.used { push(ctx.allocation.used, register); }
+        ctx.allocation.induction = x86_induction_locals(ctx, planned);
     }
     if (ctx.mode == 0) {
         for location: Any in ctx.allocation.locations {
@@ -293,6 +294,12 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
         if (ctx.mode == 0) {
+            let selected: Any = x86_select_region(ctx, block, ctx.allocation.position);
+            if (selected >= 0) {
+                ctx.allocation.accumulator = -1;
+                fusedBranch = selected;
+                continue;
+            }
             let localOperation: Any = x86_local_operation(ctx, block, instruction);
             if (localOperation >= 0) {
                 ctx.allocation.accumulator = -1;
@@ -986,6 +993,458 @@ fun x86_remainder_branch(ctx: Any, block: Any, instruction: Any) -> Any {
     }
     jcc(ctx, condition, block.code[branch].extra);
     return branch;
+}
+
+// Short statement diamonds over dedicated local registers can run without
+// branches (#78). Both arms are evaluated speculatively into caller-saved
+// scratch registers; conditional moves then select each surviving value and
+// the dedicated homes are written once. Only register arithmetic qualifies:
+// it cannot call, touch memory or fault, and wraps exactly like the branch
+// form. Division/remainder accept positive power-of-two literals only, which
+// never trap. Observable if-results, temporaries that outlive the region or a
+// nested diamond, frame/global names, other control flow and every
+// unsupported instruction keep the branches. A rejected match rolls back the
+// bytes it emitted; it adds no labels, fixups or relocations.
+let X86_SELECT_SCRATCH: Any = [11, 10, 9, 8, 7, 6, 2, 1, 0];
+let X86_SELECT_LIMIT: Any = 16;
+let X86_SELECT_PREFIX: Any = 8;
+
+// kind: 0 register, 1 literal, 2 lazy comparison, 3 lazy signed % 2^literal.
+struct X86SelectValue { kind: Any, register: Any, literal: Any, op: Any, left: Any, right: Any }
+struct X86Select { env: Any, values: Any, free: Any, cost: Any, valid: Any, data: Any }
+
+fun x86_select_register(register: Any) -> Any { return X86SelectValue(0, register, nil, 0, 0, 0); }
+fun x86_select_literal(literal: Any) -> Any { return X86SelectValue(1, -1, literal, 0, 0, 0); }
+
+fun x86_select_scratch(plan: Any) -> Any {
+    if (len(plan.free) == 0) { plan.valid = false; return -1; }
+    return pop(plan.free);
+}
+
+fun x86_select_dedicated(register: Any) -> Any {
+    return register == 3 or register >= 12;
+}
+
+fun x86_select_extended(reg: Any, rm: Any) -> Any {
+    return 72 + if (reg >= 8) { 4 } else { 0 } + if (rm >= 8) { 1 } else { 0 };
+}
+
+// op r/m64, r64 for add (1), sub (41) and cmp (57).
+fun x86_select_register_operation(ctx: Any, opcode: Any, target: Any, source: Any) -> Any {
+    e8(ctx, x86_select_extended(source, target)); e8(ctx, opcode); e8(ctx, 192 + (source % 8) * 8 + target % 8);
+    return 0;
+}
+
+fun x86_select_shift(ctx: Any, register: Any, extension: Any, count: Any) -> Any {
+    e8(ctx, if (register >= 8) { 73 } else { 72 }); e8(ctx, 193); e8(ctx, 192 + extension * 8 + register % 8); e8(ctx, count);
+    return 0;
+}
+
+// lea target, [base + index*scale + displacement]; index < 0 omits it.
+fun x86_select_lea(ctx: Any, target: Any, base: Any, index: Any, scale: Any, displacement: Any) -> Any {
+    e8(ctx, 72 + if (target >= 8) { 4 } else { 0 } + if (index >= 8) { 2 } else { 0 } + if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 141);
+    let narrow: Any = displacement >= -128 and displacement <= 127;
+    // [rbp]/[r13] has no displacement-free form.
+    let mode: Any = if (displacement == 0 and base % 8 != 5) { 0 } else if (narrow) { 64 } else { 128 };
+    if (index < 0 and base % 8 != 4) { e8(ctx, mode + (target % 8) * 8 + base % 8); }
+    else {
+        e8(ctx, mode + (target % 8) * 8 + 4);
+        let bits: Any = if (scale == 8) { 192 } else if (scale == 4) { 128 } else if (scale == 2) { 64 } else { 0 };
+        e8(ctx, bits + (if (index < 0) { 4 } else { index % 8 }) * 8 + base % 8);
+    }
+    if (mode == 64) { e8(ctx, displacement); } else if (mode == 128) { e32(ctx, displacement); }
+    return 0;
+}
+
+fun x86_select_imm32(literal: Any) -> Any {
+    return literal != nil and literal >= -2147483648 and literal <= 2147483647;
+}
+
+// Give a value a register. Literals and lazy remainders cost scratch; lazy
+// comparisons are only branch predicates here.
+fun x86_select_materialize(ctx: Any, plan: Any, value: Any) -> Any {
+    if (value.kind == 0) { return value.register; }
+    if (value.kind == 2) { plan.valid = false; return -1; }
+    let target: Any = x86_select_scratch(plan);
+    if (target < 0) { return -1; }
+    plan.cost += 1;
+    if (value.kind == 1) { x86_mov_immediate(ctx, target, value.literal); return target; }
+    // Signed n % 2^k = n - ((n + bias) & -2^k), bias = 2^k-1 only for negative n.
+    let source: Any = value.register; let shift: Any = value.literal;
+    x86_move_register(ctx, target, source);
+    if (shift == 1) { x86_select_shift(ctx, target, 5, 63); }
+    else { x86_select_shift(ctx, target, 7, 63); x86_select_shift(ctx, target, 5, 64 - shift); }
+    x86_select_register_operation(ctx, 1, target, source);
+    x86_register_immediate(ctx, target, 4, 0 - x86_select_power(shift));
+    e8(ctx, if (target >= 8) { 73 } else { 72 }); e8(ctx, 247); e8(ctx, 216 + target % 8); // neg
+    x86_select_register_operation(ctx, 1, target, source);
+    plan.cost += 5;
+    return target;
+}
+
+fun x86_select_power(shift: Any) -> Any {
+    mut power: Any = 1;
+    for index: Any in 0..shift { power *= 2; }
+    return power;
+}
+
+// Shift for a positive power-of-two imm32 multiplier, otherwise -1.
+fun x86_select_log2(literal: Any) -> Any {
+    mut power: Any = 1; mut shift: Any = 0;
+    while (power < literal and shift < 31) { power *= 2; shift += 1; }
+    return if (power == literal) { shift } else { -1 };
+}
+
+fun x86_select_binary(ctx: Any, plan: Any, instruction: Any) -> Any {
+    let payload: Any = instruction.extra; let op: Any = payload.op;
+    if (not has(plan.values, payload.left.slot) or not has(plan.values, payload.right.slot)) { return false; }
+    mut a: Any = plan.values[payload.left.slot];
+    mut b: Any = plan.values[payload.right.slot];
+    let slot: Any = instruction.result.slot;
+    if (x86_comparison_condition(op) >= 0) {
+        plan.values[slot] = X86SelectValue(2, -1, nil, op, a, b);
+        return true;
+    }
+    if (op == TK_PCT or op == TK_SLASH) {
+        let shift: Any = x86_divisor_shift(payload.right);
+        if (shift < 0 or b.kind != 1 or b.literal != payload.right.value or a.kind == 1) { return false; }
+        let source: Any = x86_select_materialize(ctx, plan, a);
+        if (source < 0) { return false; }
+        if (op == TK_PCT) {
+            plan.values[slot] = if (shift == 0) { x86_select_literal(0) } else { X86SelectValue(3, source, shift, 0, 0, 0) };
+            return true;
+        }
+        if (shift == 0) { plan.values[slot] = x86_select_register(source); return true; }
+        let target: Any = x86_select_scratch(plan);
+        if (target < 0) { return false; }
+        // Truncate toward zero exactly as the branch form's signed division.
+        x86_move_register(ctx, target, source);
+        if (shift == 1) { x86_select_shift(ctx, target, 5, 63); }
+        else { x86_select_shift(ctx, target, 7, 63); x86_select_shift(ctx, target, 5, 64 - shift); }
+        x86_select_register_operation(ctx, 1, target, source);
+        x86_select_shift(ctx, target, 7, shift);
+        plan.cost += 4;
+        plan.values[slot] = x86_select_register(target);
+        return true;
+    }
+    if (op != TK_PLUS and op != TK_MINUS and op != TK_STAR) { return false; }
+    if (a.kind == 1 and b.kind == 1) { return false; }
+    if (op != TK_MINUS and a.kind == 1) { let swapped: Any = a; a = b; b = swapped; }
+    if (b.kind != 1) {
+        let right: Any = x86_select_materialize(ctx, plan, b);
+        if (right < 0) { return false; }
+        b = x86_select_register(right);
+    }
+    if (a.kind != 1) {
+        let left: Any = x86_select_materialize(ctx, plan, a);
+        if (left < 0) { return false; }
+        a = x86_select_register(left);
+    }
+    if (op == TK_STAR and b.kind == 1 and (b.literal == 0 or b.literal == 1)) {
+        plan.values[slot] = if (b.literal == 0) { x86_select_literal(0) } else { a };
+        return true;
+    }
+    if (b.kind == 1 and not x86_select_imm32(b.literal)) { return false; }
+    let target: Any = x86_select_scratch(plan);
+    if (target < 0) { return false; }
+    plan.cost += 1;
+    if (op == TK_PLUS) {
+        if (b.kind == 1) { x86_select_lea(ctx, target, a.register, -1, 1, b.literal); }
+        else { x86_select_lea(ctx, target, a.register, b.register, 1, 0); }
+    } else if (op == TK_MINUS) {
+        if (b.kind == 1 and x86_select_imm32(0 - b.literal)) { x86_select_lea(ctx, target, a.register, -1, 1, 0 - b.literal); }
+        else if (b.kind == 1) { return false; }
+        else {
+            if (a.kind == 1) { x86_mov_immediate(ctx, target, a.literal); }
+            else { x86_move_register(ctx, target, a.register); }
+            x86_select_register_operation(ctx, 41, target, b.register);
+            plan.cost += 1;
+        }
+    } else if (b.kind == 1) {
+        let literal: Any = b.literal;
+        let shift: Any = x86_select_log2(literal);
+        if (literal == 3 or literal == 5 or literal == 9) {
+            x86_select_lea(ctx, target, a.register, a.register, literal - 1, 0);
+        } else if (shift > 0) {
+            x86_move_register(ctx, target, a.register); x86_select_shift(ctx, target, 4, shift);
+            plan.cost += 1;
+        } else {
+            let narrow: Any = literal >= -128 and literal <= 127;
+            e8(ctx, x86_select_extended(target, a.register)); e8(ctx, if (narrow) { 107 } else { 105 });
+            e8(ctx, 192 + (target % 8) * 8 + a.register % 8);
+            if (narrow) { e8(ctx, literal); } else { e32(ctx, literal); }
+        }
+    } else {
+        x86_move_register(ctx, target, a.register);
+        e8(ctx, x86_select_extended(target, b.register)); e8(ctx, 15); e8(ctx, 175);
+        e8(ctx, 192 + (target % 8) * 8 + b.register % 8);
+        plan.cost += 1;
+    }
+    plan.values[slot] = x86_select_register(target);
+    return true;
+}
+
+// Locals written only as v = literal or v = v +/- literal. Their predicates
+// follow periodic or monotone patterns that branch predictors learn, so
+// diamonds testing only these values and literals keep the branch form.
+fun x86_induction_locals(ctx: Any, block: Any) -> Any {
+    let result: Any = {};
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        if (op != S_LET and op != S_ASSIGN) { continue; }
+        let payload: Any = instruction.extra;
+        let name: Any = symbol_name(payload.name, payload.length);
+        let value: Any = if (op == S_LET) { payload.initializer } else { payload.value };
+        mut regular: Any = ctx.allocation.locations[value.slot].literal != nil;
+        if (not regular and op == S_ASSIGN) {
+            let step: Any = x86_single_definition(ctx, block, value);
+            if (step != 0 and step.op == E_BIN and (step.extra.op == TK_PLUS or step.extra.op == TK_MINUS) and
+                ctx.allocation.locations[step.extra.right.slot].literal != nil) {
+                let previous: Any = x86_single_definition(ctx, block, step.extra.left);
+                regular = previous != 0 and previous.op == E_VAR and symbol_name(previous.extra.name, previous.extra.length) == name;
+            }
+        }
+        result[name] = regular and (not has(result, name) or result[name]);
+    }
+    return result;
+}
+
+// Speculate one non-control instruction. Every result is a scratch register,
+// a dedicated local's current register, a literal or a lazy predicate.
+fun x86_select_step(ctx: Any, block: Any, plan: Any, instruction: Any) -> Any {
+    let op: Any = instruction.op; let payload: Any = instruction.extra;
+    if (op == 0 or x86_dead_copy(ctx, instruction)) { return true; }
+    if (instruction.result != 0) {
+        // Track whether a value depends on data rather than only on
+        // induction locals and literals; see x86_induction_locals.
+        let slot: Any = instruction.result.slot;
+        if (op == E_VAR) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (has(plan.env, name) or not has(ctx.allocation.induction, name) or not ctx.allocation.induction[name]) { plan.data[slot] = true; }
+        } else if (op == E_BIN and (has(plan.data, payload.left.slot) or has(plan.data, payload.right.slot))) { plan.data[slot] = true; }
+        else if (op == E_UN and has(plan.data, payload.operand.slot)) { plan.data[slot] = true; }
+    }
+    if (instruction.result != 0) {
+        // cg_ir walks the unplanned block: discarded results have no
+        // definition and literal intrinsics are rematerialized E_INTs.
+        let location: Any = ctx.allocation.locations[instruction.result.slot];
+        if (location.definitions == 0 and location.uses == 0) { return true; }
+        if (location.literal != nil) { plan.values[instruction.result.slot] = x86_select_literal(location.literal); return true; }
+    }
+    if (op == E_INT) { return false; }
+    if (op == E_VAR) {
+        let register: Any = x86_local_register(ctx, payload.name, payload.length);
+        if (register < 0) { return false; }
+        let name: Any = symbol_name(payload.name, payload.length);
+        plan.values[instruction.result.slot] = x86_select_register(if (has(plan.env, name)) { plan.env[name] } else { register });
+        return true;
+    }
+    if (op == E_BIN) { return x86_select_binary(ctx, plan, instruction); }
+    if (op == E_UN and payload.op == TK_MINUS and has(plan.values, payload.operand.slot)) {
+        let operand: Any = plan.values[payload.operand.slot];
+        if (operand.kind == 1) { return false; }
+        let source: Any = x86_select_materialize(ctx, plan, operand);
+        let target: Any = x86_select_scratch(plan);
+        if (source < 0 or target < 0) { return false; }
+        x86_move_register(ctx, target, source);
+        e8(ctx, if (target >= 8) { 73 } else { 72 }); e8(ctx, 247); e8(ctx, 216 + target % 8);
+        plan.cost += 2;
+        plan.values[instruction.result.slot] = x86_select_register(target);
+        return true;
+    }
+    if (op == S_ASSIGN) {
+        let own: Any = x86_local_register(ctx, payload.name, payload.length);
+        if (own < 0 or not has(plan.values, payload.value.slot)) { return false; }
+        mut register: Any = x86_select_materialize(ctx, plan, plan.values[payload.value.slot]);
+        if (register < 0) { return false; }
+        // Never alias another local's home: the final writes are then a
+        // conflict-free set of moves from scratch registers.
+        if (x86_select_dedicated(register) and register != own) {
+            let copy: Any = x86_select_scratch(plan);
+            if (copy < 0) { return false; }
+            x86_move_register(ctx, copy, register); plan.cost += 1;
+            register = copy;
+        }
+        plan.env[symbol_name(payload.name, payload.length)] = register;
+        return true;
+    }
+    return false;
+}
+
+fun x86_select_copy(map: Any) -> Any {
+    let result: Any = {};
+    for key: Any in keys(map) { result[key] = map[key]; }
+    return result;
+}
+
+// Emit the predicate's flags. Returns the condition code that holds when the
+// then arm would run, or -1 for a predicate this lowering cannot test.
+fun x86_select_condition(ctx: Any, plan: Any, value: Any) -> Any {
+    if (value.kind == 0) {
+        e8(ctx, x86_select_extended(value.register, value.register)); e8(ctx, 133);
+        e8(ctx, 192 + (value.register % 8) * 9);
+        return 133;
+    }
+    if (value.kind == 3) {
+        e8(ctx, if (value.register >= 8) { 73 } else { 72 }); e8(ctx, 247); e8(ctx, 192 + value.register % 8);
+        e32(ctx, x86_select_power(value.literal) - 1);
+        return 133;
+    }
+    if (value.kind != 2) { return -1; }
+    mut left: Any = value.left; mut right: Any = value.right; mut op: Any = value.op;
+    // Signed n % 2^k is zero exactly when n's low k bits are zero.
+    if ((op == TK_EQ or op == TK_NE) and (left.kind == 3 or right.kind == 3)) {
+        let remainder: Any = if (left.kind == 3) { left } else { right };
+        let other: Any = if (left.kind == 3) { right } else { left };
+        if (other.kind == 1 and other.literal == 0) {
+            e8(ctx, if (remainder.register >= 8) { 73 } else { 72 }); e8(ctx, 247); e8(ctx, 192 + remainder.register % 8);
+            e32(ctx, x86_select_power(remainder.literal) - 1);
+            return x86_comparison_condition(op);
+        }
+    }
+    if (left.kind == 1 and right.kind == 1) { return -1; }
+    if (left.kind == 1) {
+        let swapped: Any = left; left = right; right = swapped;
+        if (op == TK_LT) { op = TK_GT; } else if (op == TK_GT) { op = TK_LT; }
+        else if (op == TK_LE) { op = TK_GE; } else if (op == TK_GE) { op = TK_LE; }
+    }
+    let register: Any = x86_select_materialize(ctx, plan, left);
+    if (register < 0) { return -1; }
+    if (right.kind == 1) {
+        if (not x86_select_imm32(right.literal)) { return -1; }
+        x86_register_immediate(ctx, register, 7, right.literal);
+    } else {
+        let other: Any = x86_select_materialize(ctx, plan, right);
+        if (other < 0) { return -1; }
+        x86_select_register_operation(ctx, 57, register, other);
+    }
+    return x86_comparison_condition(op);
+}
+
+fun x86_select_cmov(ctx: Any, condition: Any, target: Any, source: Any) -> Any {
+    e8(ctx, x86_select_extended(target, source)); e8(ctx, 15); e8(ctx, condition - 64);
+    e8(ctx, 192 + (target % 8) * 8 + source % 8);
+    return 0;
+}
+
+// Parse and speculate one IR_FALSE diamond:
+//   IR_FALSE c, else; then...; IR_JUMP done; IR_LABEL else; else...; IR_LABEL done
+// Returns the done label's position, or -1 after marking the plan invalid.
+fun x86_select_diamond(ctx: Any, block: Any, plan: Any, position: Any) -> Any {
+    let branch: Any = block.code[position];
+    let condition: Any = branch.arg1.slot;
+    if (not has(plan.values, condition) or ctx.allocation.locations[condition].end != position) { plan.valid = false; return -1; }
+    // No speculated temporary may stay live across the arms or the merge.
+    for slot: Any in keys(plan.values) {
+        if (slot != condition and ctx.allocation.locations[slot].end >= position) { plan.valid = false; return -1; }
+    }
+    let predicate: Any = plan.values[condition];
+    if (not has(plan.data, condition)) { plan.valid = false; return -1; }
+    let before: Any = x86_select_copy(plan.env);
+    let available: Any = []; for register: Any in plan.free { push(available, register); }
+    let arms: Any = [];
+    mut done: Any = -1;
+    mut cursor: Any = position + 1;
+    for arm: Any in [0, 1] {
+        plan.env = x86_select_copy(before);
+        while (true) {
+            if (cursor >= len(block.code) or not plan.valid) { plan.valid = false; return -1; }
+            let instruction: Any = block.code[cursor];
+            let op: Any = instruction.op;
+            if (arm == 0 and op == IR_JUMP) {
+                let next: Any = cursor + 1;
+                if (next >= len(block.code) or block.code[next].op != IR_LABEL or block.code[next].extra != branch.extra) { plan.valid = false; return -1; }
+                done = instruction.extra; cursor = next + 1;
+                break;
+            }
+            if (arm == 1 and op == IR_LABEL and instruction.extra == done) { break; }
+            if (op == IR_FALSE) {
+                let nested: Any = x86_select_diamond(ctx, block, plan, cursor);
+                if (nested < 0) { return -1; }
+                cursor = nested + 1;
+                continue;
+            }
+            if (lsra_boundary(op) or not x86_select_step(ctx, block, plan, instruction)) { plan.valid = false; return -1; }
+            if (plan.cost > X86_SELECT_LIMIT) { plan.valid = false; return -1; }
+            cursor += 1;
+        }
+        push(arms, plan.env);
+    }
+    let thenEnv: Any = arms[0]; let elseEnv: Any = arms[1];
+    let names: Any = x86_select_copy(thenEnv);
+    for name: Any in keys(elseEnv) { names[name] = true; }
+    let born: Any = {}; for register: Any in available { born[register] = true; }
+    let references: Any = {};
+    for env: Any in arms {
+        for name: Any in keys(env) {
+            let register: Any = env[name];
+            references[register] = if (has(references, register)) { references[register] + 1 } else { 1 };
+        }
+    }
+    let merged: Any = x86_select_copy(before);
+    let moves: Any = [];
+    for name: Any in keys(names) {
+        let own: Any = ctx.allocation.localRegisters[name];
+        let fallback: Any = if (has(before, name)) { before[name] } else { own };
+        let taken: Any = if (has(thenEnv, name)) { thenEnv[name] } else { fallback };
+        let skipped: Any = if (has(elseEnv, name)) { elseEnv[name] } else { fallback };
+        if (taken == skipped) { merged[name] = taken; continue; }
+        // Reuse a register born in exactly one arm as the destination;
+        // otherwise copy the else value into fresh scratch before the test.
+        if (has(born, skipped) and references[skipped] == 1) { push(moves, [skipped, taken, false]); merged[name] = skipped; }
+        else if (has(born, taken) and references[taken] == 1) { push(moves, [taken, skipped, true]); merged[name] = taken; }
+        else {
+            let target: Any = x86_select_scratch(plan);
+            if (target < 0) { return -1; }
+            x86_move_register(ctx, target, skipped); plan.cost += 1;
+            push(moves, [target, taken, false]); merged[name] = target;
+        }
+    }
+    if (len(moves) > 0) {
+        let taken: Any = x86_select_condition(ctx, plan, predicate);
+        if (taken < 0) { plan.valid = false; return -1; }
+        let skipped: Any = if (taken % 2 == 0) { taken + 1 } else { taken - 1 };
+        for move: Any in moves { x86_select_cmov(ctx, if (move[2]) { skipped } else { taken }, move[0], move[1]); }
+    }
+    // Arm-born scratch survives only as a merged value.
+    let live: Any = {}; for name: Any in keys(merged) { live[merged[name]] = true; }
+    let free: Any = [];
+    for register: Any in available { if (not has(live, register)) { push(free, register); } }
+    plan.free = free;
+    plan.env = merged;
+    return cursor;
+}
+
+// Try one top-level diamond whose predicate starts at `start`. Returns the
+// last consumed position, or -1 with no bytes emitted.
+fun x86_select_region(ctx: Any, block: Any, start: Any) -> Any {
+    if (ctx.dynamic != 0 or ctx.mode != 0 or len(ctx.allocation.localRegisters) == 0) { return -1; }
+    let first: Any = block.code[start].op;
+    if (first != E_VAR and first != E_INT and first != E_BIN) { return -1; }
+    let origin: Any = ctx.code.length;
+    let plan: Any = X86Select({}, {}, [], 0, true, {});
+    for register: Any in X86_SELECT_SCRATCH { push(plan.free, register); }
+    mut position: Any = start;
+    while (position < len(block.code) and block.code[position].op != IR_FALSE) {
+        let instruction: Any = block.code[position];
+        if (position - start >= X86_SELECT_PREFIX or lsra_boundary(instruction.op) or instruction.op == S_ASSIGN or
+            not x86_select_step(ctx, block, plan, instruction)) { ctx.code.length = origin; return -1; }
+        position += 1;
+    }
+    mut end: Any = -1;
+    if (position < len(block.code) and plan.valid) { end = x86_select_diamond(ctx, block, plan, position); }
+    if (end >= 0 and plan.valid) {
+        for index: Any in start..(end + 1) {
+            let result: Any = block.code[index].result;
+            if (result != 0 and ctx.allocation.locations[result.slot].end > end) { plan.valid = false; }
+        }
+    }
+    if (end < 0 or not plan.valid) { ctx.code.length = origin; return -1; }
+    for name: Any in keys(plan.env) {
+        x86_move_register(ctx, ctx.allocation.localRegisters[name], plan.env[name]);
+    }
+    return end;
 }
 
 // Emit op rax, r/m64 directly from an allocated register or spill home.

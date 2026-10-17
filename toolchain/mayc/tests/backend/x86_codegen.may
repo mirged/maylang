@@ -379,5 +379,85 @@ for direction: Any in [IR_FALSE, IR_TRUE] {
         require(x86_branch_comparison(ctx, block, compare) == -1);
     }
 }
+// Branch-free diamonds (#78): `if d == 2 { x = x + k } else { x = x - 1 }`
+// over dedicated registers selects with cmov; rejected shapes emit nothing.
+fun select_var(slot: Any, name: Any) -> Any { return Quad(E_VAR, value(slot), 0, 0, {"name": addr(name), "length": len(name)}, 0); }
+fun select_int(slot: Any, literal: Any) -> Any { return Quad(E_INT, IRValue(E_INT, slot, literal, 0, 0, 0, 0), 0, 0, {"value": literal}, 0); }
+fun select_bin(slot: Any, op: Any, left: Any, right: Any) -> Any {
+    return Quad(E_BIN, value(slot), left, right, {"op": op, "left": left, "right": right}, 0);
+}
+fun select_assign(name: Any, slot: Any) -> Any {
+    return Quad(S_ASSIGN, 0, value(slot), 0, {"name": addr(name), "length": len(name), "value": value(slot)}, 0);
+}
+fun select_arm(base: Any, name: Any, op: Any, literal: Any) -> Any {
+    return [select_var(base, name), select_int(base + 1, literal),
+        select_bin(base + 2, op, value(base), IRValue(E_INT, base + 1, literal, 0, 0, 0, 0)), select_assign(name, base + 2)];
+}
+fun select_block(thenArm: Any, elseArm: Any, elseLabel: Any, doneLabel: Any) -> Any {
+    let code: Any = [select_var(0, "sd"), select_int(1, 2), select_bin(2, TK_EQ, value(0), IRValue(E_INT, 1, 2, 0, 0, 0, 0)),
+        Quad(IR_FALSE, 0, value(2), 0, elseLabel, 0)];
+    for instruction: Any in thenArm { push(code, instruction); }
+    push(code, Quad(IR_JUMP, 0, 0, 0, doneLabel, 0)); push(code, Quad(IR_LABEL, 0, 0, 0, elseLabel, 0));
+    for instruction: Any in elseArm { push(code, instruction); }
+    push(code, Quad(IR_LABEL, 0, 0, 0, doneLabel, 0));
+    return IRBlock(code, 64);
+}
+fun select_try(ctx: Any, block: Any, induction: Any) -> Any {
+    ctx.allocation = lsra_plan(block, [], true); ctx.allocation.position = 0;
+    ctx.allocation.localRegisters = {"sx": 3, "sd": 12};
+    ctx.allocation.induction = induction;
+    ctx.code.length = 0;
+    let end: Any = x86_select_region(ctx, block, 0);
+    if (end < 0) { require(ctx.code.length == 0); }
+    return end;
+}
+fun select_has(ctx: Any, first: Any, second: Any) -> Bool {
+    for index: Any in 0..(ctx.code.length - 1) {
+        if (load8(ctx.code.data + index) == first and load8(ctx.code.data + index + 1) == second) { return true; }
+    }
+    return false;
+}
+ctx.mode = 0; ctx.dynamic = 0;
+let elseLabel: Any = newlab(ctx); let doneLabel: Any = newlab(ctx);
+let diamond: Any = select_block(select_arm(10, "sx", TK_PLUS, 1), select_arm(20, "sx", TK_MINUS, 1), elseLabel, doneLabel);
+require(select_try(ctx, diamond, {}) == len(diamond.code) - 1);
+// cmp r12, 2 (49 83 FC 02); cmove into the else scratch; final move to RBX.
+require(select_has(ctx, 131, 252) and select_has(ctx, 15, 68));
+require(load8(ctx.code.data + ctx.code.length - 3) == 72 or load8(ctx.code.data + ctx.code.length - 3) == 76);
+require(load8(ctx.code.data + ctx.code.length - 1) % 8 == 3);
+// One-armed updates select the old value; the else arm is empty.
+let guard: Any = select_block(select_arm(10, "sx", TK_PLUS, 1), [], elseLabel, doneLabel);
+// The then scratch is the destination, so the else condition selects.
+require(select_try(ctx, guard, {}) == len(guard.code) - 1 and select_has(ctx, 15, 69));
+// Induction-only predicates keep their predictable branches.
+require(select_try(ctx, diamond, {"sd": true}) == -1);
+// A frame-home local, division by a non-power literal and memory loads keep branches.
+ctx.code.length = 0;
+let framed: Any = select_block(select_arm(10, "sy", TK_PLUS, 1), [], elseLabel, doneLabel);
+require(select_try(ctx, framed, {}) == -1);
+require(select_try(ctx, select_block(select_arm(10, "sx", TK_SLASH, 3), [], elseLabel, doneLabel), {}) == -1);
+require(select_try(ctx, select_block(select_arm(10, "sx", TK_SLASH, 0), [], elseLabel, doneLabel), {}) == -1);
+require(select_try(ctx, select_block(select_arm(10, "sx", TK_SLASH, 4), [], elseLabel, doneLabel), {}) == len(guard.code) - 1);
+let loadArm: Any = [select_var(10, "sx"), Quad(E_CALL, value(11), 0, 0, {"name": addr("load8"), "length": 5, "args": value(10)}, 0), select_assign("sx", 11)];
+require(select_try(ctx, select_block(loadArm, [], elseLabel, doneLabel), {}) == -1);
+// Escaping or observable temporaries and other control flow keep branches.
+let escaping: Any = select_block(select_arm(10, "sx", TK_PLUS, 1), [], elseLabel, doneLabel);
+push(escaping.code, Quad(IR_RETURN, 0, value(12), 0, 0, 0));
+require(select_try(ctx, escaping, {}) == -1);
+let labelled: Any = select_arm(10, "sx", TK_PLUS, 1); push(labelled, Quad(IR_LABEL, 0, 0, 0, newlab(ctx), 0));
+require(select_try(ctx, select_block(labelled, [], elseLabel, doneLabel), {}) == -1);
+let mismatched: Any = select_block(select_arm(10, "sx", TK_PLUS, 1), [], elseLabel, doneLabel);
+mismatched.code[len(select_arm(10, "sx", TK_PLUS, 1)) + 5].extra = newlab(ctx);
+require(select_try(ctx, mismatched, {}) == -1);
+// Scratch and size limits reject long arms.
+let long: Any = [];
+for index: Any in 0..12 { for instruction: Any in select_arm(10 + 3 * index, "sx", TK_PLUS, index + 1) { push(long, instruction); } }
+require(select_try(ctx, select_block(long, [], elseLabel, doneLabel), {}) == -1);
+// Full-runtime and tagged functions never use the lowering.
+ctx.dynamic = 1;
+require(select_try(ctx, diamond, {}) == -1);
+ctx.dynamic = 0; ctx.mode = 1;
+require(select_try(ctx, diamond, {}) == -1);
+ctx.mode = 0;
 emitter_release(ctx);
 print("x86-codegen-ok");
