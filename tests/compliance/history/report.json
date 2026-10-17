@@ -1,5 +1,5 @@
 {
-  "compiler": "toolchain/mayc/mayc_new",
+  "compiler": "compiler/mayc/mayc_new",
   "passed": 69,
   "failed": 0,
   "observations": 0,

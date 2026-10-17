@@ -1,0 +1,19 @@
+- **ml/data.may** — Encoding, splitting, batching and feature normalization.
+- Availability: full Linux x86-64 runtime; experimental API.
+- Import: `import "ml/data" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../../stdlib/ml/data.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../../stdlib/CONTRACTS.md).
+- **ml_one_hot** — `fun ml_one_hot(labels: Any, class_count: Any) -> Any` — Return a row of floating 0/1 entries for each integer class label; validate labels and positive class count.
+- `ml_one_hot` explicit fault strings: `"class count must be positive"`, `"class label out of range"`; runtime/callback faults can also propagate.
+- **ml_train_test_split** — `fun ml_train_test_split(xs: Any, ys: Any, test_fraction: Any, rng: Any) -> Any` — Shuffle paired rows and return `{x_train, y_train, x_test, y_test}`; require at least two rows and fraction strictly between 0 and 1; ensure both partitions are nonempty.
+- `ml_train_test_split` explicit fault strings: `"features and labels need equal row counts"`, `"train/test split needs at least two rows"`, `"test fraction must be between 0 and 1"`; runtime/callback faults can also propagate.
+- **ml_batches** — `fun ml_batches(xs: Any, ys: Any, batch_size: Any) -> Any` — Return consecutive `{x, y}` batches including a shorter final batch; require matching row counts and positive batch size.
+- `ml_batches` explicit fault strings: `"batch size must be positive"`, `"features and labels need equal row counts"`; runtime/callback faults can also propagate.
+- **ml_feature_stats** — `fun ml_feature_stats(rows: Any) -> Any` — Return per-column population `{mean, scale}`; replace scales smaller than 1e-12 with 1.0; validate nonempty rectangular rows.
+- `ml_feature_stats` explicit fault strings: `"normalization needs at least one row"`, `"feature rows must have equal width"`; runtime/callback faults can also propagate.
+- **ml_standardize** — `fun ml_standardize(rows: Any, stats: Any) -> Any` — Return `(x - mean) / scale` per column using previously fitted statistics.
+- **ml_minmax_fit** — `fun ml_minmax_fit(rows: Any) -> Any` — Return per-column `{min, max}` statistics; require nonempty rows.
+- `ml_minmax_fit` explicit fault strings: `"minmax scaling needs at least one row"`; runtime/callback faults can also propagate.
+- **ml_minmax_transform** — `fun ml_minmax_transform(rows: Any, stats: Any) -> Any` — Return per-column [0,1] scaling using fitted bounds; constant columns become 0.0; values outside training bounds are not clipped.

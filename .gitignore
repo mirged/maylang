@@ -28,19 +28,19 @@
 /mayc_benchmark
 /mayc_bench
 /mayc_bencmark1
-/example_projects/learning/study/test
+/examples/learning/study/test
 *.pyc
 .DS_Store
 *~
 
 # Generated OS disk and editor packages
-/toolchain/mayos/data/*.img
+/platform/mayos/data/*.img
 *.vsix
 
 # Ephemeral verification logs and simulation checkpoints
 /tests/compliance/*.log
 /tests/compliance/verification.json
-/toolchain/mayc/tests/verification.json
-/example_projects/simulations/ecosystem/results/*.log
-/example_projects/simulations/ecosystem/results/*.progress
-/example_projects/simulations/ecosystem/results/*.checkpoint.json
+/compiler/mayc/tests/verification.json
+/examples/simulations/ecosystem/results/*.log
+/examples/simulations/ecosystem/results/*.progress
+/examples/simulations/ecosystem/results/*.checkpoint.json

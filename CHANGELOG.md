@@ -1,3 +1,18 @@
+# Unreleased
+
+- Reorganize the repository by role: `compiler/` (mayc, Rust bootstrap),
+  `tools/`, `platform/`, `dist/`, `tests/`, a single `examples/` tree and
+  grouped `docs/` with the generated reference under `docs/reference/`.
+  The `toolchain/` compatibility entry points are removed; release bundles ship
+  sample apps under `examples/apps/`. See the
+  [path migration table](docs/REPOSITORY.md#path-migration).
+- Lower short RAW scalar diamonds over dedicated local registers with
+  conditional moves; predicates over induction locals keep their branches
+  ([report](compiler/mayc/tests/backend/raw-if-conversion.md), #78).
+- Fuse RAW load/store address arithmetic into base/index/scale/displacement
+  operands and keep locals in registers in call-free memory loops
+  ([report](compiler/mayc/tests/backend/raw-addressing.md), #79).
+
 # Maylang 0.13.101 — Dahlia
 
 Released 2026-10-17 UTC. This release includes all changes since 0.13.0:
@@ -59,8 +74,8 @@ and cycles **52.3%**. The same trial records GCC at **18.057 ms** with
 `-O3 -march=native`, or **17.593 ms** with tree vectorization disabled.
 The host was pinned, not isolated. Samples, dispersion, source/compiler hashes,
 checksums, disassembly notes and PMU coverage are retained in the
-[design report](toolchain/mayc/tests/backend/raw-local-registers.md) and
-[complete measurement data](toolchain/mayc/tests/backend/raw-local-register-performance.json).
+[design report](compiler/mayc/tests/backend/raw-local-registers.md) and
+[complete measurement data](compiler/mayc/tests/backend/raw-local-register-performance.json).
 No machine-specific speed threshold is added to CI.
 
 Merged [PR #77](https://github.com/mirged/maylang/pull/77) completes
@@ -115,7 +130,7 @@ documented constructors and helpers when updating applications. See the
 - Add headless screenshots/reports, deterministic core/state/persistence
   checks, sanitizer coverage for cartridge switching and isolated desktop
   tests for actual GPU output and interaction. See the
-  [May NES guide](example_projects/apps/maynes/README.md) for controls,
+  [May NES guide](examples/apps/maynes/README.md) for controls,
   dependencies, mapper coverage and format limits.
 
 ## Verification, CI and distribution
@@ -148,8 +163,8 @@ IME composition, rich text and general image collections remain unfinished.
 May NES does not implement NES 2.0, ZIP/FDS loading, gamepads or a second
 controller; save states are local to the build/architecture. The supported
 behavior-contract fragment and its security/resource-proof limits are unchanged
-from 0.13.0; see [behavior support](docs/BEHAVIOR.md) and the
-[conformance ledger](docs/BEHAVIOR_PROGRESS.md).
+from 0.13.0; see [behavior support](docs/internals/BEHAVIOR.md) and the
+[conformance ledger](docs/design/BEHAVIOR_PROGRESS.md).
 
 [Full Git changelog: v0.13.0...v0.13.101](https://github.com/mirged/maylang/compare/v0.13.0...v0.13.101).
 
@@ -194,8 +209,8 @@ closures in checked bodies, capability containment, ownership, information-flow
 security, termination and resource bounds are unfinished. Runtime guards do
 not establish memory safety or permit finite callable contracts in mutable
 containers. Compiler hosts and full-runtime bundles remain Linux x86-64,
-including x86-64 WSL 2. See [behavior support](docs/BEHAVIOR.md) and the
-[design conformance ledger](docs/BEHAVIOR_PROGRESS.md) for exact limits.
+including x86-64 WSL 2. See [behavior support](docs/internals/BEHAVIOR.md) and the
+[design conformance ledger](docs/design/BEHAVIOR_PROGRESS.md) for exact limits.
 
 ---
 
@@ -291,7 +306,7 @@ Released 2026-10-13 UTC. A patch release for workspace runner performance.
   and cached `may build` from 4.20 seconds to 23.8 ms. The original reported
   workspace ran in 22 ms after installing the optimized runner. Absolute
   timings depend on the host and environment; see
-  [the performance report](toolchain/may/PERFORMANCE.md) for raw samples and
+  [the performance report](tools/may/PERFORMANCE.md) for raw samples and
   reproduction instructions.
 - Preserve content hashing, output verification and atomic publication.
   Regressions cover same-size/same-timestamp source, import, compiler and runtime
@@ -419,7 +434,7 @@ workaround remain documented.
 The version is `0.10.0`, the source tag is `v0.10.0`, and the codename is **Aster**.
 Codenames name each minor series and stay the same for its patch releases.
 Dates record publication; they are separate from version numbers. See the
-[release convention](docs/RELEASING.md).
+[release convention](docs/guide/RELEASING.md).
 
 The earlier `v0.9.0-2026-10-10-nightly` prerelease was published on 2026-10-12
 with a stale date in its tag. It is retained as historical provenance and is

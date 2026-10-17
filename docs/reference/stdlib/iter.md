@@ -1,0 +1,22 @@
+- **iter.may** — Eager list iteration, scans, windows and keyed reductions.
+- Availability: full Linux x86-64 runtime.
+- Import: `import "iter" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../stdlib/iter.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
+- **enumerate** — `fun enumerate(xs: Any) -> Any` — Return `[index, value]` pairs in input order.
+- **zip_with** — `fun zip_with(a: Any, b: Any, f: Any) -> Any` — Return `f(a[i], b[i])` for each pair, stopping at the shorter list.
+- **find_index** — `fun find_index(xs: Any, pred: Any) -> Any` — Return the first index satisfying `pred`, or `-1`.
+- **find_value** — `fun find_value(xs: Any, pred: Any, fallback: Any) -> Any` — Return the first value satisfying `pred`, or `fallback`.
+- **take_while** — `fun take_while(xs: Any, pred: Any) -> Any` — Return the longest initial prefix satisfying `pred`.
+- **drop_while** — `fun drop_while(xs: Any, pred: Any) -> Any` — Return the suffix after the initial prefix satisfying `pred`.
+- **scan** — `fun scan(xs: Any, seed: Any, f: Any) -> Any` — Return `[seed, f(seed, x0), ...]`, including the initial accumulator.
+- **windows** — `fun windows(xs: Any, width: Any) -> Any` — Return all overlapping consecutive windows of positive `width`; return `[]` when width exceeds length.
+- `windows` explicit fault strings: `"windows width must be positive"`; runtime/callback faults can also propagate.
+- **pairwise** — `fun pairwise(xs: Any) -> Any` — Return overlapping adjacent value pairs; fewer than two inputs produce `[]`.
+- **sum_by** — `fun sum_by(xs: Any, f: Any) -> Any` — Sum `f(x)` over inputs, starting at integer zero.
+- **min_by** — `fun min_by(xs: Any, f: Any) -> Any` — Return the element with the smallest `f(x)` score; `nil` for empty input; ties retain the earliest element.
+- **max_by** — `fun max_by(xs: Any, f: Any) -> Any` — Return the element with the largest `f(x)` score; `nil` for empty input; ties retain the earliest element.
+- **frequencies** — `fun frequencies(xs: Any) -> Any` — Return occurrence counts keyed by `str(x)`.
+- **cartesian** — `fun cartesian(a: Any, b: Any) -> Any` — Return all `[x, y]` pairs, with `a` as the outer iteration.

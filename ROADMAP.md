@@ -3,7 +3,7 @@
 Current work is tracked in GitHub issues and outcome-based audit milestones.
 Priorities describe impact; they do not promise a release date. The
 [repository audit](docs/AUDIT.md) records the evidence and local validation behind
-this backlog. Completed initiatives remain in [roadmap history](docs/ROADMAP_HISTORY.md).
+this backlog. Completed initiatives remain in [roadmap history](docs/history/ROADMAP_HISTORY.md).
 
 ## Correctness and bounded resources
 

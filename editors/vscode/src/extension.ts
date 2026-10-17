@@ -28,7 +28,7 @@ export function activate(context: ExtensionContext): void {
   if (command.includes(path.sep) && !fs.existsSync(command)) {
     window.showWarningMessage(
       `Maylang: language server not found at "${command}". ` +
-        `Build toolchain/maylsp with the self-hosted mayc compiler or set "maylang.serverPath".`
+        `Build tools/maylsp with the self-hosted mayc compiler or set "maylang.serverPath".`
     );
   }
 

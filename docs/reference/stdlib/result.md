@@ -1,0 +1,18 @@
+- **result.may** — Map-based success/failure values and composition.
+- Availability: full Linux x86-64 runtime.
+- Import: `import "result" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../stdlib/result.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
+- **ok** — `fun ok<T>(value: T) -> Result<T, Never>` — A successful result wrapping `value`.
+- **error** — `fun error<E>(message: E) -> Result<Never, E>` — A failed result carrying `message`.
+- **is_ok** — `fun is_ok<T, E>(r: Result<T, E>) -> Bool` — Whether `r` is a success.
+- **is_err** — `fun is_err<T, E>(r: Result<T, E>) -> Bool` — Whether `r` is a failure.
+- **unwrap** — `fun unwrap<T, E>(r: Result<T, E>) -> T` — Unwrap a success, or fault on a failure.
+- `unwrap` explicit fault strings: `"unwrap on error: "`; runtime/callback faults can also propagate.
+- **unwrap_or** — `fun unwrap_or<T, E>(r: Result<T, E>, fallback: T) -> T` — Unwrap a success, else return `fallback`.
+- **map_result** — `fun map_result<T, U, E>(r: Result<T, E>, f: (T) -> U) -> Result<U, E>` — Map the success value with `f`, passing failures through.
+- **and_then** — `fun and_then<T, U, E>(r: Result<T, E>, f: (T) -> Result<U, E>) -> Result<U, E>` — Chain a fallible step: `f(value)` returns another Result.
+- **collect** — `fun collect<T, E>(results: List<Result<T, E>>) -> Result<List<T>, E>` — Turn a list of Results into a Result of a list (the first failure wins).
+- **attempt** — `fun attempt<T>(f: () -> T) -> Result<T, Str>` — Turn a speculative block into a Result instead of a fallback.

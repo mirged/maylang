@@ -25,18 +25,18 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
       - name: Build the compiler from source
-        run: sh toolchain/rust/build.sh
+        run: sh compiler/rust/build.sh
       - name: Check and build MayBrowser
-        run: make -C toolchain/maybrowser check build
+        run: make -C platform/maybrowser check build
       - name: Test browser rendering, HTTP, and live window input
-        run: xvfb-run -a make -C toolchain/maybrowser test TESTFLAGS='--require-network --gui'
+        run: xvfb-run -a make -C platform/maybrowser test TESTFLAGS='--require-network --gui'
       - name: Upload browser reports and screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: maybrowser-verification
           path: |
-            toolchain/maybrowser/build/test-report.json
-            toolchain/maybrowser/build/*.png
-            toolchain/maybrowser/build/window.log
+            platform/maybrowser/build/test-report.json
+            platform/maybrowser/build/*.png
+            platform/maybrowser/build/window.log
           if-no-files-found: ignore

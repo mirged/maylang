@@ -1,12 +1,12 @@
 # Maylang compliance and regression tests
 
-The suite uses the self-hosted `toolchain/mayc/mayc_new` compiler.
+The suite uses the self-hosted `compiler/mayc/mayc_new` compiler.
 The deprecated Rust reference implementation is not involved.
 
 From the repository root:
 
 ```sh
-toolchain/mayc/tests/run.sh
+compiler/mayc/tests/run.sh
 python3 tests/compliance/run.py
 ```
 

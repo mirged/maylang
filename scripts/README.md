@@ -13,4 +13,4 @@ copy an independent user installation. `make build` only produces disposable
 checkout tools. `make tools MAYC=/absolute/path/to/mayc`
 uses a prebuilt compiler from this source tree. Compiler and runtime sources
 must match. Outputs stay under ignored `build/`. Release scripts live in
-[toolchain/distribution](../toolchain/distribution/README.md).
+[dist](../dist/README.md).

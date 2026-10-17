@@ -19,11 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the compiler from source
-        run: sh toolchain/rust/build.sh
+        run: sh compiler/rust/build.sh
       - name: Cross-emit checksummed target fixtures and verify Linux execution
         run: |
-          python3 toolchain/mayc/tests/native_targets.py --emit --directory /tmp/native-targets
-          python3 toolchain/mayc/tests/native_targets.py --run x86_64-linux --directory /tmp/native-targets
+          python3 compiler/mayc/tests/native_targets.py --emit --directory /tmp/native-targets
+          python3 compiler/mayc/tests/native_targets.py --run x86_64-linux --directory /tmp/native-targets
       - uses: actions/upload-artifact@v4
         with:
           name: native-target-fixtures
@@ -57,7 +57,7 @@ jobs:
           name: native-target-fixtures
           path: native-targets
       - name: Execute with the native OS loader
-        run: python toolchain/mayc/tests/native_targets.py --run ${{ matrix.target }} --directory native-targets
+        run: python compiler/mayc/tests/native_targets.py --run ${{ matrix.target }} --directory native-targets
       - name: Upload host versions, output and exit-status evidence
         if: always()
         uses: actions/upload-artifact@v4

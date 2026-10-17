@@ -27,8 +27,8 @@ def build(compiler, output):
     compiler = compiler.resolve()
     # Invoke the compatibility launcher once before locating its cached binary.
     subprocess.run([str(compiler), '--version'], cwd=ROOT, check=True)
-    if compiler == ROOT / 'toolchain/mayc/mayc_new':
-        compiler = ROOT / 'toolchain/mayc/build/bin/mayc_new'
+    if compiler == ROOT / 'compiler/mayc/mayc_new':
+        compiler = ROOT / 'compiler/mayc/build/bin/mayc_new'
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.tools-', dir=output.parent) as temporary:
         stage = Path(temporary)
@@ -36,18 +36,18 @@ def build(compiler, output):
         binaries.mkdir()
         shutil.copy2(compiler, binaries / 'mayc')
         for name in ('runtime.may', 'native.may'):
-            shutil.copy2(ROOT / 'toolchain/mayc' / name, binaries / name)
+            shutil.copy2(ROOT / 'compiler/mayc' / name, binaries / name)
         shutil.copy2(ROOT / 'stdlib/prelude.may', binaries / 'prelude.may')
-        shutil.copytree(ROOT / 'toolchain/mayc/runtime', binaries / 'runtime',
+        shutil.copytree(ROOT / 'compiler/mayc/runtime', binaries / 'runtime',
                         ignore=shutil.ignore_patterns('build', '__pycache__'))
         shutil.copytree(ROOT / 'stdlib', stage / 'stdlib',
                         ignore=shutil.ignore_patterns('build', '__pycache__'))
         env = dict(os.environ, MAYLANG_STDLIB=str(ROOT / 'stdlib'))
         for tool in TOOLS:
             print(f'Building {tool}', flush=True)
-            subprocess.run([str(compiler), str(ROOT / f'toolchain/{tool}/main.may'),
+            subprocess.run([str(compiler), str(ROOT / f'tools/{tool}/main.may'),
                             '-o', str(binaries / tool)], cwd=ROOT, env=env, check=True, timeout=180)
-        subprocess.run([str(compiler), str(ROOT / 'toolchain/distribution/installer.may'),
+        subprocess.run([str(compiler), str(ROOT / 'dist/installer.may'),
                         '-o', str(binaries / 'may-installer')], cwd=ROOT, env=env, check=True, timeout=180)
         version = subprocess.check_output([str(compiler), '--version'], text=True).strip().removeprefix('mayc ')
         (stage / 'VERSION').write_text(version + '\n')
@@ -66,7 +66,7 @@ def build(compiler, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--compiler', type=Path, default=ROOT / 'toolchain/mayc/mayc_new')
+    parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
     args = parser.parse_args()
     build(args.compiler, ROOT / 'build/dev')
 

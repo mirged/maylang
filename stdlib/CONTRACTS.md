@@ -2,7 +2,7 @@
 
 The active compiler is self-hosted `mayc`; its runtime is written in Maylang.
 The archived Rust runtime is not the contract for current programs. The
-[generated API inventory](../reference/STDLIB.md) and [JSON inventory](../reference/inventory.json) list source
+[generated API inventory](../docs/reference/STDLIB.md) and [JSON inventory](../docs/reference/inventory.json) list source
 signatures, public declarations and runtime/platform restrictions. Many APIs
 retain `Any` annotations: callers must supply the documented value shapes.
 An `Any` parameter is not a guarantee that arbitrary inputs are accepted.
@@ -15,13 +15,13 @@ rejects. The portable core's supported library is inventoried separately and
 tested on all five direct targets. The full LLVM backend supports ordinary
 modules and Linux I/O/networking, excluding fibers and typed extern calls.
 Raw mode does not inject a standard library. See the
-[target capability matrix](../toolchain/mayc/README.md#cross-compilation).
+[target capability matrix](../compiler/mayc/README.md#cross-compilation).
 
 `io`, `net`, environment/process primitives and raw syscall wrappers depend on
 the full Linux runtime. `path` manipulates strings lexically and performs no
 filesystem I/O, symlink resolution, permission checks or filesystem validation.
 `stdlib/native.may` is a historical compatibility copy; the active full-runtime
-sidecar is `toolchain/mayc/native.may`.
+sidecar is `compiler/mayc/native.may`.
 
 ## Values, numbers and text
 
@@ -31,7 +31,7 @@ sidecar is `toolchain/mayc/native.may`.
   Fixed-width annotations add checked boundaries, not full-width storage;
   Int64/UInt64 remain subject to the tagged range. Float32 rounds at annotated
   boundaries; other floating arithmetic uses binary64. See
-  [numeric contracts](../docs/STRICT.md).
+  [numeric contracts](../docs/guide/STRICT.md).
 - Text is UTF-8. Length, characters and ordinary substring indexing count
   Unicode code points, not grapheme clusters. Combining sequences can occupy
   several characters. Native case conversion is ASCII-only. String search and
@@ -98,11 +98,11 @@ See [ML module contracts](ml/README.md).
 
 `examples/ml_xor.may`, `examples/stdlib_tour.may` and
 `examples/stdlib_expanded.may` are compiled and run by compiler verification.
-The focused [library suite](../toolchain/mayc/tests/stdlib_contracts.py) runs
-typed Result/I/O and [boundary cases](../toolchain/mayc/tests/library/boundaries.may)
+The focused [library suite](../compiler/mayc/tests/stdlib_contracts.py) runs
+typed Result/I/O and [boundary cases](../compiler/mayc/tests/library/boundaries.may)
 on native and LLVM, including successful fixed inference and invalid parameter
 counts. Numeric, map, file and network suites cover the corresponding runtime
-primitives. The [core suite](../toolchain/mayc/tests/core_runtime.py) covers the
-portable library and [arena lifetimes](../docs/CORE_MEMORY.md). These tests are
+primitives. The [core suite](../compiler/mayc/tests/core_runtime.py) covers the
+portable library and [arena lifetimes](../docs/internals/CORE_MEMORY.md). These tests are
 contracts for exercised boundaries, not exhaustive validation of every `Any`
 input or every experimental ML algorithm.

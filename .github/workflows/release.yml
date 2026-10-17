@@ -29,29 +29,29 @@ jobs:
       - name: Build and validate tagged source
         run: |
           cargo test --offline --locked --workspace
-          python3 toolchain/rust/test.py
-          sh toolchain/rust/build.sh
-          python3 toolchain/mayc/tests/verify.py --compiler toolchain/mayc/mayc_new
+          python3 compiler/rust/test.py
+          sh compiler/rust/build.sh
+          python3 compiler/mayc/tests/verify.py --compiler compiler/mayc/mayc_new
           python3 tests/compliance/run.py
           make check test-distribution
-          python3 toolchain/tests/documentation.py
-          python3 toolchain/mayfmt/tests/run.py
-          python3 toolchain/may/tests/run.py
-          python3 toolchain/maylsp/tests/test_lsp.py
-          python3 toolchain/mayui/tests/run.py --require-x11
+          python3 tests/docs/run.py
+          python3 tools/mayfmt/tests/run.py
+          python3 tools/may/tests/run.py
+          python3 tools/maylsp/tests/test_lsp.py
+          python3 tests/ui/run.py --require-x11
       - name: Package twice and verify extracted installation
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --release-tag "$RELEASE_TAG" --output /tmp/maylang-linux-x86_64.tar.gz --installer-output /tmp/maylang-installers
-          python3 toolchain/package.py --compiler toolchain/mayc/mayc_new --release-tag "$RELEASE_TAG" --output /tmp/maylang-repeat.tar.gz --installer-output /tmp/maylang-installers-repeat
+          python3 dist/package.py --compiler compiler/mayc/mayc_new --release-tag "$RELEASE_TAG" --output /tmp/maylang-linux-x86_64.tar.gz --installer-output /tmp/maylang-installers
+          python3 dist/package.py --compiler compiler/mayc/mayc_new --release-tag "$RELEASE_TAG" --output /tmp/maylang-repeat.tar.gz --installer-output /tmp/maylang-installers-repeat
           cmp /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-repeat.tar.gz
           cmp /tmp/maylang-installers/maylang-bootstrap.c /tmp/maylang-installers-repeat/maylang-bootstrap.c
           cmp /tmp/maylang-installers/maylang-install.sh /tmp/maylang-installers-repeat/maylang-install.sh
           cmp /tmp/maylang-installers/maylang-init-x86_64-linux /tmp/maylang-installers-repeat/maylang-init-x86_64-linux
-          python3 toolchain/tests/test_package.py /tmp/maylang-linux-x86_64.tar.gz
-          python3 toolchain/tests/test_installer.py --archive /tmp/maylang-linux-x86_64.tar.gz --artifacts /tmp/maylang-installers
-          python3 toolchain/tests/test_download_installer.py --artifacts /tmp/maylang-installers
+          python3 dist/tests/test_package.py /tmp/maylang-linux-x86_64.tar.gz
+          python3 dist/tests/test_installer.py --archive /tmp/maylang-linux-x86_64.tar.gz --artifacts /tmp/maylang-installers
+          python3 dist/tests/test_download_installer.py --artifacts /tmp/maylang-installers
       - name: Package editor extension
         working-directory: editors/vscode
         run: |
@@ -76,7 +76,7 @@ jobs:
           RELEASE_CODENAME: ${{ steps.identity.outputs.codename }}
         run: |
           gh release create "$RELEASE_TAG" --verify-tag --draft --notes-file CHANGELOG.md --title "Maylang $RELEASE_TAG — $RELEASE_CODENAME"
-          gh release upload "$RELEASE_TAG" /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-linux-x86_64.tar.gz.sha256 /tmp/maylang-vscode.vsix /tmp/maylang-vscode.vsix.sha256 toolchain/distribution/install.sh toolchain/distribution/install.ps1 /tmp/maylang-installers/*
+          gh release upload "$RELEASE_TAG" /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-linux-x86_64.tar.gz.sha256 /tmp/maylang-vscode.vsix /tmp/maylang-vscode.vsix.sha256 dist/install.sh dist/install.ps1 /tmp/maylang-installers/*
           if [[ "$RELEASE_TAG" == *-* ]]; then
             gh release edit "$RELEASE_TAG" --prerelease --draft=false
           else

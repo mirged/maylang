@@ -8,7 +8,7 @@ import subprocess
 WORK = Path(__file__).resolve().parent
 REPORTS = WORK / 'build/reports'
 ROOT = WORK.parents[1]
-COMPILER = Path(os.environ.get('MAYC', str(ROOT / 'toolchain/mayc/mayc_new')))
+COMPILER = Path(os.environ.get('MAYC', str(ROOT / 'compiler/mayc/mayc_new')))
 REJECT = {
     'missing_expr', 'missing_brace', 'dangling_operator', 'huge_literal',
     'return_top', 'module_private', 'duplicate_params', 'module_shared_name',

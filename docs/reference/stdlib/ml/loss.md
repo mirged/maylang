@@ -1,0 +1,22 @@
+- **ml/loss.may** — Losses, gradients and classification metrics.
+- Availability: full Linux x86-64 runtime; experimental API.
+- Import: `import "ml/loss" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../../stdlib/ml/loss.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../../stdlib/CONTRACTS.md).
+- Use matching nonempty rectangular prediction/target rows with valid probability outputs; validation is incomplete in several gradient/BCE helpers.
+- Confusion matrix rows are actual classes and columns are predicted classes. Binary single-output labels use threshold 0.5 only when class_count is 2.
+- **ml_mse** — `fun ml_mse(prediction: Any, target: Any) -> Any` — Return MSE over nested prediction/target rows; validate matching nonempty batch counts; require matching nonempty rectangular widths as a caller precondition.
+- `ml_mse` explicit fault strings: `"MSE batch sizes must match and be nonempty"`; runtime/callback faults can also propagate.
+- **ml_mse_gradient** — `fun ml_mse_gradient(prediction: Any, target: Any) -> Any` — Return the elementwise MSE gradient normalized by total output count.
+- `ml_mse_gradient` explicit fault strings: `"MSE gradient batch sizes must match and be nonempty"`; runtime/callback faults can also propagate.
+- **ml_binary_cross_entropy** — `fun ml_binary_cross_entropy(prediction: Any, target: Any) -> Any` — Return output-count-averaged binary cross entropy, bounding each logarithm argument below by 1e-8.
+- **ml_binary_cross_entropy_gradient** — `fun ml_binary_cross_entropy_gradient(prediction: Any, target: Any) -> Any` — Return output-count-normalized (prediction-target) divided by max(1e-8, prediction*(1-prediction)).
+- **ml_categorical_cross_entropy** — `fun ml_categorical_cross_entropy(prediction: Any, target: Any) -> Any` — Return batch-averaged categorical cross entropy from probability rows and target rows.
+- `ml_categorical_cross_entropy` explicit fault strings: `"cross entropy batches must match and be nonempty"`; runtime/callback faults can also propagate.
+- **ml_categorical_cross_entropy_gradient** — `fun ml_categorical_cross_entropy_gradient(prediction: Any, target: Any) -> Any` — Return the categorical derivative `-target / clamped_probability / batch_count`.
+- **ml_accuracy** — `fun ml_accuracy(prediction: Any, target: Any) -> Any` — Return classification accuracy; single outputs use a 0.5 threshold, multiple outputs use argmax; empty/mismatched batch counts return 0.0.
+- **ml_confusion_matrix** — `fun ml_confusion_matrix(prediction: Any, target: Any, class_count: Any) -> Any` — Return a class-by-class count matrix indexed by actual then predicted class.
+- `ml_confusion_matrix` explicit fault strings: `"prediction and target lengths must match"`, `"class index outside confusion matrix"`; runtime/callback faults can also propagate.
+- **ml_classification_report** — `fun ml_classification_report(matrix: Any) -> Any` — Return `{class, precision, recall, f1, support}` entries for each row of a confusion matrix; zero denominators yield zero.

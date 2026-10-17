@@ -1,0 +1,25 @@
+- **algo.may** — Sorting, searching, grouping and eager list transformations.
+- Availability: full Linux x86-64 runtime.
+- Import: `import "algo" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../stdlib/algo.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
+- `chunk` validates a positive size, including for empty input; invalid sizes raise `chunk size must be positive`.
+- Quicksort and merge_sort return the original list on length zero/one; larger results are newly assembled.
+- Grouping and deduplication use dynamic maps; group_by/count_by stringify keys.
+- **quick_sort** — `fun quick_sort(xs: Any) -> Any` — Sort a list with a quicksort (pivot = first element). Returns a new list.
+- **merge_sort** — `fun merge_sort(xs: Any) -> Any` — Sort a list with a stable merge sort. Returns a new list.
+- **merge_sorted** — `fun merge_sorted(a: Any, b: Any) -> Any` — Merge two already-sorted lists into one sorted list.
+- **binary_search** — `fun binary_search(sorted: Any, target: Any) -> Any` — Index of `target` in a sorted list, or `-1`.
+- **dedupe** — `fun dedupe(xs: Any) -> Any` — Remove duplicates, preserving the order of first appearance.
+- **zip** — `fun zip(a: Any, b: Any) -> Any` — Pair up the elements of two lists, stopping at the shorter one.
+- **flatten** — `fun flatten(xss: Any) -> Any` — Concatenate a list of lists into a single list.
+- **range_list** — `fun range_list(a: Any, b: Any) -> Any` — `[a, a+1, ..., b-1]`.
+- **take** — `fun take(xs: Any, n: Any) -> Any` — The first `n` elements (or fewer).
+- **drop** — `fun drop(xs: Any, n: Any) -> Any` — Drop the first `n` elements.
+- **chunk** — `fun chunk(xs: Any, size: Any) -> Any` — Split a list into consecutive groups of `size`.
+- `chunk` explicit fault strings: `"chunk size must be positive"`; runtime/callback faults can also propagate.
+- **partition** — `fun partition(xs: Any, pred: Any) -> Any` — Split a list into `[matching, non-matching]` by `pred`.
+- **group_by** — `fun group_by(xs: Any, key_fn: Any) -> Any` — Group elements into a map keyed by `str(key_fn(x))`.
+- **count_by** — `fun count_by(xs: Any, key_fn: Any) -> Any` — Count elements by `str(key_fn(x))`.

@@ -1,0 +1,44 @@
+- **Strict-mode examples** — each following bullet is a complete program; save the inline source to a .may file and compile from the repository root with `compiler/mayc/mayc_new file.may -o /tmp/may-example`.
+- Hello: `print("Hello, Maylang!");` — prints a greeting.
+- Typed function: `fun double(x: Int) -> Int { return x * 2; } let answer: Int = double(21); print(answer);` — prints 42.
+- Mutable accumulator: `mut total: Int = 0; for value in [1, 2, 3] { total += value; } print(total);` — prints 6.
+- Typed closure: `let twice: (Int) -> Int = fun(x: Int) -> Int { return x * 2; }; print(twice(3));` — prints 6.
+- Comprehension: `let squares: List<Int> = [x * x for x in [1, 2, 3] if (x > 1)]; print(squares);` — prints [4, 9].
+- Optional map lookup: `let counts: Map<Str, Int> = {"apple": 2}; let count: Int = counts["pear"] ?? 0; print(count);` — prints 0.
+- Record: `struct Point { x: Int, y: Int } let p: Point = Point(3, 4); print(p.x + p.y);` — prints 7.
+- Recovery: `let number: Any = may { int("oops") } otherwise { 42 }; print(number);` — prints 42.
+- Fault inspection: `may { fail("demo"); } otherwise { print(err.kind, err.message); };` — prints a fail category and message.
+- Match: `let label: Str = match (2) { 1 => "one", 2 => "two", _ => "other" }; print(label);` — prints two.
+- Pipeline: `fun twice(x: Int) -> Int { return x * 2; } print(3 |> twice |> twice);` — prints 12.
+- **Module examples** — import statements must be separate lines; save each import bullet before its matching call bullet in the same file.
+- Math import: `import "math" as math;`.
+- Math call: `print(math.gcd(48, 36));` — prints 12.
+- Algorithms import: `import "algo" as algo;`.
+- Algorithms call: `print(algo.binary_search(algo.merge_sort([3, 1, 2]), 2));` — prints 1.
+- Collections import: `import "collections" as collections;`.
+- Collections call: `let st: Any = collections.stack(); collections.stack_push(st, "May"); print(collections.stack_pop(st));` — prints May.
+- CSV import: `import "csv" as csv;`.
+- CSV call: `print(csv.csv_parse("a,\"b,c\"\n"));` — produces one row with two cells.
+- Random import: `import "random" as random;`.
+- Random call: `let rng: Any = random.random_new(42); print(random.random_int(rng, 1, 6));` — produces a repeatable integer in [1,6].
+- Statistics import: `import "stats" as stats;`.
+- Statistics call: `print(stats.stats_mean([1, 2]));` — prints 1.5, avoiding integer-division truncation in math.average.
+- Result import: `import "result" as result;`.
+- Result call: `let r: Result<Int, Str> = result.attempt(fun() -> Int { return int("oops"); }); print(result.unwrap_or(r, 0));` — prints 0.
+- Tensor import: `import "ml/tensor" as tensors;`.
+- Tensor call: `let t: Any = tensors.tensor_matrix([[1.0, 2.0], [3.0, 4.0]]); print(tensors.tensor_sum(t));` — prints 10.0.
+- Validation import: `import "validate" as validate;`.
+- Validation call: `print(validate.validate_required_fields({"name": "May"}, ["name", "email"]));` — reports the missing email field.
+- **Complete repository programs** — these preserve their own imports and build context.
+- [Hello](../../examples/hello.may) — basic functions and output.
+- [Strict types](../../examples/strict.may) — typed declarations, records and functions.
+- [Feature tour](../../examples/features.may) — control flow, lambdas and collections.
+- [Fault handling](../../examples/may_otherwise.may) — may and recovery.
+- [Standard library tour](../../examples/stdlib_tour.may) and [expanded tour](../../examples/stdlib_expanded.may) — broader helper usage.
+- [XOR neural training](../../examples/ml_xor.may) — dense model, random initialization, optimizer and fitting.
+- [TCP echo server](../../examples/network/echo_server.may) and [client](../../examples/network/echo_client.may) — socket ownership, timeouts and stream behavior.
+- [Text statistics app](../../examples/apps/textstats/README.md) — a modular command-line application.
+- [Task manager](../../examples/apps/maytasks/README.md) — application state and commands.
+- [Starfall game](../../examples/games/starfall/README.md) — complete game project.
+- [Artificial ecosystem](../../examples/simulations/ecosystem/README.md) — simulations and evolved neural controllers.
+- Run repository programs with their documented runtime/target settings; older tours may retain Any boundaries or legacy syntax.
