@@ -274,6 +274,129 @@ def local_recurrences(compiler, work):
     print(f'PASS {len(cases) + 1} local recurrence oracles, alternative steps, negative/unknown/reset values, overflow and memory barriers', flush=True)
 
 
+def local_registers(compiler, work):
+    source, binary = work / 'local-registers.may', work / 'local-registers'
+    declarations = '''
+fun counter() -> Any { mut i: Any = 0; mut total: Any = 0; while i < 100 { total = total + i; i = i + 1; } return total; }
+fun pressure(seed: Any) -> Any {
+    mut a: Any = seed; mut b: Any = 2; mut c: Any = 3; mut d: Any = 4; mut e: Any = 5; mut f: Any = 6; mut i: Any = 0;
+    while i < 32 {
+        let old: Any = a;
+        if i % 3 == 0 { a = b + c; b = old + d; }
+        else { a = a + e; b = b - c; }
+        c = (c + a) % 97; d = d + old; e = e + f; f = (f + e) % 101; i = i + 1;
+    }
+    return a + b * 3 + c * 5 + d * 7 + e * 11 + f * 13;
+}
+fun nested() -> Any {
+    mut i: Any = 0; mut total: Any = 0;
+    while i < 50 {
+        i = i + 1; if i % 7 == 0 { continue; }
+        mut j: Any = 0;
+        while j < 10 { if j == 5 { break; } total = total + i + j; j = j + 1; }
+    }
+    return total;
+}
+fun snapshots(seed: Any) -> Any {
+    mut n: Any = seed; mut total: Any = 0; mut i: Any = 0;
+    while i < 7 { total = total + n + if i % 2 == 0 { n = n + 1; } else { n = n - 1; }; i = i + 1; }
+    return total + n * 100;
+}
+fun eight(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any, g: Any, h: Any) -> Any {
+    mut n: Any = a + b + c + d + e + f + g + h; mut i: Any = 0;
+    while i < 20 { n = n * 3 + 1; i = i + 1; } return n;
+}
+fun one() -> Any { return 1; }
+fun calls() -> Any { mut i: Any = 0; while i < 20 { i = i + one(); } return i; }
+fun memory(p: Any) -> Any { mut i: Any = 0; while i < 20 { store8(p, i); i = i + 1; } return i; }
+'''
+    wrap = lambda n: (n + (1 << 63)) % (1 << 64) - (1 << 63)
+    def mod(n, d):
+        return abs(n) % d * (-1 if n < 0 else 1)
+    def oracle(seed):
+        a, b, c, d, e, f = seed, 2, 3, 4, 5, 6
+        for i in range(32):
+            old = a
+            if i % 3 == 0:
+                a, b = wrap(b + c), wrap(old + d)
+            else:
+                a, b = wrap(a + e), wrap(b - c)
+            c = mod(wrap(c + a), 97)
+            d, e = wrap(d + old), wrap(e + f)
+            f = mod(wrap(f + e), 101)
+        return wrap(a + b * 3 + c * 5 + d * 7 + e * 11 + f * 13)
+    seeds = [-(1 << 63), (1 << 63) - 1, -7, 0, 7, 9]
+    checks = [f'if pressure({raw_integer(n)}) != {raw_integer(oracle(n))} {{ exit(59); }}' for n in seeds]
+    for seed in seeds:
+        n, total = seed, 0
+        for i in range(7):
+            old = n; n = wrap(n + (1 if i % 2 == 0 else -1)); total = wrap(total + old + n)
+        checks.append(f'if snapshots({raw_integer(seed)}) != {raw_integer(wrap(total + n * 100))} {{ exit(59); }}')
+    eight = 36
+    for _ in range(20):
+        eight = eight * 3 + 1
+    nested = sum(i + j for i in range(1, 51) if i % 7 for j in range(5))
+    checks += [f'if counter() != 4950 or nested() != {nested} {{ exit(60); }}',
+               f'if counter() + pressure(7) + pressure(9) != {raw_integer(wrap(4950 + oracle(7) + oracle(9)))} {{ exit(61); }}',
+               f'if counter() + eight(1, 2, 3, 4, 5, 6, 7, 8) != {eight + 4950} {{ exit(61); }}',
+               'let p: Any = syscall(9, 0, 4096, 3, 34, -1, 0);',
+               'if calls() != 20 or memory(p) != 20 or load8(p) != 19 { exit(62); }', 'exit(0);']
+    source.write_text(declarations + '\n'.join(checks))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    body = function(assembly, 'counter')
+    assert re.search(r'\brbx\b', body), body
+    assert not re.search(r'\b(?:mov|add|cmp)\s+rax,QWORD PTR \[rbp-', body), body
+    for name in ['calls', 'memory']:
+        assert not re.search(r'\brbx\b', function(assembly, name)), name
+    print('PASS whole-function local registers, full-width snapshots/spills, nested loop joins/break/continue, live caller values and call/memory exclusion', flush=True)
+
+
+def direct_local_operations(compiler, work):
+    source, binary = work / 'direct-locals.may', work / 'direct-locals'
+    wrap = lambda n: (n + (1 << 63)) % (1 << 64) - (1 << 63)
+    specs = [(f'n * {factor} + {offset}', lambda n, c=factor, b=offset: wrap(n * c + b))
+             for factor in [3, 5, 9] for offset in [0, 1, 128]]
+    specs += [(f'n * 3 + {offset}', lambda n, b=offset: wrap(n * 3 + b)) for offset in [-1, 2147483647, 2147483648]]
+    for divisor in [1, 2, 4, 128, 1 << 30, 3]:
+        def quotient(n, d=divisor):
+            return abs(n) // d * (-1 if n < 0 else 1)
+        specs += [(f'n / {divisor}', quotient), (f'n % {divisor}', lambda n, d=divisor, q=quotient: n - q(n) * d)]
+    declarations, checks = [], []
+    seeds = [-(1 << 63), (1 << 63) - 1, -17, -1, 0, 17]
+    for place in range(5):
+        prefix = ''.join(f'mut g{i}: Any = 0;' for i in range(place))
+        updates = ''.join(f'g{i} = g{i} + 1;' for i in range(place))
+        result = 'n' + ''.join(f' + g{i}' for i in range(place))
+        for index, (expression, oracle) in enumerate(specs):
+            name = f'local{place}_{index}'
+            declarations.append(f'fun {name}(seed: Any) -> Any {{ {prefix} mut n: Any = seed; mut i: Any = 0; '
+                                f'while i < 1 {{ n = {expression}; {updates} i = i + 1; }} return {result}; }}')
+            for n in seeds:
+                checks.append(f'if {name}({raw_integer(n)}) != {raw_integer(wrap(oracle(n) + place))} {{ exit(63); }}')
+    declarations += ['fun observed(seed: Any) -> Any { mut n: Any = seed; mut i: Any = 0; mut result: Any = 0; '
+                     'while i < 3 { result = if n > 0 { n = n * 3 + 1; } else { n = n + 1; }; i = i + 1; } return n + result * 17; }']
+    for seed in [-7, 0, 7]:
+        n = seed
+        for _ in range(3):
+            n = n * 3 + 1 if n > 0 else n + 1
+        checks.append(f'if observed({seed}) != {n * 18} {{ exit(64); }}')
+    source.write_text('\n'.join(declarations + checks + ['exit(0);']))
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    assembly = disassemble(binary)
+    for place, register in enumerate(['rbx', 'r12', 'r13', 'r14', 'r15']):
+        body = function(assembly, f'local{place}_1')
+        assert re.search(r'\blea\s+' + register + r',\[' + register, body), body
+    for expression, seed in [('n / 0', 1), ('n / -1', -(1 << 63)), ('n % -1', -(1 << 63))]:
+        source.write_text('fun trap(seed: Any) -> Any { mut n: Any = seed; mut i: Any = 0; '
+                          f'while i < 1 {{ n = {expression}; i = i + 1; }} return n; }} exit(trap({raw_integer(seed)}));')
+        compile_source(compiler, source, binary, '--raw')
+        run(binary, -signal.SIGFPE)
+    print(f'PASS {5 * len(specs) * len(seeds)} full-width direct-local arithmetic cases across RBX/R12-R15, observable assignments and division traps', flush=True)
+
+
 def reciprocal_oracle():
     # Independent arbitrary-precision model of the sufficient reciprocal error
     # bound. Exhaust every signed dividend/non-power divisor at small widths.
@@ -489,6 +612,8 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
         remainder_branches(compiler, work)
         small_multipliers(compiler, work)
         local_recurrences(compiler, work)
+        local_registers(compiler, work)
+        direct_local_operations(compiler, work)
 
         unit = work / 'unit'
         compile_source(compiler, HERE / 'backend/x86_codegen.may', unit)

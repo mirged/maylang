@@ -93,7 +93,7 @@ def emulate(image, arch, macos=False, windows=False, slide=0):
         cpu.mem_write(0x10100000 - 8, struct.pack('<Q', sentinel))
         cpu.reg_write(x86.UC_X86_REG_RDI, 0x12345678)
         cpu.reg_write(x86.UC_X86_REG_RSI, 0x87654321)
-        allocated = [getattr(x86, f'UC_X86_REG_R{i}') for i in range(12, 16)]
+        allocated = [x86.UC_X86_REG_RBX] + [getattr(x86, f'UC_X86_REG_R{i}') for i in range(12, 16)]
         for index, register in enumerate(allocated):
             cpu.reg_write(register, 0xabc000 + index)
         cpu.emu_start(entry, sentinel, count=1000000)
@@ -201,7 +201,11 @@ def main():
             emulate(image, 'arm64', macos=True, slide=0x12000000)
         print('PASS ARM64 Mach-O layout and Darwin syscall ABI (native signing not tested)', flush=True)
         source = work / 'windows.may'
-        source.write_text('fun add(a: Any, b: Any) -> Any { return a + b; }\nmut n: Any = 0; while n < 10 { n = add(n, 1); }\n')
+        source.write_text('fun add(a: Any, b: Any) -> Any { return a + b; }\n'
+                          'fun count(limit: Any) -> Any { mut i: Any = 0; mut x: Any = 1; '
+                          'while i < limit { x = x * 3 + 1; i = i + 1; } return x; }\n'
+                          'if count(4) != 121 { load64(0); }\n'
+                          'mut n: Any = 0; while n < 10 { n = add(n, 1); }\n')
         image = compile_source(compiler, source, work / 'windows.exe', '--raw', '--target', 'x86_64-windows')
         assert image[:2] == b'MZ' and image[128:132] == b'PE\0\0'
         assert struct.unpack_from('<HH', image, 132) == (0x8664, 2)
