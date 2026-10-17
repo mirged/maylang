@@ -232,23 +232,38 @@ let localRead: Any = Quad(E_VAR, value(6), 0, 0, {"name": addr(stateName), "leng
 let localBody: Any = IRBlock([recurrenceCode[0], declare, stateRead, factor, product, modulus, reduce, update, localRead], 7);
 let localPlan: Any = x86_plan_local_registers(ctx, localBody);
 require(localPlan != 0 and localPlan.registers[stateName] == 3);
-require(len(localPlan.used) == 1 and len(localPlan.temporaries) == 4);
+// Call-free bodies also use the volatile r8-r10 for temporaries (#79).
+require(len(localPlan.used) == 1 and len(localPlan.temporaries) == 7);
+require(localPlan.temporaries[0] == 10 and localPlan.temporaries[1] == 9 and localPlan.temporaries[2] == 8);
 ctx.envCount = 1;
 require(x86_plan_local_registers(ctx, localBody) == 0);
 ctx.envCount = 0;
 push(ctx.locals, [addr(stateName), len(stateName)]);
-require(x86_plan_local_registers(ctx, localBody) == 0);
+// A parameter name cannot be promoted; the call-free body keeps r8-r10.
+let parameterPlan: Any = x86_plan_local_registers(ctx, localBody);
+require(len(keys(parameterPlan.registers)) == 0 and len(parameterPlan.temporaries) == 7);
 ctx.locals = []; ctx.boxed = [[addr(stateName), len(stateName)]];
 require(x86_plan_local_registers(ctx, localBody) == 0);
 ctx.boxed = [];
-push(localBody.code, Quad(E_CALL, 0, 0, 0, {"args": 0}, 0));
+push(localBody.code, Quad(E_CALL, 0, 0, 0, {"name": addr("one"), "length": 3, "args": 0}, 0));
+require(x86_plan_local_registers(ctx, localBody) == 0);
+pop(localBody.code);
+// Unshadowed RAW memory intrinsics keep promotion; a shadowing local does not.
+for name: Any in ["load8", "load64", "store8", "store64"] {
+    push(localBody.code, Quad(E_CALL, 0, 0, 0, {"name": addr(name), "length": len(name), "args": 0}, 0));
+    require(x86_plan_local_registers(ctx, localBody).registers[stateName] == 3);
+    push(ctx.locals, [addr(name), len(name)]);
+    require(x86_plan_local_registers(ctx, localBody) == 0);
+    pop(ctx.locals); pop(localBody.code);
+}
+push(localBody.code, Quad(E_CALL, 0, 0, 0, {"name": addr("syscall"), "length": 7, "args": 0}, 0));
 require(x86_plan_local_registers(ctx, localBody) == 0);
 pop(localBody.code);
 push(localBody.code, Quad(E_VAR, value(7), 0, 0, {"name": addr("unknown"), "length": 7}, 0));
 require(x86_plan_local_registers(ctx, localBody) == 0);
 pop(localBody.code);
 push(localBody.code, declare);
-require(x86_plan_local_registers(ctx, localBody) == 0);
+require(len(keys(x86_plan_local_registers(ctx, localBody).registers)) == 0);
 pop(localBody.code);
 localBody.code = [stateRead, recurrenceCode[0], declare, factor, product, modulus, reduce, update, localRead];
 require(x86_plan_local_registers(ctx, localBody) == 0);
@@ -260,7 +275,7 @@ for name: Any in poolNames {
     for visit: Any in 0..3 { push(poolCode, Quad(E_VAR, a, 0, 0, {"name": addr(name), "length": len(name)}, 0)); }
 }
 let fullPool: Any = x86_plan_local_registers(ctx, IRBlock(poolCode, 6));
-require(len(fullPool.used) == 5 and len(fullPool.temporaries) == 0);
+require(len(fullPool.used) == 5 and len(fullPool.temporaries) == 3);
 for index: Any in 0..5 { require(fullPool.registers[poolNames[index]] == if (index == 0) { 3 } else { 11 + index }); }
 ctx.allocation = lsra_plan(recurrence, [12, 13], true);
 let bounds: Any = x86_local_recurrences(ctx, recurrence);

@@ -329,6 +329,7 @@ fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
     }
     for index: Any in 0..ctx.allocation.stackSlots { loc_add(ctx, addr("0temporary"), 10); }
     for register: Any in ctx.allocation.used {
+        if (register >= 8 and register <= 10) { continue; }
         let slot: Any = loc_add(ctx, addr("0saved"), 6);
         push(ctx.allocation.saves, [register, 8 * (slot + 1)]);
     }
@@ -750,14 +751,24 @@ struct X86LocalCandidate { name: Any, score: Any, valid: Any, register: Any }
 
 // Reserve dedicated callee-saved registers for frequently used scalar locals.
 // Their homes last for the whole function, including every join/backedge. This
-// does not relax virtual-temporary liveness or alias raw frame memory: calls,
-// memory operations, captures and other non-scalar constructs exclude a body.
+// does not relax virtual-temporary liveness: calls, captures and other
+// non-scalar constructs exclude a body. Unshadowed RAW load/store intrinsics
+// are allowed (#79). Maylang has no address-of operator for locals, so no
+// pointer can name a local's frame slot, and only __sp exposes the stack, which
+// remains excluded. The intrinsics clobber rax/rcx/rdx only and promotion does
+// not reorder memory accesses or their faults.
 fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
     if (ctx.envCount > 0 or len(ctx.boxed) > 0) { return 0; }
     let names: Any = {}; let seen: Any = {}; let ordered: Any = [];
     for local: Any in ctx.locals { seen[symbol_name(local[0], local[1])] = true; }
     for instruction: Any in block.code {
         let op: Any = instruction.op; let payload: Any = instruction.extra;
+        if (op == E_CALL) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (x86_memory_intrinsic(name) and not has(seen, name) and glob_find(ctx, payload.name, payload.length) < 0 and
+                backend_find_func(ctx, payload.name, payload.length) == 0) { continue; }
+            return 0;
+        }
         if (not x86_scalar_instruction(op)) { return 0; }
         if (op == S_LET or op == S_ASSIGN or op == E_VAR) {
             let name: Any = symbol_name(payload.name, payload.length);
@@ -780,8 +791,10 @@ fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
         if (best == 0) { break; }
         best.register = register; registers[best.name] = register; push(used, register);
     }
-    if (len(used) == 0) { return 0; }
-    let temporaries: Any = [];
+    // These bodies cannot call or syscall, so the volatile r8-r10 also hold
+    // temporaries (#79). Operand encodings require extended registers; r11
+    // remains the large-literal scratch.
+    let temporaries: Any = [10, 9, 8];
     for register: Any in [12, 13, 14, 15] {
         mut reserved: Any = false;
         for local: Any in used { if (local == register) { reserved = true; } }

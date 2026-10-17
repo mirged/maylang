@@ -348,9 +348,10 @@ fun memory(p: Any) -> Any { mut i: Any = 0; while i < 20 { store8(p, i); i = i +
     body = function(assembly, 'counter')
     assert re.search(r'\brbx\b', body), body
     assert not re.search(r'\b(?:mov|add|cmp)\s+rax,QWORD PTR \[rbp-', body), body
-    for name in ['calls', 'memory']:
-        assert not re.search(r'\brbx\b', function(assembly, name)), name
-    print('PASS whole-function local registers, full-width snapshots/spills, nested loop joins/break/continue, live caller values and call/memory exclusion', flush=True)
+    # Calls still exclude promotion; RAW load/store intrinsics no longer do (#79).
+    assert not re.search(r'\brbx\b', function(assembly, 'calls'))
+    assert re.search(r'\brbx\b', function(assembly, 'memory'))
+    print('PASS whole-function local registers, full-width snapshots/spills, nested loop joins/break/continue, live caller values, call exclusion and memory-loop promotion', flush=True)
 
 
 def direct_local_operations(compiler, work):
@@ -526,6 +527,13 @@ def fused_addresses(compiler, work):
     run(binary)
     assembly = disassemble(binary)
     fused = sum(1 for index in range(120) if re.search(r'PTR \[r\w+\+r\w+\*[248]', function(assembly, f'memory{index}')))
+    promoted = [index for index in range(120) if 'acc = acc + nop()' not in declarations[index + 1]]
+    for index in range(120):
+        body = function(assembly, f'memory{index}')
+        if index in promoted:
+            assert re.search(r'\brbx\b', body), index
+        else:
+            assert not re.search(r'\br(?:8|9|10)\b', body), index
     assert fused >= 30, fused
     # Faults keep their order: the write happens before the faulting load.
     source.write_text('fun fault(p: Any) -> Any { mut i: Any = 0; mut total: Any = 0; '
