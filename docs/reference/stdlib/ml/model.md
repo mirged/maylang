@@ -1,0 +1,19 @@
+- **ml/model.may** — Minibatch training, evaluation and JSON weight persistence.
+- Availability: full Linux x86-64 runtime; experimental API.
+- Import: `import "ml/model" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../../stdlib/ml/model.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../../stdlib/CONTRACTS.md).
+- Loss names are mse, binary_cross_entropy and cross_entropy. Construct the network before loading compatible saved layer states.
+- Training requires matching nonempty feature/label rows, nonnegative epochs and positive batch size.
+- **ml_loss_value** — `fun ml_loss_value(pred: Any, target: Any, name: Any) -> Any` — Dispatch losses named `mse`, `binary_cross_entropy` or `cross_entropy`; reject other names.
+- `ml_loss_value` explicit fault strings: `"unknown loss: "`; runtime/callback faults can also propagate.
+- **ml_loss_gradient** — `fun ml_loss_gradient(pred: Any, target: Any, name: Any) -> Any` — Dispatch the matching gradient for the three supported loss names.
+- `ml_loss_gradient` explicit fault strings: `"unknown loss: "`; runtime/callback faults can also propagate.
+- **ml_train_batch** — `fun ml_train_batch(model: Any, xs: Any, ys: Any, optimizer: Any, loss_name: Any) -> Any` — Run forward, loss, backward and an optimizer update in order; mutate model/optimizer and return loss.
+- **ml_fit** — `fun ml_fit(model: Any, xs: Any, ys: Any, epochs: Any, batch_size: Any, optimizer: Any, rng: Any, loss_name: Any) -> Any` — Shuffle and train minibatches each epoch; mutate model, optimizer and RNG; return `{model, history}` with sample-weighted epoch losses.
+- `ml_fit` explicit fault strings: `"training data must be nonempty with matching row counts"`, `"epochs must be nonnegative and batch size positive"`; runtime/callback faults can also propagate.
+- **ml_evaluate** — `fun ml_evaluate(model: Any, xs: Any, ys: Any, loss_name: Any) -> Any` — Return `{loss, accuracy, predictions}` using the selected loss; prediction updates the model's forward caches.
+- **ml_save** — `fun ml_save(model: Any, path: Any) -> Any` — Write the model state dictionary as JSON; return the underlying write_file result. Does not save optimizer state.
+- **ml_load** — `fun ml_load(model: Any, path: Any) -> Any` — Read JSON layer states into an already constructed compatible model; return that model.

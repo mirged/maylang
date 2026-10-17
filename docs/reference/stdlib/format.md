@@ -1,0 +1,16 @@
+- **format.may** — Text tables, percentages, durations, byte sizes and ANSI formatting.
+- Availability: full Linux x86-64 runtime.
+- Import: `import "format" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../stdlib/format.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
+- **format_percent** — `fun format_percent(value: Any, digits: Any) -> Any` — Return a ratio multiplied by 100, rounded through `round` and decorated with `%`; `digits` controls scale, not zero-padding.
+- **format_bytes** — `fun format_bytes(n: Any) -> Any` — Return bytes or binary KiB/MiB/GiB/TiB notation using 1024-based scaling.
+- **format_duration** — `fun format_duration(seconds: Any) -> Any` — Clamp negative integer seconds to zero and return `MM:SS` or `HH:MM:SS`.
+- **format_table** — `fun format_table(headers: Any, rows: Any) -> Any` — Return a pipe-delimited text table with widths from headers and rows; missing cells are empty and extra columns are ignored.
+- **format_kv** — `fun format_kv(data: Any, width: Any) -> Any` — Return newline-separated key/value lines with keys padded to `width`.
+- **format_ansi** — `fun format_ansi(text: Any, code: Any) -> Any` — Wrap stringified text in an ANSI SGR code and reset sequence.
+- **format_bold** — `fun format_bold(text: Any) -> Any` — Wrap text with ANSI bold (code 1).
+- **format_dim** — `fun format_dim(text: Any) -> Any` — Wrap text with ANSI dim (code 2).
+- **format_color** — `fun format_color(text: Any, color: Any) -> Any` — Wrap text with the supplied ANSI color code.

@@ -37,8 +37,8 @@ closures in checked bodies, capability containment, ownership, information-flow
 security, termination and resource bounds are unfinished. Runtime guards do
 not establish memory safety or permit finite callable contracts in mutable
 containers. Compiler hosts and full-runtime bundles remain Linux x86-64,
-including x86-64 WSL 2. See [behavior support](docs/BEHAVIOR.md) and the
-[design conformance ledger](docs/BEHAVIOR_PROGRESS.md) for exact limits.
+including x86-64 WSL 2. See [behavior support](docs/internals/BEHAVIOR.md) and the
+[design conformance ledger](docs/design/BEHAVIOR_PROGRESS.md) for exact limits.
 
 ---
 
@@ -134,7 +134,7 @@ Released 2026-10-13 UTC. A patch release for workspace runner performance.
   and cached `may build` from 4.20 seconds to 23.8 ms. The original reported
   workspace ran in 22 ms after installing the optimized runner. Absolute
   timings depend on the host and environment; see
-  [the performance report](toolchain/may/PERFORMANCE.md) for raw samples and
+  [the performance report](tools/may/PERFORMANCE.md) for raw samples and
   reproduction instructions.
 - Preserve content hashing, output verification and atomic publication.
   Regressions cover same-size/same-timestamp source, import, compiler and runtime
@@ -262,7 +262,7 @@ workaround remain documented.
 The version is `0.10.0`, the source tag is `v0.10.0`, and the codename is **Aster**.
 Codenames name each minor series and stay the same for its patch releases.
 Dates record publication; they are separate from version numbers. See the
-[release convention](docs/RELEASING.md).
+[release convention](docs/guide/RELEASING.md).
 
 The earlier `v0.9.0-2026-10-10-nightly` prerelease was published on 2026-10-12
 with a stale date in its tag. It is retained as historical provenance and is

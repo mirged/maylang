@@ -7,6 +7,6 @@
     "passed": 80,
     "failed": 0
   },
-  "compiler": "toolchain/mayc/mayc_v2_stage3",
+  "compiler": "compiler/mayc/mayc_v2_stage3",
   "bootstrap_fixpoint": true
 }

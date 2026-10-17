@@ -16,7 +16,7 @@ results = []
 for name in ('results.json', 'round2.json', 'followup.json'):
     results.extend(json.loads((REPORTS / name).read_text()))
 report = {
-    'compiler': __import__('os').environ.get('MAYC', 'toolchain/mayc/mayc_new'),
+    'compiler': __import__('os').environ.get('MAYC', 'compiler/mayc/mayc_new'),
     'passed': sum(r['passed'] is True for r in results),
     'failed': sum(r['passed'] is False for r in results),
     'observations': sum(r['passed'] is None for r in results),

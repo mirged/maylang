@@ -16,7 +16,7 @@ refiling completed work. The sustained GC report remains tracked in #2.
 
 ## Implemented restructuring
 
-- Group release packaging, installers and migration in `toolchain/distribution`, with compatibility launchers at the existing paths.
+- Group release packaging, installers and migration in `dist`, with compatibility launchers at the existing paths.
 - Provide root Make commands, read-only prerequisite profiles, and a complete checkout-local five-tool setup with sidecars and a sourceable environment.
 - Separate release installation, source development, contribution conventions, repository navigation, active roadmap and historical work.
 - Add repository-wide local Markdown link/JSON/Python syntax checks and fast CI for repository/distribution contracts.

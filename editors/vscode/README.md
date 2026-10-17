@@ -22,7 +22,7 @@ Point the extension at the resulting binary in your VS Code settings:
 }
 ```
 
-See [the server README](../../toolchain/maylsp/README.md) for the complete
+See [the server README](../../tools/maylsp/README.md) for the complete
 feature list and standard library configuration. The default command is `maylsp`, matching the installed toolchain bundle.
 Existing installations under another name can use `maylang.serverPath`.
 

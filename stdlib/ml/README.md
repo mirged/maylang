@@ -47,10 +47,10 @@ splits, one-hot labels, feature scaling, accuracy, and JSON model snapshots.
 - `../random.may` — seeded Park–Miller PRNG, shuffle, sampling and normal draws.
 
 See `examples/ml_xor.may` for a complete training run, and
-[Artificial Ecosystem](../../example_projects/simulations/ecosystem/README.md) for evolved neural
+[Artificial Ecosystem](../../examples/simulations/ecosystem/README.md) for evolved neural
 controllers and a reproducible 100,000-generation experiment.
 
 Compiler verification builds and runs the XOR example; the
-[library boundary suite](../../toolchain/mayc/tests/stdlib_contracts.py) checks
+[library boundary suite](../../compiler/mayc/tests/stdlib_contracts.py) checks
 fixed inference and shape failures on native and LLVM. See the
-[public signatures](../../reference/STDLIB.md) and [runtime contracts](../CONTRACTS.md).
+[public signatures](../../docs/reference/STDLIB.md) and [runtime contracts](../CONTRACTS.md).

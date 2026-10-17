@@ -2,20 +2,20 @@
 
 | Boundary | Purpose | Validation |
 | --- | --- | --- |
-| `toolchain/mayc/` | Self-hosted frontend, IR, backends, formats and runtime sidecars | `make test-compiler test-compliance` |
-| `toolchain/rust/` | Source bootstrap and shared Rust crates | `make test-rust test-bootstrap` |
-| `toolchain/may/` | Workspace graphs, processes and verified artifact cache | `make test-tools` |
-| `toolchain/mayfmt/` | Shared command-line/editor formatter | `make test-tools` |
-| `toolchain/maylsp/` | Active Maylang language server | `make test-tools` |
-| `toolchain/maypkg/` | Legacy manager and shared filesystem/import helpers | `make test-tools` |
-| `toolchain/distribution/` | Packaging, installers and Bash migration | `make test-distribution package` |
-| `toolchain/maybrowser/` | Experimental browser and native adapter | `make test-browser` |
-| `toolchain/mayos/` | OS/kernel experiment | Component Makefile and README |
+| `compiler/mayc/` | Self-hosted frontend, IR, backends, formats and runtime sidecars | `make test-compiler test-compliance` |
+| `compiler/rust/` | Source bootstrap and shared Rust crates | `make test-rust test-bootstrap` |
+| `tools/may/` | Workspace graphs, processes and verified artifact cache | `make test-tools` |
+| `tools/mayfmt/` | Shared command-line/editor formatter | `make test-tools` |
+| `tools/maylsp/` | Active Maylang language server | `make test-tools` |
+| `tools/maypkg/` | Legacy manager and shared filesystem/import helpers | `make test-tools` |
+| `dist/` | Packaging, installers and Bash migration | `make test-distribution package` |
+| `platform/maybrowser/` | Experimental browser and native adapter | `make test-browser` |
+| `platform/mayos/` | OS/kernel experiment | Component Makefile and README |
 | `stdlib/` | Public libraries, UI and experimental ML | Compiler contracts and `make test-ui` |
 | `examples/`, `example_projects/` | Small examples and complete apps/games/simulations | Compiler verification and component workflows |
 | `tests/compliance/` | Legacy runtime/coercion and boundary regressions | `make test-compliance` |
 | `editors/vscode/` | Extension, grammar and snippets | `make editor` |
-| `reference/` | Generated API/language documentation | `make check test-docs` |
+| `docs/reference/` | Generated API/language documentation | `make check test-docs` |
 | `scripts/` | Checkout setup, dependency and repository checks | `make test-distribution` |
 | `.github/` | CI, contribution forms, PR template and labels | Repository checks and GitHub CI |
 

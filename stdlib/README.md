@@ -1,7 +1,7 @@
 # Maylang Standard Library
 
 The standard library and active self-hosted runtime are written in Maylang.
-The source [API inventory](../reference/STDLIB.md) records public signatures and runtime/platform
+The source [API inventory](../docs/reference/STDLIB.md) records public signatures and runtime/platform
 support; [contracts](CONTRACTS.md) describe mutation, errors, Unicode, numeric
 limits and tested edge cases. ML APIs are experimental.
 
@@ -41,7 +41,7 @@ print(quick_sort([3, 1, 2]));  // [1, 2, 3]
 
 ## Runtime primitives
 
-These low-level operations are exposed by `toolchain/mayc/runtime.may` and its
+These low-level operations are exposed by `compiler/mayc/runtime.may` and its
 native sidecar; higher-level helpers are ordinary library functions:
 
 * **Math**: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`,
@@ -58,7 +58,7 @@ native sidecar; higher-level helpers are ordinary library functions:
 
 Everything else is ordinary Maylang in this directory.
 
-The [`net` module](../docs/NETWORK.md) uses Linux syscalls directly in Maylang
+The [`net` module](../docs/guide/NETWORK.md) uses Linux syscalls directly in Maylang
 and supports `mayc`'s full native and `clang-llvm` runtimes. See
 [`examples/network`](../examples/network) for a TCP echo client and server.
 
@@ -77,11 +77,11 @@ The loader looks for modules in:
 ## Running the tour
 
 ```sh
-toolchain/mayc/mayc_new examples/stdlib_tour.may -o /tmp/stdlib-tour
+compiler/mayc/mayc_new examples/stdlib_tour.may -o /tmp/stdlib-tour
 /tmp/stdlib-tour
-toolchain/mayc/mayc_new examples/stdlib_expanded.may -o /tmp/stdlib-expanded
+compiler/mayc/mayc_new examples/stdlib_expanded.may -o /tmp/stdlib-expanded
 /tmp/stdlib-expanded
-toolchain/mayc/mayc_new examples/ml_xor.may -o /tmp/ml-xor
+compiler/mayc/mayc_new examples/ml_xor.may -o /tmp/ml-xor
 /tmp/ml-xor
 ```
 
@@ -89,11 +89,11 @@ The ML toolkit's API and supported model scope are documented in
 [`ml/README.md`](ml/README.md).
 
 These examples run in compiler verification. Update API signatures and `///`
-comments in the source, regenerate with `python3 reference/generate.py`, and
-commit the generated module pages and `reference/inventory.json`. CI checks generation with `--check` and runs
+comments in the source, regenerate with `python3 docs/reference/generate.py`, and
+commit the generated module pages and `docs/reference/inventory.json`. CI checks generation with `--check` and runs
 the boundary suite on native and LLVM output.
 
 [Native UI](ui/README.md) provides themed desktop widgets, antialiased Sokol GPU
 shapes/text, virtual lists and matching software snapshots.
-The [Mayboard application](../example_projects/apps/mayboard/README.md) demonstrates
+The [Mayboard application](../examples/apps/mayboard/README.md) demonstrates
 real application state, editing, search and persistent storage.

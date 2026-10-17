@@ -1,0 +1,18 @@
+- **io.may** — Text, line, JSON, CSV and key-value file helpers.
+- Availability: full Linux x86-64 runtime.
+- Import: `import "io" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: all top-level declarations are exported because this module has no `pub` declarations.
+- Source: [implementation](../../../stdlib/io.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
+- **io_read_text** — `fun io_read_text(path: Str) -> Str` — Read an entire text file; propagate read errors.
+- **io_read_or** — `fun io_read_or(path: Str, fallback: Str) -> Str` — Read text or return `fallback` on a caught runtime fault.
+- **io_write_text** — `fun io_write_text(path: Str, text: Any) -> Str` — Write `str(text)` and return the supplied path.
+- **io_read_lines** — `fun io_read_lines(path: Str) -> List<Str>` — Read a file and split on LF; a trailing newline yields a trailing empty entry.
+- **io_write_lines** — `fun io_write_lines(path: Str, lines: List<Str>) -> Str` — Join lines with LF, write without an added final newline, and return the path.
+- **io_read_json** — `fun io_read_json(path: Str) -> Any` — Read and parse JSON; propagate I/O and parse errors.
+- **io_read_json_or** — `fun io_read_json_or(path: Str, fallback: Any) -> Any` — Read and parse JSON, returning `fallback` on any caught fault.
+- **io_write_json** — `fun io_write_json(path: Str, value: Any) -> Str` — Serialize JSON, write it and return the path.
+- **io_read_csv** — `fun io_read_csv(path: Str) -> List<List<Str>>` — Read a file and return parsed CSV rows.
+- **io_write_csv** — `fun io_write_csv(path: Str, rows: List<List<Str>>) -> Str` — Serialize CSV rows, write them and return the path.
+- **io_read_config** — `fun io_read_config(path: Str) -> Map<Str, Str>` — Return trimmed key/value strings from `key=value` lines; skip blanks, # comments and lines without a nonempty key; later keys replace earlier keys.

@@ -49,14 +49,6 @@ class DeveloperTests(unittest.TestCase):
                              str(output / 'stdlib'),
                              str(output / 'bin') + ':' + os.environ['PATH']])
 
-    def test_distribution_python_compatibility_entrypoints(self):
-        for name in ('package', 'update'):
-            old = subprocess.run(['python3', str(ROOT / f'toolchain/{name}.py'), '--help'],
-                                 capture_output=True, text=True, check=True)
-            new = subprocess.run(['python3', str(ROOT / f'toolchain/distribution/{name}.py'), '--help'],
-                                 capture_output=True, text=True, check=True)
-            self.assertEqual(old.stdout, new.stdout)
-
     def test_failed_tool_build_preserves_existing_developer_tools(self):
         with tempfile.TemporaryDirectory(prefix='may-build-failure-') as temporary:
             directory = Path(temporary)

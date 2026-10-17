@@ -1,15 +1,15 @@
 # Contributing to Maylang
 
 Use Linux x86-64 for compiler and toolchain development. Start with
-[development setup](docs/DEVELOPMENT.md), run `make doctor`, then `make setup`.
+[development setup](docs/guide/DEVELOPMENT.md), run `make doctor`, then `make setup`.
 `make help` lists the supported repository commands.
 
 ## Repository boundaries
 
 The [repository map](docs/REPOSITORY.md) describes component ownership.
-Keep compiler work in `toolchain/mayc`, shared Rust/bootstrap work in
-`toolchain/rust`, public libraries in `stdlib`, and component tests beside
-their implementation. Distribution work belongs in `toolchain/distribution`;
+Keep compiler work in `compiler/mayc`, shared Rust/bootstrap work in
+`compiler/rust`, public libraries in `stdlib`, and component tests beside
+their implementation. Distribution work belongs in `dist`;
 checkout setup and repository checks belong in `scripts`.
 
 Existing `toolchain/install.*`, `package.py`, and `update.py` paths are
@@ -40,7 +40,7 @@ before testing changed compiler sources: the launcher caches its binary.
 Record skips and missing dependencies explicitly.
 
 Add focused regressions for changed behavior, including failure paths.
-Compiler fixtures belong under `toolchain/mayc/tests`; invalid programs go in
+Compiler fixtures belong under `compiler/mayc/tests`; invalid programs go in
 `fail/`. Tests should verify observable contracts. Do not commit generated
 executables, build directories, or machine-specific reports.
 

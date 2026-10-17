@@ -2,21 +2,21 @@
 
 | I want to… | Start here |
 | --- | --- |
-| Install a release, upgrade, or configure an editor | [Installation](INSTALL.md) |
-| Build and test a checkout | [Development](DEVELOPMENT.md), [contributing](../CONTRIBUTING.md) |
+| Install a release, upgrade, or configure an editor | [Installation](guide/INSTALL.md) |
+| Build and test a checkout | [Development](guide/DEVELOPMENT.md), [contributing](../CONTRIBUTING.md) |
 | Understand repository boundaries | [Repository map](REPOSITORY.md) |
-| Learn current syntax | [Strict guide](STRICT.md), [grammar](GRAMMAR.md), [examples](../reference/EXAMPLES.md) |
-| Look up public APIs | [Reference](../reference/README.md), [library contracts](../stdlib/CONTRACTS.md) |
-| Understand native compilation | [Compiler guide](../toolchain/mayc/README.md), [native internals](NATIVE.md) |
-| Understand runtime memory | [GC](GC.md), [core memory](CORE_MEMORY.md) |
-| Stress GC and inspect native/LLVM codegen | [Limits experiments](../toolchain/mayc/tests/limits/README.md) |
-| Use networking | [Networking](NETWORK.md) |
-| Configure language-server support | [LSP](LSP.md), [server guide](../toolchain/maylsp/README.md) |
-| Review cross-target execution | [Native target tests](NATIVE_TARGETS.md) |
-| Make a release | [Releasing](RELEASING.md), [distribution](../toolchain/distribution/README.md) |
+| Learn current syntax | [Strict guide](guide/STRICT.md), [grammar](guide/GRAMMAR.md), [examples](reference/EXAMPLES.md) |
+| Look up public APIs | [Reference](reference/README.md), [library contracts](../stdlib/CONTRACTS.md) |
+| Understand native compilation | [Compiler guide](../compiler/mayc/README.md), [native internals](internals/NATIVE.md) |
+| Understand runtime memory | [GC](internals/GC.md), [core memory](internals/CORE_MEMORY.md) |
+| Stress GC and inspect native/LLVM codegen | [Limits experiments](../compiler/mayc/tests/limits/README.md) |
+| Use networking | [Networking](guide/NETWORK.md) |
+| Configure language-server support | [LSP](guide/LSP.md), [server guide](../tools/maylsp/README.md) |
+| Review cross-target execution | [Native target tests](internals/NATIVE_TARGETS.md) |
+| Make a release | [Releasing](guide/RELEASING.md), [distribution](../dist/README.md) |
 | Review findings and priorities | [Audit](AUDIT.md), [roadmap](../ROADMAP.md) |
 
-[Implementation history](IMPLEMENTATION.md) and [roadmap history](ROADMAP_HISTORY.md)
-record earlier work. [Legacy syntax](LEGACY_TOUR.md) is historical. Generated
+[Implementation history](history/IMPLEMENTATION.md) and [roadmap history](history/ROADMAP_HISTORY.md)
+record earlier work. [Legacy syntax](history/LEGACY_TOUR.md) is historical. Generated
 references are updated through their generators; `make check` verifies freshness
 and local file links.

@@ -38,7 +38,7 @@ may dev
 The scaffold declares the native adapter as a prerequisite in `may.json`, builds
 it into the artifact store and supplies the application's library search path.
 For an existing workspace, copy the `ui` native target and application `depends`
-from [Mayboard's workspace](../../example_projects/apps/mayboard/may.json).
+from [Mayboard's workspace](../../examples/apps/mayboard/may.json).
 
 ```may
 import "ui" as ui;
@@ -108,7 +108,7 @@ Left=263, Down=264, Up=265, F5=294, F8=297, right Shift=344.
 shortcuts and gameplay while text entries own their focus, and consume unused
 presses to avoid replaying them later.
 
-The [May NES app](../../example_projects/apps/maynes/README.md) demonstrates a
+The [May NES app](../../examples/apps/maynes/README.md) demonstrates a
 real emulator framebuffer, simultaneous controller keys, audio and cartridge
 loading with the same native widget toolkit.
 
@@ -162,9 +162,9 @@ closing/reopening the surface.
 Run the [showcase](../../examples/ui_showcase.may) from the repository root:
 
 ```sh
-python3 toolchain/mayui/demo.py
-python3 toolchain/mayui/demo.py --dark
-python3 toolchain/mayui/demo.py --snapshot /tmp/mayui-light.png
+python3 tests/ui/demo.py
+python3 tests/ui/demo.py --dark
+python3 tests/ui/demo.py --snapshot /tmp/mayui-light.png
 ```
 
 For deterministic rendering, use `open(..., true)` without a display, then
@@ -172,10 +172,10 @@ For deterministic rendering, use `open(..., true)` without a display, then
 Native `snapshot`/`pixel` materialize the same frame in software on demand; they
 do not stall for GPU readback and do not measure GPU completion.
 `dispatch` exercises input transitions without a display.
-The [complete Mayboard app](../../example_projects/apps/mayboard/README.md) shows
+The [complete Mayboard app](../../examples/apps/mayboard/README.md) shows
 separate model/store/view modules, persistence, search and editing.
 
-Run `python3 toolchain/mayui/tests/run.py --require-x11` with Xvfb and xdotool to
+Run `python3 tests/ui/run.py --require-x11` with Xvfb and xdotool to
 check fractional edge coverage, alpha/clipping, Unicode cache reuse, malformed
 UTF-8, GPU/software pixel agreement, light/dark previews, repeated window lifecycle,
 window-manager close and real desktop input. Without those dependencies, the

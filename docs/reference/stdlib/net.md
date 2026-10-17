@@ -1,0 +1,88 @@
+- **net.may** — Synchronous IPv4 TCP/UDP sockets for full Linux x86-64 runtimes.
+- Availability: full Linux x86-64 runtime.
+- Import: `import "net" as library;`.
+- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.
+- Visibility: only declarations marked `pub` are exported.
+- Source: [implementation](../../../stdlib/net.may).
+- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
+- Requires the full Linux x86-64 native or clang-llvm runtime; core/raw builds do not support this module.
+- No DNS, IPv6, TLS or HTTP. Use dotted IPv4 or localhost; ports are 0..65535, but peer port zero is invalid.
+- Default timeout is 30000 ms; -1 means unlimited, 0 means immediate, maximum finite value is 2147483647.
+- Sockets share descriptor ownership through aliases. Close explicitly or use with_socket; no automatic finalizer.
+- Binary payloads may contain NUL and invalid UTF-8. TCP receive allocation is at most 16 MiB; UDP payload is at most 65507 bytes.
+- Errors have kind network, message, operation and positive Linux errno. Timeout=110, invalid input=22, closed socket=9, oversize UDP=90, early exact-read EOF=0.
+- **Address** — `pub struct Address { host: Str, port: Int }` — IPv4 host/port record; use address() for validation and canonicalization.
+- **Socket** — `pub struct Socket { fd: Int, kind: Str, timeout_ms: Int }` — Owned descriptor, socket kind and operation timeout record; aliases share the descriptor and close state.
+- **Datagram** — `pub struct Datagram { data: Str, sender: Address }` — UDP byte payload with its sender Address.
+- **net_fault** — `fun net_fault(operation: Str, code: Int, detail: Str) -> Any` — Construct and raise a network error with operation and positive errno.
+- `net_fault`: private implementation helper; unavailable to importing modules.
+- **net_check** — `fun net_check(operation: Str, status: Int) -> Int` — Return nonnegative syscall status or raise a network fault from the negated status.
+- `net_check`: private implementation helper; unavailable to importing modules.
+- **net_timeout** — `fun net_timeout(ms: Int) -> Nil` — Validate the allowed timeout range -1..2147483647 milliseconds.
+- `net_timeout`: private implementation helper; unavailable to importing modules.
+- `net_timeout` explicit fault strings: `"timeout"`; runtime/callback faults can also propagate.
+- **net_deadline** — `fun net_deadline(ms: Int) -> Float` — Convert a timeout to a monotonic deadline, using -1.0 for unlimited waiting.
+- `net_deadline`: private implementation helper; unavailable to importing modules.
+- **net_now** — `fun net_now() -> Float` — Return monotonic clock seconds using Linux clock_gettime.
+- `net_now`: private implementation helper; unavailable to importing modules.
+- **net_remaining** — `fun net_remaining(deadline: Float) -> Int` — Return remaining deadline milliseconds, rounded up, or -1 for unlimited waiting.
+- `net_remaining`: private implementation helper; unavailable to importing modules.
+- **net_open** — `fun net_open(s: Socket, kind: Str) -> Int` — Validate a live descriptor and optional expected socket kind; return the descriptor.
+- `net_open`: private implementation helper; unavailable to importing modules.
+- `net_open` explicit fault strings: `"socket"`; runtime/callback faults can also propagate.
+- **byte_length** — `pub fun byte_length(data: Str) -> Int` — Number of bytes, including embedded NULs; len(Str) counts codepoints.
+- **net_buffer** — `fun net_buffer(size: Int) -> Str` — Allocate a NUL-filled byte string; allow 0..16777216 bytes.
+- `net_buffer`: private implementation helper; unavailable to importing modules.
+- `net_buffer` explicit fault strings: `"buffer"`; runtime/callback faults can also propagate.
+- **net_trim** — `fun net_trim(data: Str, size: Int) -> Str` — Change a buffer's byte length and append a terminating NUL; require sufficient underlying allocation.
+- `net_trim`: private implementation helper; unavailable to importing modules.
+- **bytes** — `pub fun bytes(data: Str) -> List<Int>` — Convert arbitrary network bytes to a list of 0..255 integers.
+- **from_bytes** — `pub fun from_bytes(values: List<Int>) -> Str` — Build a byte string without UTF-8 re-encoding its bytes.
+- `from_bytes` explicit fault strings: `"from_bytes"`; runtime/callback faults can also propagate.
+- **ipv4** — `pub fun ipv4(host: Str) -> Str` — Validate/canonicalize a dotted-decimal IPv4 address; localhost is loopback.
+- `ipv4` explicit fault strings: `"address"`; runtime/callback faults can also propagate.
+- **address** — `pub fun address(host: Str, port: Int) -> Address` — Validate/canonicalize the host and port and return Address; valid ports are 0..65535.
+- `address` explicit fault strings: `"address"`; runtime/callback faults can also propagate.
+- **net_sockaddr** — `fun net_sockaddr(a: Address) -> Str` — Encode a validated address as a Linux sockaddr_in byte buffer.
+- `net_sockaddr`: private implementation helper; unavailable to importing modules.
+- **net_decode** — `fun net_decode(data: Str) -> Address` — Decode a Linux AF_INET sockaddr_in byte buffer into Address.
+- `net_decode`: private implementation helper; unavailable to importing modules.
+- `net_decode` explicit fault strings: `"address"`; runtime/callback faults can also propagate.
+- **net_socket** — `fun net_socket(kind: Str, type: Int) -> Socket` — Create a nonblocking, close-on-exec IPv4 descriptor; return Socket with a 30000 ms timeout.
+- `net_socket`: private implementation helper; unavailable to importing modules.
+- **net_discard** — `fun net_discard(s: Socket) -> Nil` — Close a socket during cleanup and mark it closed.
+- `net_discard`: private implementation helper; unavailable to importing modules.
+- **socket_close** — `pub fun socket_close(s: Socket) -> Nil` — Close once. Aliases to the same Socket observe that it is closed.
+- **socket_set_timeout** — `pub fun socket_set_timeout(s: Socket, ms: Int) -> Nil` — Set waiting timeout: -1 waits forever, 0 checks readiness immediately.
+- **net_poll** — `fun net_poll(fd: Int, writing: Bool, deadline: Float) -> Bool` — Poll descriptor read/write readiness against a monotonic deadline, retrying interrupted calls.
+- `net_poll`: private implementation helper; unavailable to importing modules.
+- `net_poll` explicit fault strings: `"poll"`; runtime/callback faults can also propagate.
+- **socket_wait** — `pub fun socket_wait(s: Socket, writing: Bool, ms: Int) -> Bool` — Return readiness as Bool using the explicit timeout; false on timeout; do not change the socket timeout.
+- **net_ready** — `fun net_ready(s: Socket, writing: Bool, deadline: Float, operation: Str) -> Nil` — Wait for readiness or raise a timeout fault for the named operation.
+- `net_ready`: private implementation helper; unavailable to importing modules.
+- **socket_local_address** — `pub fun socket_local_address(s: Socket) -> Address` — Return the bound/local Address, including an OS-assigned ephemeral port.
+- **socket_peer_address** — `pub fun socket_peer_address(s: Socket) -> Address` — Return the connected peer Address.
+- **with_socket** — `pub fun with_socket(s: Socket, action: (Socket) -> Any) -> Any` — Run an action and close the socket on success or a raised error.
+- **tcp_connect** — `pub fun tcp_connect(host: Str, port: Int) -> Socket` — Connect with a 30-second timeout. host is IPv4 or localhost.
+- **tcp_connect_timeout** — `pub fun tcp_connect_timeout(host: Str, port: Int, ms: Int) -> Socket` — Connect to an IPv4 peer with an explicit timeout; reject port zero; clean up on failure and return Socket on success.
+- `tcp_connect_timeout` explicit fault strings: `"connect"`; runtime/callback faults can also propagate.
+- **tcp_listen** — `pub fun tcp_listen(host: Str, port: Int) -> Socket` — Listen with backlog 128. port 0 asks the OS for an unused local port.
+- **tcp_accept** — `pub fun tcp_accept(listener: Socket) -> Socket` — Accept and return a connected Socket inheriting the listener's timeout.
+- **tcp_send** — `pub fun tcp_send(s: Socket, data: Str) -> Int` — Send all bytes; retry partial writes and suppress SIGPIPE.
+- `tcp_send` explicit fault strings: `"send"`; runtime/callback faults can also propagate.
+- **net_receive** — `fun net_receive(s: Socket, data: Str, offset: Int, count: Int, deadline: Float) -> Int` — Read bytes into a supplied buffer interval against the same deadline; return the syscall byte count.
+- `net_receive`: private implementation helper; unavailable to importing modules.
+- **tcp_receive** — `pub fun tcp_receive(s: Socket, max_bytes: Int) -> Str` — Read up to max_bytes; empty means orderly TCP EOF.
+- `tcp_receive` explicit fault strings: `"receive"`; runtime/callback faults can also propagate.
+- `tcp_receive`: Require 1..16777216 maximum bytes. An empty result means orderly TCP EOF.
+- **tcp_receive_exact** — `pub fun tcp_receive_exact(s: Socket, count: Int) -> Str` — Read exactly count bytes, or raise on premature EOF.
+- `tcp_receive_exact` explicit fault strings: `"receive_exact"`; runtime/callback faults can also propagate.
+- `tcp_receive_exact`: Require 0..16777216 bytes; zero returns an empty string without a read; premature EOF raises.
+- **tcp_shutdown** — `pub fun tcp_shutdown(s: Socket, how: Str) -> Nil` — Half-close read, write, or both sides of a TCP connection.
+- `tcp_shutdown` explicit fault strings: `"shutdown"`; runtime/callback faults can also propagate.
+- **udp_bind** — `pub fun udp_bind(host: Str, port: Int) -> Socket` — Bind a UDP socket; use host 0.0.0.0 for all interfaces and port 0 for any port.
+- **udp_send_to** — `pub fun udp_send_to(s: Socket, data: Str, destination: Address) -> Int` — Send a complete datagram and return the byte count; require nonzero destination port and payload at most 65507 bytes.
+- `udp_send_to` explicit fault strings: `"send_to"`; runtime/callback faults can also propagate.
+- **udp_receive_from** — `pub fun udp_receive_from(s: Socket, max_bytes: Int) -> Datagram` — Receive one datagram and its sender. Oversized packets raise instead of truncating silently.
+- `udp_receive_from` explicit fault strings: `"receive_from"`; runtime/callback faults can also propagate.
+- `udp_receive_from`: Require 1..65535 maximum bytes; an oversized packet is consumed and raises errno 90. Empty datagrams are valid.

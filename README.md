@@ -6,8 +6,8 @@ checking by default, and direct native executable output.
 [![Maylang 0.13.0 — Dahlia](https://img.shields.io/badge/Maylang-0.13.0%20Dahlia-green)](https://github.com/mirged/maylang/releases/tag/v0.13.0)
 
 [Releases](https://github.com/mirged/maylang/releases) ·
-[Install](docs/INSTALL.md) · [Language guide](docs/STRICT.md) ·
-[Reference](reference/README.md) · [Contribute](CONTRIBUTING.md) ·
+[Install](docs/guide/INSTALL.md) · [Language guide](docs/guide/STRICT.md) ·
+[Reference](docs/reference/README.md) · [Contribute](CONTRIBUTING.md) ·
 [Roadmap](ROADMAP.md)
 
 ```may
@@ -46,7 +46,7 @@ may run
 ```
 
 The installer prints the activation command for your current terminal too.
-[Installation options](docs/INSTALL.md) cover unattended setup, plain menus,
+[Installation options](docs/guide/INSTALL.md) cover unattended setup, plain menus,
 updates, uninstall and offline downloads. Your tools live in `~/.maylang`,
 independently of any source checkout. Compiler hosts are Linux x86-64;
 native macOS, Windows and ARM64 host bundles are not available yet.
@@ -56,17 +56,17 @@ native macOS, Windows and ARM64 host bundles are not available yet.
 Contributors can bootstrap directly from source on Linux x86-64:
 
 ```sh
-sh toolchain/rust/build.sh
+sh compiler/rust/build.sh
 python3 scripts/build_tools.py
 ```
 
-See [development setup](docs/DEVELOPMENT.md) for contributor prerequisites,
+See [development setup](docs/guide/DEVELOPMENT.md) for contributor prerequisites,
 checkout-local tools and tests. To install Maylang for everyday use, use the
 one-line installer above.
 
 ## Work with a project
 
-The [May workspace runner](toolchain/may/README.md) manages application,
+The [May workspace runner](tools/may/README.md) manages application,
 test, native build, and task targets in `may.json`:
 
 ```sh
@@ -81,33 +81,33 @@ may dev
 
 Local dependencies have content pins, builds verify cached artifacts, and
 commands receive literal argument arrays. Existing `mayproj.json` projects
-can use `maypkg` or `may migrate`. The [formatter](toolchain/mayfmt/README.md)
+can use `maypkg` or `may migrate`. The [formatter](tools/mayfmt/README.md)
 also powers editor formatting.
 
 For a desktop project, use `may new my-app --ui`. The
 [native UI library](stdlib/ui/README.md) uses Sokol and needs a C compiler,
 X11/Xi/Xcursor/OpenGL development libraries, and DejaVu fonts; windows use
 X11/XWayland and OpenGL 4.3. The complete
-[Mayboard task board](example_projects/apps/mayboard/README.md) supports a
+[Mayboard task board](examples/apps/mayboard/README.md) supports a
 preview without a display:
 
 ```sh
-cd example_projects/apps/mayboard
+cd examples/apps/mayboard
 may run -- --demo --snapshot /tmp/mayboard.png
 ```
 
-The [May NES emulator](example_projects/apps/maynes/README.md) is a playable
+The [May NES emulator](examples/apps/maynes/README.md) is a playable
 native app with a GPU framebuffer, sound, ROM loading and persistent save states.
-Run `may run` from `example_projects/apps/maynes`; an original homebrew game is
+Run `may run` from `examples/apps/maynes`; an original homebrew game is
 included.
 
 ## Language and targets
 
 Maylang supports typed functions, structs, generics, pattern matching,
 closures, modules, collections, JSON, file I/O, raw pointers, and C ABI calls.
-Start with the [strict guide](docs/STRICT.md) and
-[runnable examples](reference/EXAMPLES.md). The
-[legacy tour](docs/LEGACY_TOUR.md) documents older syntax for `--legacy` mode.
+Start with the [strict guide](docs/guide/STRICT.md) and
+[runnable examples](docs/reference/EXAMPLES.md). The
+[legacy tour](docs/history/LEGACY_TOUR.md) documents older syntax for `--legacy` mode.
 
 The compiler emits native executables without an external assembler or linker.
 Compiler **host** support and emitted **program targets** are separate:
@@ -122,22 +122,22 @@ Compiler **host** support and emitted **program targets** are separate:
 | `clang-llvm` | LLVM IR / ELF64 | Experimental full runtime on Linux x86-64 |
 
 Use `mayc --list-targets` for discovery and see the
-[compiler guide](toolchain/mayc/README.md#cross-compilation) for feature limits.
+[compiler guide](compiler/mayc/README.md#cross-compilation) for feature limits.
 LLVM output requires Clang and excludes fibers and FFI. Native Windows and
-macOS program execution is covered by the [native target suite](docs/NATIVE_TARGETS.md).
+macOS program execution is covered by the [native target suite](docs/internals/NATIVE_TARGETS.md).
 
 ## Find your way around
 
 | Directory | Contents |
 | --- | --- |
-| [toolchain/](toolchain/README.md) | Compiler, workspace runner, formatter, LSP, legacy manager, browser, OS |
-| [toolchain/distribution/](toolchain/distribution/README.md) | Release packaging, installers, environment migration |
+| [toolchain/](tools/README.md) | Compiler, workspace runner, formatter, LSP, legacy manager, browser, OS |
+| [dist/](dist/README.md) | Release packaging, installers, environment migration |
 | [scripts/](scripts/README.md) | Checkout setup, prerequisite checks, repository validation |
 | [stdlib/](stdlib/README.md) | Standard library, UI and experimental ML modules |
 | [examples/](examples/) | Small language examples |
-| [example_projects/](example_projects/README.md) | Complete apps, games, simulations, and learning projects |
+| [example_projects/](examples/README.md) | Complete apps, games, simulations, and learning projects |
 | [docs/](docs/README.md) | Setup, language, architecture, audit and release guides |
-| [reference/](reference/README.md) | Generated language and library reference |
+| [docs/reference/](docs/reference/README.md) | Generated language and library reference |
 | [editors/vscode/](editors/vscode/README.md) | VS Code extension |
 | [tests/compliance/](tests/compliance/README.md) | Runtime and language boundary regressions |
 
@@ -149,11 +149,11 @@ documentation need the same scrutiny as other contributions.
 
 The original sustained-allocation garbage collector report remains open as
 [#2](https://github.com/mirged/maylang/issues/2). Core allocation has documented
-lifetime and capacity limits. Consult the [compiler guide](toolchain/mayc/README.md)
+lifetime and capacity limits. Consult the [compiler guide](compiler/mayc/README.md)
 and [library contracts](stdlib/CONTRACTS.md) before relying on a feature.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, commit conventions, and issue
 labels. The [audit](docs/AUDIT.md) records findings and validation; the
 [roadmap](ROADMAP.md) links active work. Release identity lives in `RELEASE.json`
-and `MAYC_VERSION` in [main.may](toolchain/mayc/main.may); see the
-[changelog](CHANGELOG.md) and [release convention](docs/RELEASING.md).
+and `MAYC_VERSION` in [main.may](compiler/mayc/main.may); see the
+[changelog](CHANGELOG.md) and [release convention](docs/guide/RELEASING.md).
