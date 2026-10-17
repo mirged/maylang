@@ -20,9 +20,12 @@ comparison of the original compiler, this first pass, and the combined changes.
 The [dedicated local-register report](raw-local-registers.md) records the
 complete #76 branch at 21.700 ms versus 44.499 ms for the original compiler, with
 100 interleaved runs, all checksums matching, and remaining workload regressions
-reported alongside the gains. The [fused-address report](raw-addressing.md)
-(#79) then measures the automaton 38.6% and the byte histogram 19.9% faster than
-the merged baseline, and documents a Collatz loop-placement effect.
+reported alongside the gains. The [branch-free diamond report](raw-if-conversion.md)
+(#78) then measures 16.742 ms versus 21.667 ms for the merged baseline, including
+the predictability tradeoffs that keep some branches. The
+[fused-address report](raw-addressing.md) (#79) measures the automaton 38.6% and
+the byte histogram 19.9% faster than that baseline, and documents a Collatz
+loop-placement effect.
 
 ## Reproduce
 
