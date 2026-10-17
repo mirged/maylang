@@ -1,7 +1,7 @@
 # Release names
 
 Maylang uses numeric versions for tools and nature codenames for people:
-**0.13.0 “Dahlia”** is tagged `v0.13.0`. `mayc --version` prints the numeric
+**0.13.101 “Dahlia”** is tagged `v0.13.101`. `mayc --version` prints the numeric
 version, so scripts and bundle paths do not need to parse a codename.
 
 Each minor series gets the next alphabetical nature name. Aster starts the

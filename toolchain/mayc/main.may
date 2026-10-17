@@ -23,7 +23,7 @@ import "src/profile.may";
 
 // ---------------------------------------------------------------- Constants
 // Immutable let is Maylang's constant declaration. Update the version here.
-let MAYC_VERSION: Str = "0.13.0";
+let MAYC_VERSION: Str = "0.13.101";
 let RUNTIME_FILE_NAME: Any  = "runtime.may";
 let PRELUDE_FILE_NAME: Any  = "prelude.may";
 let NATIVE_FILE_NAME: Any   = "native.may";
