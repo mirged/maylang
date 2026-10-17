@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Reproduce issue #76 with checksums, optional pinned timings and perf counters.
 
+--suite core runs the six issue #76 kernels; --suite extended runs eleven more
+(sieve, matrix multiply, recursion, sorting, division, hashing, search,
+fixed-point, backtracking, streaming and dynamic programming).
+
 No performance threshold is enforced. Use --baseline-compiler with a compiler
 copied together with its runtime sidecars before rebuilding the changed source.
 """
@@ -25,17 +29,22 @@ HERE = Path(__file__).resolve().parent
 CHECKSUMS = {'PRNG': 1263606197, 'Collatz': 2864311, 'Byte histogram': 33685504,
              'Cellular automaton': 44849, 'Pointer chase': 578415528,
              'Random walk': 1997581997722}
+EXTENDED_CHECKSUMS = {'Sieve': 148933, 'Matrix multiply': -21275, 'Recursive fib': 196418,
+                      'Insertion sort': 538816184771, 'GCD grid': 336784, 'Hash': 2046935021,
+                      'Binary search': 4907762861, 'Mandelbrot': 404758, 'N-queens': 724,
+                      'Dot product': 32300327230, 'Knapsack': 23584}
+SUITES = {'core': ('raw_performance', CHECKSUMS), 'extended': ('raw_suite', EXTENDED_CHECKSUMS)}
 
 
-def parse_output(output):
+def parse_output(output, checksums=CHECKSUMS):
     rows = {}
     for line in output.splitlines():
         match = re.fullmatch(r'(.+?)\s+(-?\d+)\s+(\d+)', line)
-        if match and match[1].strip() in CHECKSUMS:
+        if match and match[1].strip() in checksums:
             name = match[1].strip()
             assert name not in rows, (name, output)
             rows[name] = {'checksum': int(match[2]), 'ns': int(match[3])}
-    assert {name: row['checksum'] for name, row in rows.items()} == CHECKSUMS, output
+    assert {name: row['checksum'] for name, row in rows.items()} == checksums, output
     return rows
 
 
@@ -55,6 +64,7 @@ def summarize(samples):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', type=Path, required=True)
+    parser.add_argument('--suite', choices=SUITES, default='core')
     parser.add_argument('--baseline-compiler', type=Path, action='append', default=[],
                         help='repeat to compare multiple compiler revisions in one interleaved run')
     parser.add_argument('--baseline-revision', action='append', default=[],
@@ -68,25 +78,27 @@ def main():
     assert platform.system() == 'Linux' and platform.machine() == 'x86_64', 'Linux x86-64 required'
     assert args.runs > 0 and args.warmup >= 0
     compiler = compiler_binary(args.compiler)
+    stem, checksums = SUITES[args.suite]
+    may_source, c_source = HERE / f'backend/{stem}.may', HERE / f'backend/{stem}.c'
     with tempfile.TemporaryDirectory(prefix='mayc-raw-performance-') as directory:
         work = Path(directory)
         artifacts = args.output.resolve().with_suffix('') if args.output else work / 'artifacts'
         artifacts.mkdir(parents=True, exist_ok=True)
         binaries = {'may': work / 'may'}
-        compile_source(compiler, HERE / 'backend/raw_performance.may', binaries['may'], '--raw')
+        compile_source(compiler, may_source, binaries['may'], '--raw')
         compilers = {'may': {'sha256': digest(compiler), 'version': capture([compiler, '--version'])}}
         assert len(args.baseline_revision) <= len(args.baseline_compiler)
         for index, path in enumerate(args.baseline_compiler):
             name = 'before' if index == 0 else f'before_{index + 1}'
             baseline = compiler_binary(path)
             binaries[name] = work / name
-            compile_source(baseline, HERE / 'backend/raw_performance.may', binaries[name], '--raw')
+            compile_source(baseline, may_source, binaries[name], '--raw')
             compilers[name] = {'sha256': digest(baseline), 'version': capture([baseline, '--version']),
                                'revision': args.baseline_revision[index] if index < len(args.baseline_revision) else 'unspecified'}
         for name, flags in [('gcc', []), ('gcc_scalar', ['-fno-tree-vectorize'])]:
             binaries[name] = work / name
             subprocess.run(['gcc', '-O3', '-march=native', '-std=c11', *flags,
-                            str(HERE / 'backend/raw_performance.c'), '-o', str(binaries[name])], check=True)
+                            str(c_source), '-o', str(binaries[name])], check=True)
         commands = {name: (['taskset', '-c', str(args.cpu)] if args.cpu is not None else []) + [str(binary)]
                     for name, binary in binaries.items()}
         results = {name: {'samples': [], 'perf': []} for name in binaries}
@@ -97,7 +109,7 @@ def main():
             results[name].update({'binary_sha256': digest(binary), 'binary_bytes': binary.stat().st_size,
                                   'static_instructions': sum(counts.values()), 'opcodes': dict(counts)})
             for _ in range(args.warmup):
-                parse_output(capture(commands[name]))
+                parse_output(capture(commands[name]), checksums)
         names = list(binaries)
         # Rotate execution order to distribute drift between the candidates.
         for iteration in range(args.runs):
@@ -106,7 +118,7 @@ def main():
                 start = time.perf_counter_ns()
                 output = capture(commands[name])
                 elapsed = time.perf_counter_ns() - start
-                rows = parse_output(output)
+                rows = parse_output(output, checksums)
                 results[name]['samples'].append({'elapsed_ns': elapsed, 'workloads': rows})
         if args.perf:
             hybrid = Path('/sys/bus/event_source/devices/cpu_core').exists()
@@ -117,7 +129,7 @@ def main():
                     log = artifacts / f'{name}-perf-{iteration}.csv'
                     output = capture(['perf', 'stat', '--no-big-num', '-x', ',', '-e', ','.join(events),
                                       '-o', log, '--', *commands[name]])
-                    parse_output(output)
+                    parse_output(output, checksums)
                     counters = {}
                     for line in log.read_text().splitlines():
                         fields = line.split(',')
@@ -128,30 +140,30 @@ def main():
         for name, result in results.items():
             result['elapsed_ns'] = summarize([sample['elapsed_ns'] for sample in result['samples']])
             result['workload_ns'] = {label: summarize([s['workloads'][label]['ns'] for s in result['samples']])
-                                     for label in CHECKSUMS}
-            print(f"{name}: {result['elapsed_ns']['median'] / 1e6:.3f} ms median; all six checksums match")
+                                     for label in checksums}
+            print(f"{name}: {result['elapsed_ns']['median'] / 1e6:.3f} ms median; all {len(checksums)} checksums match")
         report = {'date_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   'revision': capture(['git', 'rev-parse', 'HEAD']), 'status': capture(['git', 'status', '--short']),
                   'source_sha256': {str(path.relative_to(ROOT)): digest(path) for path in [
                       ROOT / 'compiler/mayc/src/backend/x86_64.may', ROOT / 'compiler/mayc/src/regalloc.may',
                       ROOT / 'compiler/mayc/src/ir.may', ROOT / 'compiler/mayc/src/emitter.may',
-                      HERE / 'backend/raw_performance.may', HERE / 'backend/raw_performance.c']},
+                      may_source, c_source]},
                   'uname': capture(['uname', '-a']), 'lscpu': capture(['lscpu']),
                   'gcc': capture(['gcc', '--version']), 'cpu': args.cpu,
                   'allowed_cpus': sorted(os.sched_getaffinity(0)), 'runs': args.runs,
-                  'warmup': args.warmup, 'compilers': compilers, 'results': results,
+                  'warmup': args.warmup, 'suite': args.suite, 'compilers': compilers, 'results': results,
                   'notes': 'End-to-end samples include Python process launch/capture overhead. Workload timers exclude output. '
                            'Host is not isolated; no timing thresholds or per-pass attribution. '
                            'GCC scalar disables tree vectorization only. Static counts cover entire executables.'}
         if args.output:
             # Keep every sample without repeating checksums and field names for
             # every workload/run. parse_output has checked all of them above.
-            report['checksums'] = CHECKSUMS
+            report['checksums'] = checksums
             for result in results.values():
                 samples = result['samples']
                 result['samples'] = {'elapsed_ns': [s['elapsed_ns'] for s in samples],
                                      'workload_ns': {label: [s['workloads'][label]['ns'] for s in samples]
-                                                     for label in CHECKSUMS}}
+                                                     for label in checksums}}
             args.output.resolve().write_text(json.dumps(report, indent=2) + '\n')
             print(f'Report: {args.output}; disassembly and perf logs: {artifacts}')
 

@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 from backends import compiler_binary, compile_source
-from raw_performance import CHECKSUMS, parse_output
+from raw_performance import CHECKSUMS, EXTENDED_CHECKSUMS, parse_output
 
 HERE = Path(__file__).resolve().parent
 
@@ -950,6 +950,13 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
                         str(HERE / 'backend/raw_performance.c'), '-o', str(reference)], check=True)
         assert {name: row['checksum'] for name, row in parse_output(run(reference)).items()} == CHECKSUMS
         print('PASS all six issue #76 workload checksums across three runs', flush=True)
+
+        compile_source(compiler, HERE / 'backend/raw_suite.may', binary, '--raw')
+        assert parse_output(run(binary), EXTENDED_CHECKSUMS).keys() == EXTENDED_CHECKSUMS.keys()
+        subprocess.run(['gcc', '-O3', '-march=native', '-std=c11',
+                        str(HERE / 'backend/raw_suite.c'), '-o', str(reference)], check=True)
+        assert parse_output(run(reference), EXTENDED_CHECKSUMS).keys() == EXTENDED_CHECKSUMS.keys()
+        print('PASS all eleven extended-suite workload checksums against C', flush=True)
 
 
 if __name__ == '__main__':
