@@ -17,10 +17,12 @@ The subsequent [signed constant-division pass](raw-constant-division.md)
 implements non-power-of-two literal division and records a fresh, interleaved
 comparison of the original compiler, this first pass, and the combined changes.
 
-The latest [dedicated local-register report](raw-local-registers.md) records the
-complete branch at 21.700 ms versus 44.499 ms for the original compiler, with
+The [dedicated local-register report](raw-local-registers.md) records the
+complete #76 branch at 21.700 ms versus 44.499 ms for the original compiler, with
 100 interleaved runs, all checksums matching, and remaining workload regressions
-reported alongside the gains.
+reported alongside the gains. The [branch-free diamond report](raw-if-conversion.md)
+(#78) then measures 16.742 ms versus 21.667 ms for the merged baseline, including
+the predictability tradeoffs that keep some branches.
 
 ## Reproduce
 
