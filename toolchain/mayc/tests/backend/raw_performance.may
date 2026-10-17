@@ -1,0 +1,229 @@
+// Maylang raw benchmark. Linux x86-64 only.
+// No standard library, runtime, floats, managed objects, or print().
+// Issue #76 reproducer. See ../raw_performance.py for checks and measurements.
+// Compile: toolchain/mayc/mayc_new --raw toolchain/mayc/tests/backend/raw_performance.may -o /tmp/benchmark_may
+
+fun now_ns(ts: Any) -> Any {
+    let rc: Any = syscall(228, 1, ts);
+    if rc < 0 { exit(2); }
+    return load64(ts) * 1000000000 + load64(ts + 8);
+}
+
+fun write_bytes(address: Any, length: Any) -> Any {
+    syscall(1, 1, address, length);
+    return 0;
+}
+
+fun write_spaces(count: Any) -> Any {
+    mut i: Any = 0;
+    while i < count {
+        syscall(1, 1, addr(" "), 1);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fun write_int(value: Any, width: Any, scratch: Any) -> Any {
+    mut number: Any = value;
+    mut count: Any = 0;
+    if number == 0 {
+        store8(scratch, 48);
+        count = 1;
+    }
+    while number > 0 {
+        store8(scratch + count, 48 + number % 10);
+        count = count + 1;
+        number = number / 10;
+    }
+    write_spaces(width - count);
+    mut i: Any = count;
+    while i > 0 {
+        i = i - 1;
+        syscall(1, 1, scratch + i, 1);
+    }
+    return 0;
+}
+
+fun report(label: Any, label_len: Any, result: Any, elapsed: Any, digits: Any) -> Any {
+    write_bytes(label, label_len);
+    write_spaces(18 - label_len);
+    write_int(result, 14, digits);
+    write_bytes(addr(" "), 1);
+    write_int(elapsed, 14, digits);
+    write_bytes(addr("\n"), 1);
+    return 0;
+}
+
+fun prng_bench() -> Any {
+    mut state: Any = 1;
+    mut i: Any = 0;
+    while i < 1000000 {
+        state = state * 48271 % 2147483647;
+        i = i + 1;
+    }
+    return state;
+}
+
+fun collatz_bench() -> Any {
+    mut total: Any = 0;
+    mut seed: Any = 1;
+    while seed <= 30000 {
+        mut n: Any = seed;
+        while n > 1 {
+            if n % 2 == 0 { n = n / 2; }
+            else { n = n * 3 + 1; }
+            total = total + 1;
+        }
+        seed = seed + 1;
+    }
+    return total;
+}
+
+fun histogram_bench(memory: Any) -> Any {
+    let bins: Any = memory + 262144;
+    mut i: Any = 0;
+    while i < 256 {
+        store64(bins + i * 8, 0);
+        i = i + 1;
+    }
+    i = 0;
+    while i < 262144 {
+        store8(memory + i, (i * 73 + 19) % 256);
+        i = i + 1;
+    }
+    i = 0;
+    while i < 262144 {
+        let byte: Any = load8(memory + i);
+        let slot: Any = bins + byte * 8;
+        store64(slot, load64(slot) + 1);
+        i = i + 1;
+    }
+    mut checksum: Any = 0;
+    i = 0;
+    while i < 256 {
+        checksum = checksum + (i + 1) * load64(bins + i * 8);
+        i = i + 1;
+    }
+    return checksum;
+}
+
+fun automaton_bench(memory: Any) -> Any {
+    let width: Any = 8192;
+    mut front: Any = memory + 300000;
+    mut back: Any = memory + 310000;
+    mut i: Any = 0;
+    while i < width {
+        store8(front + i, (i * 7 + i / 13) % 2);
+        i = i + 1;
+    }
+    mut round: Any = 0;
+    while round < 120 {
+        i = 0;
+        while i < width {
+            mut left: Any = i - 1;
+            mut right: Any = i + 1;
+            if i == 0 { left = width - 1; }
+            if right == width { right = 0; }
+            let value: Any = (load8(front + left) + load8(front + i) + load8(front + right)) % 2;
+            store8(back + i, value);
+            i = i + 1;
+        }
+        let temporary: Any = front;
+        front = back;
+        back = temporary;
+        round = round + 1;
+    }
+    mut checksum: Any = 0;
+    i = 0;
+    while i < width {
+        checksum = checksum + (i % 17 + 1) * load8(front + i);
+        i = i + 1;
+    }
+    return checksum;
+}
+
+fun pointer_chase_bench(memory: Any) -> Any {
+    mut i: Any = 0;
+    while i < 32768 {
+        store64(memory + i * 8, (i + 8191) % 32768);
+        i = i + 1;
+    }
+    mut index: Any = 0;
+    mut checksum: Any = 0;
+    i = 0;
+    while i < 1500000 {
+        index = load64(memory + index * 8);
+        checksum = (checksum + index) % 1000000007;
+        i = i + 1;
+    }
+    return checksum;
+}
+
+fun walk_bench() -> Any {
+    mut state: Any = 1;
+    mut x: Any = 0;
+    mut y: Any = 0;
+    mut i: Any = 0;
+    while i < 1000000 {
+        state = state * 16807 % 2147483647;
+        let direction: Any = state % 4;
+        if direction == 0 { x = x + 1; }
+        else if direction == 1 { x = x - 1; }
+        else if direction == 2 { y = y + 1; }
+        else { y = y - 1; }
+        i = i + 1;
+    }
+    return (x + 1000000) * 2000001 + (y + 1000000);
+}
+
+let memory: Any = syscall(9, 0, 1048576, 3, 34, -1, 0);
+if memory < 0 { exit(1); }
+let timespec: Any = memory;
+let digits: Any = memory + 32;
+let work: Any = memory + 4096;
+
+write_bytes(addr("RAW BENCHMARK (Linux x86-64)\n"), 29);
+write_bytes(addr("Benchmark               Checksum        Time (ns)\n"), 50);
+write_bytes(addr("------------------------------------------------\n"), 49);
+
+mut total_ns: Any = 0;
+mut start: Any = now_ns(timespec);
+let rng: Any = prng_bench();
+let dt_rng: Any = now_ns(timespec) - start;
+report(addr("PRNG"), 4, rng, dt_rng, digits);
+total_ns = total_ns + dt_rng;
+
+start = now_ns(timespec);
+let collatz: Any = collatz_bench();
+let dt_collatz: Any = now_ns(timespec) - start;
+report(addr("Collatz"), 7, collatz, dt_collatz, digits);
+total_ns = total_ns + dt_collatz;
+
+start = now_ns(timespec);
+let histogram: Any = histogram_bench(work);
+let dt_histogram: Any = now_ns(timespec) - start;
+report(addr("Byte histogram"), 14, histogram, dt_histogram, digits);
+total_ns = total_ns + dt_histogram;
+
+start = now_ns(timespec);
+let automaton: Any = automaton_bench(work);
+let dt_automaton: Any = now_ns(timespec) - start;
+report(addr("Cellular automaton"), 18, automaton, dt_automaton, digits);
+total_ns = total_ns + dt_automaton;
+
+start = now_ns(timespec);
+let pointer: Any = pointer_chase_bench(work);
+let dt_pointer: Any = now_ns(timespec) - start;
+report(addr("Pointer chase"), 13, pointer, dt_pointer, digits);
+total_ns = total_ns + dt_pointer;
+
+start = now_ns(timespec);
+let walk: Any = walk_bench();
+let dt_walk: Any = now_ns(timespec) - start;
+report(addr("Random walk"), 11, walk, dt_walk, digits);
+total_ns = total_ns + dt_walk;
+
+write_bytes(addr("------------------------------------------------\n"), 49);
+report(addr("TOTAL"), 5, 0, total_ns, digits);
+syscall(11, memory, 1048576);
+exit(0);

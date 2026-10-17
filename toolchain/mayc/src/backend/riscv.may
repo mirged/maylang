@@ -123,22 +123,27 @@ fun riscv_trap(ctx: Any) -> Any { e32(ctx, 115); return 0; }
 
 fun riscv_patch(ctx: Any) -> Any {
     // Patch using a private sink view; the original append cursor is untouched.
-    for fixup: Any in ctx.fixups {
-        let pointer: Any = ctx.code.data + fixup.off;
-        if (fixup.kind == 101) {
-            let saved: Any = ctx.code.length;
-            ctx.code.length = fixup.off;
-            riscv_immediate(ctx, ctx.layout.dataAddress + fixup.tgt, 2);
-            ctx.code.length = saved;
-        } else {
-            let delta: Any = lab_off(ctx, fixup.tgt) - fixup.off;
-            if (delta < -2147483648 or delta > 2147481599 or delta % 4 != 0) { die_str("mayc: RISC-V jump out of range\n"); }
-            let upper: Any = (delta + 2048 - ((delta + 2048) % 4096 + 4096) % 4096) / 4096;
-            let lower: Any = delta - upper * 4096;
-            let bits: Any = (upper + 1048576) % 1048576;
-            store32(pointer, 663 + bits * 4096);
-            let link: Any = if (fixup.kind == 104) { 1 } else { 0 };
-            store32(pointer + 4, 103 + link * 128 + 5 * 32768 + ((lower + 4096) % 4096) * 1048576);
+    for chunk: Any in ctx.fixups.chunks {
+        for index: Any in 0..(len(chunk) / 3) {
+            let kind: Any = chunk[index * 3];
+            let off: Any = chunk[index * 3 + 1];
+            let target: Any = chunk[index * 3 + 2];
+            let pointer: Any = ctx.code.data + off;
+            if (kind == 101) {
+                let saved: Any = ctx.code.length;
+                ctx.code.length = off;
+                riscv_immediate(ctx, ctx.layout.dataAddress + target, 2);
+                ctx.code.length = saved;
+            } else {
+                let delta: Any = lab_off(ctx, target) - off;
+                if (delta < -2147483648 or delta > 2147481599 or delta % 4 != 0) { die_str("mayc: RISC-V jump out of range\n"); }
+                let upper: Any = (delta + 2048 - ((delta + 2048) % 4096 + 4096) % 4096) / 4096;
+                let lower: Any = delta - upper * 4096;
+                let bits: Any = (upper + 1048576) % 1048576;
+                store32(pointer, 663 + bits * 4096);
+                let link: Any = if (kind == 104) { 1 } else { 0 };
+                store32(pointer + 4, 103 + link * 128 + 5 * 32768 + ((lower + 4096) % 4096) * 1048576);
+            }
         }
     }
     return 0;

@@ -6,6 +6,7 @@ an error. Install it in a temporary venv and run this test inside that venv.
 """
 import argparse
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -29,7 +30,7 @@ def compiler_binary(compiler):
 def compile_source(compiler, source, binary, *options):
     result = subprocess.run([str(compiler), *options, str(source), '-o', str(binary)],
                             cwd=ROOT, capture_output=True, timeout=120)
-    assert result.returncode == 0, result.stderr.decode()
+    assert result.returncode == 0, (result.stdout + result.stderr).decode()
     return binary.read_bytes()
 
 
@@ -93,7 +94,7 @@ def emulate(image, arch, macos=False, windows=False, slide=0):
         cpu.mem_write(0x10100000 - 8, struct.pack('<Q', sentinel))
         cpu.reg_write(x86.UC_X86_REG_RDI, 0x12345678)
         cpu.reg_write(x86.UC_X86_REG_RSI, 0x87654321)
-        allocated = [getattr(x86, f'UC_X86_REG_R{i}') for i in range(12, 16)]
+        allocated = [x86.UC_X86_REG_RBX] + [getattr(x86, f'UC_X86_REG_R{i}') for i in range(12, 16)]
         for index, register in enumerate(allocated):
             cpu.reg_write(register, 0xabc000 + index)
         cpu.emu_start(entry, sentinel, count=1000000)
@@ -145,6 +146,23 @@ def main():
         result = subprocess.run([str(context)], capture_output=True, timeout=10)
         assert result.returncode == 0 and result.stdout == (b'true true true true\n' * 3 + b'true true\n' * 2), result
         print('PASS interleaved emission contexts, labels, data, image and release', flush=True)
+        # Compile a relocation-table stress program against a small runtime.
+        # The compiler itself keeps its normal heap; only the emitted fixture
+        # gets the limit. Large contiguous list growth previously exhausted
+        # fragmented heaps despite ample total free space during self-hosting.
+        probe = work / 'mayc'
+        shutil.copy2(compiler_binary(compiler), probe)
+        runtime = (ROOT / 'toolchain/mayc/runtime.may').read_text()
+        assert runtime.count('mut sz: Any = 268435456;') == 1
+        (work / 'runtime.may').write_text(runtime.replace('mut sz: Any = 268435456;', 'mut sz: Any = 8388608;'))
+        for name in ['native.may', 'runtime']:
+            (work / name).symlink_to(ROOT / 'toolchain/mayc' / name)
+        (work / 'prelude.may').symlink_to(ROOT / 'stdlib/prelude.may')
+        fixups = work / 'fixups'
+        compile_source(probe, HERE / 'backend/fixups.may', fixups)
+        result = subprocess.run([str(fixups)], capture_output=True, timeout=30)
+        assert result.returncode == 0 and result.stdout == b'fixups-ok\n' and not result.stderr, result
+        print('PASS 65,537 ordered relocations and table replacement on an 8 MiB heap', flush=True)
         # Independent Python oracle for signed constant division/remainder.
         # Weight terms so positive/negative mistakes cannot cancel each other.
         divisors = [1 << power for power in range(11)]
@@ -201,7 +219,11 @@ def main():
             emulate(image, 'arm64', macos=True, slide=0x12000000)
         print('PASS ARM64 Mach-O layout and Darwin syscall ABI (native signing not tested)', flush=True)
         source = work / 'windows.may'
-        source.write_text('fun add(a: Any, b: Any) -> Any { return a + b; }\nmut n: Any = 0; while n < 10 { n = add(n, 1); }\n')
+        source.write_text('fun add(a: Any, b: Any) -> Any { return a + b; }\n'
+                          'fun count(limit: Any) -> Any { mut i: Any = 0; mut x: Any = 1; '
+                          'while i < limit { x = x * 3 + 1; i = i + 1; } return x; }\n'
+                          'if count(4) != 121 { load64(0); }\n'
+                          'mut n: Any = 0; while n < 10 { n = add(n, 1); }\n')
         image = compile_source(compiler, source, work / 'windows.exe', '--raw', '--target', 'x86_64-windows')
         assert image[:2] == b'MZ' and image[128:132] == b'PE\0\0'
         assert struct.unpack_from('<HH', image, 132) == (0x8664, 2)

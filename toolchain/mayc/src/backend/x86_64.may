@@ -17,8 +17,9 @@ import "../ir.may";
 // The closure environment is an internal, caller-saved r10 extension.
 
 
-// Linear scan assigns temporaries to r12-r15; control-flow values have fixed
-// homes. Live register roots are synchronized to the stack before calls.
+// Raw scalar locals may reserve RBX/r12-r15 for the whole function. Linear scan
+// uses the remaining r12-r15 for temporaries; control-flow values keep private
+// homes. Live register roots are synchronized to the stack before tagged calls.
 struct X86Instruction { bytes: Any, immediate: Any, width: Any }
 
 fun x86_encode(ctx: Any, instruction: Any) -> Any {
@@ -40,7 +41,7 @@ fun x86_argument_to_rax(ctx: Any, index: Any) -> Any {
 }
 
 fun x86_call_trampoline(ctx: Any, rec: Any) -> Any {
-    rec.abiLab = newlab(ctx);
+    if (rec.abiLab == 0) { rec.abiLab = newlab(ctx); }
     placelab(ctx, rec.lab);
     x86_encode(ctx, X86Instruction([85, 72, 137, 229], 0, 0));
     x86_encode(ctx, X86Instruction([72, 131, 228], 240, 1));
@@ -54,9 +55,9 @@ fun x86_call_trampoline(ctx: Any, rec: Any) -> Any {
         i = i - 1;
     }
     i = 0;
+    let registers: Any = [7, 6, 2, 1, 8, 9];
     while (i < rec.pc and i < 6) {
-        ld_pos(ctx, 16 + 8 * (rec.pc - 1 - i));
-        mov_argreg(ctx, i);
+        x86_load_register(ctx, registers[i], 0 - (16 + 8 * (rec.pc - 1 - i)));
         i = i + 1;
     }
     call(ctx, rec.abiLab);
@@ -64,20 +65,120 @@ fun x86_call_trampoline(ctx: Any, rec: Any) -> Any {
     return 0;
 }
 
-// r12-r15 are excluded from instruction-selection scratch/argument registers.
+// RBX and r12-r15 are excluded from instruction-selection scratch/arguments.
 fun x86_store_register(ctx: Any, register: Any, displacement: Any) -> Any {
-    e8(ctx, 76); e8(ctx, 137); e8(ctx, 133 + (register - 8) * 8); e32(ctx, 0 - displacement);
+    e8(ctx, if (register >= 8) { 76 } else { 72 });
+    e8(ctx, 137); e8(ctx, 133 + (register % 8) * 8); e32(ctx, 0 - displacement);
     return 0;
 }
 
 fun x86_load_register(ctx: Any, register: Any, displacement: Any) -> Any {
-    e8(ctx, 76); e8(ctx, 139); e8(ctx, 133 + (register - 8) * 8); e32(ctx, 0 - displacement);
+    e8(ctx, if (register >= 8) { 76 } else { 72 });
+    e8(ctx, 139); e8(ctx, 133 + (register % 8) * 8); e32(ctx, 0 - displacement);
     return 0;
+}
+
+// Literal-only intrinsics consume source metadata, not the evaluated string
+// pointer. Give allocation their actual operands without changing emitted IR
+// or the evaluation of argument expressions. Track local declarations in the
+// same order as code emission, including names that shadow builtins.
+fun x86_raw_allocation_block(ctx: Any, block: Any) -> Any {
+    let code: Any = [];
+    let locals: Any = {};
+    for local: Any in ctx.locals { locals[symbol_name(local[0], local[1])] = true; }
+    for instruction: Any in block.code {
+        let payload: Any = instruction.extra;
+        mut planned: Any = instruction;
+        if (instruction.op == S_LET and payload.global == 0) {
+            locals[symbol_name(payload.name, payload.length)] = true;
+        } else if (instruction.op == E_CALL and payload.args != 0 and payload.args.kind == E_STR) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if ((name == "addr" or name == "cstr" or name == "len") and not has(locals, name) and
+                glob_find(ctx, payload.name, payload.length) < 0 and backend_find_func(ctx, payload.name, payload.length) == 0) {
+                let argument: Any = payload.args;
+                if (name == "len") {
+                    planned = Quad(E_INT, instruction.result, 0, 0,
+                        {"value": declen(argument.span.source, argument.start, argument.length)}, instruction.span);
+                } else { planned = Quad(E_STR, instruction.result, 0, 0, argument, instruction.span); }
+            }
+        }
+        push(code, planned);
+    }
+    return IRBlock(code, block.temporaries);
+}
+
+// Remove unused, nontrapping raw expressions backwards so their operands
+// can become dead too. Calls, loads, stores and division/remainder stay live
+// for their effects or faults. Only unread copies may have multiple definitions;
+// every definition is removed separately, without changing CFG positions.
+fun x86_discardable(instruction: Any) -> Any {
+    let op: Any = instruction.op;
+    if (op == E_INT or op == E_STR or op == IR_NIL or op == IR_COPY or op == IR_BOOL or op == E_UN) { return true; }
+    if (op != E_BIN) { return false; }
+    let binary: Any = instruction.extra.op;
+    return binary == TK_PLUS or binary == TK_MINUS or binary == TK_STAR or x86_comparison_condition(binary) >= 0;
+}
+
+fun x86_drop_reads(intervals: Any, values: Any) -> Any {
+    mut value: Any = values;
+    while (value != 0 and value != nil) {
+        intervals[value.slot].uses -= 1; value = value.next;
+    }
+    return 0;
+}
+
+fun x86_discard_unused(block: Any) -> Any {
+    let intervals: Any = [];
+    for slot: Any in 0..block.temporaries {
+        push(intervals, LiveInterval(slot, len(block.code), -1, 0, -1, -1, false, 0, 0, nil, nil, nil, nil));
+    }
+    mut position: Any = 0;
+    for instruction: Any in block.code {
+        lsra_operands(intervals, instruction, position);
+        lsra_touch(intervals, instruction.result, position, true);
+        position += 1;
+    }
+    position = len(block.code) - 1;
+    while (position >= 0) {
+        let instruction: Any = block.code[position];
+        if (instruction.result != 0) {
+            let location: Any = intervals[instruction.result.slot];
+            if ((location.definitions == 1 or instruction.op == IR_COPY) and location.uses == 0 and x86_discardable(instruction)) {
+                x86_drop_reads(intervals, instruction.arg1); x86_drop_reads(intervals, instruction.arg2);
+                if (instruction.op == E_BIN) {
+                    intervals[instruction.extra.left.slot].uses -= 1;
+                    intervals[instruction.extra.right.slot].uses -= 1;
+                } else if (instruction.op == E_UN) { intervals[instruction.extra.operand.slot].uses -= 1; }
+                // Preserve instruction positions/CFG boundaries for the real
+                // block. A zero-definition slot identifies an omitted result.
+                block.code[position] = Quad(0, 0, 0, 0, 0, instruction.span);
+                location.definitions -= 1;
+            }
+        }
+        position -= 1;
+    }
+    return block;
 }
 
 fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
     ctx.tempBase = len(ctx.locals);
-    ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]);
+    let planned: Any = if (ctx.mode == 0) { x86_raw_allocation_block(ctx, block) } else { block };
+    if (ctx.mode == 0 and ctx.dynamic == 0) { x86_discard_unused(planned); }
+    let locals: Any = if (ctx.mode == 0 and ctx.dynamic == 0) { x86_plan_local_registers(ctx, planned) } else { 0 };
+    ctx.allocation = lsra_plan(planned, if (locals != 0) { locals.temporaries } else { [12, 13, 14, 15] }, ctx.mode == 0);
+    if (locals != 0) {
+        ctx.allocation.localRegisters = locals.registers;
+        for register: Any in locals.used { push(ctx.allocation.used, register); }
+    }
+    if (ctx.mode == 0) {
+        for location: Any in ctx.allocation.locations {
+            if (location.address != nil) {
+                let literal: Any = location.address;
+                location.address = if (location.uses > 0) { intern(ctx, literal.span.source, literal.start, literal.length) } else { 0 };
+            }
+        }
+        x86_unsigned_ranges(ctx, block);
+    }
     for index: Any in 0..ctx.allocation.stackSlots { loc_add(ctx, addr("0temporary"), 10); }
     for register: Any in ctx.allocation.used {
         let slot: Any = loc_add(ctx, addr("0saved"), 6);
@@ -106,9 +207,44 @@ fun x86_root_registers(ctx: Any) -> Any {
 }
 
 fun cg_expr(ctx: Any, value: Any) -> Any {
+    return x86_get_temp(ctx, value, 0);
+}
+
+fun x86_move_register(ctx: Any, target: Any, source: Any) -> Any {
+    if (target == source) { return 0; }
+    e8(ctx, 72 + if (source >= 8) { 4 } else { 0 } + if (target >= 8) { 1 } else { 0 });
+    e8(ctx, 137); e8(ctx, 192 + (source % 8) * 8 + target % 8);
+    return 0;
+}
+
+fun x86_local_register(ctx: Any, p: Any, length: Any) -> Any {
+    if (ctx.dynamic != 0 or ctx.mode != 0 or len(ctx.allocation.localRegisters) == 0) { return -1; }
+    let name: Any = symbol_name(p, length);
+    if (has(ctx.allocation.localRegisters, name)) { return ctx.allocation.localRegisters[name]; }
+    return -1;
+}
+
+// Operands are already evaluated IR temporaries. Loading one cannot call,
+// modify another home, or clobber the other scratch register (rax/rcx).
+fun x86_get_temp(ctx: Any, value: Any, target: Any) -> Any {
+    let accumulator: Any = ctx.allocation.accumulator;
+    // Consume the forwarding fact once. Later scratch loads in the same
+    // instruction may follow arithmetic, calls, untagging, or other clobbers.
+    ctx.allocation.accumulator = -1;
+    if (ctx.mode == 0 and target == 0 and accumulator == value.slot) { return 0; }
     let location: Any = ctx.allocation.locations[value.slot];
-    if (location.register >= 0) { e8(ctx, 76); e8(ctx, 137); e8(ctx, 192 + (location.register - 8) * 8); }
-    else { ld_local(ctx, 8 * (ctx.tempBase + location.home + 1)); }
+    if (location.literal != nil) { x86_mov_immediate(ctx, target, location.literal); return 0; }
+    if (location.address != nil) { x86_relocated_immediate(ctx, target, 1, location.address); return 0; }
+    if (location.borrowed != nil) {
+        if (location.borrowed < 0) { x86_move_register(ctx, target, 0 - location.borrowed - 1); }
+        else { x86_load_register(ctx, target, location.borrowed); }
+        return 0;
+    }
+    if (location.register >= 0) {
+        let rex: Any = 72 + if (location.register >= 8) { 4 } else { 0 };
+        e8(ctx, rex + if (target >= 8) { 1 } else { 0 });
+        e8(ctx, 137); e8(ctx, 192 + (location.register % 8) * 8 + target % 8);
+    } else { x86_load_register(ctx, target, 8 * (ctx.tempBase + location.home + 1)); }
     return 0;
 }
 
@@ -149,10 +285,42 @@ fun x86_handler_end(ctx: Any) -> Any {
 }
 
 fun cg_ir(ctx: Any, block: Any) -> Any {
+    mut fusedBranch: Any = -1;
+    ctx.allocation.accumulator = -1;
     for instruction: Any in block.code {
         ctx.allocation.position += 1;
+        if (ctx.allocation.position <= fusedBranch) { continue; }
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
+        if (ctx.mode == 0) {
+            let localOperation: Any = x86_local_operation(ctx, block, instruction);
+            if (localOperation >= 0) {
+                ctx.allocation.accumulator = -1;
+                fusedBranch = localOperation;
+                continue;
+            }
+            let remainderBranch: Any = x86_remainder_branch(ctx, block, instruction);
+            if (remainderBranch >= 0) {
+                ctx.allocation.accumulator = -1;
+                fusedBranch = remainderBranch;
+                continue;
+            }
+            if (x86_omitted_instruction(ctx, block, instruction)) { continue; }
+            if (not x86_forwardable(ctx, instruction)) { ctx.allocation.accumulator = -1; }
+            let branch: Any = x86_branch_comparison(ctx, block, instruction);
+            if (branch >= 0) {
+                cg_expr(ctx, payload.left);
+                x86_rax_operand(ctx, payload.right, 59, false); // cmp rax, r/m64
+                let jump: Any = block.code[branch];
+                mut condition: Any = x86_comparison_condition(payload.op);
+                if (jump.op == IR_FALSE) {
+                    condition = if (condition % 2 == 0) { condition + 1 } else { condition - 1 };
+                }
+                jcc(ctx, condition, jump.extra);
+                fusedBranch = branch;
+                continue;
+            }
+        }
         if (op == IR_LABEL) { placelab(ctx, payload); }
         else if (op == IR_JUMP) { jmp(ctx, payload); }
         else if (op == IR_COPY) { cg_expr(ctx, instruction.arg1); }
@@ -201,7 +369,14 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
             e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 24);
         } else { cg_operation(ctx, payload); }
         if (instruction.result != 0) {
-            x86_put_temp(ctx, instruction.result);
+            if (ctx.mode != 0 or ctx.allocation.locations[instruction.result.slot].uses > 0) {
+                if (ctx.dynamic != 0 or ctx.mode != 0 or not x86_accumulator_only(ctx, block, instruction)) {
+                    x86_put_temp(ctx, instruction.result);
+                }
+            }
+            if (ctx.mode == 0) { ctx.allocation.accumulator = instruction.result.slot; }
+        } else {
+            ctx.allocation.accumulator = -1;
         }
     }
     return 0;
@@ -213,8 +388,39 @@ fun jmp(ctx: Any, lab: Any) -> Any { e8(ctx, 233); let o: Any = ctx.code.length;
 fun jcc(ctx: Any, op: Any, lab: Any) -> Any { e8(ctx, 15); e8(ctx, op); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
 fun call(ctx: Any, lab: Any) -> Any { x86_root_registers(ctx); e8(ctx, 232); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
 
-fun mov_imm(ctx: Any, v: Any) -> Any { e8(ctx, 72); e8(ctx, 184); e64(ctx, v); return 0; }
-fun addr_of(ctx: Any, off: Any) -> Any { e8(ctx, 72); e8(ctx, 184); let o: Any = ctx.code.length; e64(ctx, 0); fx(ctx, 1, o, off); return 0; }
+fun mov_imm(ctx: Any, v: Any) -> Any {
+    return x86_mov_immediate(ctx, 0, v);
+}
+
+fun x86_mov_immediate(ctx: Any, register: Any, v: Any) -> Any {
+    // mov eax zero-extends; C7 /0 sign-extends. Preserve flags, as the old
+    // movabs did, and retain all 64 bits outside these two proven ranges.
+    let extended: Any = if (register >= 8) { 1 } else { 0 };
+    let low: Any = register % 8;
+    if (v >= 0 and v <= 4294967295) {
+        if (extended == 1) { e8(ctx, 65); }
+        e8(ctx, 184 + low); e32(ctx, v);
+    } else if (v >= -2147483648 and v < 0) {
+        e8(ctx, 72 + extended); e8(ctx, 199); e8(ctx, 192 + low); e32(ctx, v);
+    } else { e8(ctx, 72 + extended); e8(ctx, 184 + low); e64(ctx, v); }
+    return 0;
+}
+// ELF's fixed 4 MiB base and bounded image fit in zero-extended imm32, even
+// for tagged data pointers. Other layouts keep the full-width relocation.
+fun x86_relocated_immediate(ctx: Any, register: Any, kind: Any, target: Any) -> Any {
+    let compact: Any = ctx.target.format == "elf" and (4194304 + ctx.image.capacity) * 8 <= 4294967295;
+    if (compact) {
+        if (register >= 8) { e8(ctx, 65); }
+        e8(ctx, 184 + register % 8);
+        let off: Any = ctx.code.length; e32(ctx, 0); fx(ctx, kind + 20, off, target);
+    } else {
+        e8(ctx, if (register >= 8) { 73 } else { 72 }); e8(ctx, 184 + register % 8);
+        let off: Any = ctx.code.length; e64(ctx, 0); fx(ctx, kind, off, target);
+    }
+    return 0;
+}
+
+fun addr_of(ctx: Any, off: Any) -> Any { return x86_relocated_immediate(ctx, 0, 1, off); }
 
 fun ld_local(ctx: Any, d: Any) -> Any { e8(ctx, 72); e8(ctx, 139); e8(ctx, 133); e32(ctx, 0 - d); return 0; }
 fun st_local(ctx: Any, d: Any) -> Any { e8(ctx, 72); e8(ctx, 137); e8(ctx, 133); e32(ctx, 0 - d); return 0; }
@@ -234,6 +440,8 @@ fun setcc(ctx: Any, x: Any) -> Any { e8(ctx, 15); e8(ctx, x); e8(ctx, 192); e8(c
 fun cg_name(ctx: Any, p: Any, l: Any) -> Any {
     let li: Any = loc_find(ctx, p, l);
     if (li >= 0) {
+        let register: Any = x86_local_register(ctx, p, l);
+        if (register >= 0) { x86_move_register(ctx, 0, register); return 0; }
         ld_local(ctx, 8 * (li + 1));
         return 0;
     }
@@ -280,6 +488,8 @@ fun cg_var(ctx: Any, n: Any) -> Any {
     }
     let li: Any = loc_find(ctx, p, l);
     if (li >= 0) {
+        let register: Any = x86_local_register(ctx, p, l);
+        if (register >= 0) { x86_move_register(ctx, 0, register); return 0; }
         ld_local(ctx, 8 * (li + 1));
         if (is_boxed(ctx, p, l) == 1) { e8(ctx, 72); e8(ctx, 139); e8(ctx, 0); }
         return 0;
@@ -299,13 +509,528 @@ fun x86_divisor_shift(value: Any) -> Any {
 fun x86_signed_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) -> Any {
     // rax is an untagged signed integer. Bias negatives so shifting truncates
     // toward zero; subtract the same bias to give remainder the dividend's sign.
-    for byte: Any in [72,137,193,72,193,249,63,72,129,225] { e8(ctx, byte); }
-    e32(ctx, divisor - 1);
+    for byte: Any in [72,137,193,72,193] { e8(ctx, byte); }
+    e8(ctx, if (shift == 1) { 233 } else { 249 }); e8(ctx, 63);
+    if (shift != 1) { e8(ctx, 72); e8(ctx, 129); e8(ctx, 225); e32(ctx, divisor - 1); }
     e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
     if (remainder) {
         e8(ctx, 72); e8(ctx, 37); e32(ctx, divisor - 1);
         e8(ctx, 72); e8(ctx, 41); e8(ctx, 200);
     } else { e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, shift); }
+    return 0;
+}
+
+// maximum != nil means the complete raw value is proven in [0, maximum].
+// Facts belong to single-definition snapshots. Mutable locals require the
+// separate inductive proof below; their allocation and private homes stay fixed.
+fun x86_unsigned_ranges(ctx: Any, block: Any) -> Any {
+    let recurrences: Any = if (ctx.dynamic == 0) { x86_local_recurrences(ctx, block) } else { {} };
+    let shadowed: Any = {};
+    for local: Any in ctx.locals { shadowed[symbol_name(local[0], local[1])] = true; }
+    for instruction: Any in block.code {
+        if (instruction.op == S_LET) { shadowed[symbol_name(instruction.extra.name, instruction.extra.length)] = true; }
+    }
+    mut position: Any = -1;
+    for instruction: Any in block.code {
+        position += 1;
+        if (instruction.result == 0) { continue; }
+        let location: Any = ctx.allocation.locations[instruction.result.slot];
+        if (location.definitions != 1 or location.start != position) { continue; }
+        let op: Any = instruction.op; let payload: Any = instruction.extra;
+        if (op == E_INT and payload.value >= 0) { location.maximum = payload.value; }
+        else if (op == E_VAR) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (has(recurrences, name) and recurrences[name].valid) { location.maximum = recurrences[name].maximum; }
+        } else if (op == IR_NIL) { location.maximum = 0; }
+        else if (op == IR_BOOL or (op == E_UN and payload.op == TK_NOT)) { location.maximum = 1; }
+        else if (op == IR_COPY) { location.maximum = ctx.allocation.locations[instruction.arg1.slot].maximum; }
+        else if (op == E_CALL) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (name != "load8" and name != "load16" and name != "load32") { continue; }
+            if (shadowed[name] == true or glob_find(ctx, payload.name, payload.length) >= 0 or
+                backend_find_func(ctx, payload.name, payload.length) != 0) { continue; }
+            location.maximum = if (name == "load8") { 255 } else if (name == "load16") { 65535 } else { 4294967295 };
+        } else if (op == E_BIN) {
+            if (x86_comparison_condition(payload.op) >= 0) { location.maximum = 1; continue; }
+            let left: Any = ctx.allocation.locations[payload.left.slot];
+            let right: Any = ctx.allocation.locations[payload.right.slot];
+            if (left.maximum == nil or right.maximum == nil) { continue; }
+            let a: Any = left.maximum; let b: Any = right.maximum;
+            // Stay within the compiler's tagged arithmetic range. This is a
+            // conservative subset of the raw signed range and proves no wrap.
+            if (payload.op == TK_PLUS and a <= 1152921504606846975 - b) { location.maximum = a + b; }
+            else if (payload.op == TK_STAR and (b == 0 or a <= 1152921504606846975 / b)) { location.maximum = a * b; }
+            else if (right.literal != nil and right.literal > 0) {
+                if (payload.op == TK_SLASH) { location.maximum = a / right.literal; }
+                else if (payload.op == TK_PCT) { location.maximum = if (a < right.literal) { a } else { right.literal - 1 }; }
+            }
+        }
+    }
+    return 0;
+}
+
+fun x86_single_definition(ctx: Any, block: Any, value: Any) -> Any {
+    let location: Any = ctx.allocation.locations[value.slot];
+    if (location.definitions != 1 or location.start < 0) { return 0; }
+    return block.code[location.start];
+}
+
+fun x86_recurrence_step(ctx: Any, block: Any, value: Any, name: Any) -> Any {
+    let remainder: Any = x86_single_definition(ctx, block, value);
+    if (remainder == 0 or remainder.op != E_BIN or remainder.extra.op != TK_PCT) { return 0; }
+    let divisor: Any = ctx.allocation.locations[remainder.extra.right.slot].literal;
+    if (divisor == nil or divisor <= 0) { return 0; }
+    let product: Any = x86_single_definition(ctx, block, remainder.extra.left);
+    if (product == 0 or product.op != E_BIN or product.extra.op != TK_STAR) { return 0; }
+    let factor: Any = ctx.allocation.locations[product.extra.right.slot].literal;
+    if (factor == nil or factor < 0) { return 0; }
+    let previous: Any = x86_single_definition(ctx, block, product.extra.left);
+    if (previous == 0 or previous.op != E_VAR or
+        symbol_name(previous.extra.name, previous.extra.length) != name) { return 0; }
+    return [divisor - 1, factor];
+}
+
+struct X86LocalRecurrence { maximum: Any, factor: Any, valid: Any }
+
+fun x86_scalar_instruction(op: Any) -> Any {
+    return op == 0 or op == E_INT or op == E_VAR or op == E_BIN or op == E_UN or
+        op == IR_COPY or op == IR_BOOL or op == IR_NIL or op == S_LET or op == S_ASSIGN or
+        op == IR_LABEL or op == IR_JUMP or op == IR_FALSE or op == IR_TRUE or op == IR_RETURN;
+}
+
+struct X86LocalCandidate { name: Any, score: Any, valid: Any, register: Any }
+
+// Reserve dedicated callee-saved registers for frequently used scalar locals.
+// Their homes last for the whole function, including every join/backedge. This
+// does not relax virtual-temporary liveness or alias raw frame memory: calls,
+// memory operations, captures and other non-scalar constructs exclude a body.
+fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
+    if (ctx.envCount > 0 or len(ctx.boxed) > 0) { return 0; }
+    let names: Any = {}; let seen: Any = {}; let ordered: Any = [];
+    for local: Any in ctx.locals { seen[symbol_name(local[0], local[1])] = true; }
+    for instruction: Any in block.code {
+        let op: Any = instruction.op; let payload: Any = instruction.extra;
+        if (not x86_scalar_instruction(op)) { return 0; }
+        if (op == S_LET or op == S_ASSIGN or op == E_VAR) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (op == S_LET) {
+                if (has(names, name)) { names[name].valid = false; continue; }
+                let candidate: Any = X86LocalCandidate(name, 1, payload.global == 0 and
+                    not has(seen, name) and is_boxed(ctx, payload.name, payload.length) == 0, -1);
+                names[name] = candidate; push(ordered, candidate); seen[name] = true;
+            } else if (has(names, name)) { names[name].score += 1; }
+            else if (not has(seen, name)) { return 0; }
+        }
+    }
+    let registers: Any = {}; let used: Any = [];
+    for register: Any in [3, 12, 13, 14, 15] {
+        mut best: Any = 0;
+        for candidate: Any in ordered {
+            if (candidate.valid and candidate.register < 0 and candidate.score >= 4 and
+                (best == 0 or candidate.score > best.score)) { best = candidate; }
+        }
+        if (best == 0) { break; }
+        best.register = register; registers[best.name] = register; push(used, register);
+    }
+    if (len(used) == 0) { return 0; }
+    let temporaries: Any = [];
+    for register: Any in [12, 13, 14, 15] {
+        mut reserved: Any = false;
+        for local: Any in used { if (local == register) { reserved = true; } }
+        if (not reserved) { push(temporaries, register); }
+    }
+    return {"registers": registers, "used": used, "temporaries": temporaries};
+}
+
+// Prove an inductive bound for x = x * c % d. Every write is checked;
+// the initial value and every d-1 fit the bound, and bound*c cannot wrap.
+// Only scalar functions without calls, memory operations, captures or aliasing
+// constructs qualify. Duplicate declarations and reads before declaration
+// exclude a name. This analysis never changes allocation or loop-cell homes.
+fun x86_local_recurrences(ctx: Any, block: Any) -> Any {
+    let locals: Any = {}; let seen: Any = {};
+    for local: Any in ctx.locals { seen[symbol_name(local[0], local[1])] = true; }
+    for instruction: Any in block.code {
+        let op: Any = instruction.op; let payload: Any = instruction.extra;
+        if (not x86_scalar_instruction(op)) { return {}; }
+        if (op == E_VAR or op == S_LET or op == S_ASSIGN) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (op == S_LET) {
+                if (has(locals, name)) { locals[name].valid = false; continue; }
+                let initial: Any = ctx.allocation.locations[payload.initializer.slot].literal;
+                locals[name] = X86LocalRecurrence(initial, 0, initial != nil and initial >= 0 and
+                    payload.global == 0 and not has(seen, name) and is_boxed(ctx, payload.name, payload.length) == 0);
+                seen[name] = true;
+            } else if (not has(locals, name)) { seen[name] = true; }
+            else if (op == S_ASSIGN and locals[name].valid) {
+                let step: Any = x86_recurrence_step(ctx, block, payload.value, name);
+                if (step == 0) { locals[name].valid = false; continue; }
+                if (step[0] > locals[name].maximum) { locals[name].maximum = step[0]; }
+                if (step[1] > locals[name].factor) { locals[name].factor = step[1]; }
+            }
+        }
+    }
+    for name: Any in keys(locals) {
+        let local: Any = locals[name];
+        if (local.valid and local.factor > 0 and local.maximum > 1152921504606846975 / local.factor) { local.valid = false; }
+    }
+    return locals;
+}
+
+fun x86_unsigned_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) -> Any {
+    if (remainder) {
+        let mask: Any = divisor - 1;
+        if (mask == 0) { mov_imm(ctx, 0); }
+        else {
+            e8(ctx, 72); e8(ctx, if (mask <= 127) { 131 } else { 129 }); e8(ctx, 224);
+            if (mask <= 127) { e8(ctx, mask); } else { e32(ctx, mask); }
+        }
+    } else if (shift > 0) { e8(ctx, 72); e8(ctx, 193); e8(ctx, 232); e8(ctx, shift); }
+    return 0;
+}
+
+struct X86SignedReciprocal { low: Any, high: Any, shift: Any }
+
+fun x86_signed_reciprocal(divisor: Any) -> Any {
+    if (divisor < 3) { return 0; }
+    // Divide 2^64 by d, keeping the quotient in two unsigned 32-bit limbs.
+    // Tagged compiler integers cannot hold a general 64-bit multiplier.
+    mut low: Any = 0; mut high: Any = 0; mut rest: Any = 1;
+    mut shift: Any = 0; mut bound: Any = 2;
+    mut bits: Any = 0;
+    while (bits < 64 or divisor - rest > bound) {
+        // This form of 2*rest avoids tagged overflow even for d near 2^60.
+        let carry: Any = if (rest >= divisor - rest) { 1 } else { 0 };
+        rest = if (carry == 1) { rest - (divisor - rest) } else { rest * 2 };
+        let doubled: Any = low * 2 + carry;
+        high = high * 2 + doubled / 4294967296;
+        low = doubled % 4294967296;
+        if (bits >= 64) {
+            shift += 1;
+            bound = if (bound >= divisor - bound) { divisor } else { bound * 2 };
+        }
+        bits += 1;
+    }
+    // Exact reciprocals are powers of two. Keep their existing fast path or
+    // idiv fallback: the signed rounding correction below assumes nonzero error.
+    if (rest == 0) { return 0; }
+    low += 1;
+    if (low == 4294967296) { low = 0; high += 1; }
+    // m = ceil(2^(64+shift)/d), with 0 < m*d - 2^(64+shift)
+    // <= 2^(shift+1). This error bound makes floor(n*m/2^(64+shift))
+    // exact for nonnegative signed n; adding n's sign bit truncates negatives.
+    return X86SignedReciprocal(low, high, shift);
+}
+
+fun x86_signed_constant_divide(ctx: Any, n: Any, magic: Any, remainder: Any) -> Any {
+    cg_expr(ctx, n.left);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193); // mov rcx, rax: original dividend
+    e8(ctx, 72); e8(ctx, 186); e32(ctx, magic.low); e32(ctx, magic.high);
+    e8(ctx, 72); e8(ctx, 247); e8(ctx, 234); // imul rdx: signed high product
+    if (magic.high >= 2147483648) {
+        // The encoded multiplier is negative; restore the missing 2^64*n.
+        e8(ctx, 72); e8(ctx, 1); e8(ctx, 202); // add rdx, rcx
+    }
+    if (magic.shift > 0) { e8(ctx, 72); e8(ctx, 193); e8(ctx, 250); e8(ctx, magic.shift); }
+    if (ctx.allocation.locations[n.left.slot].maximum != nil) {
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 208); // mov rax, rdx: nonnegative quotient
+    } else {
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 200); // mov rax, rcx
+        e8(ctx, 72); e8(ctx, 193); e8(ctx, 232); e8(ctx, 63); // shr rax, 63
+        e8(ctx, 72); e8(ctx, 1); e8(ctx, 208); // add rax, rdx: truncated quotient
+    }
+    if (remainder) {
+        x86_rax_operand(ctx, n.right, 175, true); // q*d; operand home is untouched
+        e8(ctx, 72); e8(ctx, 41); e8(ctx, 193); // sub rcx, rax
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 200); // mov rax, rcx
+    }
+    return 0;
+}
+
+fun x86_comparison_condition(op: Any) -> Any {
+    if (op == TK_EQ) { return 132; }
+    if (op == TK_NE) { return 133; }
+    if (op == TK_LT) { return 140; }
+    if (op == TK_LE) { return 142; }
+    if (op == TK_GT) { return 143; }
+    if (op == TK_GE) { return 141; }
+    return -1;
+}
+
+fun x86_dead_copy(ctx: Any, instruction: Any) -> Any {
+    return instruction.op == IR_COPY and ctx.allocation.locations[instruction.result.slot].uses == 0;
+}
+
+// These instructions emit nothing and cannot change a predicate. Keep this
+// stricter than general omission: no deferred loads or control-flow edges.
+fun x86_predicate_gap(ctx: Any, instruction: Any) -> Any {
+    if (instruction.op == 0 or x86_dead_copy(ctx, instruction)) { return true; }
+    return instruction.op == E_INT and ctx.allocation.locations[instruction.result.slot].literal != nil;
+}
+
+fun x86_local_reader(ctx: Any, block: Any, value: Any, visits: Any) -> Any {
+    let location: Any = ctx.allocation.locations[value.slot];
+    if (location.definitions != 1 or location.uses != visits or location.end <= location.start) { return -1; }
+    for position: Any in (location.start + 1)..location.end {
+        if (not x86_predicate_gap(ctx, block.code[position])) { return -1; }
+    }
+    return location.end;
+}
+
+// Exclusive local read/arithmetic/write chains operate on the dedicated local
+// register. Observable intermediate values and every intervening effect retain
+// snapshots. Branch predicates may compare that register without a rax copy.
+fun x86_local_operation(ctx: Any, block: Any, instruction: Any) -> Any {
+    if (ctx.dynamic != 0 or instruction.op != E_VAR) { return -1; }
+    let name: Any = instruction.extra;
+    let register: Any = x86_local_register(ctx, name.name, name.length);
+    if (register < 0) { return -1; }
+    let reader: Any = x86_local_reader(ctx, block, instruction.result, 2);
+    if (reader < 0) { return -1; }
+    let operation: Any = block.code[reader];
+    if (operation.op != E_BIN or operation.extra.left.slot != instruction.result.slot) { return -1; }
+    let op: Any = operation.extra.op;
+    let literal: Any = ctx.allocation.locations[operation.extra.right.slot].literal;
+    if (literal == nil or literal < -2147483648 or literal > 2147483647) { return -1; }
+    let condition: Any = x86_comparison_condition(op);
+    if (condition >= 0) {
+        let branch: Any = x86_branch_comparison_at(ctx, block, operation, reader);
+        if (branch < 0) { return -1; }
+        x86_register_immediate(ctx, register, 7, literal);
+        let jump: Any = block.code[branch];
+        jcc(ctx, if (jump.op == IR_FALSE) { if (condition % 2 == 0) { condition + 1 } else { condition - 1 } } else { condition }, jump.extra);
+        return branch;
+    }
+    let divide: Any = op == TK_SLASH or op == TK_PCT;
+    let shift: Any = if (divide) { x86_divisor_shift(operation.extra.right) } else { -1 };
+    if (op != TK_PLUS and op != TK_MINUS and op != TK_STAR and (not divide or shift < 0)) { return -1; }
+    mut result: Any = operation.result;
+    mut offset: Any = 0;
+    if (op == TK_STAR) {
+        if (literal != 3 and literal != 5 and literal != 9) { return -1; }
+        let next: Any = x86_local_reader(ctx, block, result, 2);
+        if (next < 0) { return -1; }
+        let add: Any = block.code[next];
+        if (add.op == E_BIN and add.extra.op == TK_PLUS and add.extra.left.slot == result.slot) {
+            offset = ctx.allocation.locations[add.extra.right.slot].literal;
+            if (offset == nil or offset < -2147483648 or offset > 2147483647) { return -1; }
+            result = add.result;
+        }
+    }
+    let end: Any = x86_local_reader(ctx, block, result, 2);
+    if (end < 0) { return -1; }
+    let assignment: Any = block.code[end];
+    if (assignment.op != S_ASSIGN or assignment.extra.value.slot != result.slot or
+        symbol_name(assignment.extra.name, assignment.extra.length) != symbol_name(name.name, name.length)) { return -1; }
+    if (divide) {
+        x86_local_power_divide(ctx, register, literal, shift, op == TK_PCT,
+            ctx.allocation.locations[instruction.result.slot].maximum != nil);
+    } else if (op == TK_STAR) {
+        let narrow: Any = offset >= -128 and offset <= 127;
+        e8(ctx, if (register >= 8) { 79 } else { 72 }); e8(ctx, 141);
+        e8(ctx, (if (narrow) { 64 } else { 128 }) + (register % 8) * 8 + 4);
+        e8(ctx, (if (literal == 3) { 64 } else if (literal == 5) { 128 } else { 192 }) + (register % 8) * 8 + register % 8);
+        if (narrow) { e8(ctx, offset); } else { e32(ctx, offset); }
+    } else { x86_register_immediate(ctx, register, if (op == TK_PLUS) { 0 } else { 5 }, literal); }
+    return end;
+}
+
+fun x86_local_power_divide(ctx: Any, register: Any, divisor: Any, shift: Any, remainder: Any, nonnegative: Any) -> Any {
+    let rex: Any = if (register >= 8) { 73 } else { 72 };
+    if (shift == 0 or nonnegative) {
+        if (remainder) { x86_register_immediate(ctx, register, 4, divisor - 1); }
+        else if (shift > 0) { e8(ctx, rex); e8(ctx, 193); e8(ctx, 232 + register % 8); e8(ctx, shift); }
+        return 0;
+    }
+    x86_move_register(ctx, 1, register);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, if (shift == 1) { 233 } else { 249 }); e8(ctx, 63);
+    if (shift != 1) { x86_register_immediate(ctx, 1, 4, divisor - 1); }
+    e8(ctx, rex); e8(ctx, 1); e8(ctx, 200 + register % 8); // add local, rcx
+    if (remainder) {
+        x86_register_immediate(ctx, register, 4, divisor - 1);
+        e8(ctx, rex); e8(ctx, 41); e8(ctx, 200 + register % 8); // sub local, rcx
+    } else { e8(ctx, rex); e8(ctx, 193); e8(ctx, 248 + register % 8); e8(ctx, shift); }
+    return 0;
+}
+
+fun x86_register_immediate(ctx: Any, register: Any, operation: Any, literal: Any) -> Any {
+    let narrow: Any = literal >= -128 and literal <= 127;
+    e8(ctx, if (register >= 8) { 73 } else { 72 });
+    e8(ctx, if (narrow) { 131 } else { 129 }); e8(ctx, 192 + operation * 8 + register % 8);
+    if (narrow) { e8(ctx, literal); } else { e32(ctx, literal); }
+    return 0;
+}
+
+fun x86_omitted_instruction(ctx: Any, block: Any, instruction: Any) -> Any {
+    let op: Any = instruction.op;
+    if (instruction.result != 0) {
+        let location: Any = ctx.allocation.locations[instruction.result.slot];
+        if (location.definitions == 0 and location.uses == 0) { return true; }
+        if (location.literal != nil or location.address != nil) { return true; }
+        if (op == E_STR and location.uses == 0) { return true; }
+        if (op == E_VAR and location.uses == 0 and ctx.dynamic == 0) {
+            let name: Any = instruction.extra;
+            if (is_boxed(ctx, name.name, name.length) == 0 and
+                (loc_find(ctx, name.name, name.length) >= 0 or glob_find(ctx, name.name, name.length) >= 0)) { return true; }
+        }
+    }
+    if (op == IR_NIL and ctx.allocation.locations[instruction.result.slot].uses == 0) { return true; }
+    if (op == E_VAR and x86_borrow_operand(ctx, block, instruction)) { return true; }
+    return x86_dead_copy(ctx, instruction);
+}
+
+fun x86_borrow_operand(ctx: Any, block: Any, instruction: Any) -> Any {
+    if (ctx.dynamic != 0) { return false; }
+    let location: Any = ctx.allocation.locations[instruction.result.slot];
+    if (location.definitions != 1 or location.uses != 2 or location.end != location.start + 1) { return false; }
+    let definition: Any = block.code[location.start];
+    if (definition.op != E_VAR or definition.result.slot != instruction.result.slot) { return false; }
+    let reader: Any = block.code[location.end];
+    if (reader.op != E_BIN or reader.extra.right.slot != instruction.result.slot) { return false; }
+    // Only the immediately following pure binary instruction can read this
+    // snapshot. No call, assignment, memory store, or control-flow edge moves
+    // between the variable read and its use. Boxed/global reads stay explicit.
+    let payload: Any = instruction.extra;
+    let local: Any = loc_find(ctx, payload.name, payload.length);
+    if (local < 0 or is_boxed(ctx, payload.name, payload.length) == 1) { return false; }
+    let register: Any = x86_local_register(ctx, payload.name, payload.length);
+    location.borrowed = if (register >= 0) { 0 - register - 1 } else { 8 * (local + 1) };
+    return true;
+}
+
+fun x86_accumulator_only(ctx: Any, block: Any, instruction: Any) -> Any {
+    let location: Any = ctx.allocation.locations[instruction.result.slot];
+    if (location.definitions != 1 or location.start != ctx.allocation.position) { return false; }
+    mut next: Any = ctx.allocation.position + 1;
+    while (next < len(block.code) and x86_omitted_instruction(ctx, block, block.code[next])) { next += 1; }
+    if (next >= len(block.code) or location.end != next) { return false; }
+    let reader: Any = block.code[next];
+    if (not x86_forwardable(ctx, reader)) { return false; }
+    let op: Any = reader.op;
+    mut first: Any = reader.arg1;
+    mut visits: Any = 1;
+    // lsra_operands conservatively visits both arg1 and payload for these ops.
+    if (op == E_BIN) { first = reader.extra.left; visits = 2; }
+    else if (op == E_UN) { first = reader.extra.operand; }
+    else if (op == S_LET) { first = reader.extra.initializer; visits = 2; }
+    else if (op == S_ASSIGN) { first = reader.extra.value; visits = 2; }
+    else if (op == E_CALL) { first = reader.extra.args; }
+    return first != 0 and first.slot == instruction.result.slot and location.uses == visits;
+}
+
+fun x86_forwardable(ctx: Any, instruction: Any) -> Any {
+    let op: Any = instruction.op;
+    // Each allowed lowering reads its first IR operand before changing rax.
+    // Labels/joins and all other operations invalidate the fact. In particular,
+    // Windows __host_write calls GetStdHandle before loading its first operand.
+    if (op == E_BIN or op == E_UN or op == IR_COPY or op == IR_RETURN or
+        op == IR_BOOL or op == IR_FALSE or op == IR_TRUE or op == S_LET or op == S_ASSIGN) { return true; }
+    if (op == E_CALL) {
+        let payload: Any = instruction.extra;
+        let name: Any = symbol_name(payload.name, payload.length);
+        if (name != "ptr" and name != "load8" and name != "load16" and name != "load32" and name != "load64" and
+            name != "store8" and name != "store16" and name != "store32" and name != "store64") { return false; }
+        if (loc_find(ctx, payload.name, payload.length) >= 0 or glob_find(ctx, payload.name, payload.length) >= 0 or
+            backend_find_func(ctx, payload.name, payload.length) != 0) { return false; }
+        return name == "ptr" or name == "load8" or name == "load16" or name == "load32" or name == "load64" or
+            name == "store8" or name == "store16" or name == "store32" or name == "store64";
+    }
+    return false;
+}
+
+fun x86_branch_comparison(ctx: Any, block: Any, instruction: Any) -> Any {
+    return x86_branch_comparison_at(ctx, block, instruction, ctx.allocation.position);
+}
+
+fun x86_branch_comparison_at(ctx: Any, block: Any, instruction: Any, position: Any) -> Any {
+    if (instruction.op != E_BIN or x86_comparison_condition(instruction.extra.op) < 0) { return -1; }
+    let location: Any = ctx.allocation.locations[instruction.result.slot];
+    if (location.definitions != 1 or location.start != position) { return -1; }
+    mut next: Any = position + 1;
+    // Statement ifs leave unused result copies between the comparison and
+    // branch. Only copies with no readers anywhere in the block may be skipped.
+    while (next < len(block.code) and x86_dead_copy(ctx, block.code[next])) { next += 1; }
+    if (next >= len(block.code) or location.end != next) { return -1; }
+    let branch: Any = block.code[next];
+    if ((branch.op == IR_FALSE or branch.op == IR_TRUE) and branch.arg1.slot == instruction.result.slot) { return next; }
+    return -1;
+}
+
+// Signed n % 2^k is zero exactly when n's low k bits are zero, including
+// negative n and INT64_MIN. The remainder itself must remain unobservable.
+fun x86_remainder_branch(ctx: Any, block: Any, instruction: Any) -> Any {
+    if (ctx.dynamic != 0 or instruction.op != E_BIN or instruction.extra.op != TK_PCT) { return -1; }
+    let payload: Any = instruction.extra;
+    if (x86_divisor_shift(payload.right) < 0) { return -1; }
+    if (ctx.allocation.locations[payload.right.slot].literal != payload.right.value) { return -1; }
+    let location: Any = ctx.allocation.locations[instruction.result.slot];
+    if (location.definitions != 1 or location.uses != 2 or location.start != ctx.allocation.position or location.end <= location.start) { return -1; }
+    for index: Any in (location.start + 1)..location.end {
+        if (not x86_predicate_gap(ctx, block.code[index])) { return -1; }
+    }
+    let compare: Any = block.code[location.end];
+    if (compare.op != E_BIN or (compare.extra.op != TK_EQ and compare.extra.op != TK_NE)) { return -1; }
+    let left: Any = compare.extra.left; let right: Any = compare.extra.right;
+    if (left.slot == instruction.result.slot) {
+        if (ctx.allocation.locations[right.slot].literal != 0) { return -1; }
+    } else if (right.slot == instruction.result.slot) {
+        if (ctx.allocation.locations[left.slot].literal != 0) { return -1; }
+    } else { return -1; }
+    let branch: Any = x86_branch_comparison_at(ctx, block, compare, location.end);
+    if (branch < 0) { return -1; }
+    cg_expr(ctx, payload.left);
+    e8(ctx, 72); e8(ctx, 169); e32(ctx, payload.right.value - 1); // test rax, imm32
+    mut condition: Any = x86_comparison_condition(compare.extra.op);
+    if (block.code[branch].op == IR_FALSE) {
+        condition = if (condition % 2 == 0) { condition + 1 } else { condition - 1 };
+    }
+    jcc(ctx, condition, block.code[branch].extra);
+    return branch;
+}
+
+// Emit op rax, r/m64 directly from an allocated register or spill home.
+// rax is scratch; allocated callee-saved registers and spill homes stay intact.
+fun x86_rax_operand(ctx: Any, value: Any, opcode: Any, extended: Any) -> Any {
+    let location: Any = ctx.allocation.locations[value.slot];
+    if (location.borrowed != nil) {
+        let register: Any = 0 - location.borrowed - 1;
+        e8(ctx, if (location.borrowed < 0 and register >= 8) { 73 } else { 72 });
+        if (extended) { e8(ctx, 15); }
+        e8(ctx, opcode);
+        if (location.borrowed < 0) { e8(ctx, 192 + register % 8); }
+        else { e8(ctx, 133); e32(ctx, 0 - location.borrowed); }
+        return 0;
+    }
+    if (location.address != nil) {
+        x86_relocated_immediate(ctx, 11, 1, location.address);
+        e8(ctx, 73); if (extended) { e8(ctx, 15); }
+        e8(ctx, opcode); e8(ctx, 195);
+        return 0;
+    }
+    if (location.literal != nil) {
+        let literal: Any = location.literal;
+        if (literal >= -2147483648 and literal <= 2147483647) {
+            let narrow: Any = literal >= -128 and literal <= 127;
+            e8(ctx, 72);
+            if (extended) { e8(ctx, if (narrow) { 107 } else { 105 }); e8(ctx, 192); }
+            else {
+                e8(ctx, if (narrow) { 131 } else { 129 });
+                e8(ctx, if (opcode == 3) { 192 } else if (opcode == 43) { 232 } else { 248 });
+            }
+            if (narrow) { e8(ctx, literal); } else { e32(ctx, literal); }
+        } else {
+            // rcx can hold the original dividend during remainder lowering.
+            x86_mov_immediate(ctx, 11, literal);
+            e8(ctx, 73); if (extended) { e8(ctx, 15); }
+            e8(ctx, opcode); e8(ctx, 195); // rax, r11
+        }
+        return 0;
+    }
+    e8(ctx, if (location.register >= 0) { 73 } else { 72 });
+    if (extended) { e8(ctx, 15); }
+    e8(ctx, opcode);
+    if (location.register >= 0) { e8(ctx, 192 + location.register - 8); }
+    else { e8(ctx, 133); e32(ctx, 0 - 8 * (ctx.tempBase + location.home + 1)); }
     return 0;
 }
 
@@ -317,29 +1042,41 @@ fun cg_bin(ctx: Any, n: Any) -> Any {
         let shift: Any = x86_divisor_shift(n.right);
         if (shift >= 0) {
             cg_expr(ctx, n.left);
-            x86_signed_power_divide(ctx, n.right.value, shift, op == TK_PCT);
+            if (shift == 0 or ctx.allocation.locations[n.left.slot].maximum != nil) {
+                x86_unsigned_power_divide(ctx, n.right.value, shift, op == TK_PCT);
+            } else { x86_signed_power_divide(ctx, n.right.value, shift, op == TK_PCT); }
+            return 0;
+        }
+        let magic: Any = x86_signed_reciprocal(n.right.value);
+        if (magic != 0) {
+            x86_signed_constant_divide(ctx, n, magic, op == TK_PCT);
             return 0;
         }
     }
     cg_expr(ctx, n.left);
-    e8(ctx, 80);
-    cg_expr(ctx, n.right);
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);      // mov rcx, rax
-    e8(ctx, 88);
-    if (op == TK_PLUS) { e8(ctx, 72); e8(ctx, 1); e8(ctx, 200); }
-    else if (op == TK_MINUS) { e8(ctx, 72); e8(ctx, 41); e8(ctx, 200); }
-    else if (op == TK_STAR) { e8(ctx, 72); e8(ctx, 15); e8(ctx, 175); e8(ctx, 193); }
-    else if (op == TK_SLASH) { e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249); }
-    else if (op == TK_PCT) {
-        e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249);
-        e8(ctx, 72); e8(ctx, 137); e8(ctx, 208);  // mov rax, rdx
+    if (op == TK_PLUS) { x86_rax_operand(ctx, n.right, 3, false); }
+    else if (op == TK_MINUS) { x86_rax_operand(ctx, n.right, 43, false); }
+    else if (op == TK_STAR) {
+        let literal: Any = ctx.allocation.locations[n.right.slot].literal;
+        if (literal == 0) { mov_imm(ctx, 0); }
+        else if (literal == 1) { return 0; }
+        else if (literal == 3 or literal == 5 or literal == 9) {
+            e8(ctx, 72); e8(ctx, 141); e8(ctx, 4);
+            e8(ctx, if (literal == 3) { 64 } else if (literal == 5) { 128 } else { 192 });
+        } else {
+            let shift: Any = x86_divisor_shift(n.right);
+            if (literal != nil and shift > 0) { e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, shift); }
+            else { x86_rax_operand(ctx, n.right, 175, true); }
+        }
     }
-    else if (op == TK_EQ) { cmp_rcx(ctx); setcc(ctx, 148); }
-    else if (op == TK_NE) { cmp_rcx(ctx); setcc(ctx, 149); }
-    else if (op == TK_LT) { cmp_rcx(ctx); setcc(ctx, 156); }
-    else if (op == TK_LE) { cmp_rcx(ctx); setcc(ctx, 158); }
-    else if (op == TK_GT) { cmp_rcx(ctx); setcc(ctx, 159); }
-    else { cmp_rcx(ctx); setcc(ctx, 157); }
+    else if (op == TK_SLASH or op == TK_PCT) {
+        x86_get_temp(ctx, n.right, 1);
+        e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249);
+        if (op == TK_PCT) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 208); }
+    } else {
+        x86_rax_operand(ctx, n.right, 59, false);
+        setcc(ctx, x86_comparison_condition(op) + 16);
+    }
     return 0;
 }
 
@@ -357,42 +1094,35 @@ fun cg_un(ctx: Any, n: Any) -> Any {
 
 
 
-fun pop_reg(ctx: Any, i: Any) -> Any {
-    if (i == 0) { e8(ctx, 88); }
-    else if (i == 1) { e8(ctx, 95); }
-    else if (i == 2) { e8(ctx, 94); }
-    else if (i == 3) { e8(ctx, 90); }
-    else if (i == 4) { e8(ctx, 65); e8(ctx, 90); }
-    else if (i == 5) { e8(ctx, 65); e8(ctx, 88); }
-    else { e8(ctx, 65); e8(ctx, 89); }
+// All arguments already have stable IR homes in r12-r15 or the frame.
+// ABI destinations are disjoint, so loading one cannot destroy another source.
+fun x86_syscall_arguments(ctx: Any, args: Any, tagged: Any) -> Any {
+    let registers: Any = [0, 7, 6, 2, 10, 8, 9];
+    mut index: Any = 0;
+    mut cur: Any = args;
+    while (cur != 0) {
+        if (index >= len(registers)) { die_str("mayc: syscall accepts at most seven arguments\n"); }
+        let target: Any = registers[index];
+        x86_get_temp(ctx, cur, target);
+        if (tagged) {
+            e8(ctx, if (target >= 8) { 73 } else { 72 });
+            e8(ctx, 193); e8(ctx, 248 + target % 8); e8(ctx, 3);
+        }
+        index += 1; cur = cur.next;
+    }
     return 0;
 }
 
 fun cg_syscall(ctx: Any, args: Any) -> Any {
     if (ctx.target.os != "linux") { die_str("mayc: raw syscall is not supported for this target\n"); }
-    mut cnt: Any = 0;
-    mut cur: Any = args;
-    while (cur != 0) {
-        cg_expr(ctx, cur);
-        e8(ctx, 80);
-        cnt = cnt + 1;
-        cur = cur.next;
-    }
-    mut i: Any = cnt - 1;
-    while (i >= 0) {
-        pop_reg(ctx, i);
-        i = i - 1;
-    }
+    x86_syscall_arguments(ctx, args, false);
     e8(ctx, 15); e8(ctx, 5);
     return 0;
 }
 
 fun cg_store(ctx: Any, args: Any, width: Any) -> Any {
     cg_expr(ctx, args);
-    e8(ctx, 80);
-    cg_expr(ctx, args.next);
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);      // mov rcx, rax
-    e8(ctx, 88);
+    x86_get_temp(ctx, args.next, 1);
     if (width == 1) { e8(ctx, 136); e8(ctx, 8); }
     else if (width == 2) { e8(ctx, 102); e8(ctx, 137); e8(ctx, 8); }
     else if (width == 4) { e8(ctx, 137); e8(ctx, 8); }
@@ -636,27 +1366,50 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     return 0;
 }
 
-fun cg_calln(ctx: Any, name: Any, sl: Any, args: Any) -> Any {
-    mut cnt: Any = 0;
+// Statically resolved calls enter the register ABI body directly. Only
+// arguments beyond the six integer registers need stack slots, in ABI order.
+// Keep the vector trampoline for closures and runtime helpers with a dynamic
+// argument count; it also adapts callers that have an unaligned scratch stack.
+fun x86_call_direct(ctx: Any, rec: Any, args: Any) -> Any {
+    let registers: Any = [7, 6, 2, 1, 8, 9];
+    let values: Any = [];
     mut cur: Any = args;
-    while (cur != 0) {
-        cg_expr(ctx, cur);
-        e8(ctx, 80);
-        cnt = cnt + 1;
-        cur = cur.next;
+    while (cur != 0 and len(values) < rec.pc) { push(values, cur); cur = cur.next; }
+    mut overflow: Any = rec.pc - 6;
+    if (overflow < 0) { overflow = 0; }
+    let total: Any = (overflow + overflow % 2) * 8;
+    if (overflow % 2 == 1) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 236); e8(ctx, 8); }
+    mut index: Any = rec.pc - 1;
+    while (index >= 6) {
+        if (index < len(values)) { cg_expr(ctx, values[index]); }
+        else { mov_imm(ctx, if (ctx.mode == 0) { 0 } else { 2 }); }
+        e8(ctx, 80); index -= 1;
     }
-    call_rt0(ctx, name, sl);
-    let total: Any = cnt * 8;
+    index = 0;
+    while (index < rec.pc and index < 6) {
+        if (index < len(values)) { x86_get_temp(ctx, values[index], registers[index]); }
+        else { x86_mov_immediate(ctx, registers[index], if (ctx.mode == 0) { 0 } else { 2 }); }
+        index += 1;
+    }
+    if (rec.abiLab == 0) { rec.abiLab = newlab(ctx); }
+    // The body label is internal; retain the owning source function too.
+    emission_reference(ctx, rec.lab);
+    call(ctx, rec.abiLab);
     if (total > 0) {
-        if (total < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, total); }
-        else { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, total); }
+        e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, total);
     }
     return 0;
 }
 
+fun cg_calln(ctx: Any, name: Any, sl: Any, args: Any) -> Any {
+    let rec: Any = backend_find_func(ctx, name, sl);
+    if (rec == 0) { die_str("mayc: missing runtime fn\n"); }
+    return x86_call_direct(ctx, rec, args);
+}
+
 // Apply a closure value held in local slot `cv` to a linked list of argument
-// expressions.  Arguments are evaluated left to right into temporary slots,
-// pushed in order, then padded with `nil` up to the closure's declared arity
+// values. IR lowering has already evaluated them left to right into stable
+// homes. Push them in vector order, then pad with nil to the declared arity
 // so a short argument list still binds its parameters correctly.
 fun cg_apply(ctx: Any, cv: Any, args: Any) -> Any {
     ld_local(ctx, 8 * (cv + 1));
@@ -667,22 +1420,10 @@ fun cg_apply(ctx: Any, cv: Any, args: Any) -> Any {
         cnt = cnt + 1;
         cur = cur.next;
     }
-    mut slots: Any = [];
-    mut i: Any = 0;
     cur = args;
     while (cur != 0) {
-        cg_expr(ctx, cur);
-        let si: Any = loc_add(ctx, addr("0a"), 2);
-        st_local(ctx, 8 * (si + 1));
-        push(slots, si);
-        i = i + 1;
+        cg_expr(ctx, cur); e8(ctx, 80);
         cur = cur.next;
-    }
-    i = 0;
-    while (i < cnt) {
-        ld_local(ctx, 8 * (slots[i] + 1));
-        e8(ctx, 80);
-        i = i + 1;
     }
     let lskip: Any = newlab(ctx);
     let ltop: Any = newlab(ctx);
@@ -741,28 +1482,7 @@ fun cg_call(ctx: Any, n: Any) -> Any {
     if (li < 0  and  gi < 0) {
         let fr: Any = backend_find_func(ctx, np, nl);
         if (fr != 0) {
-            let pc: Any = fr.pc;
-            mut cnt: Any = 0;
-            mut idx: Any = 0;
-            mut cur: Any = args;
-            while (cur != 0) {
-                cg_expr(ctx, cur);
-                if (idx < pc) {
-                    e8(ctx, 80);
-                    cnt = cnt + 1;
-                }
-                idx = idx + 1;
-                cur = cur.next;
-            }
-            while (cnt < pc) {
-                if (ctx.mode == 0) { mov_imm(ctx, 0); } else { mov_imm(ctx, 2); }
-                e8(ctx, 80); cnt = cnt + 1;
-            }
-            call(ctx, fr.lab);
-            if (cnt > 0) {
-                if (cnt * 8 < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, cnt * 8); }
-                else { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, cnt * 8); }
-            }
+            x86_call_direct(ctx, fr, args);
             return 0;
         }
         if (cg_builtin(ctx, np, nl, args) == 1) { return 0; }
@@ -815,11 +1535,7 @@ fun intern_obj(ctx: Any, s: Any, st: Any, n: Any) -> Any {
 }
 
 fun addr_tag(ctx: Any, off: Any, tag: Any) -> Any {
-    e8(ctx, 72); e8(ctx, 184);
-    let o: Any = ctx.code.length;
-    e64(ctx, 0);
-    fx(ctx, tag, o, off);
-    return 0;
+    return x86_relocated_immediate(ctx, 0, tag, off);
 }
 
 fun jfalse(ctx: Any, lab: Any) -> Any {
@@ -945,20 +1661,7 @@ fun cg_print(ctx: Any, args: Any) -> Any {
 }
 
 fun cg_syscall_dyn(ctx: Any, args: Any) -> Any {
-    mut cnt: Any = 0;
-    mut cur: Any = args;
-    while (cur != 0) {
-        cg_expr(ctx, cur);
-        e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);   // sar rax, 3
-        e8(ctx, 80);
-        cnt = cnt + 1;
-        cur = cur.next;
-    }
-    mut i: Any = cnt - 1;
-    while (i >= 0) {
-        pop_reg(ctx, i);
-        i = i - 1;
-    }
+    x86_syscall_arguments(ctx, args, true);
     e8(ctx, 15); e8(ctx, 5);
     e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);       // shl rax, 3
     return 0;
@@ -1159,11 +1862,7 @@ fun cg_operation(ctx: Any, n: Any) -> Any {
 
 
 fun addr_lab(ctx: Any, lab: Any, tag: Any) -> Any {
-    e8(ctx, 72); e8(ctx, 184);
-    let o: Any = ctx.code.length;
-    e64(ctx, 0);
-    fx(ctx, 6, o, lab);
-    return 0;
+    return x86_relocated_immediate(ctx, 0, 6, lab);
 }
 
 fun align8(ctx: Any) -> Any {
@@ -1354,7 +2053,9 @@ fun cg_let(ctx: Any, s: Any) -> Any {
         cg_expr(ctx, e);
         if (is_boxed(ctx, p, l) == 1) { call_rt1(ctx, addr("rt_box_val"), len("rt_box_val")); }
         let slot: Any = loc_add(ctx, p, l);
-        st_local(ctx, 8 * (slot + 1));
+        let register: Any = x86_local_register(ctx, p, l);
+        if (register >= 0) { x86_move_register(ctx, register, 0); }
+        else { st_local(ctx, 8 * (slot + 1)); }
     }
     return 0;
 }
@@ -1373,7 +2074,9 @@ fun cg_assign(ctx: Any, s: Any) -> Any {
             e8(ctx, 89);
             e8(ctx, 72); e8(ctx, 137); e8(ctx, 8);
         } else {
-            st_local(ctx, 8 * (li + 1));
+            let register: Any = x86_local_register(ctx, p, l);
+            if (register >= 0) { x86_move_register(ctx, register, 0); }
+            else { st_local(ctx, 8 * (li + 1)); }
         }
     } else {
         let gi: Any = glob_find(ctx, p, l);
@@ -1478,8 +2181,10 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     xor_eax(ctx);
     i = 0;
     while (i < pc) {
-        x86_argument_to_rax(ctx, i);
-        st_local(ctx, 8 * (i + 1));
+        if (i < 6) {
+            let registers: Any = [7, 6, 2, 1, 8, 9];
+            x86_store_register(ctx, registers[i], 8 * (i + 1));
+        } else { x86_argument_to_rax(ctx, i); st_local(ctx, 8 * (i + 1)); }
         i = i + 1;
     }
     i = 0;
@@ -1594,26 +2299,36 @@ fun x86_emit_fiber(ctx: Any) -> Any {
 
 fun patch_all(ctx: Any) -> Any {
     let base: Any = ctx.layout.dataAddress;
-    for f: Any in ctx.fixups {
-        let off: Any = f.off;
-        let kind: Any = f.kind;
-        let tgt: Any = f.tgt;
-        if (kind == 0) {
-            store32(ctx.code.data + off, lab_off(ctx, tgt) - (off + 4));
-        } else if (kind == 1) {
-            store64(ctx.code.data + off, base + tgt);
-        } else if (kind == 3) {
-            store64(ctx.code.data + off, base + tgt + 1);
-        } else if (kind == 4) {
-            store64(ctx.code.data + off, (base + tgt + 8) * 8);
-        } else if (kind == 5) {
-            store64(ctx.code.data + off, base + tgt + 5);
-        } else if (kind == 6) {
-            store64(ctx.code.data + off, ctx.layout.codeAddress + lab_off(ctx, tgt));
-        } else if (kind == 7) {
-            store32(ctx.code.data + off, base + tgt - (ctx.layout.codeAddress + off + 4));
-        } else {
-            store32(ctx.code.data + off, base + tgt);
+    for chunk: Any in ctx.fixups.chunks {
+        for index: Any in 0..(len(chunk) / 3) {
+            let kind: Any = chunk[index * 3];
+            let off: Any = chunk[index * 3 + 1];
+            let tgt: Any = chunk[index * 3 + 2];
+            if (kind == 0) {
+                store32(ctx.code.data + off, lab_off(ctx, tgt) - (off + 4));
+            } else if (kind >= 21 and kind <= 26) {
+                mut value: Any = base + tgt;
+                if (kind == 23) { value += 1; }
+                else if (kind == 24) { value = (value + 8) * 8; }
+                else if (kind == 25) { value += 5; }
+                else if (kind == 26) { value = ctx.layout.codeAddress + lab_off(ctx, tgt); }
+                if (value < 0 or value > 4294967295) { die_str("mayc: compact x86 address exceeds 32 bits\n"); }
+                store32(ctx.code.data + off, value);
+            } else if (kind == 1) {
+                store64(ctx.code.data + off, base + tgt);
+            } else if (kind == 3) {
+                store64(ctx.code.data + off, base + tgt + 1);
+            } else if (kind == 4) {
+                store64(ctx.code.data + off, (base + tgt + 8) * 8);
+            } else if (kind == 5) {
+                store64(ctx.code.data + off, base + tgt + 5);
+            } else if (kind == 6) {
+                store64(ctx.code.data + off, ctx.layout.codeAddress + lab_off(ctx, tgt));
+            } else if (kind == 7) {
+                store32(ctx.code.data + off, base + tgt - (ctx.layout.codeAddress + off + 4));
+            } else {
+                store32(ctx.code.data + off, base + tgt);
+            }
         }
     }
     return 0;

@@ -1,0 +1,36 @@
+// Linux x86-64 RAW call benchmark. The runner checks all binary output.
+// Each result is a little-endian (checksum, elapsed_ns) pair.
+fun now(ts: Any) -> Any { syscall(228, 1, ts); return load64(ts) * 1000000000 + load64(ts + 8); }
+fun leaf1(a0: Any) -> Any { return a0; }
+fun bench1() -> Any { mut i: Any = 0; mut total: Any = 0; while i < 1000000 { total = total + leaf1(i); i = i + 1; } return total; }
+fun leaf6(a0: Any, a1: Any, a2: Any, a3: Any, a4: Any, a5: Any) -> Any { return a0 + a1 + a2 + a3 + a4 + a5; }
+fun bench6() -> Any { mut i: Any = 0; mut total: Any = 0; while i < 1000000 { total = total + leaf6(i, 1, 2, 3, 4, 5); i = i + 1; } return total; }
+fun leaf7(a0: Any, a1: Any, a2: Any, a3: Any, a4: Any, a5: Any, a6: Any) -> Any { return a0 + a1 + a2 + a3 + a4 + a5 + a6; }
+fun bench7() -> Any { mut i: Any = 0; mut total: Any = 0; while i < 1000000 { total = total + leaf7(i, 1, 2, 3, 4, 5, 6); i = i + 1; } return total; }
+fun leaf8(a0: Any, a1: Any, a2: Any, a3: Any, a4: Any, a5: Any, a6: Any, a7: Any) -> Any { return a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7; }
+fun bench8() -> Any { mut i: Any = 0; mut total: Any = 0; while i < 1000000 { total = total + leaf8(i, 1, 2, 3, 4, 5, 6, 7); i = i + 1; } return total; }
+let memory: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+if memory < 0 { exit(1); }
+let ts: Any = memory + 128;
+let start1: Any = now(ts);
+let result1: Any = bench1();
+let elapsed1: Any = now(ts) - start1;
+store64(memory + 0, result1);
+store64(memory + 8, elapsed1);
+let start6: Any = now(ts);
+let result6: Any = bench6();
+let elapsed6: Any = now(ts) - start6;
+store64(memory + 16, result6);
+store64(memory + 24, elapsed6);
+let start7: Any = now(ts);
+let result7: Any = bench7();
+let elapsed7: Any = now(ts) - start7;
+store64(memory + 32, result7);
+store64(memory + 40, elapsed7);
+let start8: Any = now(ts);
+let result8: Any = bench8();
+let elapsed8: Any = now(ts) - start8;
+store64(memory + 48, result8);
+store64(memory + 56, elapsed8);
+if syscall(1, 1, memory, 64) != 64 { exit(2); }
+exit(0);

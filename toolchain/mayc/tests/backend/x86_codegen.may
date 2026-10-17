@@ -1,0 +1,383 @@
+import "../../src/backend/x86_64.may";
+import "../../src/emitter.may";
+import "../../src/ir.may";
+import "../../src/lexer.may";
+import "../../src/ast.may";
+import "../../src/regalloc.may";
+
+fun require(ok: Bool) -> Nil { if not ok { fail("x86 codegen invariant failed"); } return; }
+fun value(slot: Any) -> Any { return IRValue(IR_TEMP, slot, 0, 0, 0, 0, 0); }
+
+let ctx: Any = emitter_new({"alignment": 4096, "format": "elf"});
+// Dedicated local homes include low RBX and extended registers. Moves preserve
+// flags and encode the independent source/destination extension bits.
+for source: Any in [0, 3, 12, 15] {
+    for target: Any in [0, 3, 12, 15] {
+        ctx.code.length = 0;
+        x86_move_register(ctx, target, source);
+        if (source == target) { require(ctx.code.length == 0); }
+        else {
+            require(ctx.code.length == 3);
+            let rex: Any = 72 + if (source >= 8) { 4 } else { 0 };
+            require(load8(ctx.code.data) == rex + if (target >= 8) { 1 } else { 0 });
+            require(load8(ctx.code.data + 2) == 192 + (source % 8) * 8 + target % 8);
+        }
+    }
+}
+// Check short encodings at zero/sign-extension boundaries and imm64 fallback.
+let cases: Any = [
+    [0, [184, 0, 0, 0, 0]],
+    [1, [184, 1, 0, 0, 0]],
+    [2147483648, [184, 0, 0, 0, 128]],
+    [4294967295, [184, 255, 255, 255, 255]],
+    [-1, [72, 199, 192, 255, 255, 255, 255]],
+    [-2147483648, [72, 199, 192, 0, 0, 0, 128]],
+    [4294967296, [72, 184, 0, 0, 0, 0, 1, 0, 0, 0]],
+    [-2147483649, [72, 184, 255, 255, 255, 127, 255, 255, 255, 255]],
+    [1152921504606846975, [72, 184, 255, 255, 255, 255, 255, 255, 255, 15]],
+    [-1152921504606846976, [72, 184, 0, 0, 0, 0, 0, 0, 0, 240]]
+];
+for test: Any in cases {
+    ctx.code.length = 0;
+    mov_imm(ctx, test[0]);
+    require(ctx.code.length == len(test[1]));
+    for index: Any in 0..len(test[1]) { require(load8(ctx.code.data + index) == test[1][index]); }
+}
+// The large-literal operand fallback uses r11 without clobbering rcx.
+ctx.code.length = 0;
+x86_mov_immediate(ctx, 11, 4294967296);
+require(ctx.code.length == 10 and load8(ctx.code.data) == 73 and load8(ctx.code.data + 1) == 187);
+require(load32(ctx.code.data + 2) == 0 and load32(ctx.code.data + 6) == 1);
+
+// Every address flavor patches the zero-extended immediate directly into
+// either low or extended destinations. High layouts retain all 64 bits.
+let codeLabel: Any = newlab(ctx); ctx.labels[codeLabel] = 123;
+for format: Any in ["elf", "pe"] {
+    ctx.target.format = format;
+    let base: Any = if (format == "elf") { 4194304 } else { 5368709120 };
+    ctx.layout = ImageLayout(base, 4096, base + 4096, 8192, base + 8192, 4096);
+    for register: Any in 0..16 {
+        for kind: Any in [1, 3, 4, 5, 6] {
+            ctx.code.length = 0; ctx.fixups = fixups_new();
+            let target: Any = if (kind == 6) { codeLabel } else { 32 };
+            x86_relocated_immediate(ctx, register, kind, target);
+            patch_all(ctx);
+            mut expected: Any = base + 8192 + 32;
+            if (kind == 3) { expected += 1; }
+            else if (kind == 4) { expected = (expected + 8) * 8; }
+            else if (kind == 5) { expected += 5; }
+            else if (kind == 6) { expected = base + 4096 + 123; }
+            if (format == "elf") {
+                require(ctx.code.length == if (register < 8) { 5 } else { 6 });
+                require(load32(ctx.code.data + ctx.code.length - 4) == expected);
+            } else {
+                require(ctx.code.length == 10);
+                require(load64(ctx.code.data + 2) == expected);
+            }
+        }
+    }
+}
+ctx.target.format = "elf"; ctx.fixups = fixups_new();
+
+// Independent arbitrary-precision oracle values for ceil(2^(64+s)/d).
+// Include both signed multiplier encodings and tagged-integer boundary divisors.
+let reciprocals: Any = [
+    [3, 1431655766, 1431655765, 0],
+    [5, 1717986919, 1717986918, 1],
+    [7, 613566757, 1227133513, 1],
+    [10, 1717986919, 1717986918, 2],
+    [13, 3303820997, 1321528398, 2],
+    [17, 2021161081, 2021161080, 3],
+    [2147483647, 3, 2147483649, 30],
+    [1000000007, 312643557, 2305842993, 29],
+    [2147483649, 2147483649, 1073741823, 29],
+    [576460752303423489, 4294967281, 2147483647, 58],
+    [1152921504606846975, 9, 2147483648, 59]
+];
+for test: Any in reciprocals {
+    let magic: Any = x86_signed_reciprocal(test[0]);
+    require(magic != 0);
+    require(magic.low == test[1] and magic.high == test[2] and magic.shift == test[3]);
+}
+for divisor: Any in [-7, -1, 0, 1, 2, 8, 2147483648, 576460752303423488] {
+    require(x86_signed_reciprocal(divisor) == 0);
+}
+
+let a: Any = value(0); let b: Any = value(1); let result: Any = value(2); let unused: Any = value(3);
+// Metadata-only literal intrinsics have no runtime string operand. A local
+// declaration or parameter with the same name must preserve ordinary calls.
+let text: Any = "xyz";
+let literal: Any = IRValue(E_STR, 0, 0, 0, 3, SourceSpan(addr(text), 0, 3, 1, 1), 0);
+let intrinsic: Any = Quad(E_CALL, b, 0, 0, {"name": addr("len"), "length": 3, "args": literal}, 0);
+let literalBlock: Any = IRBlock([intrinsic], 2);
+let folded: Any = x86_raw_allocation_block(ctx, literalBlock);
+require(folded.code[0].op == E_INT and folded.code[0].extra.value == 3);
+push(ctx.locals, [addr("len"), 3]);
+require(x86_raw_allocation_block(ctx, literalBlock).code[0].op == E_CALL);
+ctx.locals = [];
+let shadow: Any = Quad(S_LET, 0, a, 0, {"name": addr("len"), "length": 3, "initializer": a, "global": 0}, 0);
+require(x86_raw_allocation_block(ctx, IRBlock([shadow, intrinsic], 2)).code[1].op == E_CALL);
+
+// Cascading deletion follows actual duplicate operand visits. Trapping
+// division and multi-definition slots must remain in the allocation view.
+let deadAdd: Any = Quad(E_BIN, b, a, a, {"op": TK_PLUS, "left": a, "right": a}, 0);
+let deadBlock: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 7}, 0), deadAdd], 2);
+x86_discard_unused(deadBlock);
+require(deadBlock.code[0].op == 0 and deadBlock.code[1].op == 0);
+let trap: Any = Quad(E_BIN, b, a, a, {"op": TK_SLASH, "left": a, "right": a}, 0);
+let trapBlock: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 0}, 0), trap], 2);
+x86_discard_unused(trapBlock);
+require(trapBlock.code[0].op == E_INT and trapBlock.code[1].op == E_BIN);
+let multi: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 1}, 0), Quad(E_INT, a, 0, 0, {"value": 2}, 0)], 1);
+x86_discard_unused(multi);
+require(multi.code[0].op == E_INT and multi.code[1].op == E_INT);
+let copies: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 7}, 0),
+    Quad(IR_COPY, b, a, 0, 0, 0), Quad(IR_LABEL, 0, 0, 0, 50, 0), Quad(IR_COPY, b, a, 0, 0, 0)], 2);
+x86_discard_unused(copies);
+require(copies.code[0].op == 0 and copies.code[1].op == 0 and copies.code[3].op == 0);
+require(copies.code[2].op == IR_LABEL);
+let observedCopies: Any = IRBlock([Quad(E_INT, a, 0, 0, {"value": 7}, 0),
+    Quad(IR_COPY, b, a, 0, 0, 0), Quad(IR_COPY, b, a, 0, 0, 0), Quad(IR_RETURN, 0, b, 0, 0, 0)], 2);
+x86_discard_unused(observedCopies);
+require(observedCopies.code[1].op == IR_COPY and observedCopies.code[2].op == IR_COPY);
+
+// A second operand read cannot rely on the one-shot rax fact. Nor may an
+// accumulator-only value cross a label where other predecessors can enter.
+let producer: Any = Quad(E_INT, a, 0, 0, {"kind": E_INT, "value": 7}, 0);
+let twice: Any = Quad(E_BIN, b, a, a, {"kind": E_BIN, "op": TK_PLUS, "left": a, "right": a}, 0);
+let repeated: Any = IRBlock([producer, twice], 2);
+ctx.allocation = lsra_allocate(repeated, [12, 13]); ctx.allocation.position = 0;
+require(x86_accumulator_only(ctx, repeated, producer) == false);
+let reader: Any = Quad(IR_RETURN, 0, a, 0, 0, 0);
+let adjacent: Any = IRBlock([producer, reader], 1);
+ctx.allocation = lsra_allocate(adjacent, [12]); ctx.allocation.position = 0;
+require(x86_accumulator_only(ctx, adjacent, producer) == true);
+let joined: Any = IRBlock([producer, Quad(IR_LABEL, 0, 0, 0, 50, 0), reader], 1);
+ctx.allocation = lsra_allocate(joined, [12]); ctx.allocation.position = 0;
+require(x86_accumulator_only(ctx, joined, producer) == false);
+let localName: Any = "operand";
+push(ctx.locals, [addr(localName), len(localName)]);
+let variable: Any = Quad(E_VAR, a, 0, 0, {"name": addr(localName), "length": len(localName)}, 0);
+let binary: Any = Quad(E_BIN, b, result, a, {"kind": E_BIN, "op": TK_PLUS, "left": result, "right": a}, 0);
+let adjacentLocal: Any = IRBlock([variable, binary], 3);
+ctx.allocation = lsra_allocate(adjacentLocal, [12, 13]);
+require(x86_borrow_operand(ctx, adjacentLocal, variable) == true);
+require(ctx.allocation.locations[0].borrowed == 8);
+ctx.dynamic = 1;
+require(x86_borrow_operand(ctx, adjacentLocal, variable) == false);
+ctx.dynamic = 0;
+let separatedLocal: Any = IRBlock([variable, Quad(IR_LABEL, 0, 0, 0, 50, 0), binary], 3);
+ctx.allocation = lsra_allocate(separatedLocal, [12, 13]);
+require(x86_borrow_operand(ctx, separatedLocal, variable) == false);
+for register: Any in [3, 12, 13, 14, 15] {
+    ctx.allocation = lsra_plan(adjacentLocal, [15], true);
+    ctx.allocation.localRegisters[localName] = register;
+    require(x86_borrow_operand(ctx, adjacentLocal, variable) == true);
+    require(ctx.allocation.locations[0].borrowed == 0 - register - 1);
+    ctx.code.length = 0;
+    x86_get_temp(ctx, a, 0);
+    require(ctx.code.length == 3 and load8(ctx.code.data) == if (register >= 8) { 76 } else { 72 });
+    ctx.code.length = 0;
+    x86_rax_operand(ctx, a, 3, false);
+    require(ctx.code.length == 3 and load8(ctx.code.data) == if (register >= 8) { 73 } else { 72 });
+    require(load8(ctx.code.data + 2) == 192 + register % 8);
+    for direction: Any in [IR_FALSE, IR_TRUE] {
+        for op: Any in [TK_EQ, TK_NE, TK_LT, TK_LE, TK_GT, TK_GE] {
+            let constant: Any = Quad(E_INT, b, 0, 0, {"value": 128}, 0);
+            let compare: Any = Quad(E_BIN, result, a, b, {"op": op, "left": a, "right": b}, 0);
+            let target: Any = newlab(ctx);
+            let branch: Any = Quad(direction, 0, result, 0, target, 0);
+            let direct: Any = IRBlock([variable, constant, compare, branch], 3);
+            ctx.allocation = lsra_plan(direct, [], true); ctx.allocation.position = 0;
+            ctx.allocation.localRegisters[localName] = register;
+            ctx.code.length = 0;
+            require(x86_local_operation(ctx, direct, variable) == 3);
+            require(ctx.code.length == 13 and load8(ctx.code.data + 2) == 248 + register % 8);
+            mut condition: Any = x86_comparison_condition(op);
+            if (direction == IR_FALSE) { condition += if (condition % 2 == 0) { 1 } else { -1 }; }
+            require(load8(ctx.code.data + 8) == condition);
+            push(direct.code, Quad(IR_RETURN, 0, result, 0, 0, 0));
+            ctx.allocation = lsra_plan(direct, [], true); ctx.allocation.position = 0;
+            ctx.allocation.localRegisters[localName] = register;
+            ctx.code.length = 0;
+            require(x86_local_operation(ctx, direct, variable) == -1 and ctx.code.length == 0);
+            pop(direct.code);
+            direct.code = [variable, Quad(IR_LABEL, 0, 0, 0, target, 0), constant, compare, branch];
+            ctx.allocation = lsra_plan(direct, [], true); ctx.allocation.position = 0;
+            ctx.allocation.localRegisters[localName] = register;
+            require(x86_local_operation(ctx, direct, variable) == -1);
+        }
+    }
+}
+ctx.locals = [];
+// Inductive local ranges require a literal nonnegative initializer and every
+// write to preserve x = x*c%d without overflow. No register homes are changed.
+let stateName: Any = "state";
+let initial: Any = IRValue(E_INT, 5, 1, 0, 0, 0, 0);
+let declare: Any = Quad(S_LET, 0, initial, 0,
+    {"name": addr(stateName), "length": len(stateName), "initializer": initial, "global": 0}, 0);
+let stateRead: Any = Quad(E_VAR, a, 0, 0, {"name": addr(stateName), "length": len(stateName)}, 0);
+let factor: Any = Quad(E_INT, b, 0, 0, {"value": 5}, 0);
+let product: Any = Quad(E_BIN, result, a, b, {"op": TK_STAR, "left": a, "right": b}, 0);
+let divisor: Any = value(4);
+let modulus: Any = Quad(E_INT, divisor, 0, 0, {"value": 97}, 0);
+let reduce: Any = Quad(E_BIN, unused, result, divisor, {"op": TK_PCT, "left": result, "right": divisor}, 0);
+let update: Any = Quad(S_ASSIGN, 0, unused, 0,
+    {"name": addr(stateName), "length": len(stateName), "value": unused}, 0);
+let recurrenceCode: Any = [Quad(E_INT, initial, 0, 0, {"value": 1}, 0), declare,
+    stateRead, factor, product, modulus, reduce, update];
+let recurrence: Any = IRBlock(recurrenceCode, 6);
+let localRead: Any = Quad(E_VAR, value(6), 0, 0, {"name": addr(stateName), "length": len(stateName)}, 0);
+let localBody: Any = IRBlock([recurrenceCode[0], declare, stateRead, factor, product, modulus, reduce, update, localRead], 7);
+let localPlan: Any = x86_plan_local_registers(ctx, localBody);
+require(localPlan != 0 and localPlan.registers[stateName] == 3);
+require(len(localPlan.used) == 1 and len(localPlan.temporaries) == 4);
+ctx.envCount = 1;
+require(x86_plan_local_registers(ctx, localBody) == 0);
+ctx.envCount = 0;
+push(ctx.locals, [addr(stateName), len(stateName)]);
+require(x86_plan_local_registers(ctx, localBody) == 0);
+ctx.locals = []; ctx.boxed = [[addr(stateName), len(stateName)]];
+require(x86_plan_local_registers(ctx, localBody) == 0);
+ctx.boxed = [];
+push(localBody.code, Quad(E_CALL, 0, 0, 0, {"args": 0}, 0));
+require(x86_plan_local_registers(ctx, localBody) == 0);
+pop(localBody.code);
+push(localBody.code, Quad(E_VAR, value(7), 0, 0, {"name": addr("unknown"), "length": 7}, 0));
+require(x86_plan_local_registers(ctx, localBody) == 0);
+pop(localBody.code);
+push(localBody.code, declare);
+require(x86_plan_local_registers(ctx, localBody) == 0);
+pop(localBody.code);
+localBody.code = [stateRead, recurrenceCode[0], declare, factor, product, modulus, reduce, update, localRead];
+require(x86_plan_local_registers(ctx, localBody) == 0);
+let poolNames: Any = ["a", "b", "c", "d", "e"];
+let poolCode: Any = [recurrenceCode[0]];
+for name: Any in poolNames {
+    push(poolCode, Quad(S_LET, 0, initial, 0,
+        {"name": addr(name), "length": len(name), "initializer": initial, "global": 0}, 0));
+    for visit: Any in 0..3 { push(poolCode, Quad(E_VAR, a, 0, 0, {"name": addr(name), "length": len(name)}, 0)); }
+}
+let fullPool: Any = x86_plan_local_registers(ctx, IRBlock(poolCode, 6));
+require(len(fullPool.used) == 5 and len(fullPool.temporaries) == 0);
+for index: Any in 0..5 { require(fullPool.registers[poolNames[index]] == if (index == 0) { 3 } else { 11 + index }); }
+ctx.allocation = lsra_plan(recurrence, [12, 13], true);
+let bounds: Any = x86_local_recurrences(ctx, recurrence);
+require(bounds[stateName].valid == true and bounds[stateName].maximum == 96);
+push(ctx.locals, [addr(stateName), len(stateName)]);
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+ctx.locals = []; ctx.boxed = [[addr(stateName), len(stateName)]];
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+ctx.boxed = [];
+push(recurrenceCode, Quad(E_CALL, 0, 0, 0, {"args": 0}, 0));
+require(len(keys(x86_local_recurrences(ctx, recurrence))) == 0);
+pop(recurrenceCode);
+push(recurrenceCode, declare);
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+pop(recurrenceCode);
+update.extra.value = initial;
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+update.extra.value = unused;
+for replacement: Any in [-5, 1152921504606846975] {
+    factor.extra.value = replacement;
+    ctx.allocation = lsra_plan(recurrence, [12, 13], true);
+    require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+}
+factor.extra.value = 5;
+recurrenceCode[0].extra.value = -1;
+ctx.allocation = lsra_plan(recurrence, [12, 13], true);
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+recurrenceCode[0].extra.value = 1;
+recurrence.code = [stateRead, recurrenceCode[0], declare, factor, product, modulus, reduce, update];
+ctx.allocation = lsra_plan(recurrence, [12, 13], true);
+require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
+// Divisibility is a branch predicate, not a replacement for observable signed
+// remainder. Check both branch polarities and either comparison operand order.
+let power: Any = IRValue(E_INT, 1, 8, 0, 0, 0, 0);
+let zero: Any = IRValue(E_INT, 4, 0, 0, 0, 0, 0);
+for direction: Any in [IR_FALSE, IR_TRUE] {
+    for op: Any in [TK_EQ, TK_NE] {
+        for reversed: Any in [false, true] {
+            let target: Any = newlab(ctx);
+            let remainder: Any = Quad(E_BIN, result, a, power,
+                {"op": TK_PCT, "left": a, "right": power}, 0);
+            let left: Any = if (reversed) { zero } else { result };
+            let right: Any = if (reversed) { result } else { zero };
+            let compare: Any = Quad(E_BIN, unused, left, right,
+                {"op": op, "left": left, "right": right}, 0);
+            let code: Any = [Quad(E_INT, a, 0, 0, {"value": -9}, 0),
+                Quad(E_INT, power, 0, 0, {"value": 8}, 0), remainder,
+                Quad(E_INT, zero, 0, 0, {"value": 0}, 0), compare,
+                Quad(direction, 0, unused, 0, target, 0)];
+            let block: Any = IRBlock(code, 5);
+            ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+            ctx.code.length = 0;
+            require(x86_remainder_branch(ctx, block, remainder) == 5);
+            require(load8(ctx.code.data + ctx.code.length - 12) == 72);
+            require(load8(ctx.code.data + ctx.code.length - 11) == 169);
+            require(load32(ctx.code.data + ctx.code.length - 10) == 7);
+            mut condition: Any = x86_comparison_condition(op);
+            if (direction == IR_FALSE) { condition += if (op == TK_EQ) { 1 } else { -1 }; }
+            require(load8(ctx.code.data + ctx.code.length - 5) == condition);
+            ctx.dynamic = 1;
+            require(x86_remainder_branch(ctx, block, remainder) == -1);
+            ctx.dynamic = 0;
+            // Observing either the signed remainder or the comparison result
+            // elsewhere blocks this fusion.
+            for observed: Any in [result, unused] {
+                push(code, Quad(IR_RETURN, 0, observed, 0, 0, 0));
+                ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+                require(x86_remainder_branch(ctx, block, remainder) == -1);
+                pop(code);
+            }
+            push(code, Quad(E_INT, power, 0, 0, {"value": 16}, 0));
+            ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+            require(x86_remainder_branch(ctx, block, remainder) == -1);
+            pop(code);
+            code[3].extra.value = 1;
+            ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+            require(x86_remainder_branch(ctx, block, remainder) == -1);
+            code[3] = Quad(IR_LABEL, 0, 0, 0, target, 0);
+            ctx.allocation = lsra_plan(block, [12, 13], true); ctx.allocation.position = 2;
+            require(x86_remainder_branch(ctx, block, remainder) == -1);
+        }
+    }
+}
+for direction: Any in [IR_FALSE, IR_TRUE] {
+    for op: Any in [TK_EQ, TK_NE, TK_LT, TK_LE, TK_GT, TK_GE] {
+        let target: Any = newlab(ctx);
+        let compare: Any = Quad(E_BIN, result, a, b, {"kind": E_BIN, "op": op, "left": a, "right": b}, 0);
+        let code: Any = [Quad(E_INT, a, 0, 0, {"kind": E_INT, "value": -1}, 0),
+            Quad(E_INT, b, 0, 0, {"kind": E_INT, "value": 2}, 0), compare,
+            Quad(IR_COPY, unused, result, 0, 0, 0), Quad(direction, 0, result, 0, target, 0)];
+        let block: Any = IRBlock(code, 4);
+        ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]);
+        ctx.allocation.position = 2;
+        require(x86_branch_comparison(ctx, block, compare) == 4);
+        require(x86_dead_copy(ctx, code[3]) == true);
+        ctx.allocation.position = -1; ctx.code.length = 0;
+        cg_ir(ctx, block);
+        mut condition: Any = x86_comparison_condition(op);
+        if direction == IR_FALSE { condition = if condition % 2 == 0 { condition + 1 } else { condition - 1 }; }
+        // No materialization or copy after cmp: the last instruction is jcc.
+        require(load8(ctx.code.data + ctx.code.length - 6) == 15);
+        require(load8(ctx.code.data + ctx.code.length - 5) == condition);
+        // An additional user must preserve materialization.
+        push(code, Quad(IR_RETURN, 0, result, 0, 0, 0));
+        ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]); ctx.allocation.position = 2;
+        require(x86_branch_comparison(ctx, block, compare) == -1);
+        pop(code);
+        // Copy observable through another result must also block fusion.
+        push(code, Quad(IR_RETURN, 0, unused, 0, 0, 0));
+        ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]); ctx.allocation.position = 2;
+        require(x86_branch_comparison(ctx, block, compare) == -1);
+        pop(code);
+        // Non-SSA definitions retain private homes and cannot be fused.
+        push(code, Quad(IR_COPY, result, a, 0, 0, 0));
+        ctx.allocation = lsra_allocate(block, [12, 13, 14, 15]); ctx.allocation.position = 2;
+        require(ctx.allocation.locations[2].pinned == true);
+        require(x86_branch_comparison(ctx, block, compare) == -1);
+    }
+}
+emitter_release(ctx);
+print("x86-codegen-ok");
