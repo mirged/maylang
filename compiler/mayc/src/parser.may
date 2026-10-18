@@ -1238,10 +1238,19 @@ fun parse_embedded(ctx: Any, start: Any, len: Any) -> Any {
     let save_toks: Any = TOKS;
     let save_pos: Any = POS;
     let save_n: Any = NTOKS;
-    TOKS = lex_span(start, start + len);
-    POS = 0;
-    let e: Any = parse_expr(ctx);
-    expect(TK_EOF);
+    let e: Any = may {
+        TOKS = lex_span(start, start + len);
+        POS = 0;
+        let expression: Any = parse_expr(ctx);
+        expect(TK_EOF);
+        expression
+    } otherwise {
+        TOKS = save_toks;
+        POS = save_pos;
+        NTOKS = save_n;
+        fail(err.message);
+        0
+    };
     TOKS = save_toks;
     POS = save_pos;
     NTOKS = save_n;
