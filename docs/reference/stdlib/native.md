@@ -1,4 +1,4 @@
-- **native.may** — Historical compatibility copy of full-runtime helpers; the active injected sidecar is compiler/mayc/native.may.
+- **native.may** — Automatically available full-runtime helpers; a byte-identical mirror of the injected sidecar compiler/mayc/native.may.
 - Availability: full Linux x86-64 runtime.
 - Import: `import "native" as library;`.
 - Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.

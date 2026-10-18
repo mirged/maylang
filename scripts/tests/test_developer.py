@@ -80,6 +80,22 @@ class DeveloperTests(unittest.TestCase):
             self.assertTrue(any('absent.md' in error for error in errors))
             self.assertTrue(any('invalid.json' in error for error in errors))
 
+    def test_repository_check_requires_identical_native_mirror(self):
+        with tempfile.TemporaryDirectory(prefix='may-mirror-') as temporary:
+            directory = Path(temporary)
+            (directory / 'compiler/mayc').mkdir(parents=True)
+            (directory / 'stdlib').mkdir()
+            active = directory / 'compiler/mayc/native.may'
+            mirror = directory / 'stdlib/native.may'
+            active.write_text('fun join() -> Str { return "new"; }\n')
+            mirror.write_text(active.read_text())
+            with patch.object(checker, 'ROOT', directory):
+                self.assertEqual(checker.mirrors(), [])
+                mirror.write_text('fun join() -> Str { return "old"; }\n')
+                errors = checker.mirrors()
+            self.assertEqual(len(errors), 1, errors)
+            self.assertIn('stdlib/native.may: differs from compiler/mayc/native.may', errors[0])
+
 
 if __name__ == '__main__':
     unittest.main()

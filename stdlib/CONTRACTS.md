@@ -20,8 +20,9 @@ Raw mode does not inject a standard library. See the
 `io`, `net`, environment/process primitives and raw syscall wrappers depend on
 the full Linux runtime. `path` manipulates strings lexically and performs no
 filesystem I/O, symlink resolution, permission checks or filesystem validation.
-`stdlib/native.may` is a historical compatibility copy; the active full-runtime
-sidecar is `compiler/mayc/native.may`.
+The active full-runtime sidecar is `compiler/mayc/native.may`. `stdlib/native.may`
+is a byte-identical mirror for the language server and API docs; `make check`
+fails if they differ.
 
 ## Values, numbers and text
 

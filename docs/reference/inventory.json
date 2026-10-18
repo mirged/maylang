@@ -2263,7 +2263,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2274,7 +2274,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2285,7 +2285,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2296,7 +2296,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2307,7 +2307,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2318,7 +2318,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2329,7 +2329,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2340,7 +2340,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2351,7 +2351,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2362,7 +2362,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2373,7 +2373,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2384,7 +2384,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2395,7 +2395,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2406,7 +2406,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2417,7 +2417,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2428,7 +2428,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2439,7 +2439,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2450,7 +2450,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2461,7 +2461,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2472,7 +2472,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2483,7 +2483,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2494,7 +2494,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2505,7 +2505,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2516,7 +2516,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2527,7 +2527,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2538,7 +2538,7 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
@@ -2549,898 +2549,898 @@
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "int",
     "kind": "fun",
     "signature": "fun int(x: Any) -> Any",
-    "line": 192,
+    "line": 202,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "float",
     "kind": "fun",
     "signature": "fun float(x: Any) -> Any",
-    "line": 220,
+    "line": 230,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "bump",
     "kind": "fun",
     "signature": "fun bump(s: Any) -> Any",
-    "line": 283,
+    "line": 293,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "float_norm",
     "kind": "fun",
     "signature": "fun float_norm(v: Any) -> Any",
-    "line": 303,
+    "line": 313,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "float_sci",
     "kind": "fun",
     "signature": "fun float_sci(value: Any) -> Any",
-    "line": 325,
+    "line": 335,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "float_str",
     "kind": "fun",
     "signature": "fun float_str(f: Any) -> Any",
-    "line": 349,
+    "line": 359,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "reverse",
     "kind": "fun",
     "signature": "fun reverse(x: Any) -> Any",
-    "line": 401,
+    "line": 411,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "range",
     "kind": "fun",
     "signature": "fun range(a: Any, b: Any) -> Any",
-    "line": 411,
+    "line": 421,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "sum",
     "kind": "fun",
     "signature": "fun sum(xs: Any) -> Any",
-    "line": 413,
+    "line": 423,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "min",
     "kind": "fun",
     "signature": "fun min(a: Any, b: Any) -> Any",
-    "line": 419,
+    "line": 429,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "max",
     "kind": "fun",
     "signature": "fun max(a: Any, b: Any) -> Any",
-    "line": 420,
+    "line": 430,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "abs",
     "kind": "fun",
     "signature": "fun abs(x: Any) -> Any",
-    "line": 421,
+    "line": 431,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "sort",
     "kind": "fun",
     "signature": "fun sort(xs: Any) -> Any",
-    "line": 423,
+    "line": 433,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "keys",
     "kind": "fun",
     "signature": "fun keys(m: Any) -> Any",
-    "line": 441,
+    "line": 451,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "values",
     "kind": "fun",
     "signature": "fun values(m: Any) -> Any",
-    "line": 442,
+    "line": 452,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "has",
     "kind": "fun",
     "signature": "fun has(x: Any, key: Any) -> Any",
-    "line": 446,
+    "line": 456,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "merge",
     "kind": "fun",
     "signature": "fun merge(a: Any, b: Any) -> Any",
-    "line": 460,
+    "line": 470,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "remove",
     "kind": "fun",
     "signature": "fun remove(m: Any, key: Any) -> Any",
-    "line": 467,
+    "line": 477,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "str",
     "kind": "fun",
     "signature": "fun str(x: Any) -> Any",
-    "line": 475,
+    "line": 485,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "make_error",
     "kind": "fun",
     "signature": "fun make_error(kind: Any, message: Any) -> Any",
-    "line": 483,
+    "line": 493,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "raise_error",
     "kind": "fun",
     "signature": "fun raise_error(kind: Any, message: Any) -> Any",
-    "line": 492,
+    "line": 502,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "fail_list",
     "kind": "fun",
     "signature": "fun fail_list(items: Any) -> Any",
-    "line": 497,
+    "line": 507,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "type_name",
     "kind": "fun",
     "signature": "fun type_name(x: Any) -> Any",
-    "line": 507,
+    "line": 517,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "raise_binop_error",
     "kind": "fun",
     "signature": "fun raise_binop_error(a: Any, b: Any, sym: Any) -> Any",
-    "line": 519,
+    "line": 529,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "raise_add_error",
     "kind": "fun",
     "signature": "fun raise_add_error(a: Any, b: Any) -> Any",
-    "line": 523,
+    "line": 533,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "raise_exp_error",
     "kind": "fun",
     "signature": "fun raise_exp_error(a: Any, b: Any) -> Any",
-    "line": 527,
+    "line": 537,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "raise_div_zero",
     "kind": "fun",
     "signature": "fun raise_div_zero() -> Any",
-    "line": 531,
+    "line": 541,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "raise_overflow",
     "kind": "fun",
     "signature": "fun raise_overflow() -> Any",
-    "line": 535,
+    "line": 545,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "raise_io_error",
     "kind": "fun",
     "signature": "fun raise_io_error(message: Any) -> Any",
-    "line": 539,
+    "line": 549,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "ptr",
     "kind": "fun",
     "signature": "fun ptr(n: Any) -> Any",
-    "line": 544,
+    "line": 554,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "print_error",
     "kind": "fun",
     "signature": "fun print_error(e: Any) -> Any",
-    "line": 546,
+    "line": 556,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "concat_lists",
     "kind": "fun",
     "signature": "fun concat_lists(a: Any, b: Any) -> Any",
-    "line": 554,
+    "line": 564,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "string_repr",
     "kind": "fun",
     "signature": "fun string_repr(v: Any) -> Any",
-    "line": 562,
+    "line": 572,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "bool",
     "kind": "fun",
     "signature": "fun bool(x: Any) -> Any",
-    "line": 593,
+    "line": 603,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "type",
     "kind": "fun",
     "signature": "fun type(x: Any) -> Any",
-    "line": 595,
+    "line": 605,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "sign",
     "kind": "fun",
     "signature": "fun sign(x: Any) -> Any",
-    "line": 597,
+    "line": 607,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "parse_int",
     "kind": "fun",
     "signature": "fun parse_int(x: Any) -> Any",
-    "line": 603,
+    "line": 613,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "parse_float",
     "kind": "fun",
     "signature": "fun parse_float(x: Any) -> Any",
-    "line": 620,
+    "line": 630,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "env",
     "kind": "fun",
     "signature": "fun env(name: Any) -> Any",
-    "line": 627,
+    "line": 637,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "pi",
     "kind": "fun",
     "signature": "fun pi() -> Any",
-    "line": 643,
+    "line": 653,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "e",
     "kind": "fun",
     "signature": "fun e() -> Any",
-    "line": 644,
+    "line": 654,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "round",
     "kind": "fun",
     "signature": "fun round(x: Any) -> Any",
-    "line": 646,
+    "line": 656,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "sinh",
     "kind": "fun",
     "signature": "fun sinh(x: Any) -> Any",
-    "line": 648,
+    "line": 658,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "cosh",
     "kind": "fun",
     "signature": "fun cosh(x: Any) -> Any",
-    "line": 649,
+    "line": 659,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "tanh",
     "kind": "fun",
     "signature": "fun tanh(x: Any) -> Any",
-    "line": 650,
+    "line": 660,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "hypot",
     "kind": "fun",
     "signature": "fun hypot(x: Any, y: Any) -> Any",
-    "line": 651,
+    "line": 661,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "cbrt",
     "kind": "fun",
     "signature": "fun cbrt(x: Any) -> Any",
-    "line": 652,
+    "line": 662,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "jd_is_space",
     "kind": "fun",
     "signature": "fun jd_is_space(c: Any) -> Any",
-    "line": 660,
+    "line": 670,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "jd_skip",
     "kind": "fun",
     "signature": "fun jd_skip(s: Any, i: Any) -> Any",
-    "line": 661,
+    "line": 671,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "jd_hex",
     "kind": "fun",
     "signature": "fun jd_hex(c: Any) -> Any",
-    "line": 667,
+    "line": 677,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "jd_string",
     "kind": "fun",
     "signature": "fun jd_string(s: Any, i: Any) -> Any",
-    "line": 674,
+    "line": 684,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "jd_number",
     "kind": "fun",
     "signature": "fun jd_number(s: Any, i: Any) -> Any",
-    "line": 713,
+    "line": 723,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "jd_array",
     "kind": "fun",
     "signature": "fun jd_array(s: Any, i: Any) -> Any",
-    "line": 730,
+    "line": 740,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "jd_object",
     "kind": "fun",
     "signature": "fun jd_object(s: Any, i: Any) -> Any",
-    "line": 744,
+    "line": 754,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "jd_value",
     "kind": "fun",
     "signature": "fun jd_value(s: Any, i: Any) -> Any",
-    "line": 762,
+    "line": 772,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "json_parse",
     "kind": "fun",
     "signature": "fun json_parse(s: Any) -> Any",
-    "line": 785,
+    "line": 795,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "jq_escape",
     "kind": "fun",
     "signature": "fun jq_escape(s: Any) -> Any",
-    "line": 792,
+    "line": 802,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "json_stringify",
     "kind": "fun",
     "signature": "fun json_stringify(v: Any) -> Any",
-    "line": 806,
+    "line": 820,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "clamp",
     "kind": "fun",
     "signature": "fun clamp(x: Any, lo: Any, hi: Any) -> Any",
-    "line": 839,
+    "line": 853,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "chr",
     "kind": "fun",
     "signature": "fun chr(n: Any) -> Any",
-    "line": 845,
+    "line": 859,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "ord",
     "kind": "fun",
     "signature": "fun ord(s: Any) -> Any",
-    "line": 846,
+    "line": 860,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "even",
     "kind": "fun",
     "signature": "fun even(n: Any) -> Any",
-    "line": 847,
+    "line": 861,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "odd",
     "kind": "fun",
     "signature": "fun odd(n: Any) -> Any",
-    "line": 848,
+    "line": 862,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "product",
     "kind": "fun",
     "signature": "fun product(xs: Any) -> Any",
-    "line": 850,
+    "line": 864,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "count",
     "kind": "fun",
     "signature": "fun count(xs: Any, x: Any) -> Any",
-    "line": 856,
+    "line": 870,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "find",
     "kind": "fun",
     "signature": "fun find(xs: Any, x: Any) -> Any",
-    "line": 862,
+    "line": 876,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "slice",
     "kind": "fun",
     "signature": "fun slice(xs: Any, start: Any, stop: Any) -> Any",
-    "line": 872,
+    "line": 886,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "enumerate",
     "kind": "fun",
     "signature": "fun enumerate(xs: Any) -> Any",
-    "line": 885,
+    "line": 899,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "zip",
     "kind": "fun",
     "signature": "fun zip(a: Any, b: Any) -> Any",
-    "line": 892,
+    "line": 906,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "flatten",
     "kind": "fun",
     "signature": "fun flatten(xss: Any) -> Any",
-    "line": 899,
+    "line": 913,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "unique",
     "kind": "fun",
     "signature": "fun unique(xs: Any) -> Any",
-    "line": 905,
+    "line": 919,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "range_step",
     "kind": "fun",
     "signature": "fun range_step(a: Any, b: Any, step: Any) -> Any",
-    "line": 911,
+    "line": 925,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "pad_left",
     "kind": "fun",
     "signature": "fun pad_left(s: Any, width: Any, ch: Any) -> Any",
-    "line": 924,
+    "line": 938,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "pad_right",
     "kind": "fun",
     "signature": "fun pad_right(s: Any, width: Any, ch: Any) -> Any",
-    "line": 930,
+    "line": 944,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "split_lines",
     "kind": "fun",
     "signature": "fun split_lines(s: Any) -> Any",
-    "line": 936,
+    "line": 950,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "get",
     "kind": "fun",
     "signature": "fun get(m: Any, key: Any, fallback: Any) -> Any",
-    "line": 939,
+    "line": 953,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "times",
     "kind": "fun",
     "signature": "fun times(n: Any, f: Any) -> Any",
-    "line": 944,
+    "line": 958,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "each",
     "kind": "fun",
     "signature": "fun each(xs: Any, f: Any) -> Any",
-    "line": 949,
+    "line": 963,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "assert_eq",
     "kind": "fun",
     "signature": "fun assert_eq(a: Any, b: Any) -> Any",
-    "line": 954,
+    "line": 968,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "ccall",
     "kind": "fun",
     "signature": "fun ccall(fn: Any, args: Any) -> Any",
-    "line": 965,
+    "line": 979,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "native.may",
     "name": "extern_c",
     "kind": "fun",
     "signature": "fun extern_c(fn: Any) -> Any",
-    "line": 976,
+    "line": 990,
     "exported": true,
     "runtime": "full",
     "platform": "Linux x86-64",
-    "status": "historical compatibility"
+    "status": "supported"
   },
   {
     "module": "net.may",

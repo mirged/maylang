@@ -8,7 +8,7 @@
     "io.may": "Text, line, JSON, CSV and key-value file helpers.",
     "iter.may": "Eager list iteration, scans, windows and keyed reductions.",
     "math.may": "Arithmetic, number theory and geometric helpers.",
-    "native.may": "Historical compatibility copy of full-runtime helpers; the active injected sidecar is compiler/mayc/native.may.",
+    "native.may": "Automatically available full-runtime helpers; a byte-identical mirror of the injected sidecar compiler/mayc/native.may.",
     "net.may": "Synchronous IPv4 TCP/UDP sockets for full Linux x86-64 runtimes.",
     "path.may": "Lexical path operations without filesystem access.",
     "prelude.may": "Automatically loaded small convenience functions in full-runtime builds.",

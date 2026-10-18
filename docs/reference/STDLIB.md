@@ -1,5 +1,5 @@
 - **Standard library index** — all top-level functions, records, enums and bindings, including private helpers explicitly labeled on their module pages.
-- The active full-runtime sidecar is `compiler/mayc/native.may`; `stdlib/native.may` is a historical compatibility copy. `prelude.may` is auto-loaded; ordinary modules are imported explicitly. Core has a separate auto-loaded library.
+- The active full-runtime sidecar is `compiler/mayc/native.may`; `stdlib/native.may` is a byte-identical mirror, checked by `make check`, that the language server and these pages read. `prelude.may` is auto-loaded; ordinary modules are imported explicitly. Core has a separate auto-loaded library.
 - Prefer namespace or selective imports when a helper shares a name with the native library.
 - `Any` is the actual declared type in many modules; descriptions state expected runtime values without promising additional static checks.
 - [algo.may](stdlib/algo.md) — Sorting, searching, grouping and eager list transformations. 14 declarations.
@@ -18,7 +18,7 @@
 - [ml/nn.may](stdlib/ml/nn.md) — Dense neural layers, inference, backpropagation and snapshots. 17 declarations.
 - [ml/optim.may](stdlib/ml/optim.md) — SGD, momentum and Adam optimizer state and updates. 8 declarations.
 - [ml/tensor.may](stdlib/ml/tensor.md) — Dense row-major tensors, broadcasting, reductions and matrix operations. 47 declarations.
-- [native.may](stdlib/native.md) — Historical compatibility copy of full-runtime helpers; the active injected sidecar is compiler/mayc/native.may. 108 declarations.
+- [native.may](stdlib/native.md) — Automatically available full-runtime helpers; a byte-identical mirror of the injected sidecar compiler/mayc/native.may. 108 declarations.
 - [net.may](stdlib/net.md) — Synchronous IPv4 TCP/UDP sockets for full Linux x86-64 runtimes. 41 declarations.
 - [path.may](stdlib/path.md) — Lexical path operations without filesystem access. 9 declarations.
 - [prelude.may](stdlib/prelude.md) — Automatically loaded small convenience functions in full-runtime builds. 7 declarations.

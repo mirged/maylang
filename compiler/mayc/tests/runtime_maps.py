@@ -39,7 +39,7 @@ def main():
         (small / 'runtime.may').write_text(runtime)
         # Keep the public copy-returning helper available under another name
         # so remove() also exercises the backend's in-place runtime intrinsic.
-        native = (ROOT / 'stdlib/native.may').read_text().replace('fun remove(', 'fun copied_remove(', 1)
+        native = (ROOT / 'compiler/mayc/native.may').read_text().replace('fun remove(', 'fun copied_remove(', 1)
         (small / 'native.may').write_text(native)
         shutil.copy2(ROOT / 'stdlib/prelude.may', small / 'prelude.may')
         source = work / 'maps.may'

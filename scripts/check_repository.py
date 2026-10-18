@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check maintained Markdown links and Python syntax without optional packages."""
+"""Check Markdown links, JSON/Python syntax and the native.may mirror without optional packages."""
 import ast
 import json
 from pathlib import Path
@@ -46,14 +46,25 @@ def problems(paths):
     return errors
 
 
+def mirrors():
+    # The language server and API docs read stdlib/native.may; the compiler
+    # injects compiler/mayc/native.may. Divergence makes editors disagree with
+    # the compiler, so the mirror must stay byte-identical.
+    active, mirror = ROOT / 'compiler/mayc/native.may', ROOT / 'stdlib/native.may'
+    if active.read_bytes() != mirror.read_bytes():
+        return [f'{mirror.relative_to(ROOT)}: differs from {active.relative_to(ROOT)}; '
+                f'copy the active sidecar over it (cp {active.relative_to(ROOT)} {mirror.relative_to(ROOT)})']
+    return []
+
+
 def main():
     names = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
                                     cwd=ROOT).decode().split('\0')
     paths = [ROOT / name for name in names if name]
-    errors = problems(paths)
+    errors = problems(paths) + mirrors()
     for error in errors:
         print(error, file=sys.stderr)
-    print(f'{"FAIL" if errors else "PASS"} repository links, JSON and Python syntax ({len(paths)} files)')
+    print(f'{"FAIL" if errors else "PASS"} repository links, JSON and Python syntax, native mirror ({len(paths)} files)')
     return bool(errors)
 
 

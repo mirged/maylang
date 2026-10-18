@@ -172,9 +172,9 @@ def main():
                               exported=d['public'] or not explicit,
                               runtime='core' if module == 'core' else 'full',
                               platform='all five direct targets' if module == 'core' else 'Linux x86-64',
-                              status='experimental' if module.startswith('ml/') else 'historical compatibility' if module == 'native.may' else 'supported') for d in ds)
+                              status='experimental' if module.startswith('ml/') else 'supported') for d in ds)
     out = ['- **Standard library index** — all top-level functions, records, enums and bindings, including private helpers explicitly labeled on their module pages.',
-           '- The active full-runtime sidecar is `compiler/mayc/native.may`; `stdlib/native.may` is a historical compatibility copy. `prelude.may` is auto-loaded; ordinary modules are imported explicitly. Core has a separate auto-loaded library.',
+           '- The active full-runtime sidecar is `compiler/mayc/native.may`; `stdlib/native.may` is a byte-identical mirror, checked by `make check`, that the language server and these pages read. `prelude.may` is auto-loaded; ordinary modules are imported explicitly. Core has a separate auto-loaded library.',
            '- Prefer namespace or selective imports when a helper shares a name with the native library.',
            '- `Any` is the actual declared type in many modules; descriptions state expected runtime values without promising additional static checks.']
     for path, module in sources:

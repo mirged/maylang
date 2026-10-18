@@ -101,7 +101,7 @@ print(eight(compute(1), compute(2), compute(3), compute(4), compute(5), compute(
         runtime = runtime.replace('    GCCOUNT = GCCOUNT + 1;', '    GCCOUNT = GCCOUNT + 1;\n    rt_write(addr("gc\\n"), 3);', 1)
         (small / 'runtime.may').write_text(runtime)
         shutil.copy2(ROOT / 'stdlib/prelude.may', small / 'prelude.may')
-        shutil.copy2(ROOT / 'stdlib/native.may', small / 'native.may')
+        shutil.copy2(ROOT / 'compiler/mayc/native.may', small / 'native.may')
         source = work / 'gc.may'
         source.write_text('''
 fun make() -> List<Int> { return [73, 91]; }
