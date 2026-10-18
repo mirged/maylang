@@ -12,6 +12,7 @@
 **/node_modules/
 **/.tools/
 **/build/
+**/.may/
 /guide/dist/
 
 # Local assistant configuration and secrets
