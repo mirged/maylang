@@ -100,6 +100,28 @@ out.chmod(0o755)
         run('build'); assert len(calls()) == count + 1
         assert 'up to date' in run('build').stdout
         print('PASS imported dependency and runtime-sidecar invalidation')
+
+        # Lockfiles record root-relative module paths, so a moved checkout
+        # still verifies; older absolute-path lockfiles remain readable.
+        tree = work/'lock tree'; app = tree/'app'; (tree/'lib').mkdir(parents=True); app.mkdir()
+        (tree/'lib/util.may').write_text('pub fun util() -> Int { return 3; }\n')
+        (app/'main.may').write_text('import "../lib/util.may";\nprint(util());\n')
+        (app/'mayproj.json').write_text(json.dumps({'name':'app', 'entry':'main.may', 'output':'build/app', 'target':'host'}))
+        def in_app(directory, *command, ok=True):
+            result = subprocess.run([str(binary), *command], cwd=directory, env=env, capture_output=True, text=True, timeout=60)
+            assert (result.returncode == 0) == ok, (command, result)
+            return result
+        in_app(app, 'lock')
+        lock = json.loads((app/'mayproj.lock').read_text())
+        assert sorted(lock['modules']) == ['../lib/util.may', 'main.may'], lock
+        moved = work/'moved tree'; tree.rename(moved); app = moved/'app'
+        assert 'up to date' in in_app(app, 'verify').stdout
+        lock['modules'] = {str((app/key).resolve()): digest for key, digest in lock['modules'].items()}
+        (app/'mayproj.lock').write_text(json.dumps(lock))
+        assert 'up to date' in in_app(app, 'verify').stdout
+        (moved/'lib/util.may').write_text('pub fun util() -> Int { return 4; }\n')
+        assert '[changed] util.may' in in_app(app, 'verify', ok=False).stdout
+        print('PASS relocatable lockfiles and legacy absolute keys')
         # The generated template must compile with strict defaults.
         real = env.copy(); real['MAYC'] = str(ROOT/'compiler/mayc/mayc_new')
         created = work/'new-project'

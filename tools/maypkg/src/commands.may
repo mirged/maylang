@@ -408,7 +408,7 @@ fun in_root(loc: Any, cmd: Any) -> Any { return "cd " + q(loc.root) + " && " + s
 
 fun write_lock(loc: Any, st: Any) -> Any {
     mut modules: Any = {};
-    for path: Any in st.order { modules[path] = hash.digest(fs.read_or(path, "")); }
+    for path: Any in st.order { modules[project.lock_key(loc.root, path)] = hash.digest(fs.read_or(path, "")); }
     let doc: Any = {"name": name_of(loc), "version": "0.1.0", "modules": modules};
     fs.write(fs.join_path(loc.root, manifest.lockfile()), json_stringify(doc) + "\n");
     return nil;

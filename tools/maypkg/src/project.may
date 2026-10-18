@@ -189,13 +189,37 @@ pub fun synced(loc: Any, disc: Any) -> Any {
 
 // ------------------------------------------------------------ incremental
 
-/// The module digests recorded by the last `maypkg lock`, or nil.
+/// A lockfile key for `path`: relative to the project root, with `..`
+/// segments for modules outside it such as standard-library dependencies.
+/// Relative keys keep a lockfile valid when the checkout moves.
+pub fun lock_key(root: Any, path: Any) -> Any {
+    let from: Any = split(fs.normpath(root), "/");
+    let to: Any = split(fs.normpath(path), "/");
+    mut common: Any = 0;
+    while (common < len(from) && common < len(to) && from[common] == to[common]) { common = common + 1; }
+    mut parts: Any = [];
+    mut i: Any = common;
+    while (i < len(from)) { push(parts, ".."); i = i + 1; }
+    i = common;
+    while (i < len(to)) { push(parts, to[i]); i = i + 1; }
+    return join(parts, "/");
+}
+
+/// The module digests recorded by the last `maypkg lock`, keyed by absolute
+/// path, or nil.
 pub fun lock_modules(root: Any) -> Any {
     let path: Any = fs.join_path(root, manifest.lockfile());
     if (!fs.exists(path)) { return nil; }
     let doc: Any = may { json_parse(read_file(path)) } otherwise { nil };
     if (type(doc) != "Map") { return nil; }
-    return doc.modules ?? {};
+    let recorded: Any = doc.modules ?? {};
+    mut modules: Any = {};
+    for key: Any in keys(recorded) {
+        // Older lockfiles recorded absolute paths; current ones are root-relative.
+        let module: Any = if (fs.is_abs(key)) { key } else { fs.normpath(fs.join_path(root, key)) };
+        modules[module] = recorded[key];
+    }
+    return modules;
 }
 
 /// Modules whose content differs from the lockfile (or all, when unlocked).
