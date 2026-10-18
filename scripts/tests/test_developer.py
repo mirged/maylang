@@ -80,6 +80,21 @@ class DeveloperTests(unittest.TestCase):
             self.assertTrue(any('absent.md' in error for error in errors))
             self.assertTrue(any('invalid.json' in error for error in errors))
 
+    def test_repository_check_reports_invalid_utf8_and_continues(self):
+        with tempfile.TemporaryDirectory(prefix='may-encoding-') as temporary:
+            directory = Path(temporary)
+            paths = [directory / f'invalid{suffix}' for suffix in ('.py', '.json', '.md')]
+            for path in paths:
+                path.write_bytes(b'\xff')
+            doc = directory / 'README.md'
+            doc.write_text('[missing](absent.md)\n')
+            with patch.object(checker, 'ROOT', directory):
+                errors = checker.problems([*paths, doc])
+            self.assertEqual(len(errors), 4, errors)
+            for path in paths:
+                self.assertTrue(any(f'{path.name}: invalid UTF-8' in error for error in errors))
+            self.assertTrue(any('absent.md' in error for error in errors))
+
 
 if __name__ == '__main__':
     unittest.main()
