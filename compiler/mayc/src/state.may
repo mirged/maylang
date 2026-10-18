@@ -131,12 +131,16 @@ fun slurp(pp: Any, pl: Any) -> Any {
     }
     let b: Any = irt_alloc(1048576);
     mut off: Any = 0;
-    mut r: Any = 1;
-    while (r > 0) {
-        r = syscall(0, fd, b + off, 1048576 - off);
-        if (r > 0) {
-            off = off + r;
+    while (true) {
+        let r: Any = syscall(0, fd, b + off, 1048576 - off);
+        if (r == -4) { continue; } // EINTR: retry without losing buffered bytes.
+        if (r < 0) {
+            syscall(3, fd);
+            LASTLEN = 0;
+            return 0;
         }
+        if (r == 0) { break; }
+        off = off + r;
     }
     syscall(3, fd);
     store8(b + off, 0);
