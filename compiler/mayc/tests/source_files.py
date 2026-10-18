@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compiler source reads distinguish empty files from failed reads."""
+"""Compiler source reads distinguish empty files, read failures and size limits."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -43,6 +43,26 @@ def main():
         assert result.returncode == 1 and b'cannot read' in result.stderr, result
         assert str(imported).encode() in result.stderr and not binary.exists(), result
         print('PASS empty sources, missing files and directory read failures preserve outputs')
+
+        limit = 1024 * 1024
+        for size in (limit - 1, limit):
+            source.write_bytes(b'//' + b' ' * (size - 3) + b'\n')
+            result = invoke(source, '--check')
+            assert result.returncode == 0, (size, result)
+        oversized = b'//' + b' ' * (limit - 2) + b'\nlet bad: Int = "wrong";\n'
+        source.write_bytes(oversized)
+        for options in ([], ['--raw']):
+            binary.write_bytes(b'previous output')
+            result = invoke(source, *options)
+            assert result.returncode == 1 and b'input file exceeds 1 MiB limit' in result.stderr, result
+            assert binary.read_bytes() == b'previous output'
+        imported.rmdir()
+        imported.write_bytes(oversized)
+        source.write_text('import "library.may";\nprint(42);\n')
+        result = invoke(source)
+        assert result.returncode == 1 and b'input file exceeds 1 MiB limit' in result.stderr, result
+        assert binary.read_bytes() == b'previous output'
+        print('PASS exact source-size boundary and oversized main/import rejection')
 
 
 if __name__ == '__main__':
