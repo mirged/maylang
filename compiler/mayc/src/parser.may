@@ -229,12 +229,16 @@ fun parse_annotation() -> Any {
 
 fun parse_generic_params() -> Any {
     mut parameters: Any = [];
+    let names: Any = {};
     if (ptok() != TK_LT) { return parameters; }
     adv();
     while (ptok() != TK_GT) {
+        let span: Any = parser_span();
         let parameter: Any = slice_src(pstart(), plen());
-        push(parameters, TypeParameter(parameter, parser_span()));
         expect(TK_IDENT);
+        if (has(names, parameter)) { diagnostic(span, "duplicate type parameter `${parameter}`"); }
+        names[parameter] = true;
+        push(parameters, TypeParameter(parameter, span));
         if (ptok() != TK_COMMA) { break; }
         adv();
     }
