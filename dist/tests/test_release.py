@@ -26,11 +26,18 @@ class ReleaseTests(unittest.TestCase):
                     {'version': '0.9.0'}, {'codename': 'aster'},
                     {'codename': 'Aster\nextra'}, {'date': '2026-02-29'},
                     {'date': '20261012'}, {'date': '2026-10-12-nightly'},
+                    {'codename': None}, {'codename': 42},
+                    {'date': None}, {'date': 20261012},
                 ]
                 for replacement in invalid:
                     with self.subTest(replacement=replacement):
                         path.write_text(json.dumps(valid | replacement))
                         with self.assertRaises(ValueError):
+                            package.release_metadata('0.10.0')
+                for value in (None, [], '0.10.0', 42):
+                    with self.subTest(value=value):
+                        path.write_text(json.dumps(value))
+                        with self.assertRaisesRegex(ValueError, 'must contain an object'):
                             package.release_metadata('0.10.0')
             finally:
                 package.ROOT = previous
