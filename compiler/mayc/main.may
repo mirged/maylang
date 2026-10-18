@@ -28,10 +28,6 @@ let RUNTIME_FILE_NAME: Any  = "runtime.may";
 let PRELUDE_FILE_NAME: Any  = "prelude.may";
 let NATIVE_FILE_NAME: Any   = "native.may";
 
-let CANONICAL_RUNTIME: Any  = "/home/mirged/Projects/maylang/compiler/mayc/runtime.may";
-let CANONICAL_PRELUDE: Any  = "/home/mirged/Projects/maylang/stdlib/prelude.may";
-let CANONICAL_NATIVE: Any   = "/home/mirged/Projects/maylang/stdlib/native.may";
-
 // ------------------------------------------------------------- Path Helpers
 
 fun path_next(a0: Any, a0l: Any, np: Any, nl: Any) -> Any {
@@ -71,10 +67,6 @@ fun load_runtime(a0: Any, a0l: Any) -> Any {
         rsrc = slurp(addr(RUNTIME_FILE_NAME), len(RUNTIME_FILE_NAME));
     }
     if (LASTLEN == 0) {
-        // 3. Absolute canonical system path
-        rsrc = slurp(addr(CANONICAL_RUNTIME), len(CANONICAL_RUNTIME));
-    }
-    if (LASTLEN == 0) {
         die_str("mayc: cannot find runtime.may\n");
     }
     SRC = rsrc;
@@ -93,14 +85,9 @@ fun load_prelude(a0: Any, a0l: Any) -> Any {
     let p2: Any = side_slurp(a0, a0l, addr(repo_rel), len(repo_rel));
     if (LASTLEN > 0) { return p2; }
 
-    // 3. Current working directory
+    // 3. Current working directory (a checkout root)
     let cwd_rel: Any = "stdlib/prelude.may";
-    let p3: Any = slurp(addr(cwd_rel), len(cwd_rel));
-    if (LASTLEN > 0) { return p3; }
-
-    // 4. Absolute canonical path
-    let p4: Any = slurp(addr(CANONICAL_PRELUDE), len(CANONICAL_PRELUDE));
-    return p4;
+    return slurp(addr(cwd_rel), len(cwd_rel));
 }
 
 fun load_native(a0: Any, a0l: Any) -> Any {
@@ -108,28 +95,19 @@ fun load_native(a0: Any, a0l: Any) -> Any {
     let n1: Any = side_slurp(a0, a0l, addr(NATIVE_FILE_NAME), len(NATIVE_FILE_NAME));
     if (LASTLEN > 0) { return n1; }
 
-    // 2. Repo-relative to compiler/mayc (../../stdlib/native.may)
-    let repo_rel: Any = "../../stdlib/native.may";
+    // 2. Repo-relative to compiler/mayc (the active sidecar, not stdlib's mirror)
+    let repo_rel: Any = "../../compiler/mayc/native.may";
     let n2: Any = side_slurp(a0, a0l, addr(repo_rel), len(repo_rel));
     if (LASTLEN > 0) { return n2; }
 
-    // 3. Current working directory
-    let cwd_rel: Any = "stdlib/native.may";
-    let n3: Any = slurp(addr(cwd_rel), len(cwd_rel));
-    if (LASTLEN > 0) { return n3; }
-
-    // 4. Absolute canonical path
-    let n4: Any = slurp(addr(CANONICAL_NATIVE), len(CANONICAL_NATIVE));
-    return n4;
+    // 3. Current working directory (a checkout root)
+    let cwd_rel: Any = "compiler/mayc/native.may";
+    return slurp(addr(cwd_rel), len(cwd_rel));
 }
 
 fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
     let name: Any = "runtime/" + file;
-    mut source: Any = side_slurp(a0, a0l, addr(name), len(name));
-    if (LASTLEN == 0) {
-        let canonical: Any = "/home/mirged/Projects/maylang/compiler/mayc/" + name;
-        source = slurp(addr(canonical), len(canonical));
-    }
+    let source: Any = side_slurp(a0, a0l, addr(name), len(name));
     if (LASTLEN == 0) { die_str("mayc: cannot find ${name}\n"); }
     if (file == "core.may") {
         SRC = source; SRCLEN = LASTLEN;
