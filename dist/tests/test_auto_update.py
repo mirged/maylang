@@ -118,7 +118,8 @@ assert 'MAYC' not in os.environ and 'MAYLANG_STDLIB' not in os.environ
 
     def test_unmanaged_install_and_invalid_components_fail_before_network(self):
         for change in [{'format': 'other'}, {'prefix': '/wrong'}, {'components': ['other']},
-                       {'components': []}]:
+                       {'components': []}, {'components': ['mayc', 'mayc']},
+                       {'components': ['mayc', {}]}]:
             original = self.state.copy()
             self.state.update(change)
             self.write_state()

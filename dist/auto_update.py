@@ -34,6 +34,7 @@ def managed_install(prefix):
     components = state.get('components')
     if (not isinstance(components, list) or not components or
             any(not isinstance(name, str) or name not in TOOLS for name in components) or
+            len(set(components)) != len(components) or
             'mayc' not in components):
         raise ValueError('installed component list is invalid')
     current = prefix / 'current'
