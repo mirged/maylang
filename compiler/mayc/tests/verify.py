@@ -199,6 +199,7 @@ def main():
         processes = run(["python3", COMPILER / "tests/processes.py", "--compiler", compiler], timeout=180)
         record("process inheritance and exit contracts", processes.returncode == 0, (processes.stdout + processes.stderr).decode())
         for script, name in [("file_io.py", "complete binary file I/O"),
+                             ("source_files.py", "compiler source read failures and empty files"),
                              ("reachability.py", "reachable functions, runtime helpers and loader dependencies"),
                              ("behavior.py", "scalar pure behavior contracts"),
                              ("effect_rows.py", "effect ceilings and recursive propagation"),

@@ -24,6 +24,18 @@ checker = module('check_repository')
 
 
 class DeveloperTests(unittest.TestCase):
+    def test_llvm_profile_checks_selected_clang(self):
+        for found in (None, '/tools/clang-19'):
+            with self.subTest(found=found), \
+                    patch.dict(os.environ, {'CLANG': '/tools/clang-19'}), \
+                    patch.object(doctor.shutil, 'which', side_effect=lambda name:
+                                 found if name == '/tools/clang-19' else '/usr/bin/' + name) as which:
+                checks = doctor.inspect('llvm')
+                clang = next(entry for entry in checks if entry[0] == 'clang')
+                self.assertEqual(clang[1], bool(found))
+                self.assertTrue(clang[2])
+                which.assert_any_call('/tools/clang-19')
+
     def test_missing_tools_fail_with_instructions(self):
         with patch.object(doctor.shutil, 'which', return_value=None):
             checks = doctor.inspect('build')
@@ -95,6 +107,40 @@ class DeveloperTests(unittest.TestCase):
                 errors = checker.mirrors()
             self.assertEqual(len(errors), 1, errors)
             self.assertIn('stdlib/native.may: differs from compiler/mayc/native.may', errors[0])
+
+    def test_repository_check_reports_invalid_utf8_and_continues(self):
+        with tempfile.TemporaryDirectory(prefix='may-encoding-') as temporary:
+            directory = Path(temporary)
+            paths = [directory / f'invalid{suffix}' for suffix in ('.py', '.json', '.md')]
+            for path in paths:
+                path.write_bytes(b'\xff')
+            doc = directory / 'README.md'
+            doc.write_text('[missing](absent.md)\n')
+            with patch.object(checker, 'ROOT', directory):
+                errors = checker.problems([*paths, doc])
+            self.assertEqual(len(errors), 4, errors)
+            for path in paths:
+                self.assertTrue(any(f'{path.name}: invalid UTF-8' in error for error in errors))
+            self.assertTrue(any('absent.md' in error for error in errors))
+
+    def test_repository_check_handles_markdown_fence_variants(self):
+        blocks = [
+            '~~~md\n[example](absent.md)\n~~~\n',
+            '   ```md\n[example](absent.md)\n   ```\n',
+            '````md\n```\n[example](absent.md)\n````\n',
+            '~~~md\n```\n[example](absent.md)\n~~~\n',
+            '~~~md\n~~~ still code\n[example](absent.md)\n~~~\n',
+            '~~~md\n[example](absent.md)\n',
+        ]
+        with tempfile.TemporaryDirectory(prefix='may-fences-') as temporary:
+            directory = Path(temporary)
+            doc = directory / 'README.md'
+            for block in blocks:
+                with self.subTest(block=block):
+                    doc.write_text('[missing](outside.md)\n' + block)
+                    with patch.object(checker, 'ROOT', directory):
+                        errors = checker.problems([doc])
+                    self.assertEqual(errors, ['README.md: missing local link outside.md'])
 
 
 if __name__ == '__main__':

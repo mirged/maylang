@@ -129,13 +129,23 @@ fun slurp(pp: Any, pl: Any) -> Any {
         LASTLEN = 0;
         return 0;
     }
-    let b: Any = irt_alloc(1048576);
+    // Reserve a terminator byte and probe past a full buffer before accepting EOF.
+    let b: Any = irt_alloc(1048577);
     mut off: Any = 0;
-    mut r: Any = 1;
-    while (r > 0) {
-        r = syscall(0, fd, b + off, 1048576 - off);
-        if (r > 0) {
-            off = off + r;
+    while (true) {
+        let remaining: Any = if (off < 1048576) { 1048576 - off } else { 1 };
+        let r: Any = syscall(0, fd, b + off, remaining);
+        if (r == -4) { continue; } // EINTR: retry without losing buffered bytes.
+        if (r < 0) {
+            syscall(3, fd);
+            LASTLEN = 0;
+            return 0;
+        }
+        if (r == 0) { break; }
+        off = off + r;
+        if (off > 1048576) {
+            syscall(3, fd);
+            die_str("mayc: input file exceeds 1 MiB limit\n");
         }
     }
     syscall(3, fd);

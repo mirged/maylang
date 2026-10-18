@@ -32,6 +32,9 @@ set; `none` is equivalent to `--raw`. The default is `full` on x86-64 Linux and
 `core` on the other native targets. The experimental `clang-llvm` target defaults
 to the full Maylang runtime. `--time` reports elapsed stage times to stderr.
 
+Individual input files, including imports, are limited to 1 MiB. The compiler
+rejects larger files with an error instead of compiling a truncated prefix.
+
 `--diagnostics json` writes a schema-versioned diagnostics object to stderr.
 Each diagnostic includes severity, stage, code, original file, message and a
 1-based range whose columns count UTF-8 bytes. Independent top-level parser and

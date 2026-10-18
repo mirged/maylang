@@ -12,26 +12,51 @@ ROOT = Path(__file__).resolve().parents[1]
 LINK = re.compile(r'\[[^\]\n]+\]\((<[^>]+>|[^\s)]+)(?:\s+"[^"\n]*")?\)')
 
 
+def markdown_prose(content):
+    lines = []
+    fence = None
+    for line in content.splitlines(keepends=True):
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
+        if fence is not None:
+            if (marker and marker[1][0] == fence[0] and
+                    len(marker[1]) >= len(fence) and not marker[2].strip()):
+                fence = None
+        elif marker and (marker[1][0] == '~' or '`' not in marker[2]):
+            fence = marker[1]
+        else:
+            lines.append(line)
+            continue
+        lines.append('\n' if line.endswith('\n') else '')
+    return ''.join(lines)
+
+
 def problems(paths):
     errors = []
     for path in paths:
         if not path.is_file():
             continue
         relative = path.relative_to(ROOT)
+        if path.suffix not in ('.py', '.json', '.md'):
+            continue
+        try:
+            content = path.read_text(encoding='utf-8')
+        except UnicodeError as error:
+            errors.append(f'{relative}: invalid UTF-8: {error}')
+            continue
         if path.suffix == '.py':
             try:
-                ast.parse(path.read_text(), filename=str(relative))
+                ast.parse(content, filename=str(relative))
             except SyntaxError as error:
                 errors.append(f'{relative}:{error.lineno}: {error.msg}')
         if path.suffix == '.json':
             try:
-                json.loads(path.read_text())
+                json.loads(content)
             except json.JSONDecodeError as error:
                 errors.append(f'{relative}:{error.lineno}: {error.msg}')
         if path.suffix != '.md':
             continue
         # Code examples can contain Markdown syntax that isn't a document link.
-        source = re.sub(r'^```.*?^```[^\n]*', '', path.read_text(), flags=re.M | re.S)
+        source = markdown_prose(content)
         inline_code = list(re.finditer(r'`[^`\n]+`', source))
         for match in LINK.finditer(source):
             if any(code.start() < match.start() < code.end() for code in inline_code):

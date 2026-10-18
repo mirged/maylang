@@ -41,6 +41,26 @@ def main():
         source.write_text('fun broken() -> Int { let n = ; return 1; }\nlet bad = ;\nlet good = 1;\n')
         records=check(2); assert all(record['stage']=='parse' for record in records)
         print('PASS parser recovery across block and statement boundaries',flush=True)
+        for expression, column in (('1 2', 12), ('1; 2', 11)):
+            source.write_text('print("${' + expression + '}");\n')
+            records = check(1)
+            assert records[0]['stage'] == 'parse' and records[0]['message'] == 'unexpected token', records
+            assert records[0]['range']['start']['column'] == column, records
+        print('PASS interpolation requires exactly one expression',flush=True)
+        for expression in ('1 + ', '', '1 2', '"${1 + }"'):
+            source.write_text('print("${' + expression + '}");\nlet bad = ;\n')
+            records = check(2)
+            assert [record['range']['start']['line'] for record in records] == [1, 2], records
+            assert all(record['stage'] == 'parse' for record in records), records
+        print('PASS interpolation failures preserve outer parser recovery',flush=True)
+        for code in (
+                'fun identity<T, T>(value: T) -> T { return value; }',
+                'fun outer() -> Int { fun identity<T, T>(value: T) -> T { return value; } return identity(1); }'):
+            source.write_text(code + '\n')
+            records = check(1)
+            assert records[0]['message'] == 'duplicate type parameter `T`', records
+            assert records[0]['range']['start']['column'] == code.index('T>') + 1, records
+        print('PASS duplicate generic parameters point to the repeated name',flush=True)
         source.write_text('\n'.join(f'let value{i} = ;' for i in range(40)))
         check(20)
         source.write_text('let message = "héllo";\nlet number: Int = message;\n')

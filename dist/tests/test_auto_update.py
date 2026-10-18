@@ -118,7 +118,8 @@ assert 'MAYC' not in os.environ and 'MAYLANG_STDLIB' not in os.environ
 
     def test_unmanaged_install_and_invalid_components_fail_before_network(self):
         for change in [{'format': 'other'}, {'prefix': '/wrong'}, {'components': ['other']},
-                       {'components': []}]:
+                       {'components': []}, {'components': ['mayc', 'mayc']},
+                       {'components': ['mayc', {}]}]:
             original = self.state.copy()
             self.state.update(change)
             self.write_state()
@@ -152,6 +153,16 @@ assert 'MAYC' not in os.environ and 'MAYLANG_STDLIB' not in os.environ
                 patch.object(updater, 'update') as update, patch('builtins.print'):
             updater.main()
             update.assert_not_called()
+
+    def test_empty_cache_home_uses_home_cache(self):
+        home = self.prefix / 'home'
+        with patch('sys.argv', ['auto_update.py', '--prefix', str(self.prefix), '--check']), \
+                patch.dict('os.environ', {'XDG_CACHE_HOME': ''}), \
+                patch.object(updater.Path, 'home', return_value=home), \
+                patch.object(updater, 'update') as update:
+            updater.main()
+            update.assert_called_once_with(self.prefix, True)
+        self.assertEqual(len(list((home / '.cache/maylang').glob('update-*.lock'))), 1)
 
     def test_download_limit_and_wrong_checksum_filename(self):
         downloads = self.assets()

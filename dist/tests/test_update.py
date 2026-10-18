@@ -100,6 +100,19 @@ printf '%s\n' "$PATH"
         self.update(success=False)
         self.assertFalse((self.root / 'env.sh').exists())
 
+    def test_malformed_managed_blocks_preserve_bashrc(self):
+        self.bundle('1.0.0')
+        start = '# >>> Maylang managed environment >>>\n'
+        end = '# <<< Maylang managed environment <<<\n'
+        for content in (start, end, start + start + end + end, end + start):
+            with self.subTest(content=content):
+                self.bashrc.write_text(content)
+                result = self.update(success=False)
+                self.assertIn('malformed Maylang managed block', result.stderr)
+                self.assertEqual(self.bashrc.read_text(), content)
+                self.assertFalse((self.root / 'env.sh').exists())
+                self.assertFalse((self.root / 'current').is_symlink())
+
 
 if __name__ == '__main__':
     unittest.main()

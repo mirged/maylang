@@ -37,12 +37,15 @@ def release_provenance(tag, version, commit):
 
 def release_metadata(version):
     metadata = json.loads((ROOT / 'RELEASE.json').read_text())
+    if not isinstance(metadata, dict):
+        raise ValueError('RELEASE.json must contain an object')
     if metadata.get('version') != version:
         raise ValueError('RELEASE.json version must match the compiler version')
-    if not re.fullmatch(r'[A-Z][a-z]+', metadata.get('codename', '')):
+    codename = metadata.get('codename', '')
+    if not isinstance(codename, str) or not re.fullmatch(r'[A-Z][a-z]+', codename):
         raise ValueError('release codename must be a capitalized word')
     stamp = metadata.get('date', '')
-    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', stamp):
+    if not isinstance(stamp, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', stamp):
         raise ValueError('release date must use YYYY-MM-DD')
     date.fromisoformat(stamp)
     return metadata

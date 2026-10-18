@@ -19,6 +19,13 @@ See the [one-line install command](../docs/guide/INSTALL.md).
 | `build_installer.py` | Generate self-contained C/shell artifacts from a complete bundle |
 | `install.ps1` | Run the Linux installer inside the default WSL distribution |
 | `update.py` | Migrate older Bash-managed installations |
+| `auto_update.py` | Verify and install newer stable releases for managed prefixes |
+| `systemd/` | Optional hourly user timer and service for automatic updates |
+
+For a managed prefix, `python3 dist/auto_update.py --check` reports whether an
+update is available. Add `--prefix /path/to/install` for a custom location.
+See [automatic update setup](../docs/guide/INSTALL.md#automatic-stable-release-updates-linux-with-systemd)
+for scheduling and logs.
 
 ## Build and verify a bundle
 
@@ -35,8 +42,9 @@ Omit `--compiler` to bootstrap afresh. An explicit compiler is not silently
 rebuilt. The archive records tool versions and source dirty state, with source
 timestamps (`SOURCE_DATE_EPOCH` can override them).
 
-It contains five tools, the native Maylang installer, runtime sidecars, `stdlib`, the complete Mayboard
-workspace, release identity, changelog, provenance and `SHA256SUMS`.
+It contains five tools, the native Maylang installer, runtime sidecars, `stdlib`,
+the complete Mayboard and May NES workspaces under `examples/apps/`, release
+identity, changelog, provenance and `SHA256SUMS`.
 The adjacent `.sha256` checks the archive. Keep the bundle together.
 
 `make test-distribution` runs installer, migration and release source-contract

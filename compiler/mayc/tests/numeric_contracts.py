@@ -43,10 +43,17 @@ def main():
             expected=b'255 -128 4294967295\n'+b'arithmetic\n'*5+b'true true\ntrue\narithmetic\n[1, 2]\narithmetic\n'
             assert result.returncode==0 and result.stdout==expected,result
             print('PASS bounds, collection mutation/aliases, binary32 precision and arrays on '+target,flush=True)
-        for code, message in [('let n: UInt8 = 256;','outside UInt8 bounds'),('let n: Int8 = -129;','outside Int8 bounds'),('let n: UInt64 = -1;','outside UInt64 bounds'),('let a: [Int; 2] = [1];','fixed array length mismatch')]:
+        for code, message in [('let n: UInt8 = 256;','outside UInt8 bounds'),('let n: Int8 = -129;','outside Int8 bounds'),('let n: UInt64 = -1;','outside UInt64 bounds'),('let a: [Int; 2] = [1];','fixed array length mismatch'),
+                ('fun f(xs: [Int; 1152921504606846976]) -> Int { return 0; }', 'array length out of range'),
+                ('fun f(xs: Array<Int, 1152921504606846976>) -> Int { return 0; }', 'array length out of range')]:
             source.write_text(code)
             result=subprocess.run([str(args.compiler.resolve()),'--check',str(source)],capture_output=True,timeout=60)
             assert result.returncode!=0 and message.encode() in result.stderr,result
+        for length in (0, 1152921504606846975):
+            for annotation in (f'[Int; {length}]', f'Array<Int, {length}>'):
+                source.write_text(f'fun f(xs: {annotation}) -> Int {{ return 0; }}')
+                result = subprocess.run([str(args.compiler.resolve()), '--check', str(source)], capture_output=True, timeout=60)
+                assert result.returncode == 0, (annotation, result.stderr)
         source.write_text('let n: UInt8 = 255; print(n);')
         binary=work/'core'
         subprocess.run([str(args.compiler.resolve()),'--runtime','core',str(source),'-o',str(binary)],check=True,timeout=60)

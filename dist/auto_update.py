@@ -34,6 +34,7 @@ def managed_install(prefix):
     components = state.get('components')
     if (not isinstance(components, list) or not components or
             any(not isinstance(name, str) or name not in TOOLS for name in components) or
+            len(set(components)) != len(components) or
             'mayc' not in components):
         raise ValueError('installed component list is invalid')
     current = prefix / 'current'
@@ -124,7 +125,7 @@ def main():
     if platform.system() != 'Linux' or platform.machine() != 'x86_64':
         raise ValueError('automatic updates currently require Linux x86-64')
     prefix = args.prefix.expanduser().resolve()
-    cache = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'maylang'
+    cache = Path(os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache') / 'maylang'
     cache.mkdir(parents=True, exist_ok=True)
     identity = hashlib.sha256(str(prefix).encode()).hexdigest()[:16]
     with (cache / f'update-{identity}.lock').open('a') as lock:

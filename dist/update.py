@@ -58,6 +58,8 @@ def validate_bundle(bundle):
 def bashrc_content(content, root, env_path):
     if content.count(START) != content.count(END) or content.count(START) > 1:
         raise ValueError('malformed Maylang managed block in bashrc')
+    if START in content and content.index(START) > content.index(END):
+        raise ValueError('malformed Maylang managed block in bashrc')
     content = re.sub(r'^' + re.escape(START) + r'\n.*?^' + re.escape(END) + r'\n?',
                      '', content, flags=re.MULTILINE | re.DOTALL)
     lines = []
