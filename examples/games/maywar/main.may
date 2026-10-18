@@ -1,0 +1,300 @@
+// main.may — MayWar, a Core War arena: programs fight for control of memory.
+//
+//   make && ./build/maywar demo
+//   ./build/maywar watch dwarf silkworm
+//   ./build/maywar battle mice lookout --rounds 50
+//   ./build/maywar hill
+//   ./build/maywar check my_warrior.red
+//
+// A warrior is either a built-in name (see `maywar list`) or a `.red` file.
+
+import "src/redcode.may";
+import "src/asm.may";
+import "src/mars.may";
+import "src/view.may";
+import "src/hill.may";
+
+struct Options {
+    positional: List<Str>,
+    rounds: Int,
+    seed: Int,
+    speed: Int,
+    delay: Int,
+    cols: Int,
+    settings: Settings,
+}
+
+fun help() -> Nil {
+    print("maywar — Core War in Maylang: warriors written in Redcode fight inside a shared memory core");
+    print("");
+    print("usage: maywar <command> [warriors...] [options]");
+    print("");
+    print("  demo                     watch Nosferatu, Silkworm and Lookout fight");
+    print("  watch <w1> <w2> [...]    watch one round as a live colour map of the core");
+    print("  battle <w1> <w2> [...]   play several rounds and report wins and ties");
+    print("  hill [w...]              round-robin tournament (default: every built-in)");
+    print("  check <w>                assemble a warrior and print its listing");
+    print("  show <name>              print a built-in warrior's source");
+    print("  list                     list the built-in warriors");
+    print("");
+    print("options:");
+    print("  --rounds N    rounds per match (battle/hill, default 20)");
+    print("  --seed N      random seed for warrior placement (default 1)");
+    print("  --speed N     cycles per frame when watching (default 40)");
+    print("  --delay MS    pause between frames when watching (default 16)");
+    print("  --cols N      core cells per screen row when watching (default 100)");
+    print("  --core N      core size (default 8000)");
+    print("  --cycles N    cycles before a round is declared a tie (default 80000)");
+    return;
+}
+
+fun die(message: Str) -> Nil {
+    print("maywar: ${message}");
+    exit(1);
+    return;
+}
+
+fun int_arg(argv: List<Str>, i: Int, flag: Str) -> Int {
+    if (i >= len(argv)) { die("${flag} needs a value"); }
+    let v: Int = may { int(argv[i]) } otherwise { -1 };
+    if (v <= 0) { die("${flag} needs a positive number, got `${argv[i]}`"); }
+    return v;
+}
+
+fun parse_options(argv: List<Str>) -> Options {
+    let s: Settings = default_settings();
+    let o: Options = Options([], 20, 1, 40, 16, 100, s);
+    mut i: Int = 2;
+    while (i < len(argv)) {
+        let a: Str = argv[i];
+        if (a == "--rounds") { i += 1; o.rounds = int_arg(argv, i, a); }
+        else if (a == "--seed") { i += 1; o.seed = int_arg(argv, i, a); }
+        else if (a == "--speed") { i += 1; o.speed = int_arg(argv, i, a); }
+        else if (a == "--delay") { i += 1; o.delay = may { int(argv[i]) } otherwise { 16 }; }
+        else if (a == "--cols") { i += 1; o.cols = int_arg(argv, i, a); }
+        else if (a == "--core") {
+            i += 1;
+            s.size = int_arg(argv, i, a);
+            if (s.maxproc > s.size) { s.maxproc = s.size; }
+        }
+        else if (a == "--cycles") { i += 1; s.maxcycles = int_arg(argv, i, a); }
+        else if (starts_with(a, "--")) { die("unknown option `${a}`"); }
+        else { push(o.positional, a); }
+        i += 1;
+    }
+    return o;
+}
+
+/// Load a warrior from a file or the built-in hill, exiting on errors.
+fun load(spec: Str, s: Settings) -> Warrior {
+    mut source: Str = builtin_source(spec);
+    if (source == "") {
+        if (!file_exists(spec)) { die("`${spec}` is neither a file nor a built-in warrior (try `maywar list`)"); }
+        source = may { read_file(spec) } otherwise { "" };
+    }
+    let w: Warrior = assemble(source, s);
+    if (len(w.errors) > 0) {
+        print("maywar: ${spec} does not assemble:");
+        for e: Str in w.errors { print("  ${e}"); }
+        exit(1);
+    }
+    return w;
+}
+
+fun load_all(specs: List<Str>, s: Settings) -> List<Warrior> {
+    let wars: List<Warrior> = [];
+    for spec: Str in specs { push(wars, load(spec, s)); }
+    return wars;
+}
+
+fun cmd_list() -> Nil {
+    let s: Settings = default_settings();
+    for n: Str in HILL_NAMES {
+        let w: Warrior = assemble(builtin_source(n), s);
+        let label: Str = n + repeat(" ", 11 - len(n));
+        print("  ${label} ${w.name} by ${w.author}, ${warrior_length(w)} instructions");
+        print("              ${w.strategy}");
+    }
+    return;
+}
+
+fun cmd_check(o: Options) -> Nil {
+    if (len(o.positional) != 1) { die("usage: maywar check <warrior>"); }
+    let spec: Str = o.positional[0];
+    mut source: Str = builtin_source(spec);
+    if (source == "") {
+        source = may { read_file(spec) } otherwise { die("cannot read `${spec}`"); "" };
+    }
+    let w: Warrior = assemble(source, o.settings);
+    if (len(w.errors) > 0) {
+        for e: Str in w.errors { print("${spec}: ${e}"); }
+        exit(1);
+    }
+    for line: Str in listing(w, o.settings.size) { print(line); }
+    return;
+}
+
+fun cmd_show(o: Options) -> Nil {
+    if (len(o.positional) != 1) { die("usage: maywar show <name>"); }
+    let source: Str = builtin_source(o.positional[0]);
+    if (source == "") { die("no built-in warrior named `${o.positional[0]}`"); }
+    print(trim(source));
+    return;
+}
+
+fun names_of(wars: List<Warrior>) -> List<Str> {
+    let names: List<Str> = [];
+    for w: Warrior in wars { push(names, w.name); }
+    return names;
+}
+
+fun cmd_watch(o: Options) -> Nil {
+    if (len(o.positional) < 1) { die("usage: maywar watch <w1> [w2 ...]"); }
+    let wars: List<Warrior> = load_all(o.positional, o.settings);
+    let names: List<Str> = names_of(wars);
+    let rng: Rng = rng_new(o.seed);
+    let m: Mars = prepare_round(o.settings, wars, rng);
+    let hot: List<Int> = filled(m.size, -1);
+    let title: Str = join(names, " vs ");
+    mut frame: Int = 0;
+    screen_begin();
+    while (!round_over(m)) {
+        mut k: Int = 0;
+        while (k < o.speed && !round_over(m)) {
+            cycle_once(m, 0);
+            k += 1;
+        }
+        out(render(m, names, o.cols, hot, frame, title));
+        frame += 1;
+        if (o.delay > 0) { sleep(o.delay); }
+    }
+    out(render(m, names, o.cols, hot, frame, title));
+    screen_end();
+    let win: Int = round_winner(m);
+    if (win >= 0) {
+        print("\n ${names[win]} wins after ${m.cycle} cycles.");
+    } else if (len(wars) > 1 && alive_count(m) == 0) {
+        print("\n Everybody died.");
+    } else if (len(wars) == 1) {
+        print("\n ${names[0]} ran for ${m.cycle} cycles.");
+    } else {
+        print("\n Tie: ${alive_count(m)} warriors still alive after ${m.cycle} cycles.");
+    }
+    return;
+}
+
+fun pad(s: Str, width: Int) -> Str {
+    if (len(s) >= width) { return s; }
+    return s + repeat(" ", width - len(s));
+}
+
+fun lpad(s: Str, width: Int) -> Str {
+    if (len(s) >= width) { return s; }
+    return repeat(" ", width - len(s)) + s;
+}
+
+fun cmd_battle(o: Options) -> Nil {
+    if (len(o.positional) < 2) { die("usage: maywar battle <w1> <w2> [...]"); }
+    let wars: List<Warrior> = load_all(o.positional, o.settings);
+    let t0: Float = clock();
+    let tally: List<Int> = play_match(o.settings, wars, o.rounds, o.seed);
+    let secs: Float = clock() - t0;
+    print("${join(names_of(wars), " vs ")} — ${o.rounds} rounds, core ${o.settings.size}, seed ${o.seed}");
+    mut i: Int = 0;
+    while (i < len(wars)) {
+        print("  ${pad(wars[i].name, 14)}${lpad(str(tally[i]), 4)} wins");
+        i += 1;
+    }
+    print("  ${pad("ties", 14)}${lpad(str(tally[len(wars)]), 4)}");
+    print("  (${int(secs * 1000.0)} ms)");
+    return;
+}
+
+fun cmd_hill(o: Options) -> Nil {
+    mut specs: List<Str> = o.positional;
+    if (len(specs) == 0) { specs = HILL_NAMES; }
+    if (len(specs) < 2) { die("a hill needs at least two warriors"); }
+    let wars: List<Warrior> = load_all(specs, o.settings);
+    let n: Int = len(wars);
+    let wins: List<Int> = filled(n, 0);
+    let losses: List<Int> = filled(n, 0);
+    let ties: List<Int> = filled(n, 0);
+    // score[i * n + j]: points i earned against j (3 per win, 1 per tie).
+    let score: List<Int> = filled(n * n, 0);
+    print("MayWar hill: ${n} warriors, ${o.rounds} rounds per pairing");
+    mut i: Int = 0;
+    while (i < n) {
+        mut j: Int = i + 1;
+        while (j < n) {
+            let pair: List<Warrior> = [wars[i], wars[j]];
+            let t: List<Int> = play_match(o.settings, pair, o.rounds, o.seed + i * 131 + j);
+            wins[i] = wins[i] + t[0];
+            losses[i] = losses[i] + t[1];
+            wins[j] = wins[j] + t[1];
+            losses[j] = losses[j] + t[0];
+            ties[i] = ties[i] + t[2];
+            ties[j] = ties[j] + t[2];
+            score[i * n + j] = t[0] * 3 + t[2];
+            score[j * n + i] = t[1] * 3 + t[2];
+            print("  ${pad(wars[i].name, 12)} ${lpad(str(t[0]), 3)} - ${pad(str(t[1]), 3)} ${pad(wars[j].name, 12)} (${t[2]} ties)");
+            j += 1;
+        }
+        i += 1;
+    }
+
+    // Rank by total points.
+    let order: List<Int> = [];
+    i = 0;
+    while (i < n) { push(order, i); i += 1; }
+    let total: List<Int> = filled(n, 0);
+    i = 0;
+    while (i < n) { total[i] = wins[i] * 3 + ties[i]; i += 1; }
+    i = 1;
+    while (i < n) {
+        mut k: Int = i;
+        while (k > 0 && total[order[k]] > total[order[k - 1]]) {
+            let tmp: Int = order[k];
+            order[k] = order[k - 1];
+            order[k - 1] = tmp;
+            k -= 1;
+        }
+        i += 1;
+    }
+
+    print("");
+    mut header: Str = "  #  ${pad("warrior", 12)}  W    L    T  score |";
+    for k: Int in order { header = header + " " + lpad(substring(wars[k].name, 0, min(4, len(wars[k].name))), 4); }
+    print(header);
+    mut rank: Int = 1;
+    for k: Int in order {
+        mut row: Str = "  ${rank}  ${pad(wars[k].name, 12)}${lpad(str(wins[k]), 3)}  ${lpad(str(losses[k]), 3)}  ${lpad(str(ties[k]), 3)}  ${lpad(str(total[k]), 5)} |";
+        for j: Int in order {
+            if (j == k) { row = row + "    -"; } else { row = row + " " + lpad(str(score[k * n + j]), 4); }
+        }
+        print(row);
+        rank += 1;
+    }
+    print("");
+    print("  score: 3 per win, 1 per tie. Columns show points earned against each opponent.");
+    return;
+}
+
+let argv: List<Str> = args();
+if (len(argv) < 2) {
+    help();
+} else {
+    let cmd: Str = argv[1];
+    let o: Options = parse_options(argv);
+    if (cmd == "watch") { cmd_watch(o); }
+    else if (cmd == "demo") {
+        o.positional = ["nosferatu", "silkworm", "lookout"];
+        cmd_watch(o);
+    }
+    else if (cmd == "battle") { cmd_battle(o); }
+    else if (cmd == "hill") { cmd_hill(o); }
+    else if (cmd == "check") { cmd_check(o); }
+    else if (cmd == "show") { cmd_show(o); }
+    else if (cmd == "list") { cmd_list(); }
+    else if (cmd == "help" || cmd == "--help" || cmd == "-h") { help(); }
+    else { die("unknown command `${cmd}` (try `maywar help`)"); }
+}

@@ -1,0 +1,129 @@
+// hill.may — the built-in warriors, one for each classic Core War strategy.
+//
+// `maywar show <name>` prints any of them; save the output as a `.red` file
+// to start writing your own.
+
+let HILL_NAMES: List<Str> = ["imp", "dwarf", "mice", "silkworm", "lookout", "nosferatu"];
+
+fun builtin_source(name: Str) -> Str {
+    let key: Str = to_lower(name);
+    if (key == "imp") { return IMP; }
+    if (key == "dwarf") { return DWARF; }
+    if (key == "mice") { return MICE; }
+    if (key == "silkworm") { return SILKWORM; }
+    if (key == "lookout") { return LOOKOUT; }
+    if (key == "nosferatu") { return NOSFERATU; }
+    return "";
+}
+
+let IMP: Str = ";redcode-94
+;name Imp
+;author A. K. Dewdney
+;strategy The smallest warrior: it copies itself one cell ahead, forever.
+;strategy Hard to kill, but it cannot kill anything either.
+
+imp     MOV.I   0, 1
+        END     imp
+";
+
+let DWARF: Str = ";redcode-94
+;name Dwarf
+;author A. K. Dewdney
+;strategy A bomber. Drops a DAT on every fourth cell; because its own body
+;strategy is four cells long, the bombs step over it.
+
+bomb    DAT     #0, #0
+start   ADD     #4, bomb
+        MOV     bomb, @bomb
+        JMP     start
+        END     start
+";
+
+let MICE: Str = ";redcode-94
+;name Mice
+;author Chip Wendell
+;strategy A replicator from the first Core War tournament (1986): copy the
+;strategy body, split into the copy, repeat.
+
+ptr     DAT     #0, #0
+start   MOV     #12, ptr
+loop    MOV     @ptr, <dest
+        DJN     loop, ptr
+        SPL     @dest, 0
+        ADD     #653, dest
+        JMZ     start, ptr
+dest    DAT     #0, #833
+        END     start
+";
+
+let SILKWORM: Str = ";redcode-94
+;name Silkworm
+;author MayWar
+;strategy Silk-style paper. Eight processes copy the body in lockstep and
+;strategy split into each copy as it is written; two copy stages per body
+;strategy make the colony grow exponentially.
+
+step1   EQU     3364
+step2   EQU     5521
+
+start   SPL     1
+        SPL     1
+        SPL     1
+silk1   SPL     @0, step1
+        MOV.I   }silk1, >silk1
+silk2   SPL     @0, step2
+        MOV.I   }silk2, >silk2
+        DAT     #0, #0
+        END     start
+";
+
+let LOOKOUT: Str = ";redcode-94
+;name Lookout
+;author MayWar
+;strategy A scanner. Walks the core looking for anything that is not empty,
+;strategy pins it with an SPL 0 trap, then sweeps the core with DAT and
+;strategy retires as an imp.
+
+step    EQU     6
+
+scan    ADD.AB  #step, ptr
+ptr     JMZ.F   scan, last+step
+        SLT.AB  #last-ptr, ptr     ; wrapped round onto our own code?
+        JMP     clear
+hit     MOV.I   trap, @ptr
+        JMP     scan
+trap    SPL     #0, 0
+clear   MOV.I   kill, >cptr
+        DJN     clear, #CORESIZE-(last-clear)   ; stop just short of ourselves
+        MOV.I   0, 1
+cptr    DAT     #0, #2
+kill    DAT     #0, #0
+last    DAT     #0, #0
+        END     scan
+";
+
+let NOSFERATU: Str = ";redcode-94
+;name Nosferatu
+;author MayWar
+;strategy A vampire. Bites the core with JMP fangs that all point back to
+;strategy one pit; enemy processes that step on a fang fall in and multiply
+;strategy uselessly. After 700 bites it closes the pit, clears the core and
+;strategy retires as an imp.
+
+step    EQU     2934
+
+bite    ADD.F   inc, fang
+        MOV.I   fang, @fang
+        DJN     bite, #700
+        MOV.I   kill, pit
+        MOV.I   kill, pit+1
+clear   MOV.I   kill, >kill
+        DJN     clear, #CORESIZE-(pit+1-clear)
+        MOV.I   0, 1
+fang    JMP     pit, 0
+inc     DAT     #-step, #step
+kill    DAT     #0, #2
+pit     SPL     0
+        JMP     -1
+        END     bite
+";

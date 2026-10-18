@@ -1,0 +1,382 @@
+// mars.may — the Memory Array Redcode Simulator.
+//
+// The core is a ring of `size` instructions stored as parallel integer lists.
+// Each warrior owns a FIFO queue of process counters; every cycle each living
+// warrior executes exactly one instruction from the front of its queue.
+
+import "redcode.may";
+import "asm.may";
+
+struct Mars {
+    size: Int,
+    maxproc: Int,
+    maxcycles: Int,
+    op: List<Int>,
+    md: List<Int>,
+    am: List<Int>,
+    av: List<Int>,
+    bm: List<Int>,
+    bv: List<Int>,
+    owner: List<Int>,  // warrior that last wrote the cell, -1 if untouched
+    stamp: List<Int>,  // cycle of the last write
+    nw: Int,
+    qbuf: List<Int>,   // nw rings of maxproc process counters
+    qhead: List<Int>,
+    qcount: List<Int>,
+    cycle: Int,
+}
+
+struct Rng {
+    state: Int,
+}
+
+/// Park-Miller minimal standard generator; products stay well inside 61 bits.
+fun rng_new(seed: Int) -> Rng {
+    let s: Int = ((seed % 2147483646) + 2147483646) % 2147483646 + 1;
+    return Rng(s);
+}
+
+fun rng_next(r: Rng, bound: Int) -> Int {
+    r.state = (r.state * 48271) % 2147483647;
+    return r.state % bound;
+}
+
+fun filled(n: Int, v: Int) -> List<Int> {
+    let xs: List<Int> = [];
+    mut i: Int = 0;
+    while (i < n) { push(xs, v); i += 1; }
+    return xs;
+}
+
+fun mars_new(s: Settings, nw: Int) -> Mars {
+    let n: Int = s.size;
+    return Mars(n, s.maxproc, s.maxcycles,
+                filled(n, OP_DAT), filled(n, MOD_F), filled(n, M_DIR), filled(n, 0),
+                filled(n, M_DIR), filled(n, 0), filled(n, -1), filled(n, -1000000),
+                nw, filled(nw * s.maxproc, 0), filled(nw, 0), filled(nw, 0), 0);
+}
+
+fun enqueue(m: Mars, w: Int, pc: Int) -> Nil {
+    let count: Int = m.qcount[w];
+    if (count >= m.maxproc) { return; }
+    m.qbuf[w * m.maxproc + (m.qhead[w] + count) % m.maxproc] = pc;
+    m.qcount[w] = count + 1;
+    return;
+}
+
+/// Copy a warrior into the core at `pos` and give it one process.
+fun load_warrior(m: Mars, w: Int, war: Warrior, pos: Int) -> Nil {
+    let c: List<Int> = war.code;
+    mut i: Int = 0;
+    while (i < warrior_length(war)) {
+        let at: Int = (pos + i) % m.size;
+        let k: Int = i * 6;
+        m.op[at] = c[k];
+        m.md[at] = c[k + 1];
+        m.am[at] = c[k + 2];
+        m.av[at] = c[k + 3] % m.size;
+        m.bm[at] = c[k + 4];
+        m.bv[at] = c[k + 5] % m.size;
+        m.owner[at] = w;
+        m.stamp[at] = 0;
+        i += 1;
+    }
+    enqueue(m, w, (pos + war.start) % m.size);
+    return;
+}
+
+/// Pick start positions so every pair of warriors is at least `mindist` apart.
+fun place_warriors(size: Int, count: Int, mindist: Int, rng: Rng) -> List<Int> {
+    let pos: List<Int> = [0];
+    mut tries: Int = 0;
+    while (len(pos) < count) {
+        let p: Int = rng_next(rng, size);
+        mut ok: Bool = true;
+        for q: Int in pos {
+            let d: Int = ((p - q) % size + size) % size;
+            if (d < mindist || size - d < mindist) { ok = false; }
+        }
+        if (ok) { push(pos, p); }
+        tries += 1;
+        if (tries > 100000) { fail("core is too small to separate ${count} warriors"); }
+    }
+    return pos;
+}
+
+fun touch(m: Mars, at: Int, w: Int) -> Nil {
+    m.owner[at] = w;
+    m.stamp[at] = m.cycle;
+    return;
+}
+
+/// Resolve an operand to an absolute core address. Predecrements happen here;
+/// postincrements wait for `post_increment`, after the register snapshot.
+fun operand(m: Mars, w: Int, pc: Int, mode: Int, val: Int) -> Int {
+    if (mode == M_IMM) { return pc; }
+    let size: Int = m.size;
+    let p: Int = (pc + val) % size;
+    if (mode == M_DIR) { return p; }
+    if (mode == M_BIND || mode == M_BPOST) { return (p + m.bv[p]) % size; }
+    if (mode == M_AIND || mode == M_APOST) { return (p + m.av[p]) % size; }
+    if (mode == M_BPRE) {
+        let v: Int = (m.bv[p] + size - 1) % size;
+        m.bv[p] = v;
+        touch(m, p, w);
+        return (p + v) % size;
+    }
+    let v: Int = (m.av[p] + size - 1) % size;
+    m.av[p] = v;
+    touch(m, p, w);
+    return (p + v) % size;
+}
+
+fun post_increment(m: Mars, w: Int, pc: Int, mode: Int, val: Int) -> Nil {
+    if (mode != M_APOST && mode != M_BPOST) { return; }
+    let p: Int = (pc + val) % m.size;
+    if (mode == M_BPOST) { m.bv[p] = (m.bv[p] + 1) % m.size; } else { m.av[p] = (m.av[p] + 1) % m.size; }
+    touch(m, p, w);
+    return;
+}
+
+/// Arithmetic on core values; returns -1 for division by zero.
+fun arith(op: Int, a: Int, b: Int, size: Int) -> Int {
+    if (op == OP_ADD) { return (b + a) % size; }
+    if (op == OP_SUB) { return (b - a + size) % size; }
+    if (op == OP_MUL) { return (b * a) % size; }
+    if (a == 0) { return -1; }
+    if (op == OP_DIV) { return b / a; }
+    return b % a;
+}
+
+/// Execute one instruction for warrior `w`. Returns false if its process died.
+fun step(m: Mars, w: Int) -> Bool {
+    let count: Int = m.qcount[w];
+    if (count == 0) { return false; }
+    let size: Int = m.size;
+    let head: Int = m.qhead[w];
+    let pc: Int = m.qbuf[w * m.maxproc + head];
+    m.qhead[w] = (head + 1) % m.maxproc;
+    m.qcount[w] = count - 1;
+
+    let op: Int = m.op[pc];
+    let md: Int = m.md[pc];
+    let ir_am: Int = m.am[pc];
+    let ir_av: Int = m.av[pc];
+    let ir_bm: Int = m.bm[pc];
+    let ir_bv: Int = m.bv[pc];
+
+    // A operand, then snapshot the instruction it points to (the A register).
+    let ap: Int = operand(m, w, pc, ir_am, ir_av);
+    let a_a: Int = m.av[ap];
+    let a_b: Int = m.bv[ap];
+    let a_op: Int = m.op[ap];
+    let a_md: Int = m.md[ap];
+    let a_am: Int = m.am[ap];
+    let a_bm: Int = m.bm[ap];
+    post_increment(m, w, pc, ir_am, ir_av);
+
+    // B operand and its snapshot.
+    let bp: Int = operand(m, w, pc, ir_bm, ir_bv);
+    let b_a: Int = m.av[bp];
+    let b_b: Int = m.bv[bp];
+    post_increment(m, w, pc, ir_bm, ir_bv);
+
+    let next: Int = (pc + 1) % size;
+
+    if (op == OP_DAT) { return false; }
+
+    if (op == OP_MOV) {
+        if (md == MOD_A) { m.av[bp] = a_a; }
+        else if (md == MOD_B) { m.bv[bp] = a_b; }
+        else if (md == MOD_AB) { m.bv[bp] = a_a; }
+        else if (md == MOD_BA) { m.av[bp] = a_b; }
+        else if (md == MOD_F) { m.av[bp] = a_a; m.bv[bp] = a_b; }
+        else if (md == MOD_X) { m.av[bp] = a_b; m.bv[bp] = a_a; }
+        else {
+            m.op[bp] = a_op;
+            m.md[bp] = a_md;
+            m.am[bp] = a_am;
+            m.av[bp] = a_a;
+            m.bm[bp] = a_bm;
+            m.bv[bp] = a_b;
+        }
+        touch(m, bp, w);
+        enqueue(m, w, next);
+        return true;
+    }
+
+    if (op >= OP_ADD && op <= OP_MOD) {
+        mut alive: Bool = true;
+        if (md == MOD_A || md == MOD_F || md == MOD_I) {
+            let r: Int = arith(op, a_a, b_a, size);
+            if (r < 0) { alive = false; } else { m.av[bp] = r; }
+        }
+        if (md == MOD_B || md == MOD_F || md == MOD_I) {
+            let r: Int = arith(op, a_b, b_b, size);
+            if (r < 0) { alive = false; } else { m.bv[bp] = r; }
+        }
+        if (md == MOD_AB || md == MOD_X) {
+            let r: Int = arith(op, a_a, b_b, size);
+            if (r < 0) { alive = false; } else { m.bv[bp] = r; }
+        }
+        if (md == MOD_BA || md == MOD_X) {
+            let r: Int = arith(op, a_b, b_a, size);
+            if (r < 0) { alive = false; } else { m.av[bp] = r; }
+        }
+        touch(m, bp, w);
+        if (alive) { enqueue(m, w, next); }
+        return alive;
+    }
+
+    if (op == OP_JMP) {
+        enqueue(m, w, ap);
+        return true;
+    }
+
+    if (op == OP_JMZ || op == OP_JMN) {
+        mut zero: Bool = false;
+        if (md == MOD_A || md == MOD_BA) { zero = b_a == 0; }
+        else if (md == MOD_B || md == MOD_AB) { zero = b_b == 0; }
+        else { zero = b_a == 0 && b_b == 0; }
+        if (zero == (op == OP_JMZ)) { enqueue(m, w, ap); } else { enqueue(m, w, next); }
+        return true;
+    }
+
+    if (op == OP_DJN) {
+        mut nonzero: Bool = false;
+        if (md == MOD_A || md == MOD_BA) {
+            let v: Int = (b_a + size - 1) % size;
+            m.av[bp] = v;
+            nonzero = v != 0;
+        } else if (md == MOD_B || md == MOD_AB) {
+            let v: Int = (b_b + size - 1) % size;
+            m.bv[bp] = v;
+            nonzero = v != 0;
+        } else {
+            let va: Int = (b_a + size - 1) % size;
+            let vb: Int = (b_b + size - 1) % size;
+            m.av[bp] = va;
+            m.bv[bp] = vb;
+            nonzero = va != 0 || vb != 0;
+        }
+        touch(m, bp, w);
+        if (nonzero) { enqueue(m, w, ap); } else { enqueue(m, w, next); }
+        return true;
+    }
+
+    if (op == OP_SPL) {
+        enqueue(m, w, next);
+        enqueue(m, w, ap);
+        return true;
+    }
+
+    if (op == OP_SEQ || op == OP_SNE) {
+        mut same: Bool = false;
+        if (md == MOD_A) { same = a_a == b_a; }
+        else if (md == MOD_B) { same = a_b == b_b; }
+        else if (md == MOD_AB) { same = a_a == b_b; }
+        else if (md == MOD_BA) { same = a_b == b_a; }
+        else if (md == MOD_F) { same = a_a == b_a && a_b == b_b; }
+        else if (md == MOD_X) { same = a_a == b_b && a_b == b_a; }
+        else {
+            same = a_a == b_a && a_b == b_b && a_op == m.op[bp] && a_md == m.md[bp]
+                && a_am == m.am[bp] && a_bm == m.bm[bp];
+        }
+        if (same == (op == OP_SEQ)) { enqueue(m, w, (pc + 2) % size); } else { enqueue(m, w, next); }
+        return true;
+    }
+
+    if (op == OP_SLT) {
+        mut less: Bool = false;
+        if (md == MOD_A) { less = a_a < b_a; }
+        else if (md == MOD_B) { less = a_b < b_b; }
+        else if (md == MOD_AB) { less = a_a < b_b; }
+        else if (md == MOD_BA) { less = a_b < b_a; }
+        else if (md == MOD_X) { less = a_a < b_b && a_b < b_a; }
+        else { less = a_a < b_a && a_b < b_b; }
+        if (less) { enqueue(m, w, (pc + 2) % size); } else { enqueue(m, w, next); }
+        return true;
+    }
+
+    // NOP
+    enqueue(m, w, next);
+    return true;
+}
+
+fun alive_count(m: Mars) -> Int {
+    mut n: Int = 0;
+    mut w: Int = 0;
+    while (w < m.nw) {
+        if (m.qcount[w] > 0) { n += 1; }
+        w += 1;
+    }
+    return n;
+}
+
+/// One cycle: each living warrior runs one instruction, starting with `first`.
+fun cycle_once(m: Mars, first: Int) -> Nil {
+    mut k: Int = 0;
+    while (k < m.nw) {
+        let w: Int = (first + k) % m.nw;
+        if (m.qcount[w] > 0) { step(m, w); }
+        k += 1;
+    }
+    m.cycle = m.cycle + 1;
+    return;
+}
+
+/// A round is over when one warrior is left (or none, for a solo run).
+fun round_over(m: Mars) -> Bool {
+    if (m.cycle >= m.maxcycles) { return true; }
+    let alive: Int = alive_count(m);
+    if (m.nw == 1) { return alive == 0; }
+    return alive <= 1;
+}
+
+/// Set up a fresh core for round `round` with the given warriors.
+fun prepare_round(s: Settings, wars: List<Warrior>, rng: Rng) -> Mars {
+    let m: Mars = mars_new(s, len(wars));
+    let pos: List<Int> = place_warriors(s.size, len(wars), s.mindist, rng);
+    mut w: Int = 0;
+    while (w < len(wars)) {
+        load_warrior(m, w, wars[w], pos[w]);
+        w += 1;
+    }
+    return m;
+}
+
+/// The surviving warrior's index, or -1 when the round is a tie.
+fun round_winner(m: Mars) -> Int {
+    if (alive_count(m) != 1 || m.nw == 1) { return -1; }
+    mut w: Int = 0;
+    while (w < m.nw) {
+        if (m.qcount[w] > 0) { return w; }
+        w += 1;
+    }
+    return -1;
+}
+
+/// Play one round to completion and return the winner (-1 for a tie).
+fun play_round(s: Settings, wars: List<Warrior>, rng: Rng, round: Int) -> Int {
+    let m: Mars = prepare_round(s, wars, rng);
+    let first: Int = round % len(wars);
+    while (!round_over(m)) { cycle_once(m, first); }
+    return round_winner(m);
+}
+
+/// Wins per warrior followed by the number of ties.
+fun play_match(s: Settings, wars: List<Warrior>, rounds: Int, seed: Int) -> List<Int> {
+    let rng: Rng = rng_new(seed);
+    let tally: List<Int> = filled(len(wars) + 1, 0);
+    mut r: Int = 0;
+    while (r < rounds) {
+        let win: Int = play_round(s, wars, rng, r);
+        if (win < 0) {
+            tally[len(wars)] = tally[len(wars)] + 1;
+        } else {
+            tally[win] = tally[win] + 1;
+        }
+        r += 1;
+    }
+    return tally;
+}

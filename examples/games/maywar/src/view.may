@@ -1,0 +1,153 @@
+// view.may — draws the core as a 24-bit colour map in the terminal.
+//
+// Each character cell shows two core cells with the upper-half block `▀`:
+// the foreground colour is the upper cell and the background the lower one.
+// Cells take their warrior's colour, fading as the last write ages; DAT bombs
+// are drawn dim and cells holding a live process are drawn white.
+
+import "redcode.may";
+import "mars.may";
+
+let ESC: Str = char_from(27);
+
+// Packed 0xRRGGBB colours, written in decimal.
+let PALETTE: List<Int> = [
+    4245759,  // cyan
+    16747570,  // orange
+    7923290,  // green
+    15096540,  // magenta
+    16769104,  // yellow
+    16734810,  // red
+];
+let EMPTY_RGB: Int = 1447967;
+let HOT_RGB: Int = 16777215;
+
+fun warrior_rgb(w: Int) -> Int {
+    return PALETTE[w % len(PALETTE)];
+}
+
+/// Scale a packed RGB colour by pct/100, blending toward the empty colour.
+fun shade(rgb: Int, pct: Int) -> Int {
+    let r: Int = rgb / 65536;
+    let g: Int = (rgb / 256) % 256;
+    let b: Int = rgb % 256;
+    let er: Int = EMPTY_RGB / 65536;
+    let eg: Int = (EMPTY_RGB / 256) % 256;
+    let eb: Int = EMPTY_RGB % 256;
+    let nr: Int = er + (r - er) * pct / 100;
+    let ng: Int = eg + (g - eg) * pct / 100;
+    let nb: Int = eb + (b - eb) * pct / 100;
+    return nr * 65536 + ng * 256 + nb;
+}
+
+fun rgb_code(rgb: Int) -> Str {
+    return "${rgb / 65536};${(rgb / 256) % 256};${rgb % 256}";
+}
+
+fun out(s: Str) -> Nil {
+    // Write raw UTF-8 bytes without the newline that print adds.
+    let total: Int = load64(addr(s) - 8);
+    mut done: Int = 0;
+    while (done < total) {
+        let n: Int = syscall(1, 1, addr(s) + done, total - done);
+        if (n <= 0) { return; }
+        done += n;
+    }
+    return;
+}
+
+fun screen_begin() -> Nil {
+    out("${ESC}[?25l${ESC}[2J");
+    return;
+}
+
+fun screen_end() -> Nil {
+    out("${ESC}[0m${ESC}[?25h");
+    return;
+}
+
+/// Colour of one cell given the process map for this frame.
+fun cell_rgb(m: Mars, i: Int, hot: List<Int>, frame: Int) -> Int {
+    if (i >= m.size) { return 0; }
+    if (hot[i] == frame) { return HOT_RGB; }
+    let w: Int = m.owner[i];
+    if (w < 0) { return EMPTY_RGB; }
+    let age: Int = m.cycle - m.stamp[i];
+    mut pct: Int = 100 - age / 25;
+    if (pct < 38) { pct = 38; }
+    if (m.op[i] == OP_DAT && pct > 22) { pct = 22; }
+    return shade(warrior_rgb(w), pct);
+}
+
+fun bar(fill: Int, width: Int) -> Str {
+    mut n: Int = fill;
+    if (n > width) { n = width; }
+    if (n < 0) { n = 0; }
+    return repeat("█", n) + repeat("·", width - n);
+}
+
+/// Build one frame. `hot` is scratch space of m.size ints; `frame` must
+/// increase on every call so stale marks are ignored.
+fun render(m: Mars, names: List<Str>, cols: Int, hot: List<Int>, frame: Int, title: Str) -> Str {
+    let parts: List<Str> = [];
+    push(parts, "${ESC}[H${ESC}[0m");
+    push(parts, "${ESC}[1m MayWar${ESC}[0m  ${title}   cycle ${m.cycle}/${m.maxcycles}${ESC}[K\n");
+
+    // Mark every queued process counter.
+    mut w: Int = 0;
+    while (w < m.nw) {
+        mut k: Int = 0;
+        let base: Int = w * m.maxproc;
+        while (k < m.qcount[w]) {
+            hot[m.qbuf[base + (m.qhead[w] + k) % m.maxproc]] = frame;
+            k += 1;
+        }
+        w += 1;
+    }
+
+    let rows: Int = (m.size + cols - 1) / cols;
+    mut fg: Int = -1;
+    mut bg: Int = -1;
+    mut r: Int = 0;
+    while (r < rows) {
+        push(parts, " ");
+        mut c: Int = 0;
+        while (c < cols) {
+            let top: Int = cell_rgb(m, r * cols + c, hot, frame);
+            let bottom: Int = cell_rgb(m, (r + 1) * cols + c, hot, frame);
+            if (top != fg) {
+                push(parts, "${ESC}[38;2;${rgb_code(top)}m");
+                fg = top;
+            }
+            if (bottom != bg) {
+                push(parts, "${ESC}[48;2;${rgb_code(bottom)}m");
+                bg = bottom;
+            }
+            push(parts, "▀");
+            c += 1;
+        }
+        push(parts, "${ESC}[0m${ESC}[K\n");
+        fg = -1;
+        bg = -1;
+        r += 2;
+    }
+
+    // Territory: how many cells each warrior wrote last.
+    let owned: List<Int> = filled(m.nw, 0);
+    mut i: Int = 0;
+    while (i < m.size) {
+        let o: Int = m.owner[i];
+        if (o >= 0) { owned[o] = owned[o] + 1; }
+        i += 1;
+    }
+    w = 0;
+    while (w < m.nw) {
+        let procs: Int = m.qcount[w];
+        let state: Str = if (procs > 0) { "${procs} proc" } else { "${ESC}[2mdead${ESC}[0m" };
+        let label: Str = names[w] + repeat(" ", max(1, 12 - len(names[w])));
+        let share: Int = owned[w] * 100 / m.size;
+        push(parts, " ${ESC}[38;2;${rgb_code(warrior_rgb(w))}m██ ${label}${bar((owned[w] * 30 + m.size - 1) / m.size, 30)}${ESC}[0m ${share}% core  ${state}${ESC}[K\n");
+        w += 1;
+    }
+    return join(parts, "");
+}

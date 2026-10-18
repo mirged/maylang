@@ -40,5 +40,6 @@
 - [Text statistics app](../../examples/apps/textstats/README.md) — a modular command-line application.
 - [Task manager](../../examples/apps/maytasks/README.md) — application state and commands.
 - [Starfall game](../../examples/games/starfall/README.md) — complete game project.
+- [MayWar](../../examples/games/maywar/README.md) — Core War arena: a Redcode assembler, ICWS'94 simulator and live terminal view.
 - [Artificial ecosystem](../../examples/simulations/ecosystem/README.md) — simulations and evolved neural controllers.
 - Run repository programs with their documented runtime/target settings; older tours may retain Any boundaries or legacy syntax.

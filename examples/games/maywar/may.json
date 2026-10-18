@@ -1,0 +1,23 @@
+{
+    "schema": 1,
+    "name": "maywar",
+    "default": "app",
+    "targets": {
+        "app": {
+            "kind": "app",
+            "entry": "main.may"
+        },
+        "test": {
+            "kind": "task",
+            "depends": [
+                "app"
+            ],
+            "command": [
+                "python3",
+                "{root}/tests/test_maywar.py",
+                "{target:app}/app"
+            ]
+        }
+    },
+    "dependencies": {}
+}

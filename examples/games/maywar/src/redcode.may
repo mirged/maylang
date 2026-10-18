@@ -1,0 +1,109 @@
+// redcode.may — the instruction set shared by the assembler, MARS and viewer.
+//
+// MayWar implements the ICWS'94 Redcode instruction set (minus P-space):
+// 16 opcodes, 7 modifiers and 8 addressing modes. An instruction is six
+// integers: opcode, modifier, A-mode, A-value, B-mode, B-value.
+
+let OP_DAT: Int = 0;
+let OP_MOV: Int = 1;
+let OP_ADD: Int = 2;
+let OP_SUB: Int = 3;
+let OP_MUL: Int = 4;
+let OP_DIV: Int = 5;
+let OP_MOD: Int = 6;
+let OP_JMP: Int = 7;
+let OP_JMZ: Int = 8;
+let OP_JMN: Int = 9;
+let OP_DJN: Int = 10;
+let OP_SPL: Int = 11;
+let OP_SLT: Int = 12;
+let OP_SEQ: Int = 13;
+let OP_SNE: Int = 14;
+let OP_NOP: Int = 15;
+
+let MOD_A: Int = 0;
+let MOD_B: Int = 1;
+let MOD_AB: Int = 2;
+let MOD_BA: Int = 3;
+let MOD_F: Int = 4;
+let MOD_X: Int = 5;
+let MOD_I: Int = 6;
+
+// Addressing modes, in the order of MODE_CHARS.
+let M_IMM: Int = 0;   // #  immediate
+let M_DIR: Int = 1;   // $  direct
+let M_AIND: Int = 2;  // *  A-field indirect
+let M_BIND: Int = 3;  // @  B-field indirect
+let M_APRE: Int = 4;  // {  A-field predecrement indirect
+let M_BPRE: Int = 5;  // <  B-field predecrement indirect
+let M_APOST: Int = 6; // }  A-field postincrement indirect
+let M_BPOST: Int = 7; // >  B-field postincrement indirect
+
+let OP_NAMES: List<Str> = ["DAT", "MOV", "ADD", "SUB", "MUL", "DIV", "MOD", "JMP",
+                           "JMZ", "JMN", "DJN", "SPL", "SLT", "SEQ", "SNE", "NOP"];
+let MOD_NAMES: List<Str> = ["A", "B", "AB", "BA", "F", "X", "I"];
+let MODE_CHARS: List<Str> = ["#", "$", "*", "@", "{", "<", "}", ">"];
+
+/// Opcode number for a name (case-insensitive, CMP is SEQ), or -1.
+fun opcode_of(name: Str) -> Int {
+    let up: Str = to_upper(name);
+    if (up == "CMP") { return OP_SEQ; }
+    mut i: Int = 0;
+    while (i < len(OP_NAMES)) {
+        if (OP_NAMES[i] == up) { return i; }
+        i += 1;
+    }
+    return -1;
+}
+
+fun modifier_of(name: Str) -> Int {
+    let up: Str = to_upper(name);
+    mut i: Int = 0;
+    while (i < len(MOD_NAMES)) {
+        if (MOD_NAMES[i] == up) { return i; }
+        i += 1;
+    }
+    return -1;
+}
+
+fun mode_of(ch: Str) -> Int {
+    mut i: Int = 0;
+    while (i < len(MODE_CHARS)) {
+        if (MODE_CHARS[i] == ch) { return i; }
+        i += 1;
+    }
+    return -1;
+}
+
+/// The ICWS'94 default modifier for an opcode given its operand modes.
+fun default_modifier(op: Int, amode: Int, bmode: Int) -> Int {
+    if (op == OP_DAT || op == OP_NOP) { return MOD_F; }
+    if (op == OP_MOV || op == OP_SEQ || op == OP_SNE) {
+        if (amode == M_IMM) { return MOD_AB; }
+        if (bmode == M_IMM) { return MOD_B; }
+        return MOD_I;
+    }
+    if (op == OP_ADD || op == OP_SUB || op == OP_MUL || op == OP_DIV || op == OP_MOD) {
+        if (amode == M_IMM) { return MOD_AB; }
+        if (bmode == M_IMM) { return MOD_B; }
+        return MOD_F;
+    }
+    if (op == OP_SLT) {
+        if (amode == M_IMM) { return MOD_AB; }
+        return MOD_B;
+    }
+    return MOD_B;
+}
+
+/// Show a core value as a small signed offset: 7999 reads as -1 in an 8000 core.
+fun signed_value(v: Int, size: Int) -> Int {
+    if (v > size / 2) { return v - size; }
+    return v;
+}
+
+/// Render one instruction in canonical form, e.g. `MOV.I  $0, $1`.
+fun format_insn(op: Int, md: Int, am: Int, av: Int, bm: Int, bv: Int, size: Int) -> Str {
+    let head: Str = OP_NAMES[op] + "." + MOD_NAMES[md];
+    let padded: Str = head + repeat(" ", 7 - len(head));
+    return "${padded}${MODE_CHARS[am]}${signed_value(av, size)}, ${MODE_CHARS[bm]}${signed_value(bv, size)}";
+}

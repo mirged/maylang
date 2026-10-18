@@ -25,7 +25,7 @@ supporting May modules in `src/`, tests in `tests/`, and compiled outputs in
 | Group | Projects |
 | --- | --- |
 | [Apps](apps/) | [Mayboard](apps/mayboard/README.md), [May NES](apps/maynes/README.md), [MayTasks](apps/maytasks/README.md), [TextStats](apps/textstats/README.md) |
-| [Games](games/) | [Starfall Salvage](games/starfall/README.md) |
+| [Games](games/) | [Starfall Salvage](games/starfall/README.md), [MayWar](games/maywar/README.md) |
 | [Graphics](graphics/) | [SDL test](graphics/sdl_test/) |
 | [Learning](learning/) | [Learn](learning/learn/), [Study](learning/study/) |
 | [Simulations](simulations/) | [Artificial Ecosystem](simulations/ecosystem/README.md), [KaindSim](simulations/kaindsim/README.md) |

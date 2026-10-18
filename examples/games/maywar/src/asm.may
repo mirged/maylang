@@ -1,0 +1,414 @@
+// asm.may — a two-pass Redcode assembler.
+//
+// Supported source: labels (optionally ending in `:`), all ICWS'94 opcodes and
+// modifiers, the eight addressing modes, `EQU` constants, `ORG`/`END` start
+// points, arithmetic expressions (+ - * / % and parentheses), the predefined
+// constants CORESIZE, MAXPROCESSES, MAXCYCLES, MAXLENGTH and MINDISTANCE, and
+// `;name`, `;author` and `;strategy` comment metadata.
+
+import "redcode.may";
+
+struct Warrior {
+    name: Str,
+    author: Str,
+    strategy: Str,
+    code: List<Int>,  // six ints per instruction, values normalised to the core
+    start: Int,
+    errors: List<Str>,
+}
+
+struct Settings {
+    size: Int,
+    maxproc: Int,
+    maxcycles: Int,
+    maxlength: Int,
+    mindist: Int,
+}
+
+fun default_settings() -> Settings {
+    return Settings(8000, 8000, 80000, 100, 100);
+}
+
+/// An instruction collected by pass one; its operands are evaluated in pass two.
+struct Pending {
+    op: Int,
+    md: Int,
+    a: Str,
+    b: Str,
+    line: Int,
+    addr: Int,
+}
+
+struct Symbols {
+    labels: Map<Str, Int>,
+    equs: Map<Str, Str>,
+    settings: Settings,
+    start_expr: Str,  // from ORG or END
+}
+
+struct Cursor {
+    toks: List<Str>,
+    pos: Int,
+}
+
+fun warrior_length(w: Warrior) -> Int {
+    return len(w.code) / 6;
+}
+
+// --- characters --------------------------------------------------------------
+
+fun is_digit(c: Int) -> Bool { return c >= 48 && c <= 57; }
+
+fun is_ident_start(c: Int) -> Bool {
+    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95;
+}
+
+fun is_ident_char(c: Int) -> Bool { return is_ident_start(c) || is_digit(c); }
+
+fun is_space(c: Int) -> Bool { return c == 32 || c == 9; }
+
+/// End index of the identifier starting at `i` (equal to `i` when there is none).
+fun ident_end(s: Str, i: Int) -> Int {
+    let n: Int = len(s);
+    if (i >= n || !is_ident_start(char_at(s, i))) { return i; }
+    mut j: Int = i + 1;
+    while (j < n && is_ident_char(char_at(s, j))) { j += 1; }
+    return j;
+}
+
+fun skip_spaces(s: Str, i: Int) -> Int {
+    mut j: Int = i;
+    while (j < len(s) && is_space(char_at(s, j))) { j += 1; }
+    return j;
+}
+
+fun cut(s: Str, start: Int, stop: Int) -> Str {
+    if (stop <= start) { return ""; }
+    return substring(s, start, stop - start);
+}
+
+// --- expressions -------------------------------------------------------------
+
+fun tokenize(text: Str) -> List<Str> {
+    let toks: List<Str> = [];
+    let n: Int = len(text);
+    mut i: Int = 0;
+    while (i < n) {
+        let c: Int = char_at(text, i);
+        if (is_space(c)) {
+            i += 1;
+        } else if (is_digit(c)) {
+            mut j: Int = i;
+            while (j < n && is_digit(char_at(text, j))) { j += 1; }
+            push(toks, cut(text, i, j));
+            i = j;
+        } else if (is_ident_start(c)) {
+            let j: Int = ident_end(text, i);
+            push(toks, cut(text, i, j));
+            i = j;
+        } else {
+            let ch: Str = char_from(c);
+            if (!has("+-*/%()", ch)) { fail("unexpected character `${ch}` in expression"); }
+            push(toks, ch);
+            i += 1;
+        }
+    }
+    return toks;
+}
+
+fun peek(cur: Cursor) -> Str {
+    if (cur.pos >= len(cur.toks)) { return ""; }
+    return cur.toks[cur.pos];
+}
+
+/// Evaluate an expression at instruction address `here`. Labels evaluate to
+/// their distance from `here`, which is what makes Redcode position-independent.
+fun eval_expr(text: Str, syms: Symbols, here: Int, depth: Int) -> Int {
+    if (depth > 32) { fail("EQU definitions nest too deeply (recursive?)"); }
+    let cur: Cursor = Cursor(tokenize(text), 0);
+    if (len(cur.toks) == 0) { fail("missing expression"); }
+    let v: Int = parse_sum(cur, syms, here, depth);
+    if (cur.pos < len(cur.toks)) { fail("unexpected `${peek(cur)}` in expression"); }
+    return v;
+}
+
+fun parse_sum(cur: Cursor, syms: Symbols, here: Int, depth: Int) -> Int {
+    mut v: Int = parse_term(cur, syms, here, depth);
+    while (peek(cur) == "+" || peek(cur) == "-") {
+        let opr: Str = peek(cur);
+        cur.pos = cur.pos + 1;
+        let rhs: Int = parse_term(cur, syms, here, depth);
+        if (opr == "+") { v = v + rhs; } else { v = v - rhs; }
+    }
+    return v;
+}
+
+fun parse_term(cur: Cursor, syms: Symbols, here: Int, depth: Int) -> Int {
+    mut v: Int = parse_unary(cur, syms, here, depth);
+    while (peek(cur) == "*" || peek(cur) == "/" || peek(cur) == "%") {
+        let opr: Str = peek(cur);
+        cur.pos = cur.pos + 1;
+        let rhs: Int = parse_unary(cur, syms, here, depth);
+        if (opr == "*") {
+            v = v * rhs;
+        } else {
+            if (rhs == 0) { fail("division by zero in expression"); }
+            if (opr == "/") { v = v / rhs; } else { v = v % rhs; }
+        }
+    }
+    return v;
+}
+
+fun parse_unary(cur: Cursor, syms: Symbols, here: Int, depth: Int) -> Int {
+    let t: Str = peek(cur);
+    if (t == "-") {
+        cur.pos = cur.pos + 1;
+        return 0 - parse_unary(cur, syms, here, depth);
+    }
+    if (t == "+") {
+        cur.pos = cur.pos + 1;
+        return parse_unary(cur, syms, here, depth);
+    }
+    return parse_atom(cur, syms, here, depth);
+}
+
+fun parse_atom(cur: Cursor, syms: Symbols, here: Int, depth: Int) -> Int {
+    let t: Str = peek(cur);
+    if (t == "") { fail("expression ends unexpectedly"); }
+    cur.pos = cur.pos + 1;
+    if (t == "(") {
+        let v: Int = parse_sum(cur, syms, here, depth);
+        if (peek(cur) != ")") { fail("missing `)`"); }
+        cur.pos = cur.pos + 1;
+        return v;
+    }
+    if (is_digit(char_at(t, 0))) { return int(t); }
+    if (is_ident_start(char_at(t, 0))) { return resolve(t, syms, here, depth); }
+    fail("unexpected `${t}` in expression");
+    return 0;
+}
+
+fun resolve(name: Str, syms: Symbols, here: Int, depth: Int) -> Int {
+    if (has(syms.labels, name)) { return (syms.labels[name] ?? 0) - here; }
+    if (has(syms.equs, name)) { return eval_expr(syms.equs[name] ?? "", syms, here, depth + 1); }
+    let s: Settings = syms.settings;
+    let up: Str = to_upper(name);
+    if (up == "CORESIZE") { return s.size; }
+    if (up == "MAXPROCESSES") { return s.maxproc; }
+    if (up == "MAXCYCLES") { return s.maxcycles; }
+    if (up == "MAXLENGTH") { return s.maxlength; }
+    if (up == "MINDISTANCE") { return s.mindist; }
+    fail("unknown label `${name}`");
+    return 0;
+}
+
+// --- pass one: labels, pseudo-ops and raw operands ----------------------------
+
+fun metadata(comment: Str, key: Str) -> Str {
+    let body: Str = trim(comment);
+    if (len(body) <= len(key) || !starts_with(to_lower(body), key)) { return ""; }
+    let next: Int = char_at(body, len(key));
+    if (!is_space(next)) { return ""; }
+    return trim(cut(body, len(key), len(body)));
+}
+
+fun normalise(v: Int, size: Int) -> Int {
+    return ((v % size) + size) % size;
+}
+
+/// Assemble Redcode source. Problems are reported in `errors`; a warrior with
+/// errors must not be loaded.
+fun assemble(source: Str, settings: Settings) -> Warrior {
+    let errors: List<Str> = [];
+    let syms: Symbols = Symbols({}, {}, settings, "");
+    let pending: List<Pending> = [];
+    mut name: Str = "";
+    mut author: Str = "anonymous";
+    mut strategy: Str = "";
+    let lines: List<Str> = split(source, "\n");
+    mut lineno: Int = 0;
+    for raw: Str in lines {
+        lineno += 1;
+        mut code: Str = replace(raw, "\r", "");
+        let semi: Int = index_of(code, ";");
+        if (semi >= 0) {
+            let comment: Str = cut(code, semi + 1, len(code));
+            code = cut(code, 0, semi);
+            let n: Str = metadata(comment, "name");
+            if (n != "") { name = n; }
+            let au: Str = metadata(comment, "author");
+            if (au != "") { author = au; }
+            let st: Str = metadata(comment, "strategy");
+            if (st != "") {
+                if (strategy == "") { strategy = st; } else { strategy = strategy + " " + st; }
+            }
+        }
+        let stop: Bool = may { scan_line(code, lineno, syms, pending) } otherwise {
+            push(errors, "line ${lineno}: ${err.message}");
+            false
+        };
+        if (stop) { break; }
+    }
+
+    let code: List<Int> = [];
+    for p: Pending in pending {
+        may {
+            assemble_one(p, syms, code);
+        } otherwise {
+            push(errors, "line ${p.line}: ${err.message}");
+        };
+    }
+
+    mut start: Int = 0;
+    if (syms.start_expr != "") {
+        start = may { eval_expr(syms.start_expr, syms, 0, 0) } otherwise {
+            push(errors, "start: ${err.message}");
+            0
+        };
+    }
+    let count: Int = len(pending);
+    if (count == 0) { push(errors, "no instructions"); }
+    if (count > settings.maxlength) {
+        push(errors, "warrior has ${count} instructions; the limit is ${settings.maxlength}");
+    }
+    if (count > 0 && (start < 0 || start >= count)) {
+        push(errors, "start address ${start} is outside the warrior");
+        start = 0;
+    }
+    if (name == "") { name = "Nameless"; }
+    return Warrior(name, author, strategy, code, start, errors);
+}
+
+/// Handle one source line. Returns true at `END`.
+fun scan_line(code: Str, lineno: Int, syms: Symbols, pending: List<Pending>) -> Bool {
+    let labels: List<Str> = [];
+    mut i: Int = skip_spaces(code, 0);
+    while (i < len(code)) {
+        let j: Int = ident_end(code, i);
+        if (j == i) { fail("expected a label or opcode, found `${char_from(char_at(code, i))}`"); }
+        let word: Str = cut(code, i, j);
+        let up: Str = to_upper(word);
+        let rest_at: Int = j;
+        if (up == "EQU") {
+            if (len(labels) == 0) { fail("EQU needs a label"); }
+            let body: Str = trim(cut(code, rest_at, len(code)));
+            for l: Str in labels { define(syms, l, -1, body); }
+            return false;
+        }
+        if (up == "ORG") {
+            syms.start_expr = trim(cut(code, rest_at, len(code)));
+            return false;
+        }
+        if (up == "END") {
+            let body: Str = trim(cut(code, rest_at, len(code)));
+            if (body != "") { syms.start_expr = body; }
+            for l: Str in labels { define(syms, l, len(pending), ""); }
+            return true;
+        }
+        let op: Int = opcode_of(word);
+        if (op >= 0) {
+            mut md: Int = -1;
+            mut k: Int = j;
+            if (k < len(code) && char_at(code, k) == 46) { // '.'
+                let e: Int = ident_end(code, k + 1);
+                md = modifier_of(cut(code, k + 1, e));
+                if (md < 0) { fail("unknown modifier `${cut(code, k + 1, e)}`"); }
+                k = e;
+            }
+            let addr: Int = len(pending);
+            for l: Str in labels { define(syms, l, addr, ""); }
+            let operands: Str = trim(cut(code, k, len(code)));
+            let comma: Int = index_of(operands, ",");
+            mut a: Str = operands;
+            mut b: Str = "";
+            if (comma >= 0) {
+                a = trim(cut(operands, 0, comma));
+                b = trim(cut(operands, comma + 1, len(operands)));
+                if (b == "") { fail("missing operand after `,`"); }
+            }
+            push(pending, Pending(op, md, a, b, lineno, addr));
+            return false;
+        }
+        push(labels, word);
+        i = j;
+        if (i < len(code) && char_at(code, i) == 58) { i += 1; } // ':'
+        i = skip_spaces(code, i);
+    }
+    // A line holding only labels names the next instruction.
+    for l: Str in labels { define(syms, l, len(pending), ""); }
+    return false;
+}
+
+fun define(syms: Symbols, label: Str, addr: Int, equ: Str) -> Nil {
+    if (has(syms.labels, label) || has(syms.equs, label)) { fail("label `${label}` is defined twice"); }
+    if (opcode_of(label) >= 0) { fail("`${label}` is an opcode and cannot be a label"); }
+    if (addr >= 0) { syms.labels[label] = addr; } else { syms.equs[label] = equ; }
+    return;
+}
+
+// --- pass two: operands --------------------------------------------------------
+
+fun split_mode(operand: Str) -> Int {
+    if (len(operand) == 0) { return M_DIR; }
+    let m: Int = mode_of(substring(operand, 0, 1));
+    if (m < 0) { return M_DIR; }
+    return m;
+}
+
+fun operand_expr(operand: Str) -> Str {
+    if (len(operand) > 0 && mode_of(substring(operand, 0, 1)) >= 0) {
+        return trim(cut(operand, 1, len(operand)));
+    }
+    return operand;
+}
+
+fun assemble_one(p: Pending, syms: Symbols, out: List<Int>) -> Nil {
+    let size: Int = syms.settings.size;
+    mut a: Str = p.a;
+    mut b: Str = p.b;
+    if (a == "") {
+        if (p.op != OP_NOP) { fail("${OP_NAMES[p.op]} needs an operand"); }
+        a = "$0";
+    }
+    if (b == "") {
+        // `DAT x` means `DAT #0, x`; every other single-operand form means `op x, $0`.
+        if (p.op == OP_DAT) {
+            b = a;
+            a = "#0";
+        } else {
+            b = "$0";
+        }
+    }
+    let am: Int = split_mode(a);
+    let bm: Int = split_mode(b);
+    let av: Int = eval_expr(operand_expr(a), syms, p.addr, 0);
+    let bv: Int = eval_expr(operand_expr(b), syms, p.addr, 0);
+    mut md: Int = p.md;
+    if (md < 0) { md = default_modifier(p.op, am, bm); }
+    push(out, p.op);
+    push(out, md);
+    push(out, am);
+    push(out, normalise(av, size));
+    push(out, bm);
+    push(out, normalise(bv, size));
+    return;
+}
+
+/// A human-readable listing of an assembled warrior.
+fun listing(w: Warrior, size: Int) -> List<Str> {
+    let out: List<Str> = [];
+    push(out, ";name ${w.name}");
+    push(out, ";author ${w.author}");
+    if (w.strategy != "") { push(out, ";strategy ${w.strategy}"); }
+    push(out, "        ORG    ${w.start}");
+    mut i: Int = 0;
+    while (i < warrior_length(w)) {
+        let c: List<Int> = w.code;
+        let k: Int = i * 6;
+        let mark: Str = if (i == w.start) { ">" } else { " " };
+        let num: Str = pad_left(str(i), 4, "0");
+        push(out, "${num} ${mark}  " + format_insn(c[k], c[k + 1], c[k + 2], c[k + 3], c[k + 4], c[k + 5], size));
+        i += 1;
+    }
+    return out;
+}
