@@ -32,7 +32,10 @@ JSON/Python syntax, and generated reference freshness.
 | VS Code extension | `make editor` |
 
 `make test` runs the default Rust/compiler/compliance/docs/distribution checks.
-`make test-all` includes optional native integrations and bootstrap convergence.
+Run `make test-tools` separately when changing the workspace runner, formatter,
+package manager or language server. `make test-all` adds those tool tests,
+bootstrap convergence, UI, browser and LLVM checks. GC pressure and capacity
+checks remain a separate `make test-limits` run.
 Pass `MAYC=/absolute/path/to/mayc` when testing a particular compiler. Build
 before testing changed compiler sources: the launcher caches its binary.
 Record skips and missing dependencies explicitly.
