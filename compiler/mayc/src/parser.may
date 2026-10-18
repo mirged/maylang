@@ -191,8 +191,7 @@ fun parse_type() -> Any {
         adv();
         if (name == "Array") {
             push(arguments, parse_type()); expect(TK_COMMA);
-            if (ptok() != TK_INT) { diagnostic(parser_span(), "array length must be an integer literal"); }
-            let fixedLength: Any = pval(); adv(); expect(TK_GT);
+            let fixedLength: Any = parse_integer_type_length(); expect(TK_GT);
             let arrayType: Any = TypeRef(name, arguments, 0, span);
             arrayType.arrayLength = fixedLength; return arrayType;
         } else {
@@ -218,7 +217,9 @@ fun parse_callable_type(parameters: Any, result: Any, span: Any) -> Any {
 
 fun parse_integer_type_length() -> Any {
     if (ptok() != TK_INT) { diagnostic(parser_span(), "array length must be an integer literal"); }
-    let length: Any = pval(); adv(); return length;
+    let length: Any = pval();
+    if (length < 0) { diagnostic(parser_span(), "array length out of range"); }
+    adv(); return length;
 }
 
 fun parse_annotation() -> Any {
