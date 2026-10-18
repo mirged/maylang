@@ -1241,6 +1241,7 @@ fun parse_embedded(ctx: Any, start: Any, len: Any) -> Any {
     TOKS = lex_span(start, start + len);
     POS = 0;
     let e: Any = parse_expr(ctx);
+    expect(TK_EOF);
     TOKS = save_toks;
     POS = save_pos;
     NTOKS = save_n;

@@ -41,6 +41,12 @@ def main():
         source.write_text('fun broken() -> Int { let n = ; return 1; }\nlet bad = ;\nlet good = 1;\n')
         records=check(2); assert all(record['stage']=='parse' for record in records)
         print('PASS parser recovery across block and statement boundaries',flush=True)
+        for expression, column in (('1 2', 12), ('1; 2', 11)):
+            source.write_text('print("${' + expression + '}");\n')
+            records = check(1)
+            assert records[0]['stage'] == 'parse' and records[0]['message'] == 'unexpected token', records
+            assert records[0]['range']['start']['column'] == column, records
+        print('PASS interpolation requires exactly one expression',flush=True)
         source.write_text('\n'.join(f'let value{i} = ;' for i in range(40)))
         check(20)
         source.write_text('let message = "héllo";\nlet number: Int = message;\n')
