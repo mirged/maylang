@@ -95,6 +95,25 @@ class DeveloperTests(unittest.TestCase):
                 self.assertTrue(any(f'{path.name}: invalid UTF-8' in error for error in errors))
             self.assertTrue(any('absent.md' in error for error in errors))
 
+    def test_repository_check_handles_markdown_fence_variants(self):
+        blocks = [
+            '~~~md\n[example](absent.md)\n~~~\n',
+            '   ```md\n[example](absent.md)\n   ```\n',
+            '````md\n```\n[example](absent.md)\n````\n',
+            '~~~md\n```\n[example](absent.md)\n~~~\n',
+            '~~~md\n~~~ still code\n[example](absent.md)\n~~~\n',
+            '~~~md\n[example](absent.md)\n',
+        ]
+        with tempfile.TemporaryDirectory(prefix='may-fences-') as temporary:
+            directory = Path(temporary)
+            doc = directory / 'README.md'
+            for block in blocks:
+                with self.subTest(block=block):
+                    doc.write_text('[missing](outside.md)\n' + block)
+                    with patch.object(checker, 'ROOT', directory):
+                        errors = checker.problems([doc])
+                    self.assertEqual(errors, ['README.md: missing local link outside.md'])
+
 
 if __name__ == '__main__':
     unittest.main()
