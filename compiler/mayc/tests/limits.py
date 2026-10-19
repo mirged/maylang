@@ -160,6 +160,14 @@ def require_run(result, expected=None):
         raise ValueError(f'checksum mismatch: expected {expected}, got {output(result)!r}')
 
 
+# Float text conversion lives in the tagged runtime/math.may, which raw
+# programs cannot load; the GC workloads never reach it.
+RAW_MATH_STUBS = '''
+fun __math_parse(text: Any) -> Any { return 0; }
+fun __math_format(value: Any) -> Any { return 0; }
+'''
+
+
 def snapshot(original, destination, runtime=None):
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copy2(original, destination / 'mayc')
@@ -401,7 +409,7 @@ def run_gc(args, report, compiler):
             custom = instrument_runtime(heap, args.mark_slots) if case == 'gc_mark_capacity' else runtime
             constants = f'let LIMIT_ROUNDS: Any = {rounds}; let LIMIT_SEED: Any = {seed}; let LIMIT_MARK_SLOTS: Any = {args.mark_slots};\n'
             source = directory / (case + '.may')
-            source.write_text(body if case == 'gc_objects' else custom + INVARIANTS + constants + body)
+            source.write_text(body if case == 'gc_objects' else custom + RAW_MATH_STUBS + INVARIANTS + constants + body)
             compile_result = execute([selected, *([] if case == 'gc_objects' else ['--raw', '--legacy']), source, '-o', directory / 'program'],
                                      directory, 'compile', args, timeout=args.compile_timeout)
             row = {'case': case, 'heap_mib': heap, 'seed': seed, 'rounds': rounds, 'compile': compile_result, 'passed': False}
