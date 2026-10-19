@@ -25,3 +25,9 @@
 - **is_space_code** — `fun is_space_code(c: Int) -> Bool` — Test ASCII space, tab, line feed or carriage return character codes.
 - **trim** — `fun trim(s: Str) -> Str` — Remove whitespace from the beginning and end of a string.
 - **repeat** — `fun repeat(s: Str, n: Int) -> Str` — Return a string repeated n times; nonpositive counts produce an empty string.
+- **float** — `fun float(x: Any) -> Any` — Convert a number or numeric string to a floating-point value.
+- **bump** — `fun bump(s: Any) -> Any` — Increment decimal digits, returning the carry and updated string; internal float-formatting helper.
+- **float_norm** — `fun float_norm(v: Any) -> Any` — Normalize a positive finite float with decimal scaling; internal formatting helper.
+- **float_sci** — `fun float_sci(value: Any) -> Any` — Format a finite magnitude in scientific notation; internal formatting helper.
+- **float_str** — `fun float_str(f: Any) -> Any` — Format a boxed float; spell nonfinite values nan, inf and -inf.
+- **round** — `fun round(value: Any) -> Any` — Return `floor(x + 0.5)`; halfway negative values round toward positive infinity.

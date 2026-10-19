@@ -1,5 +1,10 @@
 # Unreleased
 
+- Support boxed Float/Float32 arithmetic, conversions, comparisons, square roots
+  and rounding on every native target. Format nonfinite scalar floats as
+  `nan`, `inf` or `-inf` in both runtimes. Transcendentals, floating powers
+  and cross-platform FFI remain unsupported in the portable runtime.
+
 - Support cooperative fibers on every native target with isolated handlers and
   traces; return `nil` from `yield()` consistently with its declared type.
 - Support recoverable faults and debug traces on every native target; preserve

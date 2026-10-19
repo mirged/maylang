@@ -140,7 +140,8 @@ is explicit and does not depend on the host:
 | Allocated UTF-8 strings and lists | Yes | Yes | Yes | Literal strings and pointer operations |
 | Maps, records, structs and enums | Yes | Yes | Yes | Use raw storage/operations |
 | Closures, shared captures and higher-order calls | Yes | Yes | Yes | No injected callable runtime |
-| Floats | Yes | Yes | Rejected | Use raw storage/operations |
+| Float literals, arithmetic, conversions and Float32 | Yes | Yes | Yes | Use raw storage/operations |
+| Transcendentals and floating-point powers | Yes | Yes | Unsupported | Use raw storage/operations |
 | Recoverable faults and source traces | Yes | Yes | Yes; uncaught faults exit 70 | No injected runtime |
 | Cooperative fibers | Yes | Yes | Yes | No injected scheduler |
 | Typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
@@ -168,7 +169,7 @@ codesign --force --sign - hello-macos
 The shared [`runtime/core.may`](runtime/core.may) uses the existing tagged ABI
 for integers, booleans, nil, UTF-8 strings and lists. It supplies console output,
 indexing and mutation, string comparison/search/split/join, integer arithmetic,
-conversion and powers. [`runtime/corelib.may`](runtime/corelib.may) adds
+conversion and integer powers, along with boxed floating-point arithmetic. [`runtime/corelib.may`](runtime/corelib.may) adds
 `str`, `substring`, `trim`, `repeat`, `range`, `sum`, `clamp`, `gcd`, `lcm`,
 `alloc` and `memcpy`. Case conversion is ASCII-only. Integer overflow and
 division by zero print a diagnostic and exit with status 70.
@@ -196,9 +197,15 @@ may be active; exhausting that capacity raises a catchable runtime fault.
 Fibers share the same `spawn`/`yield`/`run` API on all native targets and keep
 independent handlers, caught errors and traces. Each gets a 256 KiB stack;
 at most 128 may be created per process. `yield()` returns `nil`.
-Floats and FFI still require the
-full x86-64 Linux runtime; core compilation diagnoses unsupported operations
-before writing output. Use `--runtime core` on Linux for small portable programs
+Core floats use binary64 boxes on every target, with Float32 boundary rounding,
+`float`/`int` conversion, comparisons, `sqrt`, `floor`, `ceil`, `round`, `trunc`,
+`pi` and `e`. Scalar display uses decimal/scientific formatting; nonfinite values
+print as `nan`, `inf` or `-inf`. Nested display retains the full runtime's
+existing `str_of` formatting. Scientific normalization uses decimal scaling
+in core and platform math in full builds; the last displayed digits may differ.
+Transcendentals and FFI still require the full x86-64 Linux runtime and are
+diagnosed before output. Core floating-point powers raise a catchable type fault;
+integer powers remain supported. Use `--runtime core` on Linux for small portable programs
 and lower compilation overhead. Deploy the `runtime/` directory beside the
 compiler along with its full-runtime sidecars.
 

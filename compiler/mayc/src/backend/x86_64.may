@@ -2152,7 +2152,11 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (name_eq(np, nl, addr("log2"), len("log2")) == 1) { cg_f1op(ctx, 9, args); return 1; }
     if (name_eq(np, nl, addr("log10"), len("log10")) == 1) { cg_f1op(ctx, 10, args); return 1; }
     if (name_eq(np, nl, addr("exp"), len("exp")) == 1) { cg_f1op(ctx, 11, args); return 1; }
-    if (name_eq(np, nl, addr("pow"), len("pow")) == 1) { cg_fpow2(ctx, args, args.next); return 1; }
+    if (name_eq(np, nl, addr("pow"), len("pow")) == 1) {
+        if (ctx.runtime == "core") { cg_calln(ctx, addr("rt_pow"), len("rt_pow"), args); }
+        else { cg_fpow2(ctx, args, args.next); }
+        return 1;
+    }
     if (name_eq(np, nl, addr("chars"), len("chars")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_chars"), len("rt_chars")); return 1; }
     if (name_eq(np, nl, addr("reverse"), len("reverse")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_reverse"), len("rt_reverse")); return 1; }
     if (name_eq(np, nl, addr("sort"), len("sort")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_sort"), len("rt_sort")); return 1; }

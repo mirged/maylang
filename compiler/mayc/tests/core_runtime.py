@@ -40,14 +40,17 @@ def emulate(image, target, expected=EXPECTED, status=42, slide=0):
     if target.startswith('arm64'):
         cpu = u.Uc(u.UC_ARCH_ARM64, u.UC_MODE_ARM)
         sp, pc = arm.UC_ARM64_REG_SP, arm.UC_ARM64_REG_PC
+        cpu.reg_write(arm.UC_ARM64_REG_CPACR_EL1, 3 << 20)
         number = arm.UC_ARM64_REG_X16 if macos else arm.UC_ARM64_REG_X8
         args = [getattr(arm, f'UC_ARM64_REG_X{i}') for i in range(6)]
     elif target.startswith('riscv'):
         cpu = u.Uc(u.UC_ARCH_RISCV, u.UC_MODE_RISCV64)
+        cpu.reg_write(rv.UC_RISCV_REG_MSTATUS, 3 << 13)
         sp, pc, number = rv.UC_RISCV_REG_SP, rv.UC_RISCV_REG_PC, rv.UC_RISCV_REG_A7
         args = [getattr(rv, f'UC_RISCV_REG_A{i}') for i in range(6)]
     else:
         cpu = u.Uc(u.UC_ARCH_X86, u.UC_MODE_64)
+        cpu.ctl_set_cpu_model(x86.UC_CPU_X86_HASWELL)
         sp, pc, number = x86.UC_X86_REG_RSP, x86.UC_X86_REG_RIP, x86.UC_X86_REG_RAX
         args = [x86.UC_X86_REG_RDI, x86.UC_X86_REG_RSI, x86.UC_X86_REG_RDX,
                 x86.UC_X86_REG_R10, x86.UC_X86_REG_R8, x86.UC_X86_REG_R9]
@@ -179,7 +182,7 @@ def main():
             if have_emulation:
                 emulate(image, target, ARENA_EXPECTED, 0)
             print(f'PASS {target}: 1 GiB of cumulative arena scratch with constant retained heap', flush=True)
-        for body in ['print(1.5);']:
+        for body in ['print(sin(1.5));']:
             source = work / 'unsupported.may'; source.write_text(body)
             binary = work / 'unsupported'
             result = subprocess.run([str(options.compiler), '--runtime', 'core', str(source), '-o', str(binary)], capture_output=True)
@@ -189,6 +192,8 @@ def main():
             ('let n: Any = int("1152921504606846975"); print(n + 1);', b'integer overflow\n'),
             ('let n: Any = int("-1152921504606846976"); print(n / -1);', b'integer overflow\n'),
             ('let n: Any = 3; print(n / 0);', b'division by zero\n'),
+            ('print(pow(2.0, 3.0));', b'floating-point powers require the full runtime\n'),
+            ('print(2.0 ** 3.0);', b'floating-point powers require the full runtime\n'),
             ('let a: Ptr = arena_new(8); arena_alloc(a, 9);', b'arena capacity exceeded\n'),
             ('let a: Ptr = arena_new(8); arena_alloc(a, -1);', b'arena capacity exceeded\n'),
             ('arena_new(-1);', b'invalid arena capacity\n'),

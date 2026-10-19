@@ -173,7 +173,6 @@ fun ir_contract(ctx: Any, value: Any, t: Any, span: Any) -> Any {
         return ir_runtime("rt_int_contract", [value, ir_integer(low, span), ir_integer(high, span)], span);
     }
     if (t.name == "Float32") {
-        if (ctx.runtime == "core") { diagnostic(span, "Float32 requires the full runtime"); }
         return ir_runtime("rt_float32", [value], span);
     }
     if (t.name == "Optional") {

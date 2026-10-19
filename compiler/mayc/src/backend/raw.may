@@ -9,6 +9,7 @@ import "../symbols.may";
 import "../ir.may";
 import "../backend.may";
 import "x86_64.may";
+import "raw_float.may";
 // Shared IR lowering for raw and tagged portable programs. The emitter
 // contract uses logical registers 0 (result), 1 (right operand), 2 (address).
 // Linear scan uses logical registers 20-23; branch joins keep private homes.
@@ -67,6 +68,7 @@ fun raw_set(ctx: Any, emitter: Any, name: Any, length: Any, initialize: Any) -> 
 fun raw_call(ctx: Any, emitter: Any, payload: Any) -> Any {
     let name: Any = symbol_name(payload.name, payload.length);
     let args: Any = payload.args;
+    if (ctx.runtime == "core" and ctx.mode == 0 and has(["__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__f32", "__fabs", "sqrt", "floor", "ceil", "trunc"], name)) { return raw_float_call(ctx, emitter, name, args); }
     if (name == "__longjmp") { return raw_throw(ctx, emitter); }
     if (name == "__fiber_stack") { return raw_fiber_stack(ctx, emitter, args); }
     if (name == "__fib_switch") {
@@ -166,6 +168,15 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
         } else if (op == E_INT) {
             (emitter.immediate)(ctx, payload.value, 0);
             if (ctx.mode == 1) { (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR); }
+        }
+        else if (op == E_FLOAT) {
+            if (ctx.mode != 1) { diagnostic(instruction.span, "float literals require a tagged runtime"); }
+            let value: Any = float(symbol_name(payload.span.source + payload.start, payload.length));
+            let pointer: Any = addr(value);
+            (emitter.immediate)(ctx, load32(pointer + 4), 0);
+            (emitter.immediate)(ctx, 4294967296, 1); (emitter.binary)(ctx, TK_STAR);
+            (emitter.immediate)(ctx, load32(pointer), 1); (emitter.binary)(ctx, TK_PLUS);
+            (emitter.move)(ctx, 10, 0); raw_invoke(ctx, emitter, "rt_box");
         }
         else if (op == E_STR or op == E_STRB) {
             let offset: Any = if (op == E_STRB) { intern_obj2(ctx, payload.address, payload.length) }
@@ -479,12 +490,13 @@ fun raw_core_call(ctx: Any, emitter: Any, payload: Any) -> Any {
         mut value: Any = payload.args; mut count: Any = 0;
         while (value != 0) {
             if (count > 0) { raw_invoke(ctx, emitter, "rt_space"); }
-            raw_get(ctx, emitter, value, 10); raw_invoke(ctx, emitter, "rt_to_str");
+            raw_get(ctx, emitter, value, 10); raw_invoke(ctx, emitter, "str");
             (emitter.move)(ctx, 10, 0); raw_invoke(ctx, emitter, "rt_print_str");
             value = value.next; count += 1;
         }
         raw_invoke(ctx, emitter, "rt_newline"); (emitter.immediate)(ctx, 0, 0); return 0;
     }
+    if (has(["sqrt", "floor", "ceil", "trunc"], name)) { raw_arguments(ctx, emitter, payload.args); return raw_invoke(ctx, emitter, "rt_core_" + name); }
     if (name == "ptr") { raw_get(ctx, emitter, payload.args, 0); return 0; }
     if (starts_with(name, "load") or starts_with(name, "store")) {
         let widths: Any = {"load8": 1, "load16": 2, "load32": 4, "load64": 8, "store8": 1, "store16": 2, "store32": 4, "store64": 8};
@@ -500,7 +512,7 @@ fun raw_core_call(ctx: Any, emitter: Any, payload: Any) -> Any {
             return 0;
         }
     }
-    let builtins: Any = {"spawn": "rt_spawn", "yield": "rt_yield", "run": "rt_run", "map": "rt_mapf", "filter": "rt_filter", "reduce": "rt_reduce", "any": "rt_any", "all": "rt_all", "count": "rt_count", "each": "rt_each", "times": "rt_times", "keys": "rt_keys", "values": "rt_values", "has": "rt_has", "merge": "rt_merge", "map_keys": "rt_keys", "map_values": "rt_values", "map_has": "rt_has", "len": "rt_len", "str": "rt_to_str", "str_of": "rt_to_str", "int_to_str": "rt_int_str", "int": "rt_int", "bool": "rt_bool", "push": "rt_push", "pop": "rt_pop", "slice": "rt_slice", "char_at": "rt_char_at", "char_from": "rt_char_from", "chr": "rt_chr", "ord": "rt_ord", "contains": "rt_contains", "starts_with": "rt_starts_with", "ends_with": "rt_ends_with", "split": "rt_split", "join": "rt_join", "index_of": "rt_index_of", "min": "rt_min", "max": "rt_max", "abs": "rt_abs", "pow": "rt_pow", "exit": "rt_exit", "fail": "rt_fail", "addr": "rt_addr", "cstr": "rt_cstr", "value_eq": "rt_eq", "str_cmp": "rt_str_cmp", "cmp": "rt_cmp", "to_lower": "rt_lower", "to_upper": "rt_upper"};
+    let builtins: Any = {"to_float": "rt_to_f", "value_tag": "rt_value_tag", "pi": "rt_pi", "e": "rt_e", "spawn": "rt_spawn", "yield": "rt_yield", "run": "rt_run", "map": "rt_mapf", "filter": "rt_filter", "reduce": "rt_reduce", "any": "rt_any", "all": "rt_all", "count": "rt_count", "each": "rt_each", "times": "rt_times", "keys": "rt_keys", "values": "rt_values", "has": "rt_has", "merge": "rt_merge", "map_keys": "rt_keys", "map_values": "rt_values", "map_has": "rt_has", "len": "rt_len", "str": "rt_to_str", "str_of": "rt_to_str", "int_to_str": "rt_int_str", "int": "rt_int", "bool": "rt_bool", "push": "rt_push", "pop": "rt_pop", "slice": "rt_slice", "char_at": "rt_char_at", "char_from": "rt_char_from", "chr": "rt_chr", "ord": "rt_ord", "contains": "rt_contains", "starts_with": "rt_starts_with", "ends_with": "rt_ends_with", "split": "rt_split", "join": "rt_join", "index_of": "rt_index_of", "min": "rt_min", "max": "rt_max", "abs": "rt_abs", "pow": "rt_pow", "exit": "rt_exit", "fail": "rt_fail", "addr": "rt_addr", "cstr": "rt_cstr", "value_eq": "rt_eq", "str_cmp": "rt_str_cmp", "cmp": "rt_cmp", "to_lower": "rt_lower", "to_upper": "rt_upper"};
     if (not has(builtins, name)) { diagnostic(payload.span, "`${name}` is not available in the core runtime"); }
     raw_arguments(ctx, emitter, payload.args); raw_invoke(ctx, emitter, builtins[name]);
     return 0;

@@ -221,9 +221,9 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   marks any declaration `pub` exports only its `pub` names.
 - Maps, records, structs, enums and closures work in the core runtime on every
   native target, including recoverable faults, debug traces and cooperative
-  fibers. Floats and FFI need the full
-  x86-64 Linux runtime. The core runtime and the cross-compilation targets
-  reject them.
+  fibers. Core supports Float/Float32 arithmetic, conversions, rounding and
+  square roots. Transcendentals, floating powers and FFI still need the full
+  x86-64 Linux runtime; core floating powers raise a catchable type fault.
 - Many older files (and much of the compiler) use `Any`-typed signatures.
   Follow the style of the file you are editing; write new code with concrete
   types.

@@ -1,5 +1,5 @@
 // Portable core runtime: the common tagged scalar/collection ABI on all targets.
-// Heap chunks live until process exit. This runtime has no collector, floats,
+// Heap chunks live until process exit. This runtime has no collector,
 // FFI or operating-system libraries.
 mut CORE_HP: Any = 0;
 mut CORE_END: Any = 0;
@@ -750,6 +750,7 @@ fun __core_substring(s: Any, begin: Any, count: Any) -> Any {
 }
 
 fun rt_eq(a: Any, b: Any) -> Any {
+    if (a % 8 == 6 and b % 8 == 6) { return __fcmp(0, a, b); }
     if (a == b) { return 4; }
     if (a % 8 == 1 and b % 8 == 1 and rt_str_eq(a, b) == 1) { return 4; }
     if (a % 8 == 5 and b % 8 == 5) { return __core_equal(a, b, rt_list_new(0)); }
@@ -772,8 +773,9 @@ fun __core_equal(a: Any, b: Any, path: Any) -> Any {
     }
     rt_pop(path); rt_pop(path); return 4;
 }
-fun rt_ne(a: Any, b: Any) -> Any { return rt_not(rt_eq(a, b)); }
+fun rt_ne(a: Any, b: Any) -> Any { if (a % 8 == 6 or b % 8 == 6) { return __fcmp(1, rt_to_f(a), rt_to_f(b)); } return rt_not(rt_eq(a, b)); }
 fun rt_lt(a: Any, b: Any) -> Any {
+    if (a % 8 == 6 or b % 8 == 6) { return __fcmp(2, rt_to_f(a), rt_to_f(b)); }
     if (a % 8 == 1 and b % 8 == 1) { if (rt_str_lt(a, b) == 1) { return 4; } return 3; }
     if (a < b) { return 4; } return 3;
 }
@@ -791,6 +793,7 @@ fun rt_add(a: Any, b: Any) -> Any {
     }
     if (a % 8 == 1 and b % 8 == 1) { return rt_concat(a, b); }
     if (a % 8 == 5 and b % 8 == 5) { let result: Any = rt_list_new(0); rt_extend(result, a); rt_extend(result, b); return result; }
+    if (a % 8 == 6 or b % 8 == 6) { return __fbin(0, rt_to_f(a), rt_to_f(b)); }
     if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers or strings"), 28)); }
     let sum: Any = a + b;
     if ((a >= 0 and b >= 0 and sum < 0) or (a < 0 and b < 0 and sum >= 0)) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
@@ -801,6 +804,7 @@ fun rt_sub(a: Any, b: Any) -> Any {
         let method: Any = rt_map_get(a, rt_from(addr("-"), 1));
         if (method != 2) { return method(a, b); }
     }
+    if (a % 8 == 6 or b % 8 == 6) { return __fbin(1, rt_to_f(a), rt_to_f(b)); }
     if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
     let difference: Any = a - b;
     if ((a >= 0 and b < 0 and difference < 0) or (a < 0 and b >= 0 and difference >= 0)) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
@@ -811,6 +815,7 @@ fun rt_mul(a: Any, b: Any) -> Any {
         let method: Any = rt_map_get(a, rt_from(addr("*"), 1));
         if (method != 2) { return method(a, b); }
     }
+    if (a % 8 == 6 or b % 8 == 6) { return __fbin(2, rt_to_f(a), rt_to_f(b)); }
     if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
     if (a == 0 or b == 0) { return 0; }
     let product: Any = (a / 8) * b;
@@ -821,6 +826,11 @@ fun rt_div(a: Any, b: Any) -> Any {
     if (a % 8 == 7) {
         let method: Any = rt_map_get(a, rt_from(addr("/"), 1));
         if (method != 2) { return method(a, b); }
+    }
+    if (a % 8 == 6 or b % 8 == 6) {
+        let divisor: Any = rt_to_f(b);
+        if (__fcmp(0, divisor, rt_box(0)) == 4) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
+        return __fbin(3, rt_to_f(a), divisor);
     }
     if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
     if (b == 0) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
@@ -836,9 +846,13 @@ fun rt_mod(a: Any, b: Any) -> Any {
     if (b == 0) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
     return ((a / 8) % (b / 8)) * 8;
 }
-fun rt_neg(a: Any) -> Any { return rt_sub(0, a); }
-fun rt_abs(a: Any) -> Any { if (a < 0) { return rt_neg(a); } return a; }
+fun rt_neg(a: Any) -> Any {
+    if (a % 8 == 6) { return __fbin(2, a, rt_const_hi_lo(3220176896, 0)); }
+    return rt_sub(0, a);
+}
+fun rt_abs(a: Any) -> Any { if (a % 8 == 6) { return __fabs(a); } if (a < 0) { return rt_neg(a); } return a; }
 fun rt_pow(a: Any, b: Any) -> Any {
+    if (a % 8 == 6 or b % 8 == 6) { return rt_failtype(rt_from(addr("floating-point powers require the full runtime"), 46)); }
     if (b < 0) { return rt_failarith(rt_from(addr("negative integer exponent"), 25)); }
     mut out: Any = 8; mut base: Any = a; mut exponent: Any = b / 8;
     while (exponent > 0) {
@@ -848,6 +862,7 @@ fun rt_pow(a: Any, b: Any) -> Any {
     return out;
 }
 fun rt_int(s: Any) -> Any {
+    if (s % 8 == 6) { return __ftrunc(load64(s - 6)) * 8; }
     if (s % 8 == 0) { return s; }
     if (s % 8 != 1) { return rt_failtype(rt_from(addr("int requires a string"), 21)); }
     let n: Any = rt_slen(s); mut i: Any = 0; mut negative: Any = 0; mut value: Any = 0;
@@ -949,6 +964,7 @@ fun rt_repr_value(v: Any, path: Any) -> Any {
     }
     if (t == 1) { return v; }
     if (t == 0) { return rt_int_str(v); }
+    if (t == 6) { return rt_fstr(v); }
     if (t == 2) { return rt_from(addr("nil"), 3); }
     if (t == 3) { return rt_from(addr("false"), 5); }
     if (t == 4) { return rt_from(addr("true"), 4); }
@@ -1251,3 +1267,198 @@ fun rt_fiber_entry() -> Any {
     __fib_switch(rec, FIB_SAVE0);
     return 0;
 }
+
+// Boxed binary64 helpers use the same bits and parser as the full runtime.
+
+fun rt_box(bits: Any) -> Any {
+    let p: Any = rt_alloc(8);
+    store64(p, bits);
+    return p + 6;
+}
+
+fun power2(k: Any) -> Any {
+    mut r: Any = 1;
+    mut i: Any = 0;
+    while (i < k) {
+        r = r * 2;
+        i = i + 1;
+    }
+    return r;
+}
+
+// Positive integer -> IEEE754 double bit pattern, exponent shifted by `extra`.
+
+fun u64_to_bits(P: Any, extra: Any) -> Any {
+    if (P == 0) { return 0; }
+    mut h: Any = 0;
+    mut x: Any = P;
+    while (x > 1) {
+        x = x / 2;
+        h = h + 1;
+    }
+    mut mant: Any = 0;
+    if (h <= 52) { mant = (P - power2(h)) * power2(52 - h); }
+    else { mant = P / power2(h - 52) - power2(52); }
+    let ef: Any = 1023 + h + extra;
+    return ef * 4503599627370496 + mant;
+}
+
+fun rt_parse_float2(p: Any, n: Any) -> Any {
+    mut i: Any = 0;
+    mut neg: Any = 0;
+    if (load8(p) == 45) {
+        neg = 1;
+        i = 1;
+    }
+    let ten: Any = rt_box(u64_to_bits(10, 0));
+    let sign1: Any = rt_const_hi_lo(3220176896, 0);
+    mut val: Any = rt_box(u64_to_bits(0, 0));
+    mut fd: Any = 0;
+    mut seen: Any = 0;
+    mut dot: Any = 0;
+    mut exp: Any = 0;
+    while (i < n) {
+        let c: Any = load8(p + i);
+        if (c == 46) {
+            dot = 1;
+            i = i + 1;
+            continue;
+        }
+        if (c == 101  or  c == 69) {
+            i = i + 1;
+            mut es: Any = 0;
+            if (i < n) {
+                if (load8(p + i) == 43) { i = i + 1; }
+                else if (load8(p + i) == 45) { es = 1; i = i + 1; }
+            }
+            mut ev: Any = 0;
+            while (i < n) {
+                let dd: Any = load8(p + i) - 48;
+                if (dd < 0) { break; }
+                if (dd > 9) { break; }
+                ev = ev * 10 + dd;
+                i = i + 1;
+            }
+            if (es == 1) { ev = 0 - ev; }
+            exp = exp + ev;
+            break;
+        }
+        let d: Any = c - 48;
+        if (d >= 0) {
+            if (d <= 9) {
+                val = __fbin(0, __fbin(2, val, ten), rt_to_f(d * 8));
+                if (dot == 1) { fd = fd + 1; }
+                seen = 1;
+            }
+        }
+        i = i + 1;
+    }
+    let e: Any = exp - fd;
+    let one: Any = rt_box(u64_to_bits(1, 0));
+    if (e > 0) {
+        mut p: Any = one;
+        mut k: Any = 0;
+        while (k < e) { p = __fbin(2, p, ten); k = k + 1; }
+        val = __fbin(2, val, p);
+    } else if (e < 0) {
+        mut p: Any = one;
+        mut k: Any = 0;
+        let ne: Any = 0 - e;
+        while (k < ne) { p = __fbin(2, p, ten); k = k + 1; }
+        val = __fbin(3, val, p);
+    }
+    if (neg == 1) { val = __fbin(2, val, sign1); }
+    return val;
+}
+
+fun rt_to_f(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 6) { return v; }
+    if (t == 0) {
+        let n: Any = v / 8;
+        if (n < 0) {
+            return __fbin(2, rt_box(u64_to_bits(0 - n, 0)), rt_const_hi_lo(3220176896, 0));
+        }
+        return rt_box(u64_to_bits(n, 0));
+    }
+    return v;
+}
+
+fun rt_fstr(v: Any) -> Any {
+    let bits: Any = load64(v - 6);
+    let buf: Any = rt_alloc(64);
+    mut o: Any = 0;
+    if (__fsign(bits) == 1) {
+        store8(buf, 45);
+        o = 1;
+    }
+    let ip: Any = __ftrunc(bits);
+    mut x: Any = ip;
+    if (x < 0) { x = 0 - x; }
+    let tmp: Any = rt_alloc(32);
+    mut d: Any = 0;
+    if (x == 0) {
+        store8(tmp, 48);
+        d = 1;
+    }
+    while (x > 0) {
+        store8(tmp + d, (x % 10) + 48);
+        x = x / 10;
+        d = d + 1;
+    }
+    mut k: Any = d;
+    while (k > 0) {
+        store8(buf + o, load8(tmp + k - 1));
+        o = o + 1;
+        k = k - 1;
+    }
+    store8(buf + o, 46);
+    o = o + 1;
+    let fd7: Any = __ffrac(bits, 10000000);
+    let fd: Any = (fd7 + 5) / 10;
+    mut f: Any = fd;
+    if (f < 0) { f = 0 - f; }
+    let ft: Any = rt_alloc(16);
+    mut j: Any = 5;
+    while (j >= 0) {
+        store8(ft + j, (f % 10) + 48);
+        f = f / 10;
+        j = j - 1;
+    }
+    mut fl: Any = 6;
+    while (fl > 1) {
+        if (load8(ft + fl - 1) == 48) { fl = fl - 1; } else { break; }
+    }
+    k = 0;
+    while (k < fl) {
+        store8(buf + o, load8(ft + k));
+        o = o + 1;
+        k = k + 1;
+    }
+    let s: Any = rt_strnew(o);
+    rt_copy(s + 7, buf, o);
+    return s;
+}
+
+fun rt_const_hi_lo(hi: Any, lo: Any) -> Any {
+    let p: Any = rt_alloc(8);
+    store32(p, lo);
+    store32(p + 4, hi);
+    return p + 6;
+}
+
+fun rt_pi() -> Any { return rt_const_hi_lo(1074340347, 1413754136); }
+
+fun rt_e() -> Any { return rt_const_hi_lo(1074118410, 2333366121); }
+
+fun rt_float32(value: Any) -> Any {
+    if (value % 8 != 6) { return rt_failtype(rt_from(addr("expected a float"), 16)); }
+    return rt_box(__f32(load64(value - 6)));
+}
+
+fun rt_value_tag(value: Any) -> Any { return (value % 8) * 8; }
+fun __core_float_error() -> Any { return __core_raise(addr("runtime"), 7, rt_from(addr("cannot convert to Float"), 23)); }
+fun rt_core_sqrt(value: Any) -> Any { return sqrt(rt_to_f(value)); }
+fun rt_core_floor(value: Any) -> Any { return floor(rt_to_f(value)); }
+fun rt_core_ceil(value: Any) -> Any { return ceil(rt_to_f(value)); }
+fun rt_core_trunc(value: Any) -> Any { return trunc(rt_to_f(value)); }
