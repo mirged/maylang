@@ -7,6 +7,7 @@ import "../backend.may";
 // RV64IM, no compressed instructions. ABI: a0-a7, a0 result, 16-byte SP.
 fun riscv_register(register: Any) -> Any {
     if (register == -1) { return 2; }
+    if (register == 18) { return 6; } // t1 carries a closure's environment
     if (register >= 20) { return 18 + register - 20; } // s2-s5, callee-saved
     if (register >= 10) { return register; }
     if (register == 2) { return 5; }
@@ -129,10 +130,10 @@ fun riscv_patch(ctx: Any) -> Any {
             let off: Any = chunk[index * 3 + 1];
             let target: Any = chunk[index * 3 + 2];
             let pointer: Any = ctx.code.data + off;
-            if (kind == 101) {
+            if (kind == 101 or kind == 105) {
                 let saved: Any = ctx.code.length;
                 ctx.code.length = off;
-                riscv_immediate(ctx, ctx.layout.dataAddress + target, 2);
+                riscv_immediate(ctx, if (kind == 105) { ctx.layout.codeAddress + lab_off(ctx, target) } else { ctx.layout.dataAddress + target }, 2);
                 ctx.code.length = saved;
             } else {
                 let delta: Any = lab_off(ctx, target) - off;

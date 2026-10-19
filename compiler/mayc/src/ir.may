@@ -326,7 +326,23 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         return result;
     }
     if (kind == S_EXPR) { return ir_node(ctx, node.expression); }
-    if (kind == S_LET) { return ir_declare(node.name, node.length, ir_node(ctx, node.initializer), node.global, span); }
+    if (kind == S_LET) {
+        // A recursive local closure must capture its cell before that cell is
+        // filled with the closure value. Allocate the binding first.
+        if (node.global == 0 and node.initializer.kind == E_CLOSURE) {
+            mut capture: Any = node.initializer.captures;
+            while (capture != 0) {
+                if (name_eq(capture.name, capture.length, node.name, node.length) == 1) {
+                    ir_declare(node.name, node.length, ir_nil(span), 0, span);
+                    let value: Any = ir_node(ctx, node.initializer);
+                    ir_emit(S_ASSIGN, 0, value, 0, {"name": node.name, "length": node.length, "value": value}, span);
+                    return value;
+                }
+                capture = capture.next;
+            }
+        }
+        return ir_declare(node.name, node.length, ir_node(ctx, node.initializer), node.global, span);
+    }
     if (kind == S_ASSIGN) {
         let value: Any = ir_node(ctx, node.value);
         ir_emit(kind, 0, value, 0, {"name": node.name, "length": node.length, "value": value}, span);

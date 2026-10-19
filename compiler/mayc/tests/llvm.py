@@ -95,6 +95,8 @@ def main():
                        'let f=c(2);print(f(),f());',
             'nested-capture': 'fun c(){mut x=0;return fun(){return fun(){x+=1;return x;};};}'
                               'let g=c()();print(g(),g());',
+            'recursive-local': 'fun make(n:Int)->Any{fun step(x:Int)->Int{if(x==0){return n;}'
+                               'return step(x-1)+1;}return step;}let f:Any=make(3);print(f(5));',
             'handler': 'print(may {fail("caught");} otherwise {"ok"});'
                        'print(may {print(may {fail("inner");} otherwise {"in"});fail("out");} otherwise {"outer"});',
             'inferred-handler': 'fun test_may(){let result=may{let bad=10/0;bad}'

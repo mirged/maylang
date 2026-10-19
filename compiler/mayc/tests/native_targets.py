@@ -10,7 +10,7 @@ from pathlib import Path
 
 from backends import compile_source, compiler_binary
 from core_runtime import ARENA_EXPECTED, EXPECTED, LIST_FAILURES
-from portable_values import EXPECTED as COLLECTION_EXPECTED
+from portable_values import CALL_EXPECTED, EXPECTED as COLLECTION_EXPECTED
 
 HERE = Path(__file__).resolve().parent
 TARGETS = ('x86_64-linux', 'arm64-macos', 'x86_64-windows')
@@ -32,6 +32,7 @@ def emit(compiler, directory):
 
         fixture('core', HERE / 'backend/core.may', EXPECTED.decode(), 42, '--runtime', 'core')
         fixture('collections', HERE / 'backend/portable_collections.may', COLLECTION_EXPECTED.decode(), 0, '--runtime', 'core')
+        fixture('calls', HERE / 'backend/portable_calls.may', CALL_EXPECTED.decode(), 0, '--runtime', 'core')
         fixture('arena', HERE / 'backend/arena.may', ARENA_EXPECTED.decode(), 0, '--runtime', 'core')
         for name, body, message in [
             ('overflow', 'let n: Any = int("1152921504606846975"); print(n + 1);', 'integer overflow\n'),

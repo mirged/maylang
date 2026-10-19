@@ -132,7 +132,7 @@ fun lab_off(ctx: Any, id: Any) -> Any { return ctx.labels[id]; }
 fun fx(ctx: Any, kind: Any, off: Any, tgt: Any) -> Any {
     // Data offsets share the same integer space as labels; only code
     // relocations participate in function reachability.
-    if (kind == 0 or kind == 6 or kind == 26 or kind == 100 or kind == 102 or kind == 104) { emission_reference(ctx, tgt); }
+    if (kind == 0 or kind == 6 or kind == 26 or kind == 100 or kind == 102 or kind == 104 or kind == 105) { emission_reference(ctx, tgt); }
     let table: Any = ctx.fixups;
     if (table.count % 1024 == 0) { push(table.chunks, []); }
     let chunk: Any = table.chunks[len(table.chunks) - 1];

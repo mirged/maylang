@@ -1,6 +1,6 @@
 // Portable core runtime: the common tagged scalar/collection ABI on all targets.
-// Heap chunks live until process exit. This runtime has no collector, closures,
-// floats, recoverable exceptions, or operating-system libraries.
+// Heap chunks live until process exit. This runtime has no collector, floats,
+// recoverable exceptions, or operating-system libraries.
 mut CORE_HP: Any = 0;
 mut CORE_END: Any = 0;
 mut CORE_RETAINED: Any = 0;
@@ -664,7 +664,15 @@ fun rt_merge(a: Any, b: Any) -> Any {
 
 fun rt_has(m: Any, key: Any) -> Any {
     if (m % 8 == 7) { if (rt_map_find(m, key) >= 0) { return 4; } return 3; }
-    return rt_contains(m, key);
+    if (m % 8 == 1) { return rt_contains(m, key); }
+    if (m % 8 == 5) {
+        mut i: Any = 0;
+        while (i < rt_list_len(m)) {
+            if (rt_eq(rt_list_get(m, i * 8), key) == 4) { return 4; }
+            i += 1;
+        }
+    }
+    return 3;
 }
 
 fun rt_len(v: Any) -> Any {
@@ -753,6 +761,10 @@ fun rt_min(a: Any, b: Any) -> Any { if (rt_lt(a, b) == 4) { return a; } return b
 fun rt_max(a: Any, b: Any) -> Any { if (rt_lt(a, b) == 4) { return b; } return a; }
 
 fun rt_add(a: Any, b: Any) -> Any {
+    if (a % 8 == 7) {
+        let method: Any = rt_map_get(a, rt_from(addr("+"), 1));
+        if (method != 2) { return method(a, b); }
+    }
     if (a % 8 == 1 and b % 8 == 1) { return rt_concat(a, b); }
     if (a % 8 == 5 and b % 8 == 5) { let result: Any = rt_list_new(0); rt_extend(result, a); rt_extend(result, b); return result; }
     if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers or strings"), 28)); }
@@ -761,12 +773,20 @@ fun rt_add(a: Any, b: Any) -> Any {
     return sum;
 }
 fun rt_sub(a: Any, b: Any) -> Any {
+    if (a % 8 == 7) {
+        let method: Any = rt_map_get(a, rt_from(addr("-"), 1));
+        if (method != 2) { return method(a, b); }
+    }
     if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
     let difference: Any = a - b;
     if ((a >= 0 and b < 0 and difference < 0) or (a < 0 and b >= 0 and difference >= 0)) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
     return difference;
 }
 fun rt_mul(a: Any, b: Any) -> Any {
+    if (a % 8 == 7) {
+        let method: Any = rt_map_get(a, rt_from(addr("*"), 1));
+        if (method != 2) { return method(a, b); }
+    }
     if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
     if (a == 0 or b == 0) { return 0; }
     let product: Any = (a / 8) * b;
@@ -774,12 +794,20 @@ fun rt_mul(a: Any, b: Any) -> Any {
     return product;
 }
 fun rt_div(a: Any, b: Any) -> Any {
+    if (a % 8 == 7) {
+        let method: Any = rt_map_get(a, rt_from(addr("/"), 1));
+        if (method != 2) { return method(a, b); }
+    }
     if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
     if (b == 0) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
     if (a / 8 == -1152921504606846976 and b == -8) { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
     return (a / b) * 8;
 }
 fun rt_mod(a: Any, b: Any) -> Any {
+    if (a % 8 == 7) {
+        let method: Any = rt_map_get(a, rt_from(addr("%"), 1));
+        if (method != 2) { return method(a, b); }
+    }
     if (a % 8 != 0 or b % 8 != 0) { return rt_failtype(rt_from(addr("expected integers"), 17)); }
     if (b == 0) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
     return ((a / 8) % (b / 8)) * 8;
@@ -927,3 +955,142 @@ fun rt_cmp(a: Any, b: Any) -> Any {
 }
 
 // ---------------------------------------------------------------- printing
+
+// ---------------------------------------------------------------- callables
+
+mut CORE_CALLABLES: Any = 0;
+
+fun rt_env_new(n: Any) -> Any {
+    return rt_alloc(n * 8);
+}
+
+fun rt_closure(code: Any, env: Any) -> Any {
+    let p: Any = rt_alloc(40);
+    store64(p + 32, CORE_CALLABLES); CORE_CALLABLES = p;
+    store64(p + 24, 1296128323);
+    store64(p, code);
+    store64(p + 8, env);
+    store64(p + 16, 0);
+    return p;
+}
+
+// Closure with an explicit arity (word at +16), used to pad short argument
+// lists when a closure is applied with fewer arguments than it declares.
+fun rt_closure3(code: Any, env: Any, arity: Any) -> Any {
+    let p: Any = rt_alloc(40);
+    store64(p + 32, CORE_CALLABLES); CORE_CALLABLES = p;
+    store64(p + 24, 1296128323);
+    store64(p, code);
+    store64(p + 8, env);
+    store64(p + 16, arity);
+    return p;
+}
+
+// Validate before reading the closure payload; ordinary integers are also tag 0.
+fun rt_box_val(v: Any) -> Any {
+    let p: Any = rt_alloc(8);
+    store64(p, v);
+    return p;
+}
+
+// Validate identity before dereferencing a value: tagged integers are also
+// tag zero. The process-lifetime registry contains only allocated closures.
+fun rt_require_callable(value: Any) -> Any {
+    mut entry: Any = CORE_CALLABLES;
+    while (entry != 0) {
+        if (entry == value) { return value; }
+        entry = load64(entry + 32);
+    }
+    return rt_failtype(rt_from(addr("value is not callable"), 21));
+}
+fun rt_mapf(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    let r: Any = rt_list_new(n);
+    mut i: Any = 0;
+    while (i < n) {
+        rt_push(r, f(load64(d + i * 8)));
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_filter(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    let r: Any = rt_list_new(n);
+    mut i: Any = 0;
+    while (i < n) {
+        let x: Any = load64(d + i * 8);
+        if (f(x) == 4) { rt_push(r, x); }
+        i = i + 1;
+    }
+    return r;
+}
+
+fun rt_reduce(xs: Any, f: Any, init: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut acc: Any = init;
+    mut i: Any = 0;
+    while (i < n) {
+        acc = f(acc, load64(d + i * 8));
+        i = i + 1;
+    }
+    return acc;
+}
+
+fun rt_any(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut i: Any = 0;
+    while (i < n) {
+        if (f(load64(d + i * 8)) == 4) { return 4; }
+        i = i + 1;
+    }
+    return 3;
+}
+
+fun rt_all(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut i: Any = 0;
+    while (i < n) {
+        if (f(load64(d + i * 8)) != 4) { return 3; }
+        i = i + 1;
+    }
+    return 4;
+}
+
+fun rt_count(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut c: Any = 0;
+    mut i: Any = 0;
+    while (i < n) {
+        if (f(load64(d + i * 8)) == 4) { c = c + 1; }
+        i = i + 1;
+    }
+    return c * 8;
+}
+
+fun rt_each(xs: Any, f: Any) -> Any {
+    let n: Any = rt_list_len(xs);
+    let d: Any = load64(xs - 5 + 16);
+    mut i: Any = 0;
+    while (i < n) {
+        f(load64(d + i * 8));
+        i = i + 1;
+    }
+    return 2;
+}
+
+fun rt_times(n: Any, f: Any) -> Any {
+    let k: Any = n / 8;
+    mut i: Any = 0;
+    while (i < k) {
+        f(i * 8);
+        i = i + 1;
+    }
+    return 2;
+}

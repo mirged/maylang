@@ -219,8 +219,8 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   `from "algo" import zip;`. Paths resolve relative to the importer first and
   then the stdlib. The same resolved file expands only once. A module that
   marks any declaration `pub` exports only its `pub` names.
-- Maps, records, structs and enums work in the core runtime on every native
-  target. Closures, floats, faults, fibers and FFI need the full
+- Maps, records, structs, enums and closures work in the core runtime on every
+  native target. Floats, faults, fibers and FFI need the full
   x86-64 Linux runtime. The core runtime and the cross-compilation targets
   reject them.
 - Many older files (and much of the compiler) use `Any`-typed signatures.

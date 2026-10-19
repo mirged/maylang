@@ -139,7 +139,8 @@ is explicit and does not depend on the host:
 | Integers, booleans, direct functions and control flow | Yes | Yes | Yes | Yes |
 | Allocated UTF-8 strings and lists | Yes | Yes | Yes | Literal strings and pointer operations |
 | Maps, records, structs and enums | Yes | Yes | Yes | Use raw storage/operations |
-| Floats and closures | Yes | Yes | Rejected | Use raw storage/operations |
+| Closures, shared captures and higher-order calls | Yes | Yes | Yes | No injected callable runtime |
+| Floats | Yes | Yes | Rejected | Use raw storage/operations |
 | Recoverable faults and source traces | Yes | Yes | Faults exit 70; tracing rejected | No injected runtime |
 | Fibers and typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
 | File/process/network libraries | Linux x86-64 | Linux x86-64 | Rejected | Explicit target OS calls |
@@ -184,7 +185,10 @@ process exit. It has no garbage collector or individual free operation.
 Maps retain insertion order for keys/values, use a string-key hash index, and
 support property access, mutation, spread and cycle-safe printing. Struct and
 enum constructors and pattern matching use this same portable representation.
-Closures, floats, exceptions, fibers and FFI still require the
+Closures share mutable captured cells, including across nested callbacks and
+recursive local functions. Callback helpers include `map`, `filter`, `reduce`,
+`any`, `all`, `count`, `each` and `times`.
+Floats, exceptions, fibers and FFI still require the
 full x86-64 Linux runtime; core compilation diagnoses unsupported operations
 before writing output. Use `--runtime core` on Linux for small portable programs
 and lower compilation overhead. Deploy the `runtime/` directory beside the
@@ -193,8 +197,9 @@ compiler along with its full-runtime sidecars.
 ARM64/RISC-V raw targets support integers, literal strings, globals and locals,
 conditionals, loops, direct calls and tail self-calls, `addr`/`cstr`/literal `len`,
 `ptr`, `load8/16/32/64`, `store8/16/32/64`, `exit`, and native `syscall`.
-They currently allow eight function parameters, six syscall arguments and a
-2000-byte frame. `syscall` numbers and flags are those of the **selected target**:
+The first eight function parameters use registers and further parameters use
+the stack. Frames are limited to 2000 bytes; syscalls accept six arguments.
+`syscall` numbers and flags are those of the **selected target**:
 Linux ARM64/RISC-V use write=64, mmap=222, exit=93; Darwin uses write=4, exit=1.
 `exit` chooses the target ABI automatically. The Windows raw target rejects
 `syscall` and `exit`; its entry point returns to the Windows loader. The core

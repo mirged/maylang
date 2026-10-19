@@ -1,5 +1,7 @@
 # Unreleased
 
+- Support closures, shared captures, callbacks, overloaded struct operators and
+  stack arguments in the portable runtime; fix recursive local closure binding.
 - Support maps, records, structs and enums in the core runtime on every native
   target; preserve exclusive range endpoints on ARM64 and RISC-V.
 - Support typed extern calls and cooperative fibers in the LLVM backend,

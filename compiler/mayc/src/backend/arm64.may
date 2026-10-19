@@ -104,8 +104,8 @@ fun arm64_patch(ctx: Any) -> Any {
             let off: Any = chunk[index * 3 + 1];
             let target: Any = chunk[index * 3 + 2];
             let pointer: Any = ctx.code.data + off;
-            if (kind == 101) {
-                let value: Any = ctx.layout.dataAddress + target;
+            if (kind == 101 or kind == 105) {
+                let value: Any = if (kind == 105) { ctx.layout.codeAddress + lab_off(ctx, target) } else { ctx.layout.dataAddress + target };
                 let pc: Any = ctx.layout.codeAddress + off;
                 let pages: Any = value / 4096 - pc / 4096;
                 if (pages < -1048576 or pages >= 1048576) { die_str("mayc: ARM64 data address out of range\n"); }

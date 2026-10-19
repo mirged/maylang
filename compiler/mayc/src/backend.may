@@ -59,16 +59,25 @@ fun core_validate(ctx: Any) -> Any {
     if (len(ctx.foreign) > 0) { die_str("mayc: FFI requires the full runtime\n"); }
     let blocks: Any = [ctx.mainIR];
     for rec: Any in ctx.functions { if (rec.mode != 1) { push(blocks, rec.ir); } }
+    let callables: Any = {};
+    for rec: Any in ctx.functions {
+        for parameter: Any in rec.parr { callables[symbol_name(parameter.name, parameter.length)] = true; }
+    }
+    for block: Any in blocks {
+        for instruction: Any in block.code {
+            if (instruction.op == S_LET) { callables[symbol_name(instruction.extra.name, instruction.extra.length)] = true; }
+        }
+    }
     for block: Any in blocks {
         for instruction: Any in block.code {
             let op: Any = instruction.op;
-            if (op == E_FLOAT or op == E_CLOSURE or op == E_ICALL or op == IR_TRY_BEGIN or op == S_CASSIGN or op == E_CAPVAR) {
-                diagnostic(instruction.span, "the core runtime supports integers, strings, lists, maps and direct calls; this operation requires the full runtime");
+            if (op == E_FLOAT or op == IR_TRY_BEGIN) {
+                diagnostic(instruction.span, "floats and recoverable faults require the full runtime");
             }
             if (op == E_CALL) {
                 let name: Any = symbol_name(instruction.extra.name, instruction.extra.length);
-                let intrinsics: Any = ["keys", "values", "has", "merge", "map_keys", "map_values", "map_has", "print", "len", "str", "str_of", "int_to_str", "int", "bool", "push", "pop", "slice", "char_at", "char_from", "chr", "ord", "contains", "starts_with", "ends_with", "split", "join", "index_of", "min", "max", "abs", "pow", "exit", "fail", "addr", "cstr", "ptr", "value_eq", "str_cmp", "cmp", "to_lower", "to_upper", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64"];
-                if (backend_find_func(ctx, instruction.extra.name, instruction.extra.length) == 0 and not has(intrinsics, name)) {
+                let intrinsics: Any = ["map", "filter", "reduce", "any", "all", "count", "each", "times", "keys", "values", "has", "merge", "map_keys", "map_values", "map_has", "print", "len", "str", "str_of", "int_to_str", "int", "bool", "push", "pop", "slice", "char_at", "char_from", "chr", "ord", "contains", "starts_with", "ends_with", "split", "join", "index_of", "min", "max", "abs", "pow", "exit", "fail", "addr", "cstr", "ptr", "value_eq", "str_cmp", "cmp", "to_lower", "to_upper", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64"];
+                if (backend_find_func(ctx, instruction.extra.name, instruction.extra.length) == 0 and not has(intrinsics, name) and not has(callables, name)) {
                     diagnostic(instruction.span, "`${name}` requires the full runtime");
                 }
             }
