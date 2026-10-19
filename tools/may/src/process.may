@@ -14,16 +14,39 @@ fun vector(values: List<Str>) -> KernelVector {
     return result;
 }
 
+/// Classifies a candidate like execve's PATH search: 0 runnable, 1 missing,
+/// 2 not a regular file (for example a directory), 3 not executable.
+fun runnable(path: Str) -> Int {
+    let buffer: Int = syscall(9, 0, 4096, 3, 34, -1, 0);
+    if (buffer < 0) { fail("may: cannot allocate file status"); }
+    let found: Bool = syscall(4, cstr(path), buffer) == 0;
+    let mode: Int = if (found) { load32(ptr(buffer + 24)) } else { 0 };
+    syscall(11, buffer, 4096);
+    if (not found) { return 1; }
+    if (mode / 4096 % 16 != 8) { return 2; }
+    if (syscall(21, cstr(path), 1) != 0) { return 3; }
+    return 0;
+}
+fun absolute(path: Str) -> Str {
+    return str(fs.normpath(if (starts_with(path, "/")) { path } else { str(fs.join_path(str(fs.cwd()), path)) }));
+}
 pub fun executable(name: Str) -> Str {
     if (contains(name, "/")) {
-        let path: Str = str(fs.normpath(if (starts_with(name, "/")) { name } else { str(fs.join_path(str(fs.cwd()), name)) }));
-        if (not file_exists(path)) { fail("may: executable not found: " + path); }
+        let path: Str = absolute(name);
+        let state: Int = runnable(path);
+        if (state == 1) { fail("may: executable not found: " + path); }
+        if (state == 2) { fail("may: not a regular file: " + path); }
+        if (state == 3) { fail("may: permission denied (not executable): " + path); }
         return path;
     }
+    mut rejected: Str = "";
     for directory: Str in split(env("PATH") ?? "", ":") {
         let path: Str = str(fs.join_path(if (directory == "") { str(fs.cwd()) } else { directory }, name));
-        if (file_exists(path)) { return str(fs.normpath(if (starts_with(path, "/")) { path } else { str(fs.join_path(str(fs.cwd()), path)) })); }
+        let state: Int = runnable(path);
+        if (state == 0) { return absolute(path); }
+        if (state == 3 and rejected == "") { rejected = absolute(path); }
     }
+    if (rejected != "") { fail("may: permission denied (not executable): " + rejected + "; no executable " + name + " found on PATH"); }
     fail("may: executable not found on PATH: " + name); return "";
 }
 pub fun command(argv: List<Str>, variables: List<Str>) -> List<Str> {

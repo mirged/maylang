@@ -14,8 +14,8 @@ ENV = os.environ.copy()
 ENV.update(MAYC=str(ROOT / 'compiler/mayc/mayc_new'), MAYLANG_STDLIB=str(ROOT / 'stdlib'))
 
 
-def invoke(binary, root, *args, ok=True):
-    result = subprocess.run([str(binary), *args], cwd=root, env=ENV, capture_output=True, timeout=120)
+def invoke(binary, root, *args, ok=True, env=None):
+    result = subprocess.run([str(binary), *args], cwd=root, env=env or ENV, capture_output=True, timeout=120)
     assert (result.returncode == 0) == ok, (args, result.returncode, result.stdout, result.stderr)
     return result
 
@@ -162,6 +162,43 @@ with tempfile.TemporaryDirectory(prefix='may-workspace-tests-') as directory:
     manifest(native, config)
     assert b'unreserved' in invoke(binary, native, 'build', ok=False).stderr
     print('PASS native recipes, declared-input invalidation, concurrent publication and pre-execution DAG validation', flush=True)
+
+    search = work / 'path search'
+    invoke(binary, work, 'new', str(search))
+    bins = {name: search / name for name in ('plain', 'directory', 'runnable', 'linked')}
+    for folder in bins.values():
+        folder.mkdir()
+    (bins['plain'] / 'audit-command').write_text('#!/bin/sh\necho wrong\n')
+    (bins['directory'] / 'audit-command').mkdir()
+    real = bins['runnable'] / 'audit-command-real'
+    real.write_text('#!/bin/sh\necho "$1" > "$2"\n')
+    real.chmod(0o755)
+    (bins['linked'] / 'audit-command').symlink_to(real)
+    def recipe(command):
+        manifest(search, {'schema': 1, 'name': 'search', 'default': 'generated', 'targets': {
+            'generated': {'kind': 'native', 'inputs': [], 'outputs': ['result.txt'],
+                          'command': [command, 'found', '{out}/result.txt']}}})
+    def path_env(*folders):
+        return {**ENV, 'PATH': ':'.join([*map(str, folders), os.environ.get('PATH', '')])}
+    recipe('audit-command')
+    # A non-executable file, a directory and an empty component precede the symlinked command.
+    invoke(binary, search, 'build', env=path_env(bins['plain'], bins['directory'], '', bins['linked']))
+    outputs = list((search / '.may/store').rglob('result.txt'))
+    assert [p.read_text() for p in outputs] == ['found\n'], outputs
+    denied = invoke(binary, search, 'build', ok=False, env=path_env(bins['plain'], bins['directory']))
+    assert b'permission denied (not executable)' in denied.stderr and b'plain/audit-command' in denied.stderr, denied
+    missing = invoke(binary, search, 'build', ok=False, env=path_env(bins['directory']))
+    assert b'executable not found on PATH: audit-command' in missing.stderr, missing
+    for command, message in ((f'{bins["plain"]}/audit-command', b'permission denied (not executable)'),
+                             (f'{bins["directory"]}/audit-command', b'not a regular file'),
+                             ('./absent/audit-command', b'executable not found: ')):
+        recipe(command)
+        result = invoke(binary, search, 'build', ok=False)
+        assert message in result.stderr, (command, result)
+    recipe(str(bins['linked'] / 'audit-command'))
+    invoke(binary, search, 'clean')
+    invoke(binary, search, 'build')
+    print('PASS PATH search skips non-executable files and directories; explicit-path and exhaustion diagnostics', flush=True)
 
     watched = work / 'watched'
     invoke(binary, work, 'new', str(watched))

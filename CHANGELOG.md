@@ -8,6 +8,10 @@
 - `scripts/doctor.py` compiles and links a test program with the selected
   `CC` instead of only finding it on `PATH`, so a broken compiler is reported
   before the bootstrap fails ([#66](https://github.com/mirged/maylang/issues/66)).
+- `may` skips directories and non-executable files while searching `PATH` for
+  native recipe and task commands, and reports explicit paths that are missing,
+  not regular files or not executable separately from PATH exhaustion
+  ([#41](https://github.com/mirged/maylang/issues/41)).
 
 # Maylang 0.13.103 — Dahlia
 

@@ -45,7 +45,10 @@ An application names its entry, target architecture and runtime. A test group
 discovers `.test.may` files recursively beneath its declared root. Each test is
 an executable: zero means success, and compilation errors or nonzero exits fail
 the group. A native target declares an argument-array command, inputs, outputs
-and prerequisite targets. A task runs an explicit command whenever selected;
+and prerequisite targets. A command name without a slash is
+searched on `PATH` like `execvp`: directories and non-executable files are
+skipped, and an empty entry means the current directory. A name with a slash
+must be an executable regular file. A task runs an explicit command whenever selected;
 reserve it for actions rather than reusable build outputs. Target names use
 letters, digits, underscores or hyphens. Unknown fields, missing prerequisites
 and dependency cycles fail before commands run.
