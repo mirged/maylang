@@ -2,7 +2,7 @@
   "name": "maylang",
   "displayName": "Maylang",
   "description": "Maylang language support: syntax highlighting and the maylsp language server.",
-  "version": "0.13.102",
+  "version": "0.13.103",
   "publisher": "maylang",
   "license": "MIT",
   "repository": {
