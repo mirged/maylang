@@ -14,6 +14,13 @@
   compiler now stops with the offending line and the chain of imports that
   reached it ([#38](https://github.com/mirged/maylang/issues/38)).
 
+## Behavior contracts
+
+- Accept `for` loops over literal `Int` ranges (`a..b`, `a..=b`) in functions
+  with behavior contracts. Range bounds are effect-checked, the loop variable is
+  an immutable body-scoped `Int`, and `break`/`continue` work as in `while`.
+  Loops over collections, strings or stored ranges remain unknown behavior.
+
 ## Tools
 
 - `mayfmt --help` and `mayfmt -h` print usage and exit 0 without reading or

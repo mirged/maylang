@@ -32,13 +32,18 @@ Completed checkpoints:
   checks, the full LLVM suite and source-bootstrap convergence passed locally.
   The current cached native compiler includes this work.
 
-Active increment: runtime list type/index guards before further shared-state
-admission. Reproduce invalid dynamic push/pop in bounded child processes with
-core dumps disabled. Check full/core list payload accessors before reading any
-fields. Preserve valid list aliasing, append/pop and nil-on-out-of-range reads;
-reject invalid assignments before writes. Validate native, LLVM and core targets
-and source-bootstrap convergence before merging. Finite callable shared storage
-must remain rejected: these guards do not establish a per-container effect row.
+- `d6cd34e`, PR #74 (merged): runtime list type/index guards. Full/core list tags
+  are validated before payload reads, append/pop are guarded and invalid indexed
+  writes are rejected before writing; 90 native/core/LLVM cases pass. This adds
+  no memory-safety profile or finite callable row inside a mutable container.
+- Range loops: `for i: Int in a..b` and `a..=b` in checked functions, with an
+  immutable body-scoped Int binding and effect-checked bounds. Other iterables
+  remain unknown.
+
+Active increment: scalar conversion and mathematics primitive audit. Each
+admitted primitive needs a stated accepted-type set, dispatch, failure behavior
+and runtime body review, plus positive, missing-effect, shadowing and report
+tests. Unreviewed primitives remain unknown.
 
 Ongoing invariant: callable effects must survive every assignment,
 argument, return, substitution, and trust boundary; unannotated callable behavior
@@ -66,7 +71,7 @@ separate requirements.
 
 | Design area | Current evidence | Required implementation and acceptance evidence |
 | --- | --- | --- |
-| 3–5: behavior types, syntax, algebra | Scalar effect ceilings, recursive fixed points, strict fail-closed fragment | Canonical behavior IR, all clause syntax, composition rules and formally specified safe fragment |
+| 3–5: behavior types, syntax, algebra | Scalar effect ceilings, recursive fixed points, while and Int-range loops, strict fail-closed fragment | Canonical behavior IR, all clause syntax, composition rules and formally specified safe fragment |
 | 4.2, 4.4: polymorphism and subtyping | Closed callable rows, variance, generic value substitution and boundary rejection tests | Effect variables/constraints, generic body inference, captures/shared storage, and broader behavioral subtyping |
 | 4.3: public sealing | Explicit per-function ceilings | Stable public interfaces and separate compilation; implementation changes cannot broaden sealed contracts |
 | 6: authority and dependency security | Ambient/foreign operations remain unknown under contracts | Explicit scoped capabilities, attenuation, revocation, delegation, dependency ceilings and actual native sandbox containment |

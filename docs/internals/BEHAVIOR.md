@@ -42,7 +42,8 @@ Parameters, returns, and local bindings must explicitly use `Int`, `Bool`,
 `Float`, or a closed callable type described below. The checker accepts integer,
 boolean, and floating-point literals,
 parameter/local reads, unary and binary expressions, logical expressions,
-typed local bindings, blocks, conditionals, `while` loops, `break`, `continue`,
+typed local bindings, blocks, conditionals, `while` loops, `for` loops over
+literal `Int` ranges, `break`, `continue`,
 returns, and direct calls to supported source functions and the
 listed primitives. `clock` returns `Float`; `time` returns `Int`. Floating-point
 operations use the existing numeric typing and runtime semantics, including
@@ -67,7 +68,8 @@ fun sampled_clock() -> Float ! {clock} {
 ```
 
 Global reads/writes, collection mutation, strings, closures, generic function
-bodies, `for` loops, FFI, and other unsupported AST forms are unknown. An explicit
+bodies, `for` loops over collections or strings, FFI, and other unsupported AST
+forms are unknown. An explicit
 function ceiling cannot authorize them. Unannotated unknown functions cannot
 satisfy a finite callable effect row.
 Declaring all currently known effects cannot authorize unknown operations.
@@ -98,14 +100,31 @@ fun sum_to(n: Int) -> Int ! pure {
 The checker analyzes a loop's condition and every body statement once, collecting
 effects and call edges independently of the iteration count. A false condition,
 `break`, `continue`, or early return cannot hide a later effect or unknown
-operation from analysis. `break` and `continue` require an enclosing `while`
+operation from analysis. `break` and `continue` require an enclosing `while` or `for`
 inside the same function. Block, branch, and loop declarations do not escape
 their scopes, and shadowing preserves each binding's mutability.
 
 Accepting a loop does not prove termination, bound its work, or limit allocation.
-Unbounded iteration remains possible just as unbounded recursion does. `for`
-loops and explicit ranges/collections require additional allocation and aliasing
-rules before admission.
+Unbounded iteration remains possible just as unbounded recursion does.
+
+A `for` loop is admitted only when its iterable is written as a range
+expression, `a..b` or `a..=b`, with scalar bounds. The bounds are checked like any
+other expression, so `0..time()` contributes `clock`. The loop variable must be
+`Int` (annotated or inferred), is immutable and is scoped to the body. The
+runtime materializes the range as a list that never escapes the loop; like Float
+boxing, this private allocation is not an effect in this fragment and is not
+bounded by it. Iterating a range stored in a variable, a list, a string or a map
+remains unknown, because collections need allocation and aliasing rules first.
+
+```may
+fun triangle(n: Int) -> Int ! pure {
+    mut total: Int = 0;
+    for i: Int in 1..=n {
+        total += i;
+    }
+    return total;
+}
+```
 
 ## Closed callable contracts
 

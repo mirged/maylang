@@ -74,7 +74,11 @@ local assignment target. Break/continue select an enclosing loop in the same
 function. A caller's loop context cannot authorize control transfer in a callee.
 
 Conditional and short-circuit execution chooses the usual runtime path. While
-execution reevaluates its condition before each iteration. Static effect checking
+execution reevaluates its condition before each iteration. A range loop
+`for i: Int in a..b` (or `a..=b`) evaluates `a` then `b` once, then binds a fresh
+immutable `i` to each successive integer in its own body scope; a descending
+range is empty. Its private range list is not observable, like a Float box.
+Static effect checking
 does not prune untaken branches, false loops, or statements after control transfer.
 
 ## Static summaries and their fixed point

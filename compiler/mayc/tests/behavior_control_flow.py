@@ -84,6 +84,27 @@ print(root());
 }
 print(root());
 ''', '5\n'),
+            'range': ('''fun root(n: Int) -> Int ! pure {
+    mut total: Int = 0;
+    for i: Int in 0..n { total += i; }
+    for j in 1..=n {
+        if (j == 2) { continue; }
+        if (j > 4) { break; }
+        total += j * 10;
+    }
+    for k: Int in n..0 { total += 1000; }
+    return total;
+}
+print(root(5));
+''', '90\n'),
+            'range_effects': ('''fun stamp(i: Int) -> Int { print(i); return i; }
+fun root() -> Int ! {output} {
+    mut last: Int = 0;
+    for i: Int in stamp(1)..=stamp(2) { last = stamp(i * 10); }
+    return last;
+}
+print(root());
+''', '1\n2\n10\n20\n20\n'),
             'body_output': ('''fun helper() -> Int {
     mut n: Int = 0;
     while (n < 2) { print(n); n += 1; }
@@ -121,10 +142,19 @@ root();
             ('indirect_immutable', 'let time: Int = 1; return time();', 'indirect calls'),
             ('wrong_type', 'mut x: Int = 1; x = false; return x;', 'expected Int'),
             ('wrong_condition', 'while (1) {} return 0;', 'expected Bool'),
-            ('break_outside', 'break; return 0;', 'enclosing while loop'),
-            ('continue_outside', 'continue; return 0;', 'enclosing while loop'),
-            ('break_after_loop', 'while (false) {} break; return 0;', 'enclosing while loop'),
-            ('collection', 'for x: Int in 0..3 {} return 0;', 'supported scalar behavior subset'),
+            ('break_outside', 'break; return 0;', 'enclosing while or for loop'),
+            ('continue_outside', 'continue; return 0;', 'enclosing while or for loop'),
+            ('break_after_loop', 'while (false) {} break; return 0;', 'enclosing while or for loop'),
+            ('collection', 'for x: Int in [0, 1] {} return 0;', 'Int range'),
+            ('string_iterable', 'for c: Str in "ab" {} return 0;', 'Int range'),
+            ('range_variable', 'let r: List<Int> = 0..3; for x: Int in r {} return 0;', 'only Int, Bool and Float'),
+            ('range_assign', 'for x: Int in 0..3 { x = 1; } return 0;', 'immutable local `x`'),
+            ('range_scope', 'for x: Int in 0..3 {} return x;', 'global or captured value `x`'),
+            ('range_bound_global', 'for x: Int in 0..shared {} return 0;', 'global or captured value `shared`'),
+            ('range_bound_effect', 'for x: Int in 0..time() {} return 0;', 'effect `clock`'),
+            ('range_empty_body', 'for x: Int in 0..0 { print(x); } return 0;', 'effect `output`'),
+            ('range_after_break', 'for x: Int in 0..3 { break; print(x); } return 0;', 'effect `output`'),
+            ('range_destructure', 'for [a, b] in [[1, 2]] {} return 0;', 'MB-EFFECT-001'),
             ('map_body', 'while (false) {"value": 1} return 0;', 'supported scalar behavior subset'),
             ('empty_map_value', 'let x: Int = {}; return 0;', 'supported scalar behavior subset'),
             ('indexed_write', 'shared[0] = 1; return 0;', 'supported scalar behavior subset'),
@@ -137,7 +167,7 @@ root();
               error='call path: root -> predicate -> print]')
         check('callee_loop_depth', 'fun helper() -> Int { break; return 0; } '
               'fun root() -> Int ! pure { while (false) { helper(); } return 0; }',
-              error='enclosing while loop')
+              error='enclosing while or for loop')
         check('infinite', 'fun root() -> Int ! pure { while (true) {} return 0; }', options=('--check',))
         check('legacy', programs['sum'][0], error='requires strict', options=('--legacy', '--check'))
         check('raw', programs['sum'][0], options=('--raw', '--check'))

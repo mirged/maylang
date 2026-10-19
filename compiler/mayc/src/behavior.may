@@ -131,8 +131,26 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         BEHAVIOR_CURRENT.loopDepth -= 1;
         return 0;
     }
+    if (k == S_FOR) {
+        // Only literal Int ranges: their private list never escapes the loop,
+        // and the binding is an immutable Int. Collections remain unknown.
+        let range: Any = node.iterable;
+        if (range == 0 or range.kind != E_RANGE) { return behavior_error(node.span, "for loops must iterate over an Int range `a..b` or `a..=b`"); }
+        behavior_node(range.start, locals, functions);
+        behavior_node(range.end, locals, functions);
+        if (node.annotation != nil and node.annotation != 0) {
+            behavior_scalar(node.annotation, node.span);
+            if (node.annotation.name != "Int") { return behavior_error(node.span, "range loop variable must be Int"); }
+        }
+        let scope: Any = behavior_scope(locals);
+        scope[symbol_name(node.name, node.length)] = {"mutable": false, "annotation": {"name": "Int", "arguments": []}};
+        BEHAVIOR_CURRENT.loopDepth += 1;
+        behavior_node(node.body, scope, functions);
+        BEHAVIOR_CURRENT.loopDepth -= 1;
+        return 0;
+    }
     if (k == S_BREAK or k == S_CONT) {
-        if (BEHAVIOR_CURRENT.loopDepth == 0) { return behavior_error(node.span, "loop control requires an enclosing while loop"); }
+        if (BEHAVIOR_CURRENT.loopDepth == 0) { return behavior_error(node.span, "loop control requires an enclosing while or for loop"); }
         return 0;
     }
     if (k == S_LET) {
