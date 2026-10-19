@@ -6,6 +6,9 @@
   reported as an error instead of writing past the mapping (a program importing
   300 small modules crashed with a segmentation fault). `MAYC_ARENA_BYTES`
   selects the arena size ([#39](https://github.com/mirged/maylang/issues/39)).
+- Reserve only the bytes actually read for each source file instead of 1 MiB
+  per module, so programs with hundreds of imported modules compile in the
+  default arena.
 
 ## Tools
 

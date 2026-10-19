@@ -60,6 +60,18 @@ fun irt_alloc(n: Any) -> Any {
     return p;
 }
 
+fun irt_align(q: Any) -> Any {
+    let r: Any = q % 8;
+    return if (r != 0) { q + (8 - r) } else { q };
+}
+
+// Return the unused tail of an allocation of `size` bytes to the arena,
+// provided nothing has been allocated after it.
+fun irt_trim(p: Any, size: Any, used: Any) -> Any {
+    if (irt_align(p + size) == ARENAP and used >= 0 and used <= size) { ARENAP = irt_align(p + used); }
+    return p;
+}
+
 fun die(p: Any, n: Any) -> Any {
     syscall(1, 2, p, n);
     syscall(60, 1);
@@ -171,5 +183,6 @@ fun slurp(pp: Any, pl: Any) -> Any {
     syscall(3, fd);
     store8(b + off, 0);
     LASTLEN = off;
-    return b;
+    // Only the bytes read and the terminator stay reserved.
+    return irt_trim(b, 1048577, off + 1);
 }

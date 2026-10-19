@@ -89,6 +89,18 @@ def main():
         assert subprocess.run([str(binary)], capture_output=True, timeout=10).stdout == b'42\n'
         print('PASS bounded source arena: size override, exhaustion and mapping failure diagnostics')
 
+        # Source reads keep only their bytes, so many small modules fit the arena.
+        modules = work / 'modules'
+        modules.mkdir()
+        for index in range(400):
+            (modules / f'm{index}.may').write_text(f'fun f{index}() -> Int {{ return {index}; }}\n')
+        entry = modules / 'main.may'
+        entry.write_text(''.join(f'import "m{index}.may";\n' for index in range(400)) + 'print(f0() + f399());\n')
+        result = invoke(entry, env={**arena, 'MAYC_ARENA_BYTES': str(16 * 1024 * 1024)})
+        assert result.returncode == 0, result
+        assert subprocess.run([str(binary)], capture_output=True, timeout=10).stdout == b'399\n'
+        print('PASS source buffers are sized by content: 400 imported modules in a 16 MiB arena')
+
 
 if __name__ == '__main__':
     main()
