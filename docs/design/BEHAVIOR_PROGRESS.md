@@ -43,7 +43,11 @@ Completed checkpoints:
 Active increment: scalar conversion and mathematics primitive audit. Each
 admitted primitive needs a stated accepted-type set, dispatch, failure behavior
 and runtime body review, plus positive, missing-effect, shadowing and report
-tests. Unreviewed primitives remain unknown.
+tests. Unreviewed primitives remain unknown. Blocker found by the audit:
+`int`, `trunc`, `floor` and `round` silently return 0 for out-of-range or NaN
+inputs ([#89](https://github.com/mirged/maylang/issues/89)); fix that before
+admitting them. Behavior checking runs before strict typing, so admission also
+needs scalar argument-type inference inside the fragment (fail closed when unknown).
 
 Ongoing invariant: callable effects must survive every assignment,
 argument, return, substitution, and trust boundary; unannotated callable behavior

@@ -13,13 +13,14 @@ Retain the original sustained-GC report [#2](https://github.com/mirged/maylang/i
 Address source-reading/allocation bounds and reproduced workspace/installer failures
 before expanding related capabilities.
 
-- [ ] [#37: fix(compiler): reject or fully read source files above 1 MiB](https://github.com/mirged/maylang/issues/37)
-- [ ] [#38: fix(compiler): enforce import expansion buffer capacity](https://github.com/mirged/maylang/issues/38)
-- [ ] [#39: fix(compiler): bound source arena allocation and handle mmap failure](https://github.com/mirged/maylang/issues/39)
-- [ ] [#40: fix(may): include declared environment inputs in native cache identity](https://github.com/mirged/maylang/issues/40)
-- [ ] [#41: fix(may): skip non-executable entries during PATH lookup](https://github.com/mirged/maylang/issues/41)
-- [ ] [#42: fix(may): bound child shutdown and escalate after SIGTERM](https://github.com/mirged/maylang/issues/42)
-- [ ] [#43: fix(distribution): reject archive links that escape the toolchain bundle](https://github.com/mirged/maylang/issues/43)
+- [x] [#37: fix(compiler): reject or fully read source files above 1 MiB](https://github.com/mirged/maylang/issues/37)
+- [x] [#38: fix(compiler): enforce import expansion buffer capacity](https://github.com/mirged/maylang/issues/38)
+- [x] [#39: fix(compiler): bound source arena allocation and handle mmap failure](https://github.com/mirged/maylang/issues/39)
+- [x] [#40: fix(may): include declared environment inputs in native cache identity](https://github.com/mirged/maylang/issues/40)
+- [x] [#41: fix(may): skip non-executable entries during PATH lookup](https://github.com/mirged/maylang/issues/41)
+- [x] [#42: fix(may): bound child shutdown and escalate after SIGTERM](https://github.com/mirged/maylang/issues/42)
+- [ ] [#89: fix(runtime): fault on out-of-range Float to Int conversions](https://github.com/mirged/maylang/issues/89)
+- [x] [#43: fix(distribution): reject archive links that escape the toolchain bundle](https://github.com/mirged/maylang/issues/43)
 - [ ] [#44: feat(maybrowser): enforce network and decoded-image resource budgets](https://github.com/mirged/maylang/issues/44)
 
 ## Maintainability and contributor confidence
