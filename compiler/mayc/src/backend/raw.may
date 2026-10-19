@@ -68,6 +68,11 @@ fun raw_call(ctx: Any, emitter: Any, payload: Any) -> Any {
     let name: Any = symbol_name(payload.name, payload.length);
     let args: Any = payload.args;
     if (name == "__longjmp") { return raw_throw(ctx, emitter); }
+    if (name == "__fiber_stack") { return raw_fiber_stack(ctx, emitter, args); }
+    if (name == "__fib_switch") {
+        raw_get(ctx, emitter, args, 10); raw_get(ctx, emitter, args.next, 11);
+        (emitter.jump)(ctx, ctx.fiberLabel, true); (emitter.immediate)(ctx, 0, 0); return 0;
+    }
     if (ctx.runtime != "none" and (loc_find(ctx, payload.name, payload.length) >= 0 or glob_find(ctx, payload.name, payload.length) >= 0)) {
         raw_variable(ctx, emitter, payload.name, payload.length);
         return raw_apply(ctx, emitter, args);
@@ -272,6 +277,7 @@ fun raw_function(ctx: Any, emitter: Any, block: Any, rec: Any) -> Any {
 fun raw_program(ctx: Any, emitter: Any) -> Any {
     emission_begin(ctx);
     ctx.reachability.argCapacity = raw_capacity(ctx);
+    ctx.fiberLabel = newlab(ctx);
     placelab(ctx, 0);
     (emitter.jump)(ctx, 1, true);
     (emitter.immediate)(ctx, 0, 0);
@@ -283,6 +289,7 @@ fun raw_program(ctx: Any, emitter: Any) -> Any {
         let rec: Any = ctx.reachability.queue[next]; next += 1;
         raw_function(ctx, emitter, rec.ir, rec);
     }
+    if (ctx.reachability.fiber) { raw_fiber_emit(ctx); }
     emission_finish(ctx);
     return 0;
 }
@@ -299,6 +306,44 @@ fun raw_arguments(ctx: Any, emitter: Any, args: Any) -> Any {
 }
 
 fun raw_home(ctx: Any, slot: Any) -> Any { return (slot + ctx.allocation.localsBase) * 8; }
+
+fun raw_fiber_stack(ctx: Any, emitter: Any, args: Any) -> Any {
+    let frame: Any = if (ctx.target.arch == "arm64") { 96 } else { 112 };
+    let entry: Any = ctx.functionIndex["rt_fiber_entry"];
+    raw_get(ctx, emitter, args, 0); (emitter.immediate)(ctx, frame, 1); (emitter.binary)(ctx, TK_MINUS);
+    let slot: Any = raw_home(ctx, ctx.allocation.callSlot);
+    (emitter.store)(ctx, 0, -1, slot, 8); (emitter.move)(ctx, 2, 0); (emitter.immediate)(ctx, 0, 0);
+    for i: Any in 0..(frame / 8) { (emitter.store)(ctx, 0, 2, i * 8, 8); }
+    raw_code_address(ctx, emitter, entry.lab); (emitter.move)(ctx, 0, 2);
+    (emitter.load)(ctx, 2, -1, slot, 8);
+    (emitter.store)(ctx, 0, 2, if (ctx.target.arch == "arm64") { 88 } else { 0 }, 8);
+    (emitter.load)(ctx, 0, -1, slot, 8);
+    return 0;
+}
+
+fun raw_fiber_emit(ctx: Any) -> Any {
+    placelab(ctx, ctx.fiberLabel);
+    if (ctx.target.arch == "arm64") {
+        e32(ctx, 3506439167 + 96 * 1024); // sub sp,sp,96
+        for i: Any in 0..12 { e32(ctx, 4177526784 + i * 1024 + 31 * 32 + 19 + i); }
+        e32(ctx, 2432697321); e32(ctx, 4177526793); // mov x9,sp; str x9,[x0]
+        e32(ctx, 4181721129); e32(ctx, 2432696639); // ldr x9,[x1]; mov sp,x9
+        for i: Any in 0..12 { e32(ctx, 4181721088 + i * 1024 + 31 * 32 + 19 + i); }
+        e32(ctx, 2432697343 + 96 * 1024); e32(ctx, 3596551104); // add sp,sp,96; ret
+    } else {
+        let registers: Any = [1, 8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27];
+        e32(ctx, 19 + 2 * 128 + 2 * 32768 + (4096 - 112) * 1048576); // addi sp,sp,-112
+        for i: Any in 0..len(registers) {
+            let offset: Any = i * 8;
+            e32(ctx, 12323 + (offset % 32) * 128 + 2 * 32768 + registers[i] * 1048576 + (offset / 32) * 33554432);
+        }
+        e32(ctx, 12323 + 10 * 32768 + 2 * 1048576); // sd sp,0(a0)
+        e32(ctx, 12291 + 2 * 128 + 11 * 32768); // ld sp,0(a1)
+        for i: Any in 0..len(registers) { e32(ctx, 12291 + registers[i] * 128 + 2 * 32768 + i * 8 * 1048576); }
+        e32(ctx, 19 + 2 * 128 + 2 * 32768 + 112 * 1048576); e32(ctx, 32871); // addi sp,sp,112; ret
+    }
+    return 0;
+}
 
 // Each native handler owns [SP, FP, destination, callee-saved registers...].
 // Restoring only SP/FP would corrupt values held by callers when unwinding
@@ -455,7 +500,7 @@ fun raw_core_call(ctx: Any, emitter: Any, payload: Any) -> Any {
             return 0;
         }
     }
-    let builtins: Any = {"map": "rt_mapf", "filter": "rt_filter", "reduce": "rt_reduce", "any": "rt_any", "all": "rt_all", "count": "rt_count", "each": "rt_each", "times": "rt_times", "keys": "rt_keys", "values": "rt_values", "has": "rt_has", "merge": "rt_merge", "map_keys": "rt_keys", "map_values": "rt_values", "map_has": "rt_has", "len": "rt_len", "str": "rt_to_str", "str_of": "rt_to_str", "int_to_str": "rt_int_str", "int": "rt_int", "bool": "rt_bool", "push": "rt_push", "pop": "rt_pop", "slice": "rt_slice", "char_at": "rt_char_at", "char_from": "rt_char_from", "chr": "rt_chr", "ord": "rt_ord", "contains": "rt_contains", "starts_with": "rt_starts_with", "ends_with": "rt_ends_with", "split": "rt_split", "join": "rt_join", "index_of": "rt_index_of", "min": "rt_min", "max": "rt_max", "abs": "rt_abs", "pow": "rt_pow", "exit": "rt_exit", "fail": "rt_fail", "addr": "rt_addr", "cstr": "rt_cstr", "value_eq": "rt_eq", "str_cmp": "rt_str_cmp", "cmp": "rt_cmp", "to_lower": "rt_lower", "to_upper": "rt_upper"};
+    let builtins: Any = {"spawn": "rt_spawn", "yield": "rt_yield", "run": "rt_run", "map": "rt_mapf", "filter": "rt_filter", "reduce": "rt_reduce", "any": "rt_any", "all": "rt_all", "count": "rt_count", "each": "rt_each", "times": "rt_times", "keys": "rt_keys", "values": "rt_values", "has": "rt_has", "merge": "rt_merge", "map_keys": "rt_keys", "map_values": "rt_values", "map_has": "rt_has", "len": "rt_len", "str": "rt_to_str", "str_of": "rt_to_str", "int_to_str": "rt_int_str", "int": "rt_int", "bool": "rt_bool", "push": "rt_push", "pop": "rt_pop", "slice": "rt_slice", "char_at": "rt_char_at", "char_from": "rt_char_from", "chr": "rt_chr", "ord": "rt_ord", "contains": "rt_contains", "starts_with": "rt_starts_with", "ends_with": "rt_ends_with", "split": "rt_split", "join": "rt_join", "index_of": "rt_index_of", "min": "rt_min", "max": "rt_max", "abs": "rt_abs", "pow": "rt_pow", "exit": "rt_exit", "fail": "rt_fail", "addr": "rt_addr", "cstr": "rt_cstr", "value_eq": "rt_eq", "str_cmp": "rt_str_cmp", "cmp": "rt_cmp", "to_lower": "rt_lower", "to_upper": "rt_upper"};
     if (not has(builtins, name)) { diagnostic(payload.span, "`${name}` is not available in the core runtime"); }
     raw_arguments(ctx, emitter, payload.args); raw_invoke(ctx, emitter, builtins[name]);
     return 0;

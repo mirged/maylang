@@ -8,6 +8,12 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[3]
 
 CASES = {
+    'nil-result': ('print(yield()); spawn(fun() -> Nil { print(yield()); return nil; });'
+                   'run(); print(run());', 0, b'nil\nnil\nnil\n'),
+    'capacity': ('let work: Any = fun() -> Nil { return nil; };'
+                 'for i: Int in 0..128 { spawn(work); }'
+                 'print(may { spawn(work); "bad" } otherwise { str(err.message) });',
+                 0, b'fiber limit exceeded\n'),
     'handlers': ('''
 fun worker(id: Int) -> Nil {
     let result: Str = may {

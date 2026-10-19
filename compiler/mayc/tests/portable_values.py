@@ -7,6 +7,7 @@ import tempfile
 
 from backends import compile_source
 from core_runtime import emulate
+from fibers import CASES as FIBER_CASES
 
 HERE = Path(__file__).resolve().parent
 EXPECTED = ('9 4 42 -1\n'
@@ -24,6 +25,7 @@ CALL_EXPECTED = (b'42 10\n150 120\n3 4\n8\n10 11 12\n'
 FAULT_EXPECTED = (b'42\n["fail", "explicit"]\nrender\narithmetic\ntype\nfirst\nsecond\n'
                   b'7\n3 once\n4\nexception handler limit exceeded\nafter\n')
 DEBUG_EXPECTED = b'true true true\ntrue false true\ntrue\nfalse\n'
+FIBER_EXPECTED = b'true false\na a\ntrue false\nb b\nmain\n'
 
 
 def main():
@@ -40,9 +42,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix='mayc-portable-values-') as directory:
         work = Path(directory)
         for name, expected in [('portable_collections', EXPECTED), ('portable_calls', CALL_EXPECTED),
-                               ('portable_faults', FAULT_EXPECTED), ('portable_debug', DEBUG_EXPECTED)]:
+                               ('portable_faults', FAULT_EXPECTED), ('portable_debug', DEBUG_EXPECTED),
+                               ('portable_fibers', FIBER_EXPECTED)]:
             source = HERE / 'backend' / (name + '.may')
-            flags = ['--debug'] if name == 'portable_debug' else []
+            flags = ['--debug'] if name in ('portable_debug', 'portable_fibers') else []
             oracle = work / 'full'
             compile_source(options.compiler, source, oracle, *flags)
             result = subprocess.run([str(oracle)], capture_output=True, timeout=20)
@@ -73,6 +76,20 @@ def main():
                 if have_emulation:
                     emulate(image, target, expected, 70)
         print('PASS invalid callable values are rejected safely on every target', flush=True)
+        for name, (text, status, expected) in FIBER_CASES.items():
+            source = work / 'fibers.may'
+            source.write_text(text + '\nexit(0);\n')
+            if name == 'uncaught':
+                expected = b'worker\n'  # Core retains plain uncaught diagnostics.
+            for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
+                binary = work / target
+                image = compile_source(options.compiler, source, binary, '--runtime', 'core', '--target', target)
+                if target == 'x86_64-linux':
+                    result = subprocess.run([str(binary)], capture_output=True, timeout=20)
+                    assert (result.returncode, result.stdout, result.stderr) == (status, expected, b''), result
+                if have_emulation:
+                    emulate(image, target, expected, status)
+            print(f'PASS portable fiber isolation: {name}', flush=True)
 
 
 if __name__ == '__main__':

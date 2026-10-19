@@ -1,5 +1,7 @@
 # Unreleased
 
+- Support cooperative fibers on every native target with isolated handlers and
+  traces; return `nil` from `yield()` consistently with its declared type.
 - Support recoverable faults and debug traces on every native target; preserve
   callee-saved registers during unwinding and check the 64-handler limit.
 - Support closures, shared captures, callbacks, overloaded struct operators and

@@ -1984,6 +1984,7 @@ fun cg_store_dyn(ctx: Any, args: Any, width: Any) -> Any {
 
 fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     let platformName: Any = symbol_name(np, nl);
+    if (platformName == "__fiber_stack") { x86_core_fiber_stack(ctx, args); return 1; }
     if (platformName == "__host_write" or platformName == "__host_alloc" or platformName == "__host_exit") { x86_host(ctx, platformName, args); return 1; }
     if (ctx.runtime == "core" and ctx.mode == 1 and platformName == "exit") { cg_expr(ctx, args); call_rt1(ctx, addr("rt_exit"), 7); return 1; }
     if (ctx.runtime == "core" and ctx.mode == 1 and platformName == "pow") { cg_calln(ctx, addr("rt_pow"), 6, args); return 1; }

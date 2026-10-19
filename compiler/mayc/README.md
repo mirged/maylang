@@ -142,7 +142,8 @@ is explicit and does not depend on the host:
 | Closures, shared captures and higher-order calls | Yes | Yes | Yes | No injected callable runtime |
 | Floats | Yes | Yes | Rejected | Use raw storage/operations |
 | Recoverable faults and source traces | Yes | Yes | Yes; uncaught faults exit 70 | No injected runtime |
-| Fibers and typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
+| Cooperative fibers | Yes | Yes | Yes | No injected scheduler |
+| Typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
 | File/process/network libraries | Linux x86-64 | Linux x86-64 | Rejected | Explicit target OS calls |
 | Heap lifetime | Conservative GC | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
 
@@ -192,7 +193,10 @@ recursive local functions. Callback helpers include `map`, `filter`, `reduce`,
 `err.message` and `err.stack`; `--debug` includes function/source traces. Uncaught
 core faults retain the plain diagnostic and exit status 70. At most 64 handlers
 may be active; exhausting that capacity raises a catchable runtime fault.
-Floats, fibers and FFI still require the
+Fibers share the same `spawn`/`yield`/`run` API on all native targets and keep
+independent handlers, caught errors and traces. Each gets a 256 KiB stack;
+at most 128 may be created per process. `yield()` returns `nil`.
+Floats and FFI still require the
 full x86-64 Linux runtime; core compilation diagnoses unsupported operations
 before writing output. Use `--runtime core` on Linux for small portable programs
 and lower compilation overhead. Deploy the `runtime/` directory beside the

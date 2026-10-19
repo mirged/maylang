@@ -76,7 +76,7 @@ fun core_validate(ctx: Any) -> Any {
             }
             if (op == E_CALL) {
                 let name: Any = symbol_name(instruction.extra.name, instruction.extra.length);
-                let intrinsics: Any = ["map", "filter", "reduce", "any", "all", "count", "each", "times", "keys", "values", "has", "merge", "map_keys", "map_values", "map_has", "print", "len", "str", "str_of", "int_to_str", "int", "bool", "push", "pop", "slice", "char_at", "char_from", "chr", "ord", "contains", "starts_with", "ends_with", "split", "join", "index_of", "min", "max", "abs", "pow", "exit", "fail", "addr", "cstr", "ptr", "value_eq", "str_cmp", "cmp", "to_lower", "to_upper", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64"];
+                let intrinsics: Any = ["spawn", "yield", "run", "map", "filter", "reduce", "any", "all", "count", "each", "times", "keys", "values", "has", "merge", "map_keys", "map_values", "map_has", "print", "len", "str", "str_of", "int_to_str", "int", "bool", "push", "pop", "slice", "char_at", "char_from", "chr", "ord", "contains", "starts_with", "ends_with", "split", "join", "index_of", "min", "max", "abs", "pow", "exit", "fail", "addr", "cstr", "ptr", "value_eq", "str_cmp", "cmp", "to_lower", "to_upper", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64"];
                 if (backend_find_func(ctx, instruction.extra.name, instruction.extra.length) == 0 and not has(intrinsics, name) and not has(callables, name)) {
                     diagnostic(instruction.span, "`${name}` requires the full runtime");
                 }

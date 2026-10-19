@@ -220,8 +220,8 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   then the stdlib. The same resolved file expands only once. A module that
   marks any declaration `pub` exports only its `pub` names.
 - Maps, records, structs, enums and closures work in the core runtime on every
-  native target, including recoverable faults and debug traces. Floats, fibers
-  and FFI need the full
+  native target, including recoverable faults, debug traces and cooperative
+  fibers. Floats and FFI need the full
   x86-64 Linux runtime. The core runtime and the cross-compilation targets
   reject them.
 - Many older files (and much of the compiler) use `Any`-typed signatures.

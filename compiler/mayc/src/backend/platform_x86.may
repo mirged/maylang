@@ -1,6 +1,17 @@
 import "../emitter.may";
 import "../state.may";
+import "../symbols.may";
 import "x86_64.may";
+fun x86_core_fiber_stack(ctx: Any, args: Any) -> Any {
+    if (ctx.runtime != "core" or ctx.mode != 0) { die_str("mayc: fiber stack setup is internal to the core runtime\n"); }
+    cg_expr(ctx, args); e8(ctx, 72); e8(ctx, 131); e8(ctx, 232); e8(ctx, 56);
+    let slot: Any = loc_add(ctx, addr("0fiber"), 6); st_local(ctx, 8 * (slot + 1));
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 194); xor_eax(ctx);
+    for i: Any in 0..6 { e8(ctx, 72); e8(ctx, 137); e8(ctx, 66); e8(ctx, i * 8); }
+    let entry: Any = ctx.functionIndex["rt_fiber_entry"]; addr_lab(ctx, entry.lab, 6);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 66); e8(ctx, 48);
+    ld_local(ctx, 8 * (slot + 1)); return 0;
+}
 // Internal SysV functions adapt only these OS calls to Windows x64's four
 // argument registers, 32-byte shadow space and 16-byte call-site alignment.
 fun win_import_call(ctx: Any, index: Any) -> Any {

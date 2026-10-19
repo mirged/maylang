@@ -2355,7 +2355,7 @@ fun rt_spawn(fn: Any) -> Any {
 }
 
 fun rt_yield() -> Any {
-    if (FIB_CUR == 0) { return 0; }
+    if (FIB_CUR == 0) { return 2; }
     CSTOP = load64(FIB_CUR + 24);
     store64(FIB_CUR + 32, TRACE_STACK); store64(FIB_CUR + 40, TRACE_DEPTH);
     store64(FIB_CUR + 48, HSTACK); store64(FIB_CUR + 56, HDEPTH);
@@ -2368,7 +2368,7 @@ fun rt_yield() -> Any {
     HSTACK = load64(FIB_CUR + 48); HDEPTH = load64(FIB_CUR + 56);
     ERRVAL = load64(FIB_CUR + 64); ERRFLAG = load64(FIB_CUR + 72);
     CSTOP = load64(FIB_CUR + 24);
-    return 0;
+    return 2;
 }
 
 fun rt_run() -> Any {
