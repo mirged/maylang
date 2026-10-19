@@ -1634,7 +1634,88 @@ fun rt_pow(a: Any, b: Any) -> Any {
             return r * 8;
         }
     }
-    return __fpow2(rt_to_f(a), rt_to_f(b));
+    return rt_powf(a, b);
+}
+
+// C99 pow special cases around the x87 sequence, which only handles
+// positive finite bases. The `pow` builtin always returns a Float.
+fun rt_powf(a: Any, b: Any) -> Any {
+    if ((a % 8 != 0 and a % 8 != 6) or (b % 8 != 0 and b % 8 != 6)) { return rt_failtype(rt_from(addr("pow requires numbers"), 20)); }
+    return rt_fpow(rt_to_f(a), rt_to_f(b));
+}
+
+// 0 zero, 1 finite, 2 infinite, 3 NaN.
+fun rt_fkind(v: Any) -> Any {
+    let high: Any = load32(v - 2) % 2147483648;
+    let low: Any = load32(v - 6);
+    if (high >= 2146435072) {
+        if (high == 2146435072 and low == 0) { return 2; }
+        return 3;
+    }
+    if (high == 0 and low == 0) { return 0; }
+    return 1;
+}
+
+// -1 for a non-integer, 0 for an even integer, 1 for an odd integer.
+fun rt_fparity(v: Any) -> Any {
+    let kind: Any = rt_fkind(v);
+    if (kind == 0 or kind == 2) { return 0; }
+    if (kind == 3) { return -1; }
+    let high: Any = load32(v - 2) % 2147483648;
+    let e: Any = high / 1048576 - 1023;
+    if (e >= 53) { return 0; }
+    if (e < 0) { return -1; }
+    let mantissa: Any = (high % 1048576 + 1048576) * 4294967296 + load32(v - 6);
+    let unit: Any = power2(52 - e);
+    if (mantissa % unit != 0) { return -1; }
+    return (mantissa / unit) % 2;
+}
+
+fun rt_fsigned(negative: Any, high: Any) -> Any {
+    if (negative == 1) { return rt_const_hi_lo(high + 2147483648, 0); }
+    return rt_const_hi_lo(high, 0);
+}
+
+fun rt_fpow(x: Any, y: Any) -> Any {
+    let kx: Any = rt_fkind(x);
+    let ky: Any = rt_fkind(y);
+    if (ky == 0) { return rt_const_hi_lo(1072693248, 0); }
+    if (load32(x - 2) == 1072693248 and load32(x - 6) == 0) { return x; }
+    if (kx == 3 or ky == 3) { return rt_const_hi_lo(2146959360, 0); }
+    let nx: Any = if (load32(x - 2) >= 2147483648) { 1 } else { 0 };
+    let ny: Any = if (load32(y - 2) >= 2147483648) { 1 } else { 0 };
+    let parity: Any = rt_fparity(y);
+    let ax: Any = if (nx == 1) { __fabs(x) } else { x };
+    let ahigh: Any = load32(ax - 2);
+    if (ky == 2) {
+        if (ahigh == 1072693248 and load32(ax - 6) == 0) { return rt_const_hi_lo(1072693248, 0); }
+        let below: Any = if (ahigh < 1072693248) { 1 } else { 0 };
+        if (below == ny) { return rt_const_hi_lo(2146435072, 0); }
+        return rt_const_hi_lo(0, 0);
+    }
+    let odd: Any = if (nx == 1 and parity == 1) { 1 } else { 0 };
+    if (kx == 0) {
+        if (ny == 1) { return rt_fsigned(odd, 2146435072); }
+        return rt_fsigned(odd, 0);
+    }
+    if (kx == 2) {
+        if (ny == 1) { return rt_fsigned(odd, 0); }
+        return rt_fsigned(odd, 2146435072);
+    }
+    if (nx == 1 and parity < 0) { return rt_const_hi_lo(2146959360, 0); }
+    let result: Any = __fpow2(ax, y);
+    if (odd == 1) { return __fbin(2, result, rt_const_hi_lo(3220176896, 0)); }
+    return result;
+}
+
+// The x87 exponential sequence turns infinities into NaN.
+fun rt_exp(v: Any) -> Any {
+    let x: Any = rt_to_f(v);
+    if (rt_fkind(x) == 2) {
+        if (load32(x - 2) >= 2147483648) { return rt_const_hi_lo(0, 0); }
+        return x;
+    }
+    return __fexp(x);
 }
 
 fun rt_pop(l: Any) -> Any {

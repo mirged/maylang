@@ -214,6 +214,7 @@ def main():
                              ("list_guards.py", "dynamic list type and index guards"),
                              ("numeric_contracts.py", "numeric bounds and array lengths"),
                              ("float_literals.py", "correctly rounded float literals"),
+                             ("float_math.py", "transcendental functions and floating powers on every backend"),
                              ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
                              ("diagnostics.py", "structured diagnostics and recovery"),
                              ("debug_traces.py", "debug traces and fiber isolation"),

@@ -16,7 +16,7 @@ EXPECTED = (
     'éλ🙂 5 λ 955\n'
     'hi ababab hé,λ,🙂\n'
     'true true true\n'
-    '6 30 10 243 256\n'
+    '6 30 10 243 256.0\n'
     '564\n'
     '-1152921504606846976 -1152921504606846976\n'
     'heap 73 73\n'
@@ -182,7 +182,7 @@ def main():
             if have_emulation:
                 emulate(image, target, ARENA_EXPECTED, 0)
             print(f'PASS {target}: 1 GiB of cumulative arena scratch with constant retained heap', flush=True)
-        for body in ['print(sin(1.5));']:
+        for body in ['print(read_file("missing"));']:
             source = work / 'unsupported.may'; source.write_text(body)
             binary = work / 'unsupported'
             result = subprocess.run([str(options.compiler), '--runtime', 'core', str(source), '-o', str(binary)], capture_output=True)
@@ -192,8 +192,8 @@ def main():
             ('let n: Any = int("1152921504606846975"); print(n + 1);', b'integer overflow\n'),
             ('let n: Any = int("-1152921504606846976"); print(n / -1);', b'integer overflow\n'),
             ('let n: Any = 3; print(n / 0);', b'division by zero\n'),
-            ('print(pow(2.0, 3.0));', b'floating-point powers require the full runtime\n'),
-            ('print(2.0 ** 3.0);', b'floating-point powers require the full runtime\n'),
+            ('let s: Any = "2"; print(pow(s, 3));', b'pow requires numbers\n'),
+            ('let s: Any = "2"; print(2.0 ** s);', b'pow requires numbers\n'),
             ('let a: Ptr = arena_new(8); arena_alloc(a, 9);', b'arena capacity exceeded\n'),
             ('let a: Ptr = arena_new(8); arena_alloc(a, -1);', b'arena capacity exceeded\n'),
             ('arena_new(-1);', b'invalid arena capacity\n'),

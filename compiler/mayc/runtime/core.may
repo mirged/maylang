@@ -855,14 +855,18 @@ fun rt_neg(a: Any) -> Any {
 }
 fun rt_abs(a: Any) -> Any { if (a % 8 == 6) { return __fabs(a); } if (a < 0) { return rt_neg(a); } return a; }
 fun rt_pow(a: Any, b: Any) -> Any {
-    if (a % 8 == 6 or b % 8 == 6) { return rt_failtype(rt_from(addr("floating-point powers require the full runtime"), 46)); }
-    if (b < 0) { return rt_failarith(rt_from(addr("negative integer exponent"), 25)); }
+    if (a % 8 == 6 or b % 8 == 6 or (a % 8 == 0 and b % 8 == 0 and b < 0)) { return rt_powf(a, b); }
     mut out: Any = 8; mut base: Any = a; mut exponent: Any = b / 8;
     while (exponent > 0) {
         if (exponent % 2 == 1) { out = rt_mul(out, base); }
         exponent /= 2; if (exponent > 0) { base = rt_mul(base, base); }
     }
     return out;
+}
+// The `pow` builtin always produces a Float; `**` keeps integer powers exact.
+fun rt_powf(a: Any, b: Any) -> Any {
+    if ((a % 8 != 0 and a % 8 != 6) or (b % 8 != 0 and b % 8 != 6)) { return rt_failtype(rt_from(addr("pow requires numbers"), 20)); }
+    return __core_pow(a, b);
 }
 fun rt_int(s: Any) -> Any {
     if (s % 8 == 6) { return __ftrunc(load64(s - 6)) * 8; }

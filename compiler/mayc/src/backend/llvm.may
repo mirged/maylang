@@ -220,6 +220,7 @@ fun llvm_builtin(s: Any, name: Any, values: Any, nodes: Any) -> Any {
         mut ld: Any = llvm_double(s, l); mut rd: Any = llvm_double(s, r);
         mut result: Any = llvm_ssa(s, "call double @pow(double ${ld}, double ${rd})", "double"); return llvm_float_box(s, result);
     }
+    if (name == "__fexp") { return llvm_float_box(s, llvm_ssa(s, "call double @exp(double ${llvm_double(s, a)})", "double")); }
     if (name == "__fabs" or has(["sqrt", "floor", "ceil", "round", "trunc", "sin", "cos", "tan", "ln", "log2", "log10", "exp"], name)) {
         mut box: Any = a; if (name != "__fabs") { box = llvm_call(s, "rt_to_f", [a]); }
         mut d: Any = llvm_double(s, box); mut fn: Any = name;

@@ -2047,7 +2047,8 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (platformName == "__fiber_stack") { x86_core_fiber_stack(ctx, args); return 1; }
     if (platformName == "__host_write" or platformName == "__host_alloc" or platformName == "__host_exit") { x86_host(ctx, platformName, args); return 1; }
     if (ctx.runtime == "core" and ctx.mode == 1 and platformName == "exit") { cg_expr(ctx, args); call_rt1(ctx, addr("rt_exit"), 7); return 1; }
-    if (ctx.runtime == "core" and ctx.mode == 1 and platformName == "pow") { cg_calln(ctx, addr("rt_pow"), 6, args); return 1; }
+    if (ctx.mode == 1 and platformName == "pow") { cg_calln(ctx, addr("rt_powf"), 7, args); return 1; }
+    if (ctx.runtime != "core" and ctx.mode == 1 and platformName == "exp") { cg_expr(ctx, args); call_rt1(ctx, addr("rt_exp"), 6); return 1; }
     if (name_eq(np, nl, addr("__ccall6"), len("__ccall6")) == 1) { cg_ccall6(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__longjmp"), len("__longjmp")) == 1) { cg_longjmp(ctx); return 1; }
     if (name_eq(np, nl, addr("__sp"), len("__sp")) == 1) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 224); return 1; }
@@ -2063,6 +2064,7 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (name_eq(np, nl, addr("__fsign"), len("__fsign")) == 1) { cg_fsign(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__fabs"), len("__fabs")) == 1) { cg_f1op(ctx, 13, args); return 1; }
     if (name_eq(np, nl, addr("__fpow2"), len("__fpow2")) == 1) { cg_fpow2(ctx, args, args.next); return 1; }
+    if (platformName == "__fexp") { cg_f1op(ctx, 11, args); return 1; }
     if (name_eq(np, nl, addr("__fiber_entry"), len("__fiber_entry")) == 1) {
         let fr: Any = backend_find_func(ctx, addr("rt_fiber_entry"), len("rt_fiber_entry"));
         addr_lab(ctx, fr.lab, 6);
@@ -2877,6 +2879,7 @@ fun cg_pow2_seq(ctx: Any) -> Any {
 
 fun cg_f1op(ctx: Any, op: Any, x: Any) -> Any {
     cg_expr(ctx, x);
+    if (ctx.mode == 1 and op <= 11) { x86_float_operand(ctx); }
     mut boxed: Any = 1;
     if (op == 0) {
         e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);
@@ -2923,6 +2926,16 @@ fun cg_f1op(ctx: Any, op: Any, x: Any) -> Any {
         e8(ctx, 72); e8(ctx, 139); e8(ctx, 68); e8(ctx, 36); e8(ctx, 248);
     }
     if (boxed == 1) { call_rt1(ctx, addr("rt_box"), len("rt_box")); }
+    return 0;
+}
+
+// User code may pass an Int where the float intrinsics expect a boxed Float.
+fun x86_float_operand(ctx: Any) -> Any {
+    let ready: Any = newlab(ctx);
+    e8(ctx, 168); e8(ctx, 7); // test al, 7
+    jcc(ctx, 133, ready);
+    call_rt1(ctx, addr("rt_to_f"), len("rt_to_f"));
+    placelab(ctx, ready);
     return 0;
 }
 
