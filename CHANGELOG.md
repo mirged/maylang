@@ -15,6 +15,10 @@
 - `may dev` no longer hangs when replacing an application that ignores
   SIGTERM: the process group gets a two-second grace period, then SIGKILL
   ([#42](https://github.com/mirged/maylang/issues/42)).
+- `may` targets accept an `env` list of environment variables whose values
+  join the cache identity, so a native recipe that reads `CFLAGS` rebuilds when
+  it changes. Values are hashed, never stored in artifact metadata
+  ([#40](https://github.com/mirged/maylang/issues/40)).
 
 # Maylang 0.13.103 — Dahlia
 

@@ -89,8 +89,12 @@ pub fun artifact(ws: workspace.Workspace, name: Str, spec: Any, entry: Str) -> A
     let inputs: List<Str> = input_files(ws, spec, entry);
     let dependencies: Any = {};
     for dependency: Str in workspace.strings(spec.depends, "target depends") { dependencies[dependency] = (ws.built[dependency] ?? ({})).key; }
+    // Declared variables join the identity by value; unset (null) differs from empty.
+    let environment: Any = {};
+    for variable: Str in sort(workspace.strings(spec.env, "target env")) { environment[variable] = env(variable); }
     let salt: Str = json_stringify({"schema": 1, "target": spec, "entry": entry, "profile": ws.profile,
-        "flags": ws.config.profiles[ws.profile].flags, "dependencies": dependencies, "modules": ws.module_paths});
+        "flags": ws.config.profiles[ws.profile].flags, "dependencies": dependencies, "modules": ws.module_paths,
+        "environment": environment});
     let key: Str = workspace.digest(ws, inputs, salt);
     let directory: Str = ws.root + "/.may/store/" + key;
     let outputs: List<Str> = if (entry != "") { [name] } else { workspace.strings(spec.outputs, "target outputs") };

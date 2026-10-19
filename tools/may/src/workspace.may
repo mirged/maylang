@@ -26,6 +26,13 @@ pub fun valid_name(name: Str) -> Bool {
     }
     return true;
 }
+fun valid_variable(name: Str) -> Bool {
+    if (name == "" or (name[0] >= "0" and name[0] <= "9")) { return false; }
+    for c: Str in chars(name) {
+        if (not ((c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9") or c == "_")) { return false; }
+    }
+    return true;
+}
 fun fields(value: Any, allowed: List<Str>, label: Str) -> Nil {
     if (type(value) != "Map") { fail("may: " + label + " must be an object"); }
     for name: Str in names(value) { if (not has(allowed, name)) { fail("may: unknown " + label + " field: " + name); } }
@@ -63,12 +70,17 @@ pub fun load() -> Workspace {
     for name: Str in names(config.targets) {
         if (not valid_name(name)) { fail("may: invalid target name: " + name); }
         let spec: Any = config.targets[name];
-        fields(spec, ["kind", "entry", "root", "depends", "inputs", "outputs", "command", "target", "runtime", "flags"], "target " + name);
+        fields(spec, ["kind", "entry", "root", "depends", "inputs", "outputs", "command", "target", "runtime", "flags", "env"], "target " + name);
         if (not has(["app", "test", "native", "task"], spec.kind)) { fail("may: target kind must be app, test, native or task: " + name); }
         spec.depends = strings(spec.depends ?? [], "target depends");
         spec.flags = strings(spec.flags ?? [], "target flags");
         spec.inputs = strings(spec.inputs ?? [], "target inputs");
         spec.outputs = strings(spec.outputs ?? [], "target outputs");
+        spec.env = strings(spec.env ?? [], "target env");
+        if (spec.kind == "task" and len(spec.env) > 0) { fail("may: task targets always run; env applies to cached targets: " + name); }
+        for variable: Str in strings(spec.env, "target env") {
+            if (not valid_variable(variable)) { fail("may: invalid environment variable name in " + name + ": " + variable); }
+        }
         spec.target = spec.target ?? "x86_64-linux"; spec.runtime = spec.runtime ?? "full";
         if (type(spec.target) != "Str" or type(spec.runtime) != "Str") { fail("may: target/runtime must be strings"); }
         if (spec.kind == "app" and (type(spec.entry) != "Str" or spec.entry == "")) { fail("may: app target needs an entry: " + name); }
@@ -126,6 +138,10 @@ pub fun digest(ws: Workspace, inputs: List<Str>, salt: Str) -> Str {
     let command: List<Str> = ["sha256sum", "--zero", "--"];
     for path: Str in sort(inputs) { push(command, path); }
     mut content: Str = salt;
+    // The salt can hold declared environment values; keep the scratch file private.
+    let private_fd: Int = syscall(2, cstr(temporary), 524865, 384);
+    if (private_fd < 0) { fail("may: cannot create build identity file"); }
+    syscall(3, private_fd);
     if (len(inputs) > 0) {
         if (proc.capture(command, ws.root, [], temporary) != 0) { fail("may: cannot hash build inputs"); }
         content += read_file(temporary);

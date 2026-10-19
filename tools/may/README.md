@@ -59,6 +59,7 @@ and dependency cycles fail before commands run.
         "kind": "native",
         "inputs": ["tools/generate.py", "resources"],
         "outputs": ["data.txt"],
+        "env": ["CFLAGS"],
         "command": ["python3", "tools/generate.py", "{out}/data.txt"]
     },
     "app": {
@@ -76,11 +77,19 @@ root). Native inputs may name files or directories. Outputs are file names
 inside the staging directory; `artifact.json` and `output-hashes` are reserved.
 Generated native library directories become the application's library path.
 
+Commands inherit the whole environment, but only variables listed in a cached
+target's `env` (app, test or native) are part of its identity. Their values are
+hashed into the cache key, an unset variable differs from an empty one, and the
+values are never written to `artifact.json`. Declare every variable a recipe's
+output depends on, such as `CFLAGS` or `CC`; changes to undeclared variables
+reuse the cached artifact. Tasks always run, so they reject `env`.
+
 ## Build behavior
 
 Applications hash their transitive source imports, compiler, known launcher
 binary, runtime sidecars, workspace settings, profile and prerequisite keys.
-Native recipes hash their declared inputs and command executable. Output bytes
+Native recipes hash their declared inputs, command executable and declared
+environment variables. Output bytes
 are verified on cache reuse. Each completed artifact has a SHA-256 identity
 under `.may/store/`; a build lock serializes publication. Failed builds never
 publish an artifact or run an older binary. Changed inputs during compilation

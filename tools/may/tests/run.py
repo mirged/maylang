@@ -163,6 +163,49 @@ with tempfile.TemporaryDirectory(prefix='may-workspace-tests-') as directory:
     assert b'unreserved' in invoke(binary, native, 'build', ok=False).stderr
     print('PASS native recipes, declared-input invalidation, concurrent publication and pre-execution DAG validation', flush=True)
 
+    environment = work / 'environment'
+    invoke(binary, work, 'new', str(environment))
+    probe_target = {'kind': 'native', 'inputs': [], 'outputs': ['value'], 'env': ['AUDIT_CACHE_VALUE'],
+                    'command': ['sh', '-c', 'printf %s "${AUDIT_CACHE_VALUE-unset}" > "{out}/value"']}
+    manifest(environment, {'schema': 1, 'name': 'environment', 'default': 'probe', 'targets': {'probe': probe_target}})
+    def build_with(value, *args, extra=None):
+        variables = {key: item for key, item in ENV.items() if key != 'AUDIT_CACHE_VALUE'}
+        if value is not None:
+            variables['AUDIT_CACHE_VALUE'] = value
+        variables.update(extra or {})
+        stores = environment / '.may/store'
+        before = set(stores.iterdir()) if stores.exists() else set()
+        result = invoke(binary, environment, 'build', *args, env=variables)
+        cached = [line for line in result.stderr.decode().splitlines() if line.startswith('cached probe (')]
+        if cached:
+            key = cached[0].split('(')[1].rstrip(')')
+            store = next(p for p in stores.iterdir() if p.name.startswith(key))
+        else:
+            [store] = set(stores.iterdir()) - before
+        return result.stderr, (store / 'value').read_text(), store
+    log, value, store = build_with('first-secret-value')
+    assert b'build probe' in log and value == 'first-secret-value'
+    assert b'first-secret-value' not in (store / 'artifact.json').read_bytes()
+    assert b'cached probe' in build_with('first-secret-value', extra={'UNRELATED_VARIABLE': 'changed'})[0]
+    for expected in ('second', '', None):
+        log, value, _ = build_with(expected)
+        assert b'build probe' in log and value == (expected if expected is not None else 'unset'), (expected, log, value)
+    assert b'cached probe' in build_with(None)[0] and b'cached probe' in build_with('')[0]
+    log, value, _ = build_with('second', '--profile', 'release')
+    assert b'build probe' in log and value == 'second'
+    assert b'cached probe' in build_with('second', '--profile', 'release')[0]
+    assert b'cached probe' in build_with('second')[0]
+    assert not list((environment / '.may/tmp').glob('hash-*'))
+    for bad, message in ((['1BAD'], b'invalid environment variable name'), (['A-B'], b'invalid environment variable name'),
+                         ('CFLAGS', b'target env')):
+        manifest(environment, {'schema': 1, 'name': 'environment', 'default': 'probe',
+                               'targets': {'probe': {**probe_target, 'env': bad}}})
+        assert message in invoke(binary, environment, 'build', ok=False).stderr, bad
+    manifest(environment, {'schema': 1, 'name': 'environment', 'default': 'probe', 'targets': {
+        'probe': {'kind': 'task', 'command': ['true'], 'env': ['CFLAGS']}}})
+    assert b'task targets always run' in invoke(binary, environment, 'build', ok=False).stderr
+    print('PASS declared environment variables join native cache identity without storing values', flush=True)
+
     search = work / 'path search'
     invoke(binary, work, 'new', str(search))
     bins = {name: search / name for name in ('plain', 'directory', 'runnable', 'linked')}
