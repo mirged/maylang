@@ -8,6 +8,7 @@ import "../emitter.may";
 import "../symbols.may";
 import "../ir.may";
 import "../backend.may";
+import "../literals.may";
 import "x86_64.may";
 import "raw_float.may";
 // Shared IR lowering for raw and tagged portable programs. The emitter
@@ -171,11 +172,10 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
         }
         else if (op == E_FLOAT) {
             if (ctx.mode != 1) { diagnostic(instruction.span, "float literals require a tagged runtime"); }
-            let value: Any = float(symbol_name(payload.span.source + payload.start, payload.length));
-            let pointer: Any = addr(value);
-            (emitter.immediate)(ctx, load32(pointer + 4), 0);
+            let bits: Any = float_literal_bits(str(symbol_name(payload.span.source + payload.start, payload.length)));
+            (emitter.immediate)(ctx, bits[1], 0);
             (emitter.immediate)(ctx, 4294967296, 1); (emitter.binary)(ctx, TK_STAR);
-            (emitter.immediate)(ctx, load32(pointer), 1); (emitter.binary)(ctx, TK_PLUS);
+            (emitter.immediate)(ctx, bits[0], 1); (emitter.binary)(ctx, TK_PLUS);
             (emitter.move)(ctx, 10, 0); raw_invoke(ctx, emitter, "rt_box");
         }
         else if (op == E_STR or op == E_STRB) {

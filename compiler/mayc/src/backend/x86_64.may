@@ -9,6 +9,7 @@ import "../ast.may";
 import "../lexer.may";
 import "../sema.may";
 import "../ir.may";
+import "../literals.may";
 // backend/x86_64.may — x86-64 byte encoder for linear IR.
 //
 // Function bodies use the SysV integer ABI and aligned frames. Small entry
@@ -2724,9 +2725,8 @@ fun cg_operation(ctx: Any, n: Any) -> Any {
         if (ctx.mode == 0) { die_str("mayc: float in raw mode\n"); }
         // Parse literals once in the compiler. Emit their exact binary64 bits
         // and allocate a fresh runtime box, rather than reparsing every use.
-        let value: Any = float(symbol_name(n.span.source + n.start, n.length));
-        let address: Any = addr(value);
-        e8(ctx, 72); e8(ctx, 184); e32(ctx, load32(address)); e32(ctx, load32(address + 4));
+        let bits: Any = float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)));
+        e8(ctx, 72); e8(ctx, 184); e32(ctx, bits[0]); e32(ctx, bits[1]);
         call_rt1(ctx, addr("rt_box"), len("rt_box"));
     }
     else if (k == E_STRB) {

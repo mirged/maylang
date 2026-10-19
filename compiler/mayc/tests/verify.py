@@ -213,6 +213,7 @@ def main():
                              ("behavior_callbacks.py", "source callable ceilings and callback laundering rejection"),
                              ("list_guards.py", "dynamic list type and index guards"),
                              ("numeric_contracts.py", "numeric bounds and array lengths"),
+                             ("float_literals.py", "correctly rounded float literals"),
                              ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
                              ("diagnostics.py", "structured diagnostics and recovery"),
                              ("debug_traces.py", "debug traces and fiber isolation"),

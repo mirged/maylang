@@ -5,6 +5,7 @@ import "../lexer.may";
 import "../symbols.may";
 import "../sema.may";
 import "../emitter.may";
+import "../literals.may";
 // LLVM lowering owns its state and consumes the same linear IR as native targets.
 // Values retain Maylang's tagged representation. Runtime functions are lowered
 // as raw i64 operations; no source-to-C bridge or Rust compiler is involved.
@@ -248,8 +249,8 @@ fun llvm_operation(s: Any, op: Any, n: Any) -> Any {
     if (op == E_STRB) { return llvm_string(s, n.address, 0, n.length, false, s.raw); }
     if (op == E_VAR) { return llvm_name(s, symbol_name(n.name, n.length)); }
     if (op == E_FLOAT) {
-        mut number: Any = float(symbol_name(n.span.source + n.start, n.length)); mut p: Any = addr(number);
-        mut lo: Any = str(load32(p)); mut hi: Any = str(load32(p + 4));
+        mut literal: Any = float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)));
+        mut lo: Any = str(literal[0]); mut hi: Any = str(literal[1]);
         mut bits: Any = llvm_op(s, "or", llvm_op(s, "shl", hi, "32"), lo); return llvm_call(s, "rt_box", [bits]);
     }
     if (op == E_BIN) {
