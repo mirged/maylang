@@ -109,8 +109,14 @@ link failures preserve existing executable outputs.
 
 The experimental backend supports integer/float arithmetic, strings, lists/maps,
 functions, shared captures, pipelines, loops, interpolation, imports, and
-`may`/`otherwise`. It currently requires the full runtime on x86-64 Linux;
-`--raw`, core/none runtimes, extern functions, and fibers are rejected.
+`may`/`otherwise`, cooperative fibers, and typed extern functions. It currently
+requires the full runtime on x86-64 Linux; `--raw` and core/none runtimes are
+rejected. Extern declarations use the same checked scalar conversions as the
+native backend, including C stack arguments and first-class function values.
+Only reachable bindings are loaded, using `dlopen`/`dlsym` before user code;
+their libraries remain open until process exit. Missing libraries or symbols
+produce an uncaught runtime fault. Fibers retain independent exception handlers,
+caught errors and debug traces while suspended.
 `--check` does not require Clang. The regression script validates direct emission,
 compiler invocation, and observable behavior against the native backend.
 
@@ -126,7 +132,7 @@ is explicit and does not depend on the host:
 | `riscv64-linux` | ELF64 | Core runtime and `--raw` (RV64IM) |
 | `arm64-macos` | Mach-O ARM64 | Core runtime and `--raw`; sign on macOS |
 | `x86_64-windows` | PE32+ | Core runtime with kernel32 imports and `--raw` |
-| `clang-llvm` (experimental) | LLVM IR / ELF64 | Full runtime on x86-64 Linux; excludes FFI and fibers |
+| `clang-llvm` (experimental) | LLVM IR / ELF64 | Full runtime on x86-64 Linux |
 
 | Capability | Full native | Full LLVM | Core | Raw |
 | --- | --- | --- | --- | --- |
@@ -134,7 +140,7 @@ is explicit and does not depend on the host:
 | Allocated UTF-8 strings and lists | Yes | Yes | Yes | Literal strings and pointer operations |
 | Floats, maps/records and closures | Yes | Yes | Rejected | Use raw storage/operations |
 | Recoverable faults and source traces | Yes | Yes | Faults exit 70; tracing rejected | No injected runtime |
-| Fibers and typed extern functions | Yes | Rejected | Rejected | No full-runtime ABI |
+| Fibers and typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
 | File/process/network libraries | Linux x86-64 | Linux x86-64 | Rejected | Explicit target OS calls |
 | Heap lifetime | Conservative GC | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
 

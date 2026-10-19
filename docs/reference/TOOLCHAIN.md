@@ -22,7 +22,7 @@
 - `riscv64-linux` — ELF64 RV64IM with core or raw runtime.
 - `arm64-macos` — macOS 11+ Mach-O ARM64 PIE, loaded through dyld with core/raw runtime; ad-hoc signing required on macOS: `codesign --force --sign - output`.
 - `x86_64-windows` — PE32+ with core kernel32 imports or raw output.
-- `clang-llvm` — experimental direct LLVM IR and linked Linux x86-64 executable with the full Maylang runtime; does not support fibers, typed extern FFI, raw or core mode.
+- `clang-llvm` — experimental direct LLVM IR and linked Linux x86-64 executable with the full Maylang runtime, cooperative fibers and typed extern FFI; raw and core modes are unsupported.
 - LLVM executable generation requires Clang, linker and libc development files; `CLANG` chooses an alternative Clang executable. Emitting IR or checking sources does not require Clang.
 - Cross-target emission does not make the compiler itself run on another host. the [native target suite](../internals/NATIVE_TARGETS.md) runs signed macOS ARM64 and Windows x86-64 fixtures through real loaders; emulator checks separately cover all five direct targets.
 - Full runtime supports integers, boxed floats, UTF-8 strings, lists, maps, records, closures, structured errors, fibers and native C interfaces on Linux x86-64.

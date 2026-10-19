@@ -1,5 +1,9 @@
 # Unreleased
 
+- Support typed extern calls and cooperative fibers in the LLVM backend,
+  including C stack arguments, function values and isolated suspended handlers.
+- Preserve each fiber's caught error and exception handlers across yields, and
+  accept the C binding types `UInt` and `Void` under strict checking.
 - Lower signed power-of-two division and remainder up to 2^59 with shifts
   instead of `idiv` (#84).
 - Branch directly on RAW `and`/`or` conditions instead of materializing a
