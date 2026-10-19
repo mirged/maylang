@@ -36,6 +36,9 @@ to the full Maylang runtime. `--time` reports elapsed stage times to stderr.
 
 Individual input files, including imports, are limited to 1 MiB. The compiler
 rejects larger files with an error instead of compiling a truncated prefix.
+Source bytes and other raw frontend buffers live in a bounded arena of 256 MiB.
+The compiler reports an error when the arena cannot be mapped or is exhausted;
+set `MAYC_ARENA_BYTES` (4096 to 1099511627776) to choose another size.
 
 `--diagnostics json` writes a schema-versioned diagnostics object to stderr.
 Each diagnostic includes severity, stage, code, original file, message and a

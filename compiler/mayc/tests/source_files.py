@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Compiler source reads distinguish empty files, read failures and size limits."""
 import argparse
+import os
 from pathlib import Path
+import resource
 import subprocess
 import tempfile
 
@@ -18,9 +20,12 @@ def main():
         source = work / 'main.may'
         binary = work / 'program'
 
-        def invoke(path, *options):
+        def invoke(path, *options, env=None, limit=None):
+            def restrict():
+                resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
             return subprocess.run([str(compiler), *options, str(path), '-o', str(binary)],
-                                  capture_output=True, timeout=60)
+                                  capture_output=True, timeout=60, env=env,
+                                  preexec_fn=restrict if limit else None)
 
         for options in ([], ['--raw']):
             for path in (work / 'missing.may', work):
@@ -63,6 +68,26 @@ def main():
         assert result.returncode == 1 and b'input file exceeds 1 MiB limit' in result.stderr, result
         assert binary.read_bytes() == b'previous output'
         print('PASS exact source-size boundary and oversized main/import rejection')
+
+        source.write_text('print(42);\n')
+        arena = {**os.environ}
+        for value in ('abc', '4095', '12x', '1099511627777', '99999999999999999999'):
+            binary.write_bytes(b'previous output')
+            result = invoke(source, env={**arena, 'MAYC_ARENA_BYTES': value})
+            assert result.returncode == 1 and b'MAYC_ARENA_BYTES must be a byte count' in result.stderr, (value, result)
+            assert binary.read_bytes() == b'previous output'
+        for options in ([], ['--raw']):
+            result = invoke(source, *options, env={**arena, 'MAYC_ARENA_BYTES': '4096'})
+            assert result.returncode == 1 and b'source arena exhausted (4096 bytes)' in result.stderr, result
+            assert binary.read_bytes() == b'previous output'
+        # A 1 TiB arena cannot fit a 4 GiB address-space limit; the compiler itself does.
+        result = invoke(source, env={**arena, 'MAYC_ARENA_BYTES': str(1 << 40)}, limit=4 << 30)
+        assert result.returncode == 1 and b'cannot map the 1099511627776-byte source arena' in result.stderr, result
+        assert binary.read_bytes() == b'previous output'
+        result = invoke(source, env={**arena, 'MAYC_ARENA_BYTES': str(16 * 1024 * 1024)}, limit=4 << 30)
+        assert result.returncode == 0, result
+        assert subprocess.run([str(binary)], capture_output=True, timeout=10).stdout == b'42\n'
+        print('PASS bounded source arena: size override, exhaustion and mapping failure diagnostics')
 
 
 if __name__ == '__main__':

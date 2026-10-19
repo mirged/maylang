@@ -6,6 +6,7 @@
 
 mut ARENA: Any = 0;
 mut ARENAP: Any = 0;
+mut ARENA_END: Any = 0;
 mut SRC: Any = 0;
 mut SRCLEN: Any = 0;
 mut TOKS: Any = [];
@@ -25,14 +26,33 @@ mut BEHAVIOR_CALLABLES: Any = false;
 mut BEHAVIOR_CALLABLE_SPAN: Any = 0;
 mut DEBUG_TRACES: Any = false;
 
+// The source arena defaults to 256 MiB; MAYC_ARENA_BYTES overrides it.
+fun arena_size() -> Any {
+    let configured: Any = env("MAYC_ARENA_BYTES") ?? "";
+    if (configured == "") { return 268435456; }
+    mut size: Any = 0;
+    for c: Any in chars(configured) {
+        if (c < "0" or c > "9" or size > 109951162777) { die_str("mayc: MAYC_ARENA_BYTES must be a byte count from 4096 to 1099511627776\n"); }
+        size = size * 10 + ord(c) - 48;
+    }
+    if (size < 4096 or size > 1099511627776) { die_str("mayc: MAYC_ARENA_BYTES must be a byte count from 4096 to 1099511627776\n"); }
+    return size - size % 8;
+}
+
 fun irt_init() -> Any {
-    ARENA = syscall(9, 0, 268435456, 3, 34, 0 - 1, 0);
+    let size: Any = arena_size();
+    let mapped: Any = syscall(9, 0, size, 3, 34, 0 - 1, 0);
+    if (mapped < 0) { die_str("mayc: cannot map the ${size}-byte source arena; free memory, raise the address-space limit or set MAYC_ARENA_BYTES\n"); }
+    ARENA = mapped;
     ARENAP = ARENA;
+    ARENA_END = ARENA + size;
     return 0;
 }
 
 fun irt_alloc(n: Any) -> Any {
     let p: Any = ARENAP;
+    // Checking against the remaining space cannot overflow; the end is 8-aligned.
+    if (n < 0 or n > ARENA_END - p) { die_str("mayc: source arena exhausted (${ARENA_END - ARENA} bytes); set MAYC_ARENA_BYTES to a larger size\n"); }
     mut q: Any = p + n;
     let r: Any = q % 8;
     if (r != 0) { q = q + (8 - r); }

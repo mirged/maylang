@@ -1,5 +1,12 @@
 # Unreleased
 
+## Compiler
+
+- Bound the compiler's source arena: a failed mapping or an exhausted arena is
+  reported as an error instead of writing past the mapping (a program importing
+  300 small modules crashed with a segmentation fault). `MAYC_ARENA_BYTES`
+  selects the arena size ([#39](https://github.com/mirged/maylang/issues/39)).
+
 ## Tools
 
 - `mayfmt --help` and `mayfmt -h` print usage and exit 0 without reading or
