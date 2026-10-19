@@ -102,10 +102,31 @@ pub fun observe(pid: Int) -> Any {
     let status: Int = load32(buffer); syscall(11, buffer, 4096);
     return {"running": waited == 0, "exit": if (status % 128 != 0) { 128 + status % 128 } else { status / 256 % 256 }};
 }
+/// Milliseconds a stopped process group has to exit after SIGTERM before SIGKILL.
+pub let STOP_GRACE_MS: Int = 2000;
+/// Reaps `pid` without blocking (or blocking when `block`); true once it is gone.
+fun reap(pid: Int, block: Bool) -> Bool {
+    while (true) {
+        let waited: Int = syscall(61, pid, 0, if (block) { 0 } else { 1 }, 0);
+        if (waited == -4) { continue; }
+        return waited == pid or waited == -10;
+    }
+    return true;
+}
+/// Stops a spawned command and its process group: SIGTERM, a bounded grace
+/// period, then SIGKILL for anything left. Safe to call on a reaped PID.
 pub fun stop(pid: Int) -> Nil {
     if (pid <= 0) { return; }
     syscall(62, 0 - pid, 15); syscall(62, pid, 15);
-    syscall(61, pid, 0, 0, 0); return;
+    mut leader: Bool = false; mut waited: Int = 0;
+    while (waited < STOP_GRACE_MS) {
+        if (not leader) { leader = reap(pid, false); }
+        if (leader and syscall(62, 0 - pid, 0) != 0) { return; }
+        sleep(20); waited += 20;
+    }
+    syscall(62, 0 - pid, 9); syscall(62, pid, 9);
+    if (not leader) { reap(pid, true); }
+    return;
 }
 pub fun require(argv: List<Str>, directory: Str, variables: List<Str>) -> Nil {
     let status: Int = run(argv, directory, variables);

@@ -200,6 +200,26 @@ with tempfile.TemporaryDirectory(prefix='may-workspace-tests-') as directory:
     invoke(binary, search, 'build')
     print('PASS PATH search skips non-executable files and directories; explicit-path and exhaustion diagnostics', flush=True)
 
+    probe_source = work / 'stop_probe.may'
+    probe_source.write_text(f'import "{ROOT}/tools/may/src/process.may" as proc;\n'
+                            'let argv: List<Str> = args();\n'
+                            'let child: Int = proc.spawn(["sh", "-c", argv[1]], ".", []);\n'
+                            'sleep(300); proc.stop(child); proc.stop(child);\n'
+                            'print(syscall(62, 0 - child, 0) != 0);\n')
+    probe = work / 'stop_probe'
+    subprocess.run([ENV['MAYC'], str(probe_source), '-o', str(probe)], cwd=work, env=ENV, check=True, timeout=120)
+    stubborn = "trap '' TERM; (trap '' TERM; exec sleep 1000) & while :; do sleep 1; done"
+    for script, slowest in ((stubborn, 6.0), ('exit 0', 1.5), ('sleep 1000', 1.5),
+                            ('sleep 1000 & sleep 1000 & wait', 1.5)):
+        started = time.monotonic()
+        result = subprocess.run([str(probe), script], cwd=work, env=ENV, capture_output=True, timeout=20)
+        elapsed = time.monotonic() - started
+        assert result.returncode == 0 and result.stdout == b'true\n', (script, result)
+        assert elapsed < slowest, (script, elapsed)
+        if script == stubborn:
+            assert elapsed >= 2.0, ('SIGKILL before the grace period', elapsed)
+    print('PASS bounded stop escalates to SIGKILL, empties the process group and tolerates repeated calls', flush=True)
+
     watched = work / 'watched'
     invoke(binary, work, 'new', str(watched))
     source = watched / 'src/main.may'

@@ -12,6 +12,9 @@
   native recipe and task commands, and reports explicit paths that are missing,
   not regular files or not executable separately from PATH exhaustion
   ([#41](https://github.com/mirged/maylang/issues/41)).
+- `may dev` no longer hangs when replacing an application that ignores
+  SIGTERM: the process group gets a two-second grace period, then SIGKILL
+  ([#42](https://github.com/mirged/maylang/issues/42)).
 
 # Maylang 0.13.103 — Dahlia
 

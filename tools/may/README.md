@@ -106,6 +106,8 @@ This release supports local dependencies, with no central package registry.
 - `may fmt [--check]`: shared CLI/editor formatting for workspace sources.
 - `may dev [TARGET] -- ARGS`: watch declared inputs and restart after a complete
   successful build; a failed edit leaves the previous application running.
+  The replaced application's process group gets SIGTERM and two seconds to
+  exit before SIGKILL, so a program that ignores SIGTERM cannot stall reloads.
 - `may doctor`: show workspace, compiler, stdlib, profile and compiler version.
 - `may lock`: refresh explicitly declared local dependency pins.
 - `may clean`: remove `.may/`, preserving source and configuration.
