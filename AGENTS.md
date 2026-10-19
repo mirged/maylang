@@ -246,10 +246,10 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 
 ## Generated documentation
 
-- `docs/reference/` is mostly generated. `STDLIB.md`, `SYNTAX.md`, the
+- `docs/reference/` is mostly generated. `STDLIB.md`, `SYNTAX.md`, `RUNTIME.md`, the
   `stdlib/*.md` module pages and `inventory.json` come from source declarations,
   `docs/reference/descriptions.json` and `tools/maylsp/docs/reference.json`.
-  `LANGUAGE.md`, `RUNTIME.md`, `TOOLCHAIN.md` and `EXAMPLES.md` are edited by
+  `LANGUAGE.md`, `TOOLCHAIN.md` and `EXAMPLES.md` are edited by
   hand.
 - Every reference page is list-only: each nonblank line is a top-level
   `- ` bullet, with no headings, tables or fenced code.

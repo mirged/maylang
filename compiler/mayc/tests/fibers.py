@@ -8,8 +8,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[3]
 
 CASES = {
-    'nil-result': ('print(yield()); spawn(fun() -> Nil { print(yield()); return nil; });'
-                   'run(); print(run());', 0, b'nil\nnil\nnil\n'),
+    'nil-result': ('let first: Nil = yield(); print(first);'
+                   'spawn(fun() -> Nil { let result: Nil = yield(); print(result); return result; });'
+                   'run(); let drained: Nil = run(); print(drained);', 0, b'nil\nnil\nnil\n'),
     'capacity': ('let work: Any = fun() -> Nil { return nil; };'
                  'for i: Int in 0..128 { spawn(work); }'
                  'print(may { spawn(work); "bad" } otherwise { str(err.message) });',
@@ -74,6 +75,13 @@ def main():
                 result = subprocess.run([str(binary)], capture_output=True, timeout=20)
                 assert (result.returncode, result.stdout, result.stderr) == (status, output, b''), (name, target, result)
                 print(f'PASS {target} fibers: {name}', flush=True)
+        source = work / 'invalid-result.may'
+        source.write_text('let wrong: Int = run(); print(wrong);')
+        output = work / 'invalid-result'
+        result = subprocess.run([str(args.compiler.resolve()), str(source), '-o', str(output)],
+                                capture_output=True, timeout=120)
+        assert result.returncode != 0 and b'expected Int, found Nil' in result.stderr and not output.exists(), result
+        print('PASS scheduler result types reject integer bindings', flush=True)
 
 
 if __name__ == '__main__':

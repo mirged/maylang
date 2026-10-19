@@ -827,14 +827,14 @@ let LS_REFERENCE: Any = {
         }
     },
     "yield": {
-        "signature": "yield()",
-        "docs": "Suspend the current cooperative fiber so another scheduled fiber can run. Outside a fiber it has no scheduling effect.\n\n**Returns:** A runtime scheduling result.\n\n**Example**\n```may\nspawn(fun() -> Any { print(\"first\"); yield(); return print(\"again\"); });\nrun();\n```",
+        "signature": "yield() -> Nil",
+        "docs": "Suspend the current cooperative fiber so another scheduled fiber can run. Outside a fiber it has no scheduling effect.\n\n**Returns:** Nil.\n\n**Example**\n```may\nspawn(fun() -> Any { print(\"first\"); yield(); return print(\"again\"); });\nrun();\n```",
         "params": [],
         "parameterDocs": {}
     },
     "run": {
-        "signature": "run()",
-        "docs": "Execute scheduled cooperative fibers until they finish. Fibers yield explicitly with `yield()`.\n\n**Returns:** A runtime scheduling result.\n\n**Example**\n```may\nspawn(fun() -> Any { return print(\"hello\"); });\nrun();\n```",
+        "signature": "run() -> Nil",
+        "docs": "Execute scheduled cooperative fibers until they finish. Fibers yield explicitly with `yield()`.\n\n**Returns:** Nil.\n\n**Example**\n```may\nspawn(fun() -> Any { return print(\"hello\"); });\nrun();\n```",
         "params": [],
         "parameterDocs": {}
     },

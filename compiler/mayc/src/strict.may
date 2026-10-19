@@ -441,7 +441,7 @@ fun st_builtin(name: Any, args: Any, span: Any) -> Any {
         st_arity(name, args, if (name == "yield" or name == "run") { 0 } else { 1 }, if (name == "yield" or name == "run") { 0 } else { 1 }, span);
         if (name == "fail") { st_dynamic_require(st_type("Str", []), args[0], span); }
         if (name == "exit" or name == "sleep") { st_dynamic_require(st_type("Int", []), args[0], span); }
-        return st_type(if (name == "exit" or name == "fail") { "Never" } else if (name == "sleep") { "Nil" } else { "Int" }, []);
+        return st_type(if (name == "exit" or name == "fail") { "Never" } else { "Nil" }, []);
     }
     if (has(["sqrt", "sin", "cos", "tan", "ln", "log2", "log10", "exp", "floor", "ceil", "round", "trunc", "abs"], name)) {
         st_arity(name, args, 1, 1, span); st_number(args[0], span);
