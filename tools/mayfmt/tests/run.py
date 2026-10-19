@@ -59,4 +59,16 @@ with tempfile.TemporaryDirectory(prefix='mayfmt-test-') as directory:
     original = invalid.read_bytes()
     result = run(formatter, invalid, expected=70)
     assert b'unterminated string' in result.stdout and invalid.read_bytes() == original
+    unformatted = work / 'help-untouched.may'
+    unformatted.write_text('print( 1 );')
+    help_original = unformatted.read_bytes()
+    for flags in (['--help'], ['-h'], [work / 'missing.may', '--help'], [unformatted, '-h']):
+        result = run(formatter, *flags)
+        assert b'usage: mayfmt' in result.stdout and b'--check' in result.stdout, (flags, result.stdout)
+    assert unformatted.read_bytes() == help_original
+    assert b'usage: mayfmt' in run(formatter, expected=2).stdout
+    result = run(formatter, unformatted, '--bogus', expected=70)
+    assert b'unknown option --bogus' in result.stdout + result.stderr
+    assert unformatted.read_bytes() == help_original
+    print('PASS help flags and usage errors')
     print('PASS formatter semantics, typed patterns, Unicode/interpolation, comments, idempotence and safe failure')

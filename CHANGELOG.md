@@ -1,3 +1,11 @@
+# Unreleased
+
+## Tools
+
+- `mayfmt --help` and `mayfmt -h` print usage and exit 0 without reading or
+  writing files, and unknown options are rejected before any file is
+  formatted ([#64](https://github.com/mirged/maylang/issues/64)).
+
 # Maylang 0.13.103 — Dahlia
 
 Released 2026-10-19 UTC. The portable native runtime gains collections,
