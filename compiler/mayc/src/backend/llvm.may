@@ -136,12 +136,23 @@ fun llvm_builtin(s: Any, name: Any, values: Any, nodes: Any) -> Any {
         return llvm_ssa(s, "ptrtoint ptr ${p} to i64", "i64");
     }
     if (name == "__longjmp") { llvm_line(s, "  call void @may_throw()"); return "0"; }
-    if (name == "__fib_switch" or name == "__fiber_entry") {
-        // These raw runtime paths are unreachable unless their unsupported
-        // public operation is requested, which is rejected during lowering.
-        llvm_line(s, "  call void @llvm.trap()"); return "0";
+    if (name == "__fiber_entry") {
+        emission_reference(s.unit.ctx, s.unit.ctx.functionIndex["rt_fiber_entry"].lab);
+        s.unit.fibers = true;
+        return "ptrtoint (ptr @may_fiber_entry to i64)";
     }
-    if (name == "spawn" or name == "yield" or name == "run" or name == "__ccall6") { die_str("mayc: LLVM does not yet support fibers or foreign calls\n"); }
+    if (name == "__fib_switch") {
+        s.unit.fibers = true;
+        llvm_line(s, "  call void @may_fib_switch(i64 ${a}, i64 ${values[1]})");
+        return "0";
+    }
+    if (name == "__ccall6") {
+        let fn: Any = llvm_pointer(s, llvm_op(s, "ashr", a, "3"));
+        let args: Any = [];
+        for i: Any in 1..len(values) { push(args, "i64 " + llvm_op(s, "ashr", values[i], "3")); }
+        let result: Any = llvm_ssa(s, "call i64 ${fn}(${join(args, ", ")})", "i64");
+        return llvm_op(s, "shl", result, "3");
+    }
     if (name == "syscall") { return llvm_syscall(s, values, not s.raw); }
     if (name == "exit") {
         if (not s.raw) { a = llvm_op(s, "ashr", a, "3"); }
@@ -297,6 +308,73 @@ fun llvm_operation(s: Any, op: Any, n: Any) -> Any {
     if (op == E_POW) { return llvm_call(s,"rt_pow",[llvm_value(s,n.left),llvm_value(s,n.right)]); }
     die_str("mayc: LLVM unsupported IR operation ${op}\n"); return "0";
 }
+fun llvm_ffi_type(kind: Any) -> Any {
+    return ["i64", "i64", "i32", "i32", "double", "float", "ptr", "ptr", "i1", "void"][kind];
+}
+
+// Resolve declarations by library as well as symbol: aliases from different
+// libraries must not accidentally bind to the first global symbol of that name.
+fun llvm_foreign(s: Any) -> Any {
+    let rec: Any = s.rec;
+    let library: Any = llvm_string(s, addr(rec.library), 0, len(rec.library), false, true);
+    let symbol: Any = llvm_string(s, addr(rec.symbol), 0, len(rec.symbol), false, true);
+    let slot: Any = "@foreign${rec.lab}";
+    push(s.unit.foreign, "${slot} = internal global ptr null, align 8");
+    let cached: Any = llvm_ssa(s, "load ptr, ptr ${slot}, align 8", "ptr");
+    let empty: Any = llvm_ssa(s, "icmp eq ptr ${cached}, null", "i1");
+    llvm_line(s, "  br i1 ${empty}, label %resolve, label %ready\nresolve:");
+    let handle: Any = llvm_ssa(s, "call ptr @dlopen(ptr inttoptr (i64 ${library} to ptr), i32 2)", "ptr");
+    let failed: Any = llvm_ssa(s, "icmp eq ptr ${handle}, null", "i1");
+    llvm_line(s, "  br i1 ${failed}, label %failed, label %lookup\nlookup:");
+    let found: Any = llvm_ssa(s, "call ptr @dlsym(ptr ${handle}, ptr inttoptr (i64 ${symbol} to ptr))", "ptr");
+    let missing: Any = llvm_ssa(s, "icmp eq ptr ${found}, null", "i1");
+    llvm_line(s, "  store ptr ${found}, ptr ${slot}, align 8");
+    llvm_line(s, "  br i1 ${missing}, label %failed, label %ready\nfailed:");
+    let message: Any = "cannot resolve extern ${rec.library}: ${rec.symbol}";
+    let error: Any = llvm_string(s, addr(message), 0, len(message), false, false);
+    llvm_call(s, "rt_failstr", [error]);
+    llvm_line(s, "  unreachable\nready:");
+    let resolved: Any = llvm_ssa(s, "load ptr, ptr ${slot}, align 8", "ptr");
+    llvm_line(s, "  ret ptr ${resolved}");
+    let resolver: Any = ["define internal ptr @may_resolve${rec.lab}() noinline {\nentry:",
+        "  %argv = alloca [${s.unit.argCount} x i64], align 8"];
+    for i: Any in 0..s.roots { push(resolver, "  %r${i} = alloca i64, align 8\n  store volatile i64 0, ptr %r${i}, align 8"); }
+    push(resolver, join(s.lines, "\n")); push(resolver, "}\n");
+    push(s.unit.resolvers, join(resolver, "\n"));
+    push(s.unit.initializers, "  call ptr @may_resolve${rec.lab}()");
+    s.lines = []; s.serial = 0; s.roots = 0;
+    let fn: Any = llvm_ssa(s, "load ptr, ptr ${slot}, align 8", "ptr");
+    let args: Any = [];
+    for i: Any in 0..rec.pc {
+        let p: Any = llvm_ssa(s, "getelementptr i64, ptr %incoming, i64 ${i}", "ptr");
+        let tagged: Any = llvm_load(s, p);
+        let kind: Any = rec.ffiArgs[i]; let ty: Any = llvm_ffi_type(kind);
+        mut value: Any = llvm_call(s, "rt_ffi_arg", [tagged, str(kind)]);
+        if (kind == 4 or kind == 5) {
+            value = llvm_ssa(s, "bitcast i64 ${value} to double", "double");
+            if (kind == 5) { value = llvm_ssa(s, "fptrunc double ${value} to float", "float"); }
+        } else if (kind == 6 or kind == 7) { value = llvm_pointer(s, value); }
+        else if (kind == 2 or kind == 3 or kind == 8) { value = llvm_ssa(s, "trunc i64 ${value} to ${ty}", ty); }
+        mut attribute: Any = ""; if (kind == 8) { attribute = " zeroext"; }
+        push(args, "${ty}${attribute} ${value}");
+    }
+    let kind: Any = rec.ffiResult; let ty: Any = llvm_ffi_type(kind);
+    mut value: Any = "0";
+    if (kind == 9) { llvm_line(s, "  call void ${fn}(${join(args, ", ")})"); }
+    else {
+        mut attribute: Any = ""; if (kind == 8) { attribute = "zeroext "; }
+        value = llvm_ssa(s, "call ${attribute}${ty} ${fn}(${join(args, ", ")})", ty);
+        if (kind == 5) { value = llvm_ssa(s, "fpext float ${value} to double", "double"); }
+        if (kind == 4 or kind == 5) { value = llvm_ssa(s, "bitcast double ${value} to i64", "i64"); }
+        else if (kind == 6 or kind == 7) { value = llvm_ssa(s, "ptrtoint ptr ${value} to i64", "i64"); }
+        else if (kind == 2) { value = llvm_ssa(s, "sext i32 ${value} to i64", "i64"); }
+        else if (kind == 3 or kind == 8) { value = llvm_ssa(s, "zext ${ty} ${value} to i64", "i64"); }
+    }
+    let result: Any = llvm_call(s, "rt_ffi_result", [value, str(kind)]);
+    llvm_line(s, "  ret i64 ${result}");
+    return 0;
+}
+
 fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
     mut block: Any = rec.ir;
     mut s: Any = {"unit":unit,"rec":rec,"raw":rec.mode == 1,"locals":{},"boxed":{},"lines":[],"serial":0,"roots":0};
@@ -308,12 +386,14 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
         if (q.op == IR_LABEL) { labels[str(q.extra)] = i; }
         if (q.op == S_LET and q.extra.global == 0) { llvm_local(s,symbol_name(q.extra.name,q.extra.length)); }
     }
-    if (main) {
+    if (rec.foreign == true) { llvm_foreign(s); }
+    else if (main) {
         mut stack: Any = llvm_ssa(s,"call ptr @llvm.frameaddress.p0(i32 0)","ptr");
         llvm_store(s,llvm_slot(s,"STACKTOP"),llvm_ssa(s,"ptrtoint ptr ${stack} to i64","i64"));
         llvm_store(s,llvm_slot(s,"INITIAL_ENVP"),llvm_ssa(s,"ptrtoint ptr %envp to i64","i64"));
         llvm_call(s,"rt_init",[]);
         for pointer: Any in values(unit.globals) { llvm_call(s,"rt_gc_root",["ptrtoint (ptr ${pointer} to i64)"]); }
+        llvm_line(s, "  call void @may_ffi_init()");
     } else {
         for i: Any in 0..rec.pc {
             mut p: Any = llvm_ssa(s,"getelementptr i64, ptr %incoming, i64 ${i}","ptr");
@@ -322,7 +402,7 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
             llvm_store(s,llvm_slot(s,name),value);
         }
     }
-    llvm_line(s,"  br label %b0");
+    if (rec.foreign != true) { llvm_line(s,"  br label %b0"); }
     for i: Any in 0..len(block.code) {
         mut q: Any = block.code[i]; mut op: Any = q.op; mut n: Any = q.extra; mut next: Any = "b${i+1}";
         llvm_line(s,"b${i}:"); mut value: Any = "0"; mut terminates: Any = false;
@@ -356,7 +436,8 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
             llvm_line(s,"  br i1 ${ok}, label %try${i}, label %overflow${i}");
             llvm_line(s,"overflow${i}:"); llvm_line(s,"  call void @llvm.trap()"); llvm_line(s,"  unreachable");
             llvm_line(s,"try${i}:");
-            mut handler: Any = llvm_ssa(s,"getelementptr [64 x [256 x i8]], ptr @may_handlers, i64 0, i64 ${depth}","ptr");
+            mut base: Any = llvm_load(s,llvm_slot(s,"HSTACK"));
+            mut handler: Any = llvm_pointer(s,llvm_op(s,"add",base,llvm_op(s,"mul",depth,"256")));
             llvm_store(s,hd,llvm_op(s,"add",depth,"1"));
             mut result: Any = llvm_ssa(s,"call i32 @_setjmp(ptr ${handler})","i32");
             mut test: Any = llvm_ssa(s,"icmp ne i32 ${result}, 0","i1");
@@ -382,8 +463,10 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
         if (q.result != 0) { llvm_store(s,"%t${q.result.slot}",value); }
         if (not terminates) { llvm_line(s,"  br label %${next}"); }
     }
-    llvm_line(s,"b${len(block.code)}:");
-    if (main) { llvm_line(s,"  ret i32 0"); } else { llvm_line(s,"  ret i64 0"); }
+    if (rec.foreign != true) {
+        llvm_line(s,"b${len(block.code)}:");
+        if (main) { llvm_line(s,"  ret i32 0"); } else { llvm_line(s,"  ret i64 0"); }
+    }
     mut out: Any = [];
     if (main) { push(out,"define i32 @main(i32 %argc, ptr %argv0, ptr %envp) noinline {\nentry:"); }
     else {
@@ -399,9 +482,8 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
     push(out,join(s.lines,"\n")); push(out,"}\n"); return join(out,"\n");
 }
 fun llvm_emit(ctx: Any) -> Any {
-    if (len(ctx.foreign) > 0) { die_str("mayc: LLVM does not yet support extern functions\n"); }
     emission_begin(ctx);
-    mut unit: Any = {"ctx":ctx,"globals":{},"strings":[],"argCount":8};
+    mut unit: Any = {"ctx":ctx,"globals":{},"strings":[],"argCount":8,"foreign":[],"resolvers":[],"initializers":[],"fibers":false};
     for g: Any in ctx.globals { unit.globals[symbol_name(g.p,g.l)] = "@g${len(unit.globals)}"; }
     for rec: Any in ctx.functions {
         if (rec.pc > unit.argCount) { unit.argCount = rec.pc; }
@@ -414,7 +496,7 @@ fun llvm_emit(ctx: Any) -> Any {
         }
     }
     mut bodies: Any = [];
-    mut main: Any = {"ir":ctx.mainIR,"mode":0,"boxed":ctx.mainBoxed,"parr":[],"pc":0,"caparr":[]};
+    mut main: Any = {"ir":ctx.mainIR,"mode":0,"boxed":ctx.mainBoxed,"parr":[],"pc":0,"caparr":[],"foreign":false};
     push(bodies,llvm_function(unit,main,true));
     // may_throw has an implicit edge to the uncaught-error handler.
     emission_reference(ctx, ctx.functionIndex["rt_die_uncaught"].lab);
@@ -424,16 +506,24 @@ fun llvm_emit(ctx: Any) -> Any {
         push(bodies,llvm_function(unit,rec,false));
     }
     emission_finish(ctx);
-    mut header: Any = ["; Maylang direct LLVM backend\ntarget triple = \"x86_64-unknown-linux-gnu\"\n@may_handlers = internal global [64 x [256 x i8]] zeroinitializer, align 16\ndeclare ptr @llvm.stacksave.p0()\ndeclare ptr @llvm.frameaddress.p0(i32 immarg)\ndeclare void @llvm.trap() cold noreturn nounwind\ndeclare i32 @_setjmp(ptr) returns_twice\ndeclare void @longjmp(ptr, i32) noreturn"];
+    mut header: Any = ["; Maylang direct LLVM backend\ntarget triple = \"x86_64-unknown-linux-gnu\"\ndeclare ptr @llvm.stacksave.p0()\ndeclare ptr @llvm.frameaddress.p0(i32 immarg)\ndeclare void @llvm.trap() cold noreturn nounwind\ndeclare i32 @_setjmp(ptr) returns_twice\ndeclare void @longjmp(ptr, i32) noreturn\ndeclare ptr @dlopen(ptr, i32)\ndeclare ptr @dlsym(ptr, ptr)"];
     for fn: Any in ["sqrt","floor","ceil","nearbyint","trunc","sin","cos","tan","log","log2","log10","exp","fabs"] { push(header,"declare double @${fn}(double)"); }
     push(header,"declare double @pow(double, double)");
     for p: Any in values(unit.globals) { push(header,"${p} = internal global i64 0, align 8"); }
     push(header,"define internal i64 @may_syscall(i64 %nr, i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f) noinline {\n  %r = call i64 asm sideeffect \"syscall\", \"={rax},{rax},{rdi},{rsi},{rdx},{r10},{r8},{r9},~{rcx},~{r11},~{memory}\"(i64 %nr, i64 %a, i64 %b, i64 %c, i64 %d, i64 %e, i64 %f)\n  ret i64 %r\n}");
-    mut hd: Any = unit.globals["HDEPTH"]; mut uncaught: Any = ctx.functionIndex["rt_die_uncaught"];
-    push(header,"define internal void @may_throw() noreturn noinline {\n  %d = load volatile i64, ptr ${hd}\n  %empty = icmp eq i64 %d, 0\n  br i1 %empty, label %uncaught, label %caught\nuncaught:\n  %a = alloca [${unit.argCount} x i64]\n  %v = call i64 @f${uncaught.lab}(i64 0, ptr %a)\n  unreachable\ncaught:\n  %i = sub i64 %d, 1\n  %p = getelementptr [64 x [256 x i8]], ptr @may_handlers, i64 0, i64 %i\n  call void @longjmp(ptr %p, i32 1)\n  unreachable\n}");
+    mut hd: Any = unit.globals["HDEPTH"]; let hs: Any = unit.globals["HSTACK"]; mut uncaught: Any = ctx.functionIndex["rt_die_uncaught"];
+    push(header,"define internal void @may_throw() noreturn noinline {\n  %d = load volatile i64, ptr ${hd}\n  %empty = icmp eq i64 %d, 0\n  br i1 %empty, label %uncaught, label %caught\nuncaught:\n  %a = alloca [${unit.argCount} x i64]\n  %v = call i64 @f${uncaught.lab}(i64 0, ptr %a)\n  unreachable\ncaught:\n  %i = sub i64 %d, 1\n  %base = load volatile i64, ptr ${hs}\n  %offset = mul i64 %i, 256\n  %address = add i64 %base, %offset\n  %p = inttoptr i64 %address to ptr\n  call void @longjmp(ptr %p, i32 1)\n  unreachable\n}");
     // Keep sections separate instead of copying a multi-megabyte module into
     // one allocation after lowering has fragmented the compiler's heap.
-    return header + unit.strings + bodies;
+    if (unit.fibers) {
+        let entry: Any = ctx.functionIndex["rt_fiber_entry"];
+        // Match rt_spawn's six-register stack image. The entry trampoline is
+        // reached by ret with an aligned stack; call establishes the C ABI.
+        push(header, "define internal void @may_fib_switch(i64 %from, i64 %to) naked noinline {\n  call void asm sideeffect \"pushq %rbp; pushq %rbx; pushq %r12; pushq %r13; pushq %r14; pushq %r15; movq %rsp, (%rdi); movq (%rsi), %rsp; popq %r15; popq %r14; popq %r13; popq %r12; popq %rbx; popq %rbp; retq\", \"~{memory}\"()\n  unreachable\n}");
+        push(header, "define internal void @may_fiber_entry() naked noinline {\n  call void asm sideeffect \"xorl %edi, %edi; xorl %esi, %esi; callq f${entry.lab}; ud2\", \"~{memory}\"()\n  unreachable\n}");
+    }
+    push(bodies, "define internal void @may_ffi_init() {\nentry:\n${join(unit.initializers, "\n")}\n  ret void\n}");
+    return header + unit.foreign + unit.strings + unit.resolvers + bodies;
 }
 fun llvm_write(path: Any, content: Any) -> Any {
     mut fd: Any = syscall(2,cstr(path),577,420);
@@ -466,7 +556,7 @@ fun llvm_compile(ctx: Any, output: Any, emitIR: Any) -> Any {
     if (syscall(83,cstr(scratch),448) < 0) { die_str("mayc: cannot create LLVM scratch directory\n"); }
     mut source: Any = scratch + "/program.ll"; mut binary: Any = scratch + "/program";
     llvm_write(source,ir);
-    mut status: Any = wait(exec([clang,"-x","ir","-O1",source,"-no-pie","-lm","-o",binary]));
+    mut status: Any = wait(exec([clang,"-x","ir","-O1",source,"-no-pie","-lm","-ldl","-o",binary]));
     syscall(87,cstr(source));
     mut installError: Any = 0;
     if (status == 0) { installError = syscall(82,cstr(binary),cstr(output)); }

@@ -47,13 +47,11 @@ def main():
 
         invalid = work / 'invalid.may'
         invalid.write_text('let n: Int = "wrong"; print(n);')
-        unsupported = work / 'fibers.may'
-        unsupported.write_text('spawn(fun(){print("hello");}); run();')
         output = work / 'existing output'
         output.write_text('preserve this file')
         for flags, src in (([], invalid), (['--raw'], source),
                            (['--runtime', 'core'], source),
-                           (['--runtime', 'none'], source), ([], unsupported)):
+                           (['--runtime', 'none'], source)):
             result = run(target + flags + [src, '-o', output], env=environment)
             assert result.returncode != 0, (flags, src)
             assert output.read_text() == 'preserve this file'
@@ -123,7 +121,7 @@ def main():
         fixtures['nan'] = 'let n:Any=sqrt(-1.0);print(n==n,n!=n,n<0.0,n<=0.0,n>0.0,n>=0.0,trunc(n));print(trunc(1e308),trunc(-1e308));'
         fixtures['many-args'] = 'fun eight(a:Any,b:Any,c:Any,d:Any,e:Any,f:Any,g:Any,h:Any){return [a,b,c,d,e,f,g,h];}let f:Any=eight;print(eight(1,2,3,4,5,6,7,8),f(11,12,13,14,15,16,17,18));'
         fixtures['gc-capture'] = 'fun exercise(){mut xs:Any=["alive"];let get:Any=fun(){return xs[0];};mut i:Any=0;while(i<3000000){let t:Any=str(i);i+=1;}return get;}let f:Any=exercise();print(f());'
-        for name in ('architecture', 'arith_overflow', 'floats', 'edge', 'div_zero', 'closures_adv'):
+        for name in ('architecture', 'arith_overflow', 'floats', 'edge', 'div_zero', 'closures_adv', 'fibers1'):
             fixtures[name] = (ROOT / 'compiler/mayc/tests' / f'{name}.may').read_text()
         if any(name not in fixtures for name in args.case):
             parser.error("unknown --case name")

@@ -214,6 +214,8 @@ def main():
                              ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
                              ("diagnostics.py", "structured diagnostics and recovery"),
                              ("debug_traces.py", "debug traces and fiber isolation"),
+                             ("fibers.py", "suspended fiber handlers and caught errors"),
+                             ("externs.py", "typed scalar externs and C-ABI stack arguments"),
                              ("fuzz.py", "bounded frontend fuzzing")]:
             result = run(["python3", COMPILER / "tests" / script, "--compiler", compiler], timeout=180)
             record(name, result.returncode == 0, (result.stdout + result.stderr).decode())
