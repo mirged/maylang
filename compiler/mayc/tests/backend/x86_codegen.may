@@ -535,5 +535,59 @@ require(select_try(ctx, diamond, {}) == -1);
 ctx.dynamic = 0; ctx.mode = 1;
 require(select_try(ctx, diamond, {}) == -1);
 ctx.mode = 0;
+
+// Code alignment (#83). Each length is one recommended NOP instruction.
+let nops: Any = [[144], [102, 144], [15, 31, 0], [15, 31, 64, 0], [15, 31, 68, 0, 0],
+    [102, 15, 31, 68, 0, 0], [15, 31, 128, 0, 0, 0, 0], [15, 31, 132, 0, 0, 0, 0, 0],
+    [102, 15, 31, 132, 0, 0, 0, 0, 0]];
+for length: Any in 1..10 {
+    ctx.code.length = 0;
+    x86_nop(ctx, length);
+    require(ctx.code.length == length);
+    for index: Any in 0..length { require(load8(ctx.code.data + index) == nops[length - 1][index]); }
+}
+// Padding reaches the boundary from every residue unless that exceeds the limit.
+for alignment: Any in [16, 32] {
+    for limit: Any in [0, 7, 15, 31] {
+        for start: Any in 0..72 {
+            ctx.code.length = start;
+            let needed: Any = (alignment - start % alignment) % alignment;
+            let padding: Any = x86_align_code(ctx, alignment, limit);
+            if (needed <= limit) { require(padding == needed and ctx.code.length == start + needed); }
+            else { require(padding == 0 and ctx.code.length == start); }
+        }
+    }
+}
+for disabled: Any in [0, 1] {
+    ctx.code.length = 5;
+    require(x86_align_code(ctx, disabled, 15) == 0 and ctx.code.length == 5);
+}
+// Only labels targeted by a later branch are loop heads.
+let head: Any = newlab(ctx); let forward: Any = newlab(ctx); let tested: Any = newlab(ctx);
+let loopBlock: Any = IRBlock([Quad(IR_LABEL, 0, 0, 0, head, 0), Quad(IR_FALSE, 0, a, 0, forward, 0),
+    Quad(IR_LABEL, 0, 0, 0, tested, 0), Quad(IR_JUMP, 0, 0, 0, head, 0), Quad(IR_LABEL, 0, 0, 0, forward, 0),
+    Quad(IR_TRUE, 0, a, 0, tested, 0)], 1);
+let heads: Any = x86_loop_heads(loopBlock);
+require(has(heads, head) and has(heads, tested) and not has(heads, forward));
+// Forward and backward rel32 fixups resolve across padding.
+ctx.code.length = 0; ctx.fixups = fixups_new();
+e8(ctx, 144);
+require(x86_align_code(ctx, 16, 15) == 15);
+placelab(ctx, head);
+jcc(ctx, 132, forward); jmp(ctx, head);
+require(x86_align_code(ctx, 16, 15) == 5);
+placelab(ctx, forward);
+patch_all(ctx);
+require(lab_off(ctx, head) == 16 and lab_off(ctx, forward) == 32);
+require(load32(ctx.code.data + 18) == 32 - 22 and load32(ctx.code.data + 23) == 4294967296 + 16 - 27);
+// raw_codegen.py decodes every padding sequence with objdump.
+for length: Any in 1..41 {
+    ctx.code.length = 0;
+    x86_pad(ctx, length);
+    require(ctx.code.length == length);
+    let bytes: List<Str> = [];
+    for index: Any in 0..length { push(bytes, str(load8(ctx.code.data + index))); }
+    print("pad ${length}: ${join(bytes, " ")}");
+}
 emitter_release(ctx);
 print("x86-codegen-ok");

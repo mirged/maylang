@@ -995,6 +995,117 @@ def select_diamonds(compiler, work):
           'traps, loads, if-results and aliasing keep exact behavior', flush=True)
 
 
+def decode_nops(work, data):
+    """objdump as an independent oracle: (mnemonic, length) per instruction."""
+    path = work / 'nops.bin'
+    path.write_bytes(bytes(data))
+    output = subprocess.check_output(['objdump', '-D', '-b', 'binary', '-mi386:x86-64', '-Mintel', str(path)], text=True)
+    decoded = []
+    for line in output.splitlines():
+        match = re.match(r'\s*[0-9a-f]+:\t((?:[0-9a-f]{2} )+) *(?:\t(\S+))?', line)
+        if match and match[2]:
+            decoded.append([match[2], len(match[1].split())])
+        elif match:
+            decoded[-1][1] += len(match[1].split())  # objdump wraps long encodings
+    return decoded
+
+
+def code_alignment(compiler, work, unit_output):
+    """Function bodies and loop heads are aligned with NOP padding (#83)."""
+    lines = unit_output.splitlines()
+    assert lines[-1] == 'x86-codegen-ok', unit_output
+    pads = [line for line in lines if line.startswith('pad ')]
+    assert len(pads) == 40, unit_output
+    for line in pads:
+        length, data = line[4:].split(': ')
+        decoded = decode_nops(work, [int(byte) for byte in data.split()])
+        assert all(mnemonic in ('nop', 'xchg') for mnemonic, _ in decoded), (line, decoded)
+        # At most nine bytes per instruction, so ceil(length / 9) instructions.
+        assert [size for _, size in decoded] == [9] * (int(length) // 9) + ([int(length) % 9] if int(length) % 9 else []), (line, decoded)
+    print('PASS every NOP length 1..9 and padding 1..40 decode as single NOP instructions', flush=True)
+
+    source, binary = work / 'align.may', work / 'align'
+    loops = '''fun nested(n: Any, skew: Any) -> Any {
+    mut p: Any = skew;
+    PREFIX    mut total: Any = 0;
+    mut i: Any = 0;
+    while i < n {
+        mut j: Any = 0;
+        while j < i {
+            j = j + 1;
+            if j % 3 == 0 { continue; }
+            total = total + j;
+            if total > 100000 { break; }
+        }
+        i = i + 1;
+    }
+    return total + p;
+}
+fun unbounded(n: Any) -> Any {
+    mut t: Any = 0;
+    mut k: Any = 0;
+    while true {
+        if k >= n { break; }
+        t = t + k * 2;
+        k = k + 1;
+    }
+    return t;
+}
+mut m: Any = 0;
+while m < 5 { m = m + 1; }
+exit((nested(40, 1) + unbounded(30) + m) % 256);
+'''
+
+    def expected(small, large):
+        total = 0
+        for i in range(40):
+            for j in range(1, i + 1):
+                if j % 3:
+                    total += j
+        return (total + 1 + small + 1000 * large + sum(k * 2 for k in range(30)) + 5) % 256
+
+    def heads(assembly):
+        """Backward-branch targets and the bytes of NOP padding before each."""
+        lines = re.findall(r'^[ \t]*([0-9a-f]+):[ \t]+(\w+)[ \t]*(?:0x)?([0-9a-f]+)?', assembly, re.M)
+        addresses = [int(address, 16) for address, _, _ in lines]
+        targets = {int(target, 16) for address, op, target in lines
+                   if op.startswith('j') and target and int(target, 16) <= int(address, 16)}
+        padding = {}
+        for target in targets:
+            index = addresses.index(target)
+            start = index
+            while start > 0 and lines[start - 1][1] in ('nop', 'xchg'):
+                start -= 1
+            padding[target] = target - addresses[start]
+        return padding
+
+    residues = set()
+    for prefix in range(16):
+        # Four- and seven-byte additions shift the loops by every residue.
+        small, large = prefix % 4, prefix // 4
+        source.write_text(loops.replace('PREFIX', '    p = p + 1;\n' * small + '    p = p + 1000;\n' * large))
+        compile_source(compiler, source, binary, '--raw')
+        run(binary, expected(small, large))
+        assembly = disassemble(binary)
+        padding = heads(assembly)
+        assert len(padding) == 4 and all(target % 16 == 0 for target in padding), (prefix, padding)
+        residues.update(padding.values())
+        main_call = int(re.search(r'<_start>:.*?\bcall\s+([0-9a-f]+)', assembly, re.S)[1], 16)
+        calls = {int(target, 16) for target in re.findall(r'\bcall\s+([0-9a-f]+)', assembly)} - {main_call}
+        assert calls and all(target % 16 == 0 for target in calls), (prefix, calls)
+        compile_source(compiler, source, binary, '--raw', '--no-code-align')
+        run(binary, expected(small, large))
+        assert not re.search(r'\bnop\b', disassemble(binary)), prefix
+    # Fall-through entries execute the padding: every amount 0..15 occurs.
+    assert residues == set(range(16)), residues
+    # RAW exit needs a platform runtime on Windows; a global keeps the result live.
+    source.write_text(source.read_text().replace('exit(', 'let result: Any = ('))
+    compile_source(compiler, source, work / 'align.exe', '--raw', '--target', 'x86_64-windows')
+    padding = heads(disassemble(work / 'align.exe'))
+    assert len(padding) == 4 and all(target % 16 == 0 for target in padding), padding
+    print('PASS aligned bodies and loop heads at every padding amount 0..15 (ELF, PE), unchanged with --no-code-align', flush=True)
+
+
 def reciprocal_oracle():
     # Independent arbitrary-precision model of the sufficient reciprocal error
     # bound. Exhaust every signed dividend/non-power divisor at small widths.
@@ -1224,8 +1335,9 @@ if reused(-1, 1) != 9 or reused(2, 1) != 7 { exit(11); }
 
         unit = work / 'unit'
         compile_source(compiler, HERE / 'backend/x86_codegen.may', unit)
-        assert run(unit) == 'x86-codegen-ok\n'
+        unit_output = run(unit)
         print('PASS immediate/reciprocal boundaries, IR_TRUE/IR_FALSE and fusion guards', flush=True)
+        code_alignment(compiler, work, unit_output)
 
         compile_source(compiler, HERE / 'backend/raw_performance.may', binary, '--raw')
         for _ in range(3):

@@ -16,6 +16,16 @@ import "../ir.may";
 // by closures) to its six argument registers and stack overflow arguments.
 // The closure environment is an internal, caller-saved r10 extension.
 
+// RAW code alignment (#83). Function bodies start on X86_FUNCTION_ALIGN
+// boundaries so one function's size cannot move the next function's loops.
+// Loop heads (labels targeted by a later branch) are padded to X86_LOOP_ALIGN
+// when that takes at most X86_LOOP_SKIP bytes, bounding fall-through cost.
+// Zero disables either; `--no-code-align` disables both. Every branch is
+// rel32 and fixups are recorded after padding, so no encoding changes.
+mut X86_FUNCTION_ALIGN: Any = 16;
+mut X86_LOOP_ALIGN: Any = 16;
+mut X86_LOOP_SKIP: Any = 15;
+
 
 // Raw scalar locals may reserve RBX/r12-r15 for the whole function. Linear scan
 // uses the remaining r12-r15 for temporaries; control-flow values keep private
@@ -438,7 +448,8 @@ fun x86_handler_end(ctx: Any) -> Any {
 
 // True when no bytes separate a jump at `position` from its target (#87).
 // Instructions up to the next label are unreachable and emit nothing, and
-// labels emit no bytes. The return label follows the block directly.
+// labels emit at most loop-alignment NOPs, which fall through to the label.
+// The return label follows the block directly.
 fun x86_falls_into(block: Any, position: Any, label: Any, toReturn: Any) -> Any {
     mut index: Any = position + 1;
     while (index < len(block.code) and block.code[index].op != IR_LABEL) { index += 1; }
@@ -455,6 +466,7 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
     // RAW code after an unconditional jump or return is unreachable until the
     // next label (#87); only labels are jump targets.
     let raw: Any = ctx.mode == 0 and ctx.dynamic == 0;
+    let loopHeads: Any = if (raw and X86_LOOP_ALIGN > 1) { x86_loop_heads(block) } else { {} };
     mut unreachable: Any = false;
     for instruction: Any in block.code {
         ctx.allocation.position += 1;
@@ -500,7 +512,10 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
                 continue;
             }
         }
-        if (op == IR_LABEL) { placelab(ctx, payload); }
+        if (op == IR_LABEL) {
+            if (has(loopHeads, payload)) { x86_align_code(ctx, X86_LOOP_ALIGN, X86_LOOP_SKIP); }
+            placelab(ctx, payload);
+        }
         else if (op == IR_JUMP) {
             if (not raw or not x86_falls_into(block, ctx.allocation.position, payload, false)) { jmp(ctx, payload); }
             unreachable = raw;
@@ -573,6 +588,50 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
 fun jmp(ctx: Any, lab: Any) -> Any { e8(ctx, 233); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
 fun jcc(ctx: Any, op: Any, lab: Any) -> Any { e8(ctx, 15); e8(ctx, op); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
 fun call(ctx: Any, lab: Any) -> Any { x86_root_registers(ctx); e8(ctx, 232); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, lab); return 0; }
+
+// Recommended single-instruction NOPs of 1-9 bytes (`nop`, `xchg ax, ax`,
+// `nop dword [rax + ...]` forms).
+fun x86_nop(ctx: Any, length: Any) -> Any {
+    let forms: Any = [[144], [102, 144], [15, 31, 0], [15, 31, 64, 0], [15, 31, 68, 0, 0],
+        [102, 15, 31, 68, 0, 0], [15, 31, 128, 0, 0, 0, 0], [15, 31, 132, 0, 0, 0, 0, 0],
+        [102, 15, 31, 132, 0, 0, 0, 0, 0]];
+    for byte: Any in forms[length - 1] { e8(ctx, byte); }
+    return 0;
+}
+
+fun x86_pad(ctx: Any, length: Any) -> Any {
+    mut remaining: Any = length;
+    while (remaining > 0) {
+        let chunk: Any = if (remaining > 9) { 9 } else { remaining };
+        x86_nop(ctx, chunk);
+        remaining -= chunk;
+    }
+    return 0;
+}
+
+// Pads to `alignment` unless that needs more than `limit` bytes; returns the
+// number of padding bytes emitted.
+fun x86_align_code(ctx: Any, alignment: Any, limit: Any) -> Any {
+    if (alignment <= 1) { return 0; }
+    let padding: Any = (alignment - ctx.code.length % alignment) % alignment;
+    if (padding > limit) { return 0; }
+    x86_pad(ctx, padding);
+    return padding;
+}
+
+// Labels that a later branch in the same block targets.
+fun x86_loop_heads(block: Any) -> Any {
+    let placed: Any = {}; let heads: Any = {};
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        if (op == IR_LABEL) { placed[instruction.extra] = true; }
+        else if ((op == IR_JUMP or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL) and
+            has(placed, instruction.extra)) {
+            heads[instruction.extra] = true;
+        }
+    }
+    return heads;
+}
 
 fun mov_imm(ctx: Any, v: Any) -> Any {
     return x86_mov_immediate(ctx, 0, v);
@@ -3006,6 +3065,8 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     x86_allocate_temps(ctx, rec.ir);
     align8(ctx);
     x86_call_trampoline(ctx, rec);
+    // The trampoline ends in `ret`, so this padding is never executed.
+    if (ctx.mode == 0 and ctx.dynamic == 0) { x86_align_code(ctx, X86_FUNCTION_ALIGN, X86_FUNCTION_ALIGN); }
     placelab(ctx, rec.abiLab);
     e8(ctx, 85);
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);
