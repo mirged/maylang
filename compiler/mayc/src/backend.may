@@ -62,15 +62,12 @@ fun core_validate(ctx: Any) -> Any {
     for block: Any in blocks {
         for instruction: Any in block.code {
             let op: Any = instruction.op;
-            if (op == E_FLOAT or op == E_CLOSURE or op == E_ICALL or op == E_GET or op == S_SETPROP or op == IR_TRY_BEGIN or op == S_CASSIGN or op == E_CAPVAR) {
-                diagnostic(instruction.span, "the core runtime supports integers, strings, lists and direct calls; this operation requires the full runtime");
-            }
-            if (op == IR_RUNTIME and (instruction.extra == "rt_map_new" or instruction.extra == "rt_map_set" or instruction.extra == "rt_merge_into")) {
-                diagnostic(instruction.span, "maps and records require the full runtime");
+            if (op == E_FLOAT or op == E_CLOSURE or op == E_ICALL or op == IR_TRY_BEGIN or op == S_CASSIGN or op == E_CAPVAR) {
+                diagnostic(instruction.span, "the core runtime supports integers, strings, lists, maps and direct calls; this operation requires the full runtime");
             }
             if (op == E_CALL) {
                 let name: Any = symbol_name(instruction.extra.name, instruction.extra.length);
-                let intrinsics: Any = ["print", "len", "str", "str_of", "int_to_str", "int", "bool", "push", "pop", "slice", "char_at", "char_from", "chr", "ord", "contains", "starts_with", "ends_with", "split", "join", "index_of", "min", "max", "abs", "pow", "exit", "fail", "addr", "cstr", "ptr", "value_eq", "str_cmp", "cmp", "to_lower", "to_upper", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64"];
+                let intrinsics: Any = ["keys", "values", "has", "merge", "map_keys", "map_values", "map_has", "print", "len", "str", "str_of", "int_to_str", "int", "bool", "push", "pop", "slice", "char_at", "char_from", "chr", "ord", "contains", "starts_with", "ends_with", "split", "join", "index_of", "min", "max", "abs", "pow", "exit", "fail", "addr", "cstr", "ptr", "value_eq", "str_cmp", "cmp", "to_lower", "to_upper", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64"];
                 if (backend_find_func(ctx, instruction.extra.name, instruction.extra.length) == 0 and not has(intrinsics, name)) {
                     diagnostic(instruction.span, "`${name}` requires the full runtime");
                 }

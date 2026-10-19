@@ -1,5 +1,7 @@
 # Unreleased
 
+- Support maps, records, structs and enums in the core runtime on every native
+  target; preserve exclusive range endpoints on ARM64 and RISC-V.
 - Support typed extern calls and cooperative fibers in the LLVM backend,
   including C stack arguments, function values and isolated suspended handlers.
 - Preserve each fiber's caught error and exception handlers across yields, and

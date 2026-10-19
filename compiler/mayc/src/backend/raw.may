@@ -127,8 +127,10 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
             (emitter.immediate)(ctx, payload.value, 0);
             if (ctx.mode == 1) { (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR); }
         }
-        else if (op == E_STR) {
-            let offset: Any = if (ctx.mode == 1) { intern_obj(ctx, payload.span.source, payload.start, payload.length) } else { intern(ctx, payload.span.source, payload.start, payload.length) };
+        else if (op == E_STR or op == E_STRB) {
+            let offset: Any = if (op == E_STRB) { intern_obj2(ctx, payload.address, payload.length) }
+                else if (ctx.mode == 1) { intern_obj(ctx, payload.span.source, payload.start, payload.length) }
+                else { intern(ctx, payload.span.source, payload.start, payload.length) };
             raw_address(ctx, emitter, offset); (emitter.move)(ctx, 0, 2);
             if (ctx.mode == 1) { (emitter.immediate)(ctx, 1, 1); (emitter.binary)(ctx, TK_PLUS); }
         }
@@ -149,10 +151,18 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
             if (op == S_SETIDX) { raw_get(ctx, emitter, payload.value, 12); }
             raw_invoke(ctx, emitter, if (op == E_INDEX) { "rt_index_get" } else { "rt_index_set" });
         }
+        else if (op == E_GET or op == S_SETPROP) {
+            let offset: Any = intern_obj(ctx, payload.span.source, payload.start, payload.length);
+            raw_address(ctx, emitter, offset); (emitter.move)(ctx, 0, 2);
+            (emitter.immediate)(ctx, 1, 1); (emitter.binary)(ctx, TK_PLUS); (emitter.move)(ctx, 11, 0);
+            raw_get(ctx, emitter, payload.object, 10);
+            if (op == S_SETPROP) { raw_get(ctx, emitter, payload.value, 12); }
+            raw_invoke(ctx, emitter, if (op == E_GET) { "rt_map_get" } else { "rt_map_set" });
+        }
         else if (op == E_RANGE or op == E_POW) {
             raw_get(ctx, emitter, if (op == E_POW) { payload.left } else { payload.start }, 10);
             raw_get(ctx, emitter, if (op == E_POW) { payload.right } else { payload.end }, 11);
-            if (op == E_RANGE) { (emitter.immediate)(ctx, if (payload.inclusive) { 4 } else { 3 }, 12); }
+            if (op == E_RANGE) { (emitter.immediate)(ctx, if (payload.inclusive == 1) { 4 } else { 3 }, 12); }
             raw_invoke(ctx, emitter, if (op == E_RANGE) { "rt_range" } else { "rt_pow" });
         }
         else if (op == E_CALL) { raw_call(ctx, emitter, payload); }
@@ -266,7 +276,7 @@ fun raw_core_call(ctx: Any, emitter: Any, payload: Any) -> Any {
             return 0;
         }
     }
-    let builtins: Any = {"len": "rt_len", "str": "rt_to_str", "str_of": "rt_to_str", "int_to_str": "rt_int_str", "int": "rt_int", "bool": "rt_bool", "push": "rt_push", "pop": "rt_pop", "slice": "rt_slice", "char_at": "rt_char_at", "char_from": "rt_char_from", "chr": "rt_chr", "ord": "rt_ord", "contains": "rt_contains", "starts_with": "rt_starts_with", "ends_with": "rt_ends_with", "split": "rt_split", "join": "rt_join", "index_of": "rt_index_of", "min": "rt_min", "max": "rt_max", "abs": "rt_abs", "pow": "rt_pow", "exit": "rt_exit", "fail": "rt_fail", "addr": "rt_addr", "cstr": "rt_cstr", "value_eq": "rt_eq", "str_cmp": "rt_str_cmp", "cmp": "rt_cmp", "to_lower": "rt_lower", "to_upper": "rt_upper"};
+    let builtins: Any = {"keys": "rt_keys", "values": "rt_values", "has": "rt_has", "merge": "rt_merge", "map_keys": "rt_keys", "map_values": "rt_values", "map_has": "rt_has", "len": "rt_len", "str": "rt_to_str", "str_of": "rt_to_str", "int_to_str": "rt_int_str", "int": "rt_int", "bool": "rt_bool", "push": "rt_push", "pop": "rt_pop", "slice": "rt_slice", "char_at": "rt_char_at", "char_from": "rt_char_from", "chr": "rt_chr", "ord": "rt_ord", "contains": "rt_contains", "starts_with": "rt_starts_with", "ends_with": "rt_ends_with", "split": "rt_split", "join": "rt_join", "index_of": "rt_index_of", "min": "rt_min", "max": "rt_max", "abs": "rt_abs", "pow": "rt_pow", "exit": "rt_exit", "fail": "rt_fail", "addr": "rt_addr", "cstr": "rt_cstr", "value_eq": "rt_eq", "str_cmp": "rt_str_cmp", "cmp": "rt_cmp", "to_lower": "rt_lower", "to_upper": "rt_upper"};
     if (not has(builtins, name)) { diagnostic(payload.span, "`${name}` is not available in the core runtime"); }
     raw_arguments(ctx, emitter, payload.args); raw_invoke(ctx, emitter, builtins[name]);
     return 0;

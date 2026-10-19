@@ -184,6 +184,8 @@ def main():
         record("linear-scan allocation and GC roots", allocator.returncode == 0, (allocator.stdout + allocator.stderr).decode())
         core = run(["python3", COMPILER / "tests/core_runtime.py", "--compiler", compiler], timeout=180)
         record("portable core runtime across formats", core.returncode == 0, (core.stdout + core.stderr).decode())
+        portable = run(["python3", COMPILER / "tests/portable_values.py", "--compiler", compiler], timeout=180)
+        record("portable maps, records, structs and enums", portable.returncode == 0, (portable.stdout + portable.stderr).decode())
         maps = run(["python3", COMPILER / "tests/runtime_maps.py", "--compiler", compiler], timeout=180)
         record("runtime hash tables and allocation bins", maps.returncode == 0, (maps.stdout + maps.stderr).decode())
         gc = run(["python3", COMPILER / "tests/gc.py", "--compiler", compiler], timeout=180)

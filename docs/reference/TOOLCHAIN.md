@@ -29,7 +29,7 @@
 - Core runtime supports tagged integers/Booleans/nil/strings/lists, direct functions, loops, console output, indexing/mutation, ASCII case conversion and integer/string helpers.
 - Core helpers include `str`, `substring`, `trim`, `repeat`, `range`, `sum`, `clamp`, `gcd`, `lcm`, `alloc` and `memcpy`; signatures/implementation are in [corelib](../../compiler/mayc/runtime/corelib.may).
 - Core allocation retains heap chunks of at least 1 MiB until process exit, with a 256 MiB cap and no individual free/GC. [Explicit scratch arenas](../internals/CORE_MEMORY.md) reclaim capacity on reset, invalidating their returned pointers. Overflow and division by zero print a diagnostic and exit 70.
-- Core compilation diagnoses unsupported closures, maps/records, floats, exceptions, fibers and FFI before output is written.
+- Core supports maps, records, structs and enums; compilation diagnoses unsupported closures, floats, exceptions, fibers and FFI before output is written.
 - ARM64/RISC-V raw subsets support integer/literal-string operations, globals/locals, direct calls, tail self-calls, loops, addresses, memory loads/stores, exit and target syscalls; documented limits are eight parameters, six syscall arguments and a 2000-byte frame.
 - Syscall numbers belong to the selected target; Linux ARM64/RISC-V use write=64, mmap=222, exit=93. Windows raw rejects syscall and exit; its entry returns to the loader.
 - Diagnostics contain source excerpts and caret spans; fix type/name/mutability errors before running the output.

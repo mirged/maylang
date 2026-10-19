@@ -50,7 +50,7 @@
 - Spread list `[0, ...rest, 9]`; spread map `{...defaults, name: "May"}`; map entries merge left to right with later keys replacing earlier keys.
 - Destructuring list/map declarations and loop patterns exist in legacy syntax; current strict code must expand them into individual typed bindings.
 - **Records** — `struct Point { x: Int, y: Int }`; construct positionally with `Point(3, 4)`; read/write typed fields; constructors validate their argument types.
-- Records are tagged maps in the full runtime; nominal type identity includes the defining module; use `library.Point` for a namespaced imported record.
+- Records are tagged maps in both full and core runtimes; nominal type identity includes the defining module; use `library.Point` for a namespaced imported record.
 - **Enums** — `enum Shape { Empty, Circle(radius: Float) }`; variants construct tagged values with a `tag` field and payload fields.
 - Match typed variants directly: `match (shape) { Circle(radius) => radius, Rect(width, height) => width * height, Empty() => 0 }`. Payload bindings have their declared types; use `_` to ignore one. Enum/Result matches require exhaustiveness, and guarded arms do not cover a whole variant.
 - **Matching** — `match (value) { 1 => "one", n if n > 1 => "many", _ => "other" }` produces the first matching arm's value. Typed results support `Ok(value)` and `Err(error)` patterns.
@@ -78,7 +78,7 @@
 - Foreign calls require the full Linux x86-64 native runtime; core/raw and the experimental clang-llvm backend reject typed extern declarations. String arguments cross as C strings, with NUL termination semantics.
 - Low-level `ccall(address, args)` supports up to six integer C arguments; `extern_c(address)` wraps a raw address with six positional parameters. These differ from typed extern calls and do not provide arbitrary C signatures.
 - **Concurrency** — `spawn` schedules a zero-argument function; `yield()` switches cooperatively; `run()` drains ready fibers. This is cooperative scheduling in the full native runtime, not parallel OS-thread execution.
-- **Implementation boundaries** — closures, maps/records, floats, fault handling, fibers and FFI require the full runtime. Core/raw support a smaller language/runtime subset; see the compiler reference.
+- **Implementation boundaries** — core supports maps, records, structs and enums on every native target. Closures, floats, fault handling, fibers and FFI require the full runtime. Raw omits the injected runtime; see the compiler reference.
 - Full-runtime GC has a documented corruption issue during sustained allocation workloads; core allocation retains chunks until process exit. These implementation limits are described in the existing compiler guide.
 - Read [syntax catalog](SYNTAX.md), [runtime API](RUNTIME.md), [library APIs](STDLIB.md) and [compiler reference](TOOLCHAIN.md) for complete inventories and commands.
 - Comments: `//` continues to the end of a line; `/* ... */` block comments nest. Import-looking lines inside comments or multiline strings are ignored by module loading.

@@ -138,7 +138,8 @@ is explicit and does not depend on the host:
 | --- | --- | --- | --- | --- |
 | Integers, booleans, direct functions and control flow | Yes | Yes | Yes | Yes |
 | Allocated UTF-8 strings and lists | Yes | Yes | Yes | Literal strings and pointer operations |
-| Floats, maps/records and closures | Yes | Yes | Rejected | Use raw storage/operations |
+| Maps, records, structs and enums | Yes | Yes | Yes | Use raw storage/operations |
+| Floats and closures | Yes | Yes | Rejected | Use raw storage/operations |
 | Recoverable faults and source traces | Yes | Yes | Faults exit 70; tracing rejected | No injected runtime |
 | Fibers and typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
 | File/process/network libraries | Linux x86-64 | Linux x86-64 | Rejected | Explicit target OS calls |
@@ -180,7 +181,10 @@ mapped chunk bytes. See [ownership rules and measured growth](../../docs/interna
 
 Core allocation uses native heap chunks of at least 1 MiB, retained until
 process exit. It has no garbage collector or individual free operation.
-Closures, maps/records, floats, exceptions, fibers and FFI still require the
+Maps retain insertion order for keys/values, use a string-key hash index, and
+support property access, mutation, spread and cycle-safe printing. Struct and
+enum constructors and pattern matching use this same portable representation.
+Closures, floats, exceptions, fibers and FFI still require the
 full x86-64 Linux runtime; core compilation diagnoses unsupported operations
 before writing output. Use `--runtime core` on Linux for small portable programs
 and lower compilation overhead. Deploy the `runtime/` directory beside the
