@@ -20,6 +20,13 @@
   it changes. Values are hashed, never stored in artifact metadata
   ([#40](https://github.com/mirged/maylang/issues/40)).
 
+## Distribution
+
+- `dist/install.sh` rejects archives containing symbolic or hard links,
+  special files, duplicate entries or more than one bundle root before
+  extracting, so a supplied archive can no longer make the installer change
+  permissions outside the bundle ([#43](https://github.com/mirged/maylang/issues/43)).
+
 # Maylang 0.13.103 — Dahlia
 
 Released 2026-10-19 UTC. The portable native runtime gains collections,

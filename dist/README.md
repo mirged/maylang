@@ -12,7 +12,7 @@ See the [one-line install command](../docs/guide/INSTALL.md).
 | Entry point | Purpose |
 | --- | --- |
 | `package.py` | Deterministic Linux x86-64 archive, provenance and checksums |
-| `install.sh` | Checksummed archive installation or extracted bundle selection without Python |
+| `install.sh` | Checksummed archive installation or extracted bundle selection without Python; archives must hold one bundle of regular files and directories (no links, duplicates or traversal) |
 | `installer.may` | Interactive/headless copied prefix installation, shell integration and uninstall |
 | `terminal.may` | Arrow-key selectors, tool checkboxes, progress, plain menus and terminal restoration |
 | `bootstrap.c` | Template for the standalone host-cc launcher and embedded Maylang installer |

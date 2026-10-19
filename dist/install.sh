@@ -25,10 +25,21 @@ else
     [ "${#expected}" -eq 64 ] || fail 'Invalid archive checksum'
     actual=$(sha256sum "$input" | cut -d ' ' -f 1)
     [ "$actual" = "$expected" ] || fail 'Archive checksum mismatch'
-    # Only extract the relative paths produced by package.py.
+    # Only extract the relative paths produced by package.py: one bundle root
+    # of regular files and directories, so nothing can point outside it.
     tar -tzf "$input" > "$staging/entries"
     if ! awk '/^\// || /(^|\/)\.\.(\/|$)/ { bad=1 } END { exit bad }' "$staging/entries"; then
         fail 'Archive contains unsafe paths'
+    fi
+    tar -tvzf "$input" > "$staging/listing"
+    if ! awk '{ kind = substr($0, 1, 1) } kind != "-" && kind != "d" { bad=1 } END { exit bad }' "$staging/listing"; then
+        fail 'Archive contains links or special files; release bundles hold only regular files and directories'
+    fi
+    if ! awk -F/ 'NR == 1 { root = $1 } $1 != root || root !~ /^maylang-[^\/]+-x86_64-linux$/ { bad=1 } END { exit bad || NR == 0 }' "$staging/entries"; then
+        fail 'Archive must contain exactly one maylang-VERSION-x86_64-linux directory'
+    fi
+    if sed 's:/*$::' "$staging/entries" | sort | uniq -d | grep -q .; then
+        fail 'Archive contains duplicate entries'
     fi
     tar -xzf "$input" -C "$staging" --no-same-owner
     set -- "$staging"/maylang-*-x86_64-linux
