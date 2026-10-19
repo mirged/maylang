@@ -207,7 +207,7 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   operators (`&`, `|`, `<<`, `>>`), and destructuring in strict mode. Use
   arithmetic, and use `load8`/`store8` for byte work.
 - Integers are 61-bit tagged values (±2^60). Overflow and division by zero raise
-  catchable `arithmetic` faults (exit 70 in the core runtime). `/` truncates
+  catchable `arithmetic` faults (uncaught core faults exit 70). `/` truncates
   toward zero and `%` has the dividend's sign.
 - Strings are UTF-8 and `len`/indexing count code points. For byte length use
   `byte_length` from `import "net";`, or `load64(addr(s) - 8)` as `net.may`
@@ -220,7 +220,8 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   then the stdlib. The same resolved file expands only once. A module that
   marks any declaration `pub` exports only its `pub` names.
 - Maps, records, structs, enums and closures work in the core runtime on every
-  native target. Floats, faults, fibers and FFI need the full
+  native target, including recoverable faults and debug traces. Floats, fibers
+  and FFI need the full
   x86-64 Linux runtime. The core runtime and the cross-compilation targets
   reject them.
 - Many older files (and much of the compiler) use `Any`-typed signatures.

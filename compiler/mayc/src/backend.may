@@ -71,8 +71,8 @@ fun core_validate(ctx: Any) -> Any {
     for block: Any in blocks {
         for instruction: Any in block.code {
             let op: Any = instruction.op;
-            if (op == E_FLOAT or op == IR_TRY_BEGIN) {
-                diagnostic(instruction.span, "floats and recoverable faults require the full runtime");
+            if (op == E_FLOAT) {
+                diagnostic(instruction.span, "floats require the full runtime");
             }
             if (op == E_CALL) {
                 let name: Any = symbol_name(instruction.extra.name, instruction.extra.length);

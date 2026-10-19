@@ -1,5 +1,7 @@
 # Unreleased
 
+- Support recoverable faults and debug traces on every native target; preserve
+  callee-saved registers during unwinding and check the 64-handler limit.
 - Support closures, shared captures, callbacks, overloaded struct operators and
   stack arguments in the portable runtime; fix recursive local closure binding.
 - Support maps, records, structs and enums in the core runtime on every native

@@ -21,6 +21,9 @@ CALL_EXPECTED = (b'42 10\n150 120\n3 4\n8\n10 11 12\n'
                  b'[21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]\n'
                  b'[1, 2, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil]\n'
                  b'[2, 3, 4] [2, 4]\n6\n4 6\n')
+FAULT_EXPECTED = (b'42\n["fail", "explicit"]\nrender\narithmetic\ntype\nfirst\nsecond\n'
+                  b'7\n3 once\n4\nexception handler limit exceeded\nafter\n')
+DEBUG_EXPECTED = b'true true true\ntrue false true\ntrue\nfalse\n'
 
 
 def main():
@@ -36,15 +39,17 @@ def main():
     assert have_emulation or not options.require_emulation, 'Unicorn is required'
     with tempfile.TemporaryDirectory(prefix='mayc-portable-values-') as directory:
         work = Path(directory)
-        for name, expected in [('portable_collections', EXPECTED), ('portable_calls', CALL_EXPECTED)]:
+        for name, expected in [('portable_collections', EXPECTED), ('portable_calls', CALL_EXPECTED),
+                               ('portable_faults', FAULT_EXPECTED), ('portable_debug', DEBUG_EXPECTED)]:
             source = HERE / 'backend' / (name + '.may')
+            flags = ['--debug'] if name == 'portable_debug' else []
             oracle = work / 'full'
-            compile_source(options.compiler, source, oracle)
+            compile_source(options.compiler, source, oracle, *flags)
             result = subprocess.run([str(oracle)], capture_output=True, timeout=20)
             assert (result.returncode, result.stdout, result.stderr) == (0, expected, b''), result
             for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
                 binary = work / target
-                image = compile_source(options.compiler, source, binary, '--runtime', 'core', '--target', target)
+                image = compile_source(options.compiler, source, binary, '--runtime', 'core', '--target', target, *flags)
                 if target == 'x86_64-linux':
                     result = subprocess.run([str(binary)], capture_output=True, timeout=20)
                     assert (result.returncode, result.stdout, result.stderr) == (0, expected, b''), result

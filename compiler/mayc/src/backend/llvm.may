@@ -431,6 +431,7 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
         }
         else if (op == IR_RUNTIME) { value = llvm_call(s,n,llvm_args(s,q.arg1)); }
         else if (op == IR_TRY_BEGIN) {
+            llvm_call(s, "rt_handler_limit", []);
             mut hd: Any = llvm_slot(s,"HDEPTH"); mut depth: Any = llvm_load(s,hd);
             mut ok: Any = llvm_cmp(s,"ult",depth,"64");
             llvm_line(s,"  br i1 ${ok}, label %try${i}, label %overflow${i}");

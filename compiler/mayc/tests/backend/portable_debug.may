@@ -1,0 +1,14 @@
+fun leaf() -> Int { fail("failure"); return 0; }
+fun middle() -> Int { return leaf(); }
+fun parent() -> Nil {
+    let first: Str = may { middle(); "bad" } otherwise { str(err.stack) };
+    let second: Str = may { leaf(); "bad" } otherwise { str(err.stack) };
+    print(contains(first, "leaf ("), contains(first, "middle ("), contains(first, "parent ("));
+    print(contains(second, "leaf ("), contains(second, "middle ("), contains(second, "parent ("));
+    return nil;
+}
+fun tail(n: Int) -> Int { if (n == 0) { return leaf(); } return tail(n-1); }
+parent();
+print(may { tail(10000); "bad" } otherwise { contains(str(err.stack), "tail (") });
+print(may { leaf(); "bad" } otherwise { contains(str(err.stack), "tail (") });
+exit(0);

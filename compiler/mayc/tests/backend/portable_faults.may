@@ -1,0 +1,44 @@
+fun inner(n: Int) -> Int {
+    if (n == 0) { let zero: Int = n; return 1 / zero; }
+    return inner(n-1) + 1;
+}
+fun recover(n: Int) -> Int {
+    mut local: Int = n;
+    let answer: Int = may { inner(4) } otherwise { local += 1; 35 };
+    return local + answer;
+}
+print(recover(6));
+print(may { fail("explicit"); } otherwise { [err.kind, err.message] });
+print(may { fail("render"); } otherwise { str(err) });
+let maximum: Any = int("1152921504606846975");
+print(may { maximum + 1 } otherwise { str(err.kind) });
+let not_callable: Any = 42;
+print(may { not_callable(); } otherwise { str(err.kind) });
+print(may {
+    may { fail("first"); } otherwise { print(err.message); fail("second"); };
+    "bad"
+} otherwise { str(err.message) });
+fun early() -> Int {
+    may { return 7; } otherwise { return 99; };
+    return 0;
+}
+print(early());
+mut n: Int = 0;
+while (n < 5) {
+    n += 1;
+    may {
+        if (n < 3) { continue; }
+        if (n == 4) { break; }
+        fail("once");
+    } otherwise { print(n, err.message); };
+}
+print(n);
+fun depth(n: Int) -> Str {
+    return may {
+        if (n == 0) { fail("leaf"); }
+        depth(n-1)
+    } otherwise { str(err.message) };
+}
+print(depth(80));
+print(may { fail("after"); } otherwise { str(err.message) });
+exit(0);

@@ -179,7 +179,7 @@ def main():
             if have_emulation:
                 emulate(image, target, ARENA_EXPECTED, 0)
             print(f'PASS {target}: 1 GiB of cumulative arena scratch with constant retained heap', flush=True)
-        for body in ['print(1.5);', 'print(may { fail("x"); } otherwise { 42 });']:
+        for body in ['print(1.5);']:
             source = work / 'unsupported.may'; source.write_text(body)
             binary = work / 'unsupported'
             result = subprocess.run([str(options.compiler), '--runtime', 'core', str(source), '-o', str(binary)], capture_output=True)

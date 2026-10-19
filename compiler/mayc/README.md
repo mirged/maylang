@@ -44,7 +44,7 @@ field meanings or coordinate units require a schema-version change. Stage codes
 such as `E_PARSE` and `E_TYPE` identify categories rather than unique errors.
 LSP consumes the same records and converts byte columns to its UTF-16 positions.
 
-`--debug` instruments user functions in full-runtime builds with source frames.
+`--debug` instruments user functions in full and core builds with source frames.
 Uncaught faults print the captured trace; caught faults expose it in `err.stack`.
 Frames name the function and its declaration location, rather than every call
 site. Tail calls keep bounded trace depth, handlers restore unwound frames, and
@@ -141,7 +141,7 @@ is explicit and does not depend on the host:
 | Maps, records, structs and enums | Yes | Yes | Yes | Use raw storage/operations |
 | Closures, shared captures and higher-order calls | Yes | Yes | Yes | No injected callable runtime |
 | Floats | Yes | Yes | Rejected | Use raw storage/operations |
-| Recoverable faults and source traces | Yes | Yes | Faults exit 70; tracing rejected | No injected runtime |
+| Recoverable faults and source traces | Yes | Yes | Yes; uncaught faults exit 70 | No injected runtime |
 | Fibers and typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
 | File/process/network libraries | Linux x86-64 | Linux x86-64 | Rejected | Explicit target OS calls |
 | Heap lifetime | Conservative GC | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
@@ -188,7 +188,11 @@ enum constructors and pattern matching use this same portable representation.
 Closures share mutable captured cells, including across nested callbacks and
 recursive local functions. Callback helpers include `map`, `filter`, `reduce`,
 `any`, `all`, `count`, `each` and `times`.
-Floats, exceptions, fibers and FFI still require the
+`may`/`otherwise` catches fail/type/arithmetic faults and exposes `err.kind`,
+`err.message` and `err.stack`; `--debug` includes function/source traces. Uncaught
+core faults retain the plain diagnostic and exit status 70. At most 64 handlers
+may be active; exhausting that capacity raises a catchable runtime fault.
+Floats, fibers and FFI still require the
 full x86-64 Linux runtime; core compilation diagnoses unsupported operations
 before writing output. Use `--runtime core` on Linux for small portable programs
 and lower compilation overhead. Deploy the `runtime/` directory beside the

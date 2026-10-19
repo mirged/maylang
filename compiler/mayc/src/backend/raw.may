@@ -28,6 +28,7 @@ fun raw_address(ctx: Any, emitter: Any, offset: Any) -> Any {
 }
 
 fun raw_variable(ctx: Any, emitter: Any, name: Any, length: Any) -> Any {
+    if (name_eq(name, length, addr("err"), 3) == 1) { name = addr("ERRVAL"); length = 6; }
     if (name_eq(name, length, addr("true"), 4) == 1) { (emitter.immediate)(ctx, if (ctx.mode == 1) { 4 } else { 1 }, 0); return 0; }
     if (name_eq(name, length, addr("false"), 5) == 1) { (emitter.immediate)(ctx, if (ctx.mode == 1) { 3 } else { 0 }, 0); return 0; }
     if (name_eq(name, length, addr("nil"), 3) == 1) { (emitter.immediate)(ctx, if (ctx.mode == 1) { 2 } else { 0 }, 0); return 0; }
@@ -66,6 +67,7 @@ fun raw_set(ctx: Any, emitter: Any, name: Any, length: Any, initialize: Any) -> 
 fun raw_call(ctx: Any, emitter: Any, payload: Any) -> Any {
     let name: Any = symbol_name(payload.name, payload.length);
     let args: Any = payload.args;
+    if (name == "__longjmp") { return raw_throw(ctx, emitter); }
     if (ctx.runtime != "none" and (loc_find(ctx, payload.name, payload.length) >= 0 or glob_find(ctx, payload.name, payload.length) >= 0)) {
         raw_variable(ctx, emitter, payload.name, payload.length);
         return raw_apply(ctx, emitter, args);
@@ -122,6 +124,12 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
         if (op == IR_LABEL) { placelab(ctx, payload); }
+        else if (op == IR_TRY_BEGIN) { raw_handler(ctx, emitter, payload); }
+        else if (op == IR_TRY_END) {
+            raw_variable(ctx, emitter, addr("HDEPTH"), 6);
+            (emitter.immediate)(ctx, 1, 1); (emitter.binary)(ctx, TK_MINUS);
+            raw_set(ctx, emitter, addr("HDEPTH"), 6, false);
+        }
         else if (op == IR_JUMP) { (emitter.jump)(ctx, payload, false); }
         else if (op == IR_COPY or op == IR_RETURN or op == IR_BOOL) {
             raw_get(ctx, emitter, instruction.arg1, 0);
@@ -291,6 +299,49 @@ fun raw_arguments(ctx: Any, emitter: Any, args: Any) -> Any {
 }
 
 fun raw_home(ctx: Any, slot: Any) -> Any { return (slot + ctx.allocation.localsBase) * 8; }
+
+// Each native handler owns [SP, FP, destination, callee-saved registers...].
+// Restoring only SP/FP would corrupt values held by callers when unwinding
+// past a callee that currently owns those registers.
+fun raw_handler_address(ctx: Any, emitter: Any, previous: Any) -> Any {
+    raw_variable(ctx, emitter, addr("HDEPTH"), 6);
+    if (previous) { (emitter.immediate)(ctx, 1, 1); (emitter.binary)(ctx, TK_MINUS); }
+    (emitter.immediate)(ctx, 64, 1); (emitter.binary)(ctx, TK_STAR); (emitter.move)(ctx, 1, 0);
+    raw_variable(ctx, emitter, addr("HSTACK"), 6); (emitter.binary)(ctx, TK_PLUS); (emitter.move)(ctx, 2, 0);
+    return 0;
+}
+
+fun raw_handler(ctx: Any, emitter: Any, label: Any) -> Any {
+    raw_invoke(ctx, emitter, "rt_handler_limit");
+    raw_handler_address(ctx, emitter, false);
+    let slot: Any = raw_home(ctx, ctx.allocation.callSlot);
+    (emitter.store)(ctx, 2, -1, slot, 8);
+    if (ctx.target.arch == "arm64") { e32(ctx, 2432697312); } // mov x0,sp
+    else { e32(ctx, 66835); } // mv a0,sp
+    (emitter.store)(ctx, 0, 2, 0, 8);
+    if (ctx.target.arch == "arm64") { e32(ctx, 2854028256); } // mov x0,x29
+    else { e32(ctx, 263443); } // mv a0,s0
+    (emitter.store)(ctx, 0, 2, 8, 8);
+    for i: Any in 0..4 { (emitter.store)(ctx, 20 + i, 2, 24 + i * 8, 8); }
+    raw_code_address(ctx, emitter, label); (emitter.move)(ctx, 0, 2);
+    (emitter.load)(ctx, 2, -1, slot, 8); (emitter.store)(ctx, 0, 2, 16, 8);
+    raw_variable(ctx, emitter, addr("HDEPTH"), 6);
+    (emitter.immediate)(ctx, 1, 1); (emitter.binary)(ctx, TK_PLUS);
+    raw_set(ctx, emitter, addr("HDEPTH"), 6, false);
+    return 0;
+}
+
+fun raw_throw(ctx: Any, emitter: Any) -> Any {
+    raw_handler_address(ctx, emitter, true);
+    for i: Any in 0..4 { (emitter.load)(ctx, 20 + i, 2, 24 + i * 8, 8); }
+    (emitter.load)(ctx, 0, 2, 0, 8); (emitter.load)(ctx, 1, 2, 8, 8); (emitter.load)(ctx, 2, 2, 16, 8);
+    if (ctx.target.arch == "arm64") {
+        e32(ctx, 2432696351); e32(ctx, 2852193277); e32(ctx, 3592356128); // SP=x0; FP=x1; br x9
+    } else {
+        e32(ctx, 327955); e32(ctx, 361491); e32(ctx, 163943); // SP=a0; FP=a1; jr t0
+    }
+    return 0;
+}
 
 fun raw_capacity(ctx: Any) -> Any {
     mut capacity: Any = 8; let blocks: Any = [ctx.mainIR];

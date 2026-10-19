@@ -1,11 +1,15 @@
 // Portable core runtime: the common tagged scalar/collection ABI on all targets.
 // Heap chunks live until process exit. This runtime has no collector, floats,
-// recoverable exceptions, or operating-system libraries.
+// fibers, FFI or operating-system libraries.
 mut CORE_HP: Any = 0;
 mut CORE_END: Any = 0;
 mut CORE_RETAINED: Any = 0;
 mut STACKTOP: Any = 0;
-fun rt_init() -> Any { return 0; }
+mut HDEPTH: Any = 0;
+mut HSTACK: Any = 0;
+mut ERRFLAG: Any = 0;
+mut ERRVAL: Any = 2;
+fun rt_init() -> Any { HSTACK = rt_alloc(64 * 256); return 0; }
 fun rt_gc_root(address: Any) -> Any { return 0; }
 fun rt_exit(status: Any) -> Any { __host_exit(status / 8); return 2; }
 fun __core_alloc(bytes: Any) -> Any { return rt_alloc(bytes / 8) * 8; }
@@ -72,15 +76,35 @@ fun rt_write(pointer: Any, count: Any) -> Any {
     }
     return 0;
 }
-fun rt_fail(s: Any) -> Any { rt_write(s + 7, rt_slen(s)); rt_write(addr("\n"), 1); __host_exit(70); return 2; }
-fun rt_failtype(s: Any) -> Any { return rt_fail(s); }
-fun rt_failarith(s: Any) -> Any { return rt_fail(s); }
+fun __core_raise(kind: Any, length: Any, message: Any) -> Any {
+    ERRFLAG = 1; ERRVAL = rt_map_new();
+    rt_map_set(ERRVAL, rt_from(addr("__err"), 5), 4);
+    rt_map_set(ERRVAL, rt_from(addr("kind"), 4), rt_from(kind, length));
+    rt_map_set(ERRVAL, rt_from(addr("message"), 7), message);
+    rt_map_set(ERRVAL, rt_from(addr("stack"), 5), rt_trace_snapshot());
+    if (HDEPTH == 0) { return rt_die_uncaught(); }
+    __longjmp(); return 2;
+}
+fun rt_fail(s: Any) -> Any { return __core_raise(addr("fail"), 4, s); }
+fun rt_failtype(s: Any) -> Any { return __core_raise(addr("type"), 4, s); }
+fun rt_failarith(s: Any) -> Any { return __core_raise(addr("arithmetic"), 10, s); }
+fun rt_failstr(s: Any) -> Any { return __core_raise(addr("runtime"), 7, s); }
+fun rt_handler_limit() -> Any {
+    if (HDEPTH >= 64) { return rt_failstr(rt_from(addr("exception handler limit exceeded"), 32)); }
+    return 0;
+}
 fun rt_int_contract(value: Any, low: Any, high: Any) -> Any {
     if (value % 8 != 0) { return rt_failtype(rt_from(addr("expected an integer"), 19)); }
     if (value < low or value > high) { return rt_failarith(rt_from(addr("integer outside annotated bounds"), 32)); }
     return value;
 }
-fun rt_die_uncaught() -> Any { __host_exit(70); return 2; }
+fun rt_die_uncaught() -> Any {
+    let message: Any = rt_map_get(ERRVAL, rt_from(addr("message"), 7));
+    rt_write(message + 7, rt_slen(message)); rt_write(addr("\n"), 1);
+    let trace: Any = rt_map_get(ERRVAL, rt_from(addr("stack"), 5));
+    if (trace % 8 == 1 and rt_slen(trace) > 0) { rt_write(trace + 7, rt_slen(trace)); }
+    __host_exit(70); return 2;
+}
 fun rt_copy(d: Any, s: Any, n: Any) -> Any {
     mut i: Any = 0;
     while (i < n) {
@@ -1093,4 +1117,38 @@ fun rt_times(n: Any, f: Any) -> Any {
         i = i + 1;
     }
     return 2;
+}
+
+// -------------------------------------------------------------- source traces
+
+mut TRACE_STACK: Any = 0;
+mut TRACE_DEPTH: Any = 0;
+
+fun rt_trace_push(frame: Any) -> Any {
+    if (TRACE_STACK == 0) { TRACE_STACK = rt_alloc(8192); }
+    if (TRACE_DEPTH < 1024) { store64(TRACE_STACK + TRACE_DEPTH * 8, frame); }
+    TRACE_DEPTH += 1; return 2;
+}
+fun rt_trace_pop() -> Any {
+    if (TRACE_DEPTH > 0) {
+        TRACE_DEPTH -= 1;
+        if (TRACE_DEPTH < 1024) { store64(TRACE_STACK + TRACE_DEPTH * 8, 0); }
+    }
+    return 2;
+}
+fun rt_trace_depth() -> Any { return TRACE_DEPTH * 8; }
+fun rt_trace_restore(depth: Any) -> Any {
+    while (TRACE_DEPTH > depth / 8) { rt_trace_pop(); }
+    return 2;
+}
+fun rt_trace_snapshot() -> Any {
+    mut text: Any = rt_from(addr(""), 0);
+    mut index: Any = TRACE_DEPTH - 1;
+    if (index >= 1024) { index = 1023; text = rt_from(addr("  ... trace truncated\n"), 22); }
+    mut frames: Any = 0;
+    while (index >= 0 and frames < 64) {
+        text = rt_concat(text, rt_concat(rt_from(addr("  at "), 5), rt_concat(load64(TRACE_STACK + index * 8), rt_from(addr("\n"), 1))));
+        index -= 1; frames += 1;
+    }
+    return text;
 }

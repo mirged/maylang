@@ -40,6 +40,10 @@ mut ERRFLAG: Any = 0;
 mut ERRVAL: Any = 2;
 mut HDEPTH: Any = 0;
 mut HSTACK: Any = 0;
+fun rt_handler_limit() -> Any {
+    if (HDEPTH >= 64) { return rt_failstr(rt_from(addr("exception handler limit exceeded"), 32)); }
+    return 0;
+}
 mut TRACE_STACK: Any = 0;
 mut TRACE_DEPTH: Any = 0;
 
@@ -181,7 +185,7 @@ fun rt_init() -> Any {
     GBASE = 0;
     GCOUNT = 0;
     CSTOP = STACKTOP;
-    // Native handlers use 24 bytes; LLVM's libc jump buffers need 256.
+    // Native handlers use 64 bytes; LLVM's libc jump buffers need 256.
     HSTACK = rt_alloc(64 * 256);
     GCFLAG = 1;
     return 0;

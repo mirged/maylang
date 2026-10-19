@@ -78,7 +78,7 @@
 - Foreign calls require the full Linux x86-64 native runtime; core/raw and the experimental clang-llvm backend reject typed extern declarations. String arguments cross as C strings, with NUL termination semantics.
 - Low-level `ccall(address, args)` supports up to six integer C arguments; `extern_c(address)` wraps a raw address with six positional parameters. These differ from typed extern calls and do not provide arbitrary C signatures.
 - **Concurrency** — `spawn` schedules a zero-argument function; `yield()` switches cooperatively; `run()` drains ready fibers. This is cooperative scheduling in the full native runtime, not parallel OS-thread execution.
-- **Implementation boundaries** — core supports maps, records, structs, enums, closures and shared captures on every native target. Floats, fault handling, fibers and FFI require the full runtime. Raw omits the injected runtime; see the compiler reference.
+- **Implementation boundaries** — core supports maps, records, structs, enums, closures, shared captures, recoverable faults and debug traces on every native target. Floats, fibers and FFI require the full runtime. Raw omits the injected runtime; see the compiler reference.
 - Full-runtime GC has a documented corruption issue during sustained allocation workloads; core allocation retains chunks until process exit. These implementation limits are described in the existing compiler guide.
 - Read [syntax catalog](SYNTAX.md), [runtime API](RUNTIME.md), [library APIs](STDLIB.md) and [compiler reference](TOOLCHAIN.md) for complete inventories and commands.
 - Comments: `//` continues to the end of a line; `/* ... */` block comments nest. Import-looking lines inside comments or multiline strings are ignored by module loading.

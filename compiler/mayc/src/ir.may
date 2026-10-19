@@ -555,7 +555,7 @@ fun ir_program(ctx: Any) -> Any {
         if (DYNMODE == 0) { raw = 1; }
         ir_begin(raw);
         IR_FUNCTION = rec;
-        IR_TRACE_ACTIVE = DEBUG_TRACES and ctx.runtime == "full" and rec.mode == 0 and source_module(rec.moduleSpan ?? rec.body.span) != "";
+        IR_TRACE_ACTIVE = DEBUG_TRACES and ctx.runtime != "none" and rec.mode == 0 and source_module(rec.moduleSpan ?? rec.body.span) != "";
         if (IR_TRACE_ACTIVE) {
             let location: Any = diagnostic_record(rec.moduleSpan ?? rec.body.span, "");
             let parts: Any = split(symbol_name(rec.p, rec.l), "::");

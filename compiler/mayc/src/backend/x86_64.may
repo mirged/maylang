@@ -408,13 +408,11 @@ fun x86_put_temp(ctx: Any, value: Any) -> Any {
 }
 
 fun x86_handler_begin(ctx: Any, label: Any) -> Any {
+    call_rt0(ctx, addr("rt_handler_limit"), len("rt_handler_limit"));
     let hd: Any = glob_find(ctx, addr("HDEPTH"), 6);
     let hs: Any = glob_find(ctx, addr("HSTACK"), 6);
     ld_abs(ctx, glob_off(ctx, hd));
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);
-    e8(ctx, 72); e8(ctx, 1); e8(ctx, 192);
-    e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
-    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 6);
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
     ld_abs(ctx, glob_off(ctx, hs));
     e8(ctx, 72); e8(ctx, 1); e8(ctx, 194);
@@ -422,6 +420,7 @@ fun x86_handler_begin(ctx: Any, label: Any) -> Any {
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 106); e8(ctx, 8);
     addr_lab(ctx, label, 6);
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 66); e8(ctx, 16);
+    for byte: Any in [72,137,90,24,76,137,98,32,76,137,106,40,76,137,114,48,76,137,122,56] { e8(ctx, byte); }
     ld_abs(ctx, glob_off(ctx, hd));
     e8(ctx, 72); e8(ctx, 5); e32(ctx, 1);
     st_abs(ctx, glob_off(ctx, hd));
@@ -2934,13 +2933,11 @@ fun cg_longjmp(ctx: Any) -> Any {
     placelab(ctx, live);
     ld_abs(ctx, glob_off(ctx, hd));
     e8(ctx, 72); e8(ctx, 45); e32(ctx, 1);
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);
-    e8(ctx, 72); e8(ctx, 1); e8(ctx, 192);
-    e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
-    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 6);
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
     ld_abs(ctx, glob_off(ctx, hs));
     e8(ctx, 72); e8(ctx, 1); e8(ctx, 194);
+    for byte: Any in [72,139,90,24,76,139,98,32,76,139,106,40,76,139,114,48,76,139,122,56] { e8(ctx, byte); }
     e8(ctx, 72); e8(ctx, 139); e8(ctx, 66); e8(ctx, 16);
     e8(ctx, 72); e8(ctx, 139); e8(ctx, 34);
     e8(ctx, 72); e8(ctx, 139); e8(ctx, 106); e8(ctx, 8);
