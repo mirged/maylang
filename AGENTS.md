@@ -346,9 +346,10 @@ browser suite under Xvfb. `release.yml` handles tagged releases. CI uses Ubuntu
   Prefer preallocated lists of integers in hot loops. A crash in a long
   workload may be this bug rather than your change, so reproduce it before
   blaming the change.
-- **Source files above 1 MiB are truncated** ([#37](https://github.com/mirged/maylang/issues/37)),
-  and import expansion and arena sizes are bounded (#38, #39). Keep modules
-  well below that.
+- **Source size limits:** each source file is limited to 1 MiB and the
+  expanded import closure to 4 MiB; both are rejected with an error, not
+  truncated (#37, #38). The 256 MiB source arena is bounded and can be resized
+  with `MAYC_ARENA_BYTES` (#39).
 - The compiler's frontend uses mutable global state
   ([#49](https://github.com/mirged/maylang/issues/49)). It is not thread-safe or
   re-entrant across compilation units.

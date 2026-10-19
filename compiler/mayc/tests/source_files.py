@@ -101,6 +101,30 @@ def main():
         assert subprocess.run([str(binary)], capture_output=True, timeout=10).stdout == b'399\n'
         print('PASS source buffers are sized by content: 400 imported modules in a 16 MiB arena')
 
+        # Each module is below the per-file limit; the closure has its own 4 MiB bound.
+        closure = work / 'closure'
+        closure.mkdir()
+        for index in range(5):
+            (closure / f'b{index}.may').write_text('//' + ' ' * 1040000 + f'\nfun g{index}() -> Int {{ return {index}; }}\n')
+        (closure / 'nested.may').write_text('// nested\nimport "b4.may";\n')
+        imports = ''.join(f'import "b{index}.may";\n' for index in range(4))
+        (closure / 'fits.may').write_text(imports + 'print(g0() + g3());\n')
+        result = invoke(closure / 'fits.may')
+        assert result.returncode == 0, result
+        assert subprocess.run([str(binary)], capture_output=True, timeout=10).stdout == b'3\n'
+        # Code after an import on the same line exercises column padding.
+        for name, text in (('over.may', imports + 'import "nested.may"; print(g4());\n'),):
+            (closure / name).write_text(text)
+            for options in ([], ['--raw'], ['--check']):
+                binary.write_bytes(b'previous output')
+                result = invoke(closure / name, *options)
+                expected = (f'{closure}/b4.may:1: imported sources exceed the 4 MiB expansion limit\n'
+                            f'  imported from {closure}/nested.may:2\n'
+                            f'  imported from {closure}/{name}:5\n').encode()
+                assert result.returncode == 1 and result.stderr == expected, (name, options, result)
+                assert binary.read_bytes() == b'previous output'
+        print('PASS aggregate import closures are bounded with the import chain in the diagnostic')
+
 
 if __name__ == '__main__':
     main()

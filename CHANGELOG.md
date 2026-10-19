@@ -9,6 +9,10 @@
 - Reserve only the bytes actually read for each source file instead of 1 MiB
   per module, so programs with hundreds of imported modules compile in the
   default arena.
+- Enforce the 4 MiB bound on the expanded import closure. Several modules that
+  were each under the 1 MiB file limit could overflow the expansion buffer; the
+  compiler now stops with the offending line and the chain of imports that
+  reached it ([#38](https://github.com/mirged/maylang/issues/38)).
 
 ## Tools
 

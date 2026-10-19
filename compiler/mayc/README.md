@@ -36,6 +36,8 @@ to the full Maylang runtime. `--time` reports elapsed stage times to stderr.
 
 Individual input files, including imports, are limited to 1 MiB. The compiler
 rejects larger files with an error instead of compiling a truncated prefix.
+The expanded import closure (every imported file, once) is limited to 4 MiB;
+exceeding it reports the line being copied and each import that led to it.
 Source bytes and other raw frontend buffers live in a bounded arena of 256 MiB.
 The compiler reports an error when the arena cannot be mapped or is exhausted;
 set `MAYC_ARENA_BYTES` (4096 to 1099511627776) to choose another size.

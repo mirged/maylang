@@ -7,6 +7,10 @@ mut EXPAND_ORIGINS: Any = [];
 mut MODULE_IMPORTS: Any = {};
 // Expansion order identifies modules independently of their filesystem roots.
 mut MODULE_SYMBOLS: Any = {};
+// The expanded import closure shares one buffer; one byte stays for the terminator.
+let EXPAND_CAPACITY: Any = 4194304;
+// Import directives being expanded, outermost first, as "path:line".
+mut EXPAND_CHAIN: Any = [];
 
 // Keep source spelling intact; semantic resolution handles module aliases.
 fun emit_line(t: Any, ls: Any, le: Any, buf: Any, off: Any) -> Any {
@@ -14,6 +18,15 @@ fun emit_line(t: Any, ls: Any, le: Any, buf: Any, off: Any) -> Any {
     while (i < le) { store8(buf + off, load8(t + i)); off += 1; i += 1; }
     store8(buf + off, 10);
     return off + 1;
+}
+
+fun expand_room(off: Any, needed: Any, path: Any, line: Any) -> Any {
+    if (needed <= EXPAND_CAPACITY - 1 - off) { return 0; }
+    mut message: Any = "${path}:${line}: imported sources exceed the 4 MiB expansion limit\n";
+    mut index: Any = len(EXPAND_CHAIN) - 1;
+    while (index >= 0) { message = message + "  imported from ${EXPAND_CHAIN[index]}\n"; index -= 1; }
+    die_str(message);
+    return 0;
 }
 
 fun module_path(path: Any) -> Any {
@@ -217,7 +230,11 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
         let le: Any = i;
         mut segment: Any = ls;
         // An empty physical line still belongs to the source-origin mapping.
-        if (segment == le) { push(EXPAND_ORIGINS, SourceOrigin(off, sourcePath, sourceLine)); off = emit_line(text, ls, le, buf, off); }
+        if (segment == le) {
+            expand_room(off, 1, sourcePath, sourceLine);
+            push(EXPAND_ORIGINS, SourceOrigin(off, sourcePath, sourceLine));
+            off = emit_line(text, ls, le, buf, off);
+        }
         while (segment < le) {
             let directive: Any = lexical.block == 0 and len(lexical.stack) == 0 and import_line(text, segment, le) == 1;
             if (directive) {
@@ -232,10 +249,14 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
                 let candidate: Any = if (starts_with(imported, "/")) { imported } else { symbol_name(pp, dl) + imported };
                 let target: Any = if (file_ok(addr(candidate)) == 1) { module_file(candidate) } else { module_file("stdlib/" + imported) };
                 register_import(sourcePath, target, text, segment, finish, q2);
+                push(EXPAND_CHAIN, "${sourcePath}:${sourceLine}");
                 off = append_file(addr(target), load64(addr(target) - 8), buf, off);
+                pop(EXPAND_CHAIN);
                 segment = finish;
             } else {
                 module_scan_line(text, segment, le, lexical);
+                // Column padding, the copied line and its newline.
+                expand_room(off, le - ls + 1, sourcePath, sourceLine);
                 push(EXPAND_ORIGINS, SourceOrigin(off, sourcePath, sourceLine));
                 // Preserve original columns for code after one or more imports.
                 mut padding: Any = ls;
@@ -255,8 +276,10 @@ fun expand(pp: Any, pl: Any) -> Any {
     MODULE_IMPORTS = {};
     MODULE_SYMBOLS = {};
     EXPAND_ORIGINS = [];
-    let buf: Any = irt_alloc(4194304);
+    EXPAND_CHAIN = [];
+    let buf: Any = irt_alloc(EXPAND_CAPACITY);
     let off: Any = append_file(pp, pl, buf, 0);
+    store8(buf + off, 0);
     SRC = buf;
     SRCLEN = off;
     SOURCE_FILES[buf] = SourceFile(symbol_name(pp, pl), EXPAND_ORIGINS);
