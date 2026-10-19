@@ -2542,6 +2542,35 @@ fun rt_ne(a: Any, b: Any) -> Any {
     return 4;
 }
 
+// Values of different types (Int and Float included) are never equal, and
+// ordering them raises a type fault. Library equality (contains, index_of,
+// match patterns, map keys) uses rt_eq directly.
+fun rt_compare_kind(v: Any) -> Any {
+    let t: Any = v % 8;
+    if (t == 4) { return 3; }
+    return t;
+}
+fun rt_kind_name(v: Any) -> Any {
+    let t: Any = rt_compare_kind(v);
+    if (t == 0) { return rt_from(addr("Int"), 3); }
+    if (t == 1) { return rt_from(addr("Str"), 3); }
+    if (t == 2) { return rt_from(addr("Nil"), 3); }
+    if (t == 3) { return rt_from(addr("Bool"), 4); }
+    if (t == 5) { return rt_from(addr("List"), 4); }
+    if (t == 6) { return rt_from(addr("Float"), 5); }
+    return rt_from(addr("Map"), 3);
+}
+fun rt_compare_error(a: Any, b: Any) -> Any {
+    let text: Any = rt_add(rt_add(rt_add(rt_from(addr("cannot compare "), 15), rt_kind_name(a)), rt_from(addr(" with "), 6)), rt_kind_name(b));
+    return rt_failtype(text);
+}
+fun rt_op_eq(a: Any, b: Any) -> Any { if (rt_compare_kind(a) == rt_compare_kind(b)) { return rt_eq(a, b); } return 3; }
+fun rt_op_ne(a: Any, b: Any) -> Any { if (rt_compare_kind(a) == rt_compare_kind(b)) { return rt_ne(a, b); } return 4; }
+fun rt_op_lt(a: Any, b: Any) -> Any { if (rt_compare_kind(a) == rt_compare_kind(b)) { return rt_lt(a, b); } return rt_compare_error(a, b); }
+fun rt_op_le(a: Any, b: Any) -> Any { if (rt_compare_kind(a) == rt_compare_kind(b)) { return rt_le(a, b); } return rt_compare_error(a, b); }
+fun rt_op_gt(a: Any, b: Any) -> Any { if (rt_compare_kind(a) == rt_compare_kind(b)) { return rt_gt(a, b); } return rt_compare_error(a, b); }
+fun rt_op_ge(a: Any, b: Any) -> Any { if (rt_compare_kind(a) == rt_compare_kind(b)) { return rt_ge(a, b); } return rt_compare_error(a, b); }
+
 fun rt_lt(a: Any, b: Any) -> Any {
     let ta: Any = a % 8;
     let tb: Any = b % 8;

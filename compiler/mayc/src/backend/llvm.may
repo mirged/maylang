@@ -257,7 +257,7 @@ fun llvm_operation(s: Any, op: Any, n: Any) -> Any {
     if (op == E_BIN) {
         mut a: Any = llvm_value(s, n.left); mut b: Any = llvm_value(s, n.right);
         mut operators: Any = ["add", "sub", "mul", "sdiv", "srem", "eq", "ne", "slt", "sle", "sgt", "sge"];
-        mut runtimes: Any = ["add", "sub", "mul", "div", "mod", "eq", "ne", "lt", "le", "gt", "ge"];
+        mut runtimes: Any = ["add", "sub", "mul", "div", "mod", "op_eq", "op_ne", "op_lt", "op_le", "op_gt", "op_ge"];
         mut index: Any = n.op - TK_PLUS;
         if (index < 0 or index >= len(operators)) { die_str("mayc: LLVM unsupported binary operation\n"); }
         if (not s.raw) { return llvm_call(s, "rt_" + runtimes[index], [a,b]); }

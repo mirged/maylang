@@ -40,9 +40,9 @@ fun ml_confusion_matrix(prediction: Any, target: Any, class_count: Any) -> Any {
     if (len(prediction) != len(target)) { fail("prediction and target lengths must match"); }
     mut matrix: Any = [[0 for _: Any in 0..class_count] for _: Any in 0..class_count];
     for i: Any in 0..len(prediction) {
-        let actual: Any = if (len(target[i]) == 1 && class_count == 2) { if (target[i][0] >= 0.5) { 1 } else { 0 } }
+        let actual: Any = if (len(target[i]) == 1 && class_count == 2) { if (to_float(target[i][0]) >= 0.5) { 1 } else { 0 } }
                      else { tensor_argmax(tensor_vector(target[i])) };
-        let guessed: Any = if (len(prediction[i]) == 1 && class_count == 2) { if (prediction[i][0] >= 0.5) { 1 } else { 0 } }
+        let guessed: Any = if (len(prediction[i]) == 1 && class_count == 2) { if (to_float(prediction[i][0]) >= 0.5) { 1 } else { 0 } }
                       else { tensor_argmax(tensor_vector(prediction[i])) };
         if (actual < 0 || actual >= class_count || guessed < 0 || guessed >= class_count) { fail("class index outside confusion matrix"); }
         matrix[actual][guessed] = matrix[actual][guessed] + 1;
@@ -56,7 +56,7 @@ fun ml_classification_report(matrix: Any) -> Any {
         let predicted: Any = sum([matrix[r][c] for r: Any in 0..classes]);
         let precision: Any = if (predicted == 0) { 0.0 } else { tp / (1.0 * predicted) };
         let recall: Any = if (actual == 0) { 0.0 } else { tp / (1.0 * actual) };
-        let f1: Any = if (precision + recall == 0) { 0.0 } else { 2 * precision * recall / (precision + recall) };
+        let f1: Any = if (precision + recall == 0.0) { 0.0 } else { 2 * precision * recall / (precision + recall) };
         push(rows, {"class": c, "precision": precision, "recall": recall, "f1": f1, "support": actual});
     }
     return rows;

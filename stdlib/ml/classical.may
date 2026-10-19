@@ -49,7 +49,7 @@ fun ml_kmeans(rows: Any, k: Any, iterations: Any, rng: Any) -> Any {
 fun ml_linear_fit(xs: Any, ys: Any, epochs: Any, learning_rate: Any) -> Any {
     if (len(xs) == 0 || len(xs) != len(ys)) { fail("linear fit needs matching nonempty data"); }
     let width: Any = len(xs[0]); mut weights: Any = [0.0 for _: Any in 0..width]; mut bias: Any = 0.0;
-    if (epochs < 0 || learning_rate <= 0) { fail("linear fit epochs and learning rate are invalid"); }
+    if (epochs < 0 || to_float(learning_rate) <= 0.0) { fail("linear fit epochs and learning rate are invalid"); }
     for row: Any in xs { if (len(row) != width) { fail("linear fit feature widths must match"); } }
     for _: Any in 0..epochs {
         let errors: Any = [sum([xs[i][j] * weights[j] for j: Any in 0..width]) + bias - ys[i] for i: Any in 0..len(xs)];
@@ -65,8 +65,8 @@ fun ml_linear_predict(model: Any, rows: Any) -> Any {
 fun ml_classical_sigmoid(x: Any) -> Any { return 1.0 / (1.0 + exp(-max(-60.0, min(60.0, x)))); }
 fun ml_logistic_fit(xs: Any, ys: Any, epochs: Any, learning_rate: Any) -> Any {
     if (len(xs) == 0 || len(xs) != len(ys)) { fail("logistic fit needs matching nonempty data"); }
-    if (epochs < 0 || learning_rate <= 0) { fail("logistic fit epochs and learning rate are invalid"); }
-    for y: Any in ys { if (y != 0 && y != 1) { fail("logistic labels must be 0 or 1"); } }
+    if (epochs < 0 || to_float(learning_rate) <= 0.0) { fail("logistic fit epochs and learning rate are invalid"); }
+    for y: Any in ys { if (to_float(y) != 0.0 && to_float(y) != 1.0) { fail("logistic labels must be 0 or 1"); } }
     let width: Any = len(xs[0]); mut weights: Any = [0.0 for _: Any in 0..width]; mut bias: Any = 0.0;
     for row: Any in xs { if (len(row) != width) { fail("logistic feature widths must match"); } }
     for _: Any in 0..epochs {

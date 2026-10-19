@@ -5,10 +5,10 @@ fun format_percent(value: Any, digits: Any) -> Any {
     return str(round(value * 100 * scale) / scale) + "%";
 }
 fun format_bytes(n: Any) -> Any {
-    if (abs(n) < 1024) { return str(n) + " B"; }
+    if (to_float(abs(n)) < 1024.0) { return str(n) + " B"; }
     let units: Any = ["KiB", "MiB", "GiB", "TiB"];
     mut value: Any = to_float(n); mut i: Any = -1;
-    while (abs(value) >= 1024 && i < len(units) - 1) { value = value / 1024.0; i = i + 1; }
+    while (to_float(abs(value)) >= 1024.0 && i < len(units) - 1) { value = value / 1024.0; i = i + 1; }
     return str(round(value * 10) / 10) + " " + units[i];
 }
 fun format_duration(seconds: Any) -> Any {

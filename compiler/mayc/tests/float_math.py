@@ -49,7 +49,7 @@ SPECIAL = [
     # Signed zeros display as -0.0; also compare their sign bits.
     ('print(high(sin(nz)), high(tan(nz)), high(pow(nz, 3.0)), high(pow(nz, 2.0)), high(pow(0.0 - inf, -3.0)), high(pow(-0.5, 1075.0)));',
      '2147483648 2147483648 2147483648 0 2147483648 2147483648'),
-    ('let a: Any = 1.5; let b: Any = nil; print(a != b, b != a, a == b, a < 2, a != 1.5);',
+    ('let a: Any = 1.5; let b: Any = nil; print(a != b, b != a, a == b, a < 2.0, a != 1.5);',
      'true true false true false'),
 ]
 

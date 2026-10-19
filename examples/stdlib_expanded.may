@@ -70,5 +70,5 @@ let confusion: Any = ml_confusion_matrix([[0.1], [0.9]], [[0.0], [1.0]], 2);
 if (confusion[0][0] != 1 || confusion[1][1] != 1) { fail("confusion matrix"); }
 let tiny: Any = nn_model(); nn_add_dense(tiny, 1, 1, "linear", random_new(3));
 let one_step: Any = ml_train_batch(tiny, [[1.0]], [[2.0]], ml_sgd_momentum(0.01, 0.8), "mse");
-if (one_step <= 0) { fail("SGD with momentum"); }
+if (one_step <= 0.0) { fail("SGD with momentum"); }
 print("expanded stdlib checks passed");

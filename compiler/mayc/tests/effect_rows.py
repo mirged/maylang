@@ -37,7 +37,7 @@ def main():
         check('empty', 'fun f(n: Int) -> Int ! {} { return n*2; } print(f(21));', output='42\n')
         check('output', 'fun f(n: Int) -> Int ! {output} { print(n); return n; } f(42);', output='42\n')
         check('clock', 'fun f() -> Int ! {clock} { return time(); }', options=('--check',))
-        check('clock_float', 'fun f() -> Bool ! {clock} { return clock() >= 0; } print(f());', output='true\n')
+        check('clock_float', 'fun f() -> Bool ! {clock} { return clock() >= 0.0; } print(f());', output='true\n')
         check('rows_normalize', 'fun f() -> Int ! {output, clock, output,} { print(time()); return 1; }', options=('--check',))
         check('wider_ceiling', 'fun f() -> Int ! {output, clock} { return 42; } print(f());', output='42\n')
         check('transitive', 'fun leaf() -> Int { print(42); return 1; } '

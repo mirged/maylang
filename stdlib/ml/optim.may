@@ -1,15 +1,15 @@
 // ml/optim.may — SGD with momentum and Adam for ml/nn.may dense layers.
 
 fun ml_sgd(learning_rate: Any) -> Any {
-    if (learning_rate <= 0) { fail("learning rate must be positive"); }
+    if (to_float(learning_rate) <= 0.0) { fail("learning rate must be positive"); }
     return {"kind": "sgd", "lr": learning_rate, "momentum": 0.0, "velocity_w": [], "velocity_b": []};
 }
 fun ml_sgd_momentum(learning_rate: Any, momentum: Any) -> Any {
-    if (learning_rate <= 0 || momentum < 0 || momentum >= 1) { fail("invalid SGD learning rate or momentum"); }
+    if (to_float(learning_rate) <= 0.0 || to_float(momentum) < 0.0 || to_float(momentum) >= 1.0) { fail("invalid SGD learning rate or momentum"); }
     return {"kind": "sgd", "lr": learning_rate, "momentum": momentum, "velocity_w": [], "velocity_b": []};
 }
 fun ml_adam(learning_rate: Any, beta1: Any, beta2: Any, epsilon: Any) -> Any {
-    if (learning_rate <= 0 || beta1 < 0 || beta1 >= 1 || beta2 < 0 || beta2 >= 1 || epsilon <= 0) { fail("invalid Adam hyperparameters"); }
+    if (to_float(learning_rate) <= 0.0 || to_float(beta1) < 0.0 || to_float(beta1) >= 1.0 || to_float(beta2) < 0.0 || to_float(beta2) >= 1.0 || to_float(epsilon) <= 0.0) { fail("invalid Adam hyperparameters"); }
     return {"kind": "adam", "lr": learning_rate, "beta1": beta1, "beta2": beta2, "epsilon": epsilon,
      "step": 0, "beta1_power": 1.0, "beta2_power": 1.0, "mw": [], "vw": [], "mb": [], "vb": []};
 }

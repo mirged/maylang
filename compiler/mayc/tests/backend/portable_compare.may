@@ -1,0 +1,14 @@
+// Values of different types are never equal; ordering them is a type fault.
+let a: Any = 1.5; let b: Any = nil; let i: Any = 1; let s: Any = "x";
+print(a != b, b == a, a == 1.5, i < 2, s == "x", a == i, a != i, i == a, s == i);
+let m: Map<Str, Int> = {"k": 1};
+print(m["q"] == nil, m["k"] ?? 0);
+fun kind(v: Any) -> Str { return match (v) { 1 => "one", "a" => "letter", _ => "other" }; }
+print(kind(1), kind("a"), kind(2.5), kind(nil));
+let l: Any = [1]; let mp: Any = {"a": 1};
+for pair: Any in [[a, i], [b, i], [l, mp]] {
+    let left: Any = pair[0]; let right: Any = pair[1];
+    print(may { left < right } otherwise { "${err.kind}: ${err.message}" });
+}
+print(1 < 2, 1.5 >= 1.5, "a" < "b", to_float(2) < 2.5);
+exit(0);

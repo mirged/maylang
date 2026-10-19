@@ -20,10 +20,12 @@ fun tensor_zeros(shape: Any) -> Any { return tensor([0.0 for _: Any in 0..tensor
 fun tensor_ones(shape: Any) -> Any { return tensor([1.0 for _: Any in 0..tensor_size(shape)], shape); }
 fun tensor_full(shape: Any, value: Any) -> Any { return tensor([value for _: Any in 0..tensor_size(shape)], shape); }
 fun tensor_arange(start: Any, stop: Any, step: Any) -> Any {
-    if (step == 0) { fail("tensor_arange step cannot be zero"); }
+    if (to_float(step) == 0.0) { fail("tensor_arange step cannot be zero"); }
+    // Values of different types cannot be compared, so bound the loop in Float.
+    let limit: Any = to_float(stop);
     mut values: Any = []; mut x: Any = start;
-    if (step > 0) { while (x < stop) { push(values, x); x = x + step; } }
-    else { while (x > stop) { push(values, x); x = x + step; } }
+    if (to_float(step) > 0.0) { while (to_float(x) < limit) { push(values, x); x = x + step; } }
+    else { while (to_float(x) > limit) { push(values, x); x = x + step; } }
     return tensor_vector(values);
 }
 fun tensor_eye(n: Any) -> Any {

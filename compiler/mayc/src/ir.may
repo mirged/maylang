@@ -451,7 +451,8 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         while (arm != 0) {
             let nextArm: Any = newlab(ctx);
             if (arm.patternKind == 1) {
-                let test: Any = ir_binary(TK_EQ, subject, ir_node(ctx, arm.pattern), span);
+                // Patterns of another type simply do not match, so use total equality.
+                let test: Any = ir_runtime("rt_eq", [subject, ir_node(ctx, arm.pattern)], span);
                 ir_emit(IR_FALSE, 0, test, 0, nextArm, span);
             } else if (arm.patternKind == 2) { ir_declare(arm.pattern, arm.length, subject, 0, span); }
             else if (arm.patternKind == 3) {
@@ -462,7 +463,7 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
                     let name: Any = if (arm.variantTag == "Ok") { "true" } else { "false" };
                     expected = ir_operation(E_VAR, {"name": addr(name), "length": len(name)}, span);
                 } else { expected = ir_operation(E_STRB, {"address": addr(arm.variantTag), "length": len(arm.variantTag)}, span); }
-                ir_emit(IR_FALSE, 0, ir_binary(TK_EQ, actual, expected, span), 0, nextArm, span);
+                ir_emit(IR_FALSE, 0, ir_runtime("rt_eq", [actual, expected], span), 0, nextArm, span);
                 for binding: Any in arm.nested {
                     if (binding.name != 0) {
                         let field: Any = ir_operation(E_STRB, {"address": addr(binding.fieldName), "length": len(binding.fieldName)}, binding.span);
