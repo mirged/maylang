@@ -1,0 +1,154 @@
+// Maylang raw branch-predictability microbenchmarks. Linux x86-64 only.
+// Rebuilds the five #78 if-conversion loops (10 million iterations each) as a
+// raw_performance.py suite: `--suite predictability`. Output matches
+// raw_performance.may: label, checksum, nanoseconds.
+// Compile: compiler/mayc/mayc_new --raw compiler/mayc/tests/backend/raw_predictability.may -o /tmp/predictability
+
+fun now_ns(ts: Any) -> Any {
+    let rc: Any = syscall(228, 1, ts);
+    if rc < 0 { exit(2); }
+    return load64(ts) * 1000000000 + load64(ts + 8);
+}
+
+fun write_bytes(address: Any, length: Any) -> Any {
+    syscall(1, 1, address, length);
+    return 0;
+}
+
+fun write_spaces(count: Any) -> Any {
+    mut i: Any = 0;
+    while i < count {
+        syscall(1, 1, addr(" "), 1);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fun write_int(value: Any, width: Any, scratch: Any) -> Any {
+    mut number: Any = value;
+    mut count: Any = 0;
+    mut negative: Any = 0;
+    if number < 0 {
+        negative = 1;
+        number = 0 - number;
+    }
+    if number == 0 {
+        store8(scratch, 48);
+        count = 1;
+    }
+    while number > 0 {
+        store8(scratch + count, 48 + number % 10);
+        count = count + 1;
+        number = number / 10;
+    }
+    if negative == 1 {
+        store8(scratch + count, 45);
+        count = count + 1;
+    }
+    write_spaces(width - count);
+    mut i: Any = count;
+    while i > 0 {
+        i = i - 1;
+        syscall(1, 1, scratch + i, 1);
+    }
+    return 0;
+}
+
+fun report(label: Any, label_len: Any, result: Any, elapsed: Any, digits: Any) -> Any {
+    write_bytes(label, label_len);
+    write_spaces(18 - label_len);
+    write_int(result, 14, digits);
+    write_bytes(addr(" "), 1);
+    write_int(elapsed, 14, digits);
+    write_bytes(addr("\n"), 1);
+    return 0;
+}
+
+// An induction-only predicate: periodic, so it keeps its branch.
+fun periodic_bench() -> Any {
+    mut total: Any = 0;
+    mut i: Any = 0;
+    while i < 10000000 {
+        if i % 1024 == 1023 { total = total + 7; }
+        else { total = total + 1; }
+        i = i + 1;
+    }
+    return total;
+}
+
+fun parity_two_bench() -> Any {
+    mut state: Any = 1;
+    mut total: Any = 0;
+    mut i: Any = 0;
+    while i < 10000000 {
+        state = state * 48271 % 2147483647;
+        if state % 2 == 0 { total = total + 3; }
+        else { total = total - 1; }
+        i = i + 1;
+    }
+    return total;
+}
+
+fun parity_one_bench() -> Any {
+    mut state: Any = 1;
+    mut total: Any = 0;
+    mut i: Any = 0;
+    while i < 10000000 {
+        state = state * 48271 % 2147483647;
+        if state % 2 == 0 { total = total + 1; }
+        i = i + 1;
+    }
+    return total;
+}
+
+fun maximum_bench() -> Any {
+    mut state: Any = 1;
+    mut best: Any = 0;
+    mut i: Any = 0;
+    while i < 10000000 {
+        state = state * 48271 % 2147483647;
+        if state > best { best = state; }
+        i = i + 1;
+    }
+    return best;
+}
+
+// A rarely taken guard on a loop-carried accumulator.
+fun guard_bench() -> Any {
+    mut x: Any = 0;
+    mut i: Any = 0;
+    while i < 10000000 {
+        x = x + i;
+        if x > 1000000000 { x = 0; }
+        i = i + 1;
+    }
+    return x;
+}
+
+let memory: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+if memory < 0 { exit(1); }
+let timespec: Any = memory;
+let digits: Any = memory + 32;
+
+mut start: Any = now_ns(timespec);
+let periodic: Any = periodic_bench();
+report(addr("Periodic branch"), 15, periodic, now_ns(timespec) - start, digits);
+
+start = now_ns(timespec);
+let parity_two: Any = parity_two_bench();
+report(addr("PRNG parity two"), 15, parity_two, now_ns(timespec) - start, digits);
+
+start = now_ns(timespec);
+let parity_one: Any = parity_one_bench();
+report(addr("PRNG parity one"), 15, parity_one, now_ns(timespec) - start, digits);
+
+start = now_ns(timespec);
+let maximum: Any = maximum_bench();
+report(addr("Running maximum"), 15, maximum, now_ns(timespec) - start, digits);
+
+start = now_ns(timespec);
+let guard: Any = guard_bench();
+report(addr("Rare guard"), 10, guard, now_ns(timespec) - start, digits);
+
+syscall(11, memory, 4096);
+exit(0);

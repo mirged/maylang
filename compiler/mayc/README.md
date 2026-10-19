@@ -25,7 +25,9 @@ with the final `.may` suffix removed. If the source has another suffix, `.out`
 is appended. `--check` performs import expansion, parsing, strict type checking
 and name resolution without writing an executable. `--legacy` opts into
 dynamic legacy checking; `--strict` restores strict checking (the default).
-`--raw` omits the runtime and standard libraries. `--dump-expanded` prints the
+`--raw` omits the runtime and standard libraries. On x86-64 it aligns function
+bodies and loop heads to 16 bytes with NOP padding; `--no-code-align` turns that
+off for layout experiments. `--dump-expanded` prints the
 source after textual imports have been expanded and exits. `--version` reports
 the self-hosted compiler identity. `--runtime full|core|none` selects the library
 set; `none` is equivalent to `--raw`. The default is `full` on x86-64 Linux and

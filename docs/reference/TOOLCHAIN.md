@@ -13,6 +13,7 @@
 - `--debug` — instrument full/core user functions with declaration/source frames; uncaught faults print a trace and caught errors expose `err.stack`.
 - `--legacy` — disable the strict pass for legacy untyped sources; name resolution and mutability checks still apply.
 - `--raw` — omit runtime, native library and prelude.
+- `--no-code-align` — emit raw x86-64 code without the NOP padding that aligns function bodies and loop heads; for layout experiments.
 - `--runtime full|core|none` — select runtime; none is equivalent to raw; full defaults on x86_64-linux and clang-llvm, core on other native targets.
 - `--time` — report compilation-stage timings to stderr.
 - `--target TARGET` — select one of the supported targets listed below.

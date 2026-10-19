@@ -3,7 +3,8 @@
 
 --suite core runs the six issue #76 kernels; --suite extended runs eleven more
 (sieve, matrix multiply, recursion, sorting, division, hashing, search,
-fixed-point, backtracking, streaming and dynamic programming).
+fixed-point, backtracking, streaming and dynamic programming); --suite
+predictability runs the five #78 branch-predictability loops.
 
 No performance threshold is enforced. Use --baseline-compiler with a compiler
 copied together with its runtime sidecars before rebuilding the changed source.
@@ -33,7 +34,11 @@ EXTENDED_CHECKSUMS = {'Sieve': 148933, 'Matrix multiply': -21275, 'Recursive fib
                       'Insertion sort': 538816184771, 'GCD grid': 336784, 'Hash': 2046935021,
                       'Binary search': 4907762861, 'Mandelbrot': 404758, 'N-queens': 724,
                       'Dot product': 32300327230, 'Knapsack': 23584}
-SUITES = {'core': ('raw_performance', CHECKSUMS), 'extended': ('raw_suite', EXTENDED_CHECKSUMS)}
+PREDICTABILITY_CHECKSUMS = {'Periodic branch': 10058590, 'PRNG parity two': 10002860,
+                            'PRNG parity one': 5000715, 'Running maximum': 2147483605,
+                            'Rare guard': 289999565}
+SUITES = {'core': ('raw_performance', CHECKSUMS), 'extended': ('raw_suite', EXTENDED_CHECKSUMS),
+          'predictability': ('raw_predictability', PREDICTABILITY_CHECKSUMS)}
 
 
 def parse_output(output, checksums=CHECKSUMS):

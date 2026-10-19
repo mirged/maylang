@@ -45,6 +45,9 @@ fun backend_for(ctx: Any) -> Any {
     return TargetBackend(riscv_emit, riscv_patch);
 }
 
+// `--no-code-align` keeps RAW x86-64 code unpadded (#83).
+fun backend_disable_code_alignment() -> Any { X86_FUNCTION_ALIGN = 0; X86_LOOP_ALIGN = 0; return 0; }
+
 fun arm64_emit(ctx: Any) -> Any { return raw_program(ctx, arm64_emitter()); }
 fun riscv_emit(ctx: Any) -> Any { return raw_program(ctx, riscv_emitter()); }
 

@@ -27,6 +27,12 @@
   drop unreachable and fallthrough jumps (#87). The extended suite is 33%
   faster than 0.13.102 and runs at 1.32× GCC's time
   ([report](compiler/mayc/tests/backend/raw-call-gaps.md)).
+- Align RAW x86-64 function bodies and loop heads to 16 bytes with NOP
+  padding, so unrelated code no longer moves hot loops (#83). Collatz's
+  spread across 16 code placements falls from 5.5% to 2.3% of cycles. Suite
+  medians are unchanged and code grows about 5%. `--no-code-align` restores
+  the previous layout. Add `raw_layout.py` and a branch-predictability suite
+  ([report](compiler/mayc/tests/backend/raw-code-alignment.md)).
 - Add an eleven-workload extended RAW benchmark suite
   ([report](compiler/mayc/tests/backend/raw-extended-suite.md)).
 
