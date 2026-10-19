@@ -74,7 +74,7 @@ that span components. Relative imports between siblings use
   testing the old compiler.
 - **Runtime sidecars are read at compile time and need no rebuild:**
   `compiler/mayc/runtime.may`, `compiler/mayc/native.may`,
-  `compiler/mayc/runtime/{core,corelib}.may` and `stdlib/prelude.may` are
+  `compiler/mayc/runtime/{core,corelib,math}.may` and `stdlib/prelude.may` are
   symlinked beside the cached binary, so edits apply to the next program you
   compile. They are still compiled into the compiler itself, so a sidecar
   change that the compiler relies on also needs a rebuild and a bootstrap
@@ -86,9 +86,11 @@ that span components. Relative imports between siblings use
   they differ.
 - A copied compiler needs `runtime.may`, `native.may`, `prelude.may` and the
   `runtime/` directory next to it. If they are missing, `mayc` looks for
-  `runtime.may` in the current directory, and for `prelude.may`/`native.may`
-  at their checkout locations two levels above the executable or under the
-  current directory. Outside a checkout, missing sidecars are an error.
+  `runtime.may` in the current directory, and for `prelude.may`/`native.may`/
+  `runtime/math.may` at their checkout locations two levels above the
+  executable or under the current directory. Outside a checkout, missing
+  sidecars are an error. `runtime/math.may` (shared float parsing, display and
+  transcendentals) is loaded by every runtime with a library prelude.
 - `make build` additionally builds the tools into `build/dev/` and writes
   `build/dev/env.sh` (sets `PATH`, `MAYC`, `MAYLANG_STDLIB`). `make tools`
   rebuilds only the tools with `$(MAYC)`.
@@ -206,6 +208,10 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 - **Not in the language:** hexadecimal literals (`0x10` is a name error), bitwise
   operators (`&`, `|`, `<<`, `>>`), and destructuring in strict mode. Use
   arithmetic, and use `load8`/`store8` for byte work.
+- Values of different types cannot be compared: strict mode rejects `Int` vs
+  `Float` (write `0.0` or convert with `to_float`). On `Any` values `==` across
+  types is `false`, `!=` is `true`, and ordering raises a `type` fault, so
+  `Any`-typed numeric code must normalize with `to_float` before comparing.
 - Integers are 61-bit tagged values (±2^60). Overflow and division by zero raise
   catchable `arithmetic` faults (uncaught core faults exit 70). `/` truncates
   toward zero and `%` has the dividend's sign.
@@ -223,8 +229,9 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   native target, including recoverable faults, debug traces and cooperative
   fibers. Core supports Float/Float32 arithmetic, conversions, rounding,
   square roots, transcendentals and floating powers (pure binary64, identical
-  bits on every target). FFI and OS libraries still need the full x86-64 Linux
-  runtime.
+  bits on every target). Float display is shortest round-trip and parsing is
+  correctly rounded everywhere. FFI and OS libraries still need the full x86-64
+  Linux runtime.
 - Many older files (and much of the compiler) use `Any`-typed signatures.
   Follow the style of the file you are editing; write new code with concrete
   types.

@@ -143,7 +143,7 @@ is explicit and does not depend on the host:
 | Maps, records, structs and enums | Yes | Yes | Yes | Use raw storage/operations |
 | Closures, shared captures and higher-order calls | Yes | Yes | Yes | No injected callable runtime |
 | Float literals, arithmetic, conversions and Float32 | Yes | Yes | Yes | Use raw storage/operations |
-| Transcendentals and floating-point powers | Yes (x87) | Yes (libm) | Yes (portable, within 1 ulp) | Use raw storage/operations |
+| Transcendentals and floating-point powers | Yes (portable trig; x87 logs/exp/pow) | Yes (portable trig; libm logs/exp/pow) | Yes (portable) | Use raw storage/operations |
 | Recoverable faults and source traces | Yes | Yes | Yes; uncaught faults exit 70 | No injected runtime |
 | Cooperative fibers | Yes | Yes | Yes | No injected scheduler |
 | Typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
@@ -204,23 +204,27 @@ independent handlers, caught errors and traces. Each gets a 256 KiB stack;
 at most 128 may be created per process. `yield()` returns `nil`.
 Core floats use binary64 boxes on every target, with Float32 boundary rounding,
 `float`/`int` conversion, comparisons, `sqrt`, `floor`, `ceil`, `round`, `trunc`,
-`pi` and `e`. Scalar display uses decimal/scientific formatting; nonfinite values
-print as `nan`, `inf` or `-inf`. Nested display retains the full runtime's
-existing `str_of` formatting. Scientific normalization uses decimal scaling
-in core and platform math in full builds; the last displayed digits may differ.
-Core `sin`, `cos`, `tan`, `ln`, `log2`, `log10`, `exp` and floating `pow`/`**`
-are implemented in `runtime/corelib.may` with binary64 arithmetic only, so every
-core target produces identical bits; results are within one ulp of a correctly
-rounded value, and trigonometric arguments of any finite magnitude are reduced
-exactly. Zeros, infinities, NaN and negative bases follow C99 `pow`/`exp` on all
-three runtimes. The `pow` builtin always returns a Float, while `**` keeps
-integer powers exact. The full runtime's x87 results can differ from core and
-LLVM in the last digit (x87 `sin`/`cos` reduce large arguments inexactly). FFI
-still requires the full x86-64 Linux runtime and is diagnosed before output.
-Float literals are converted with exact big-integer arithmetic and are correctly
-rounded on every backend. Use `--runtime core` on Linux for small portable programs
-and lower compilation overhead. Deploy the `runtime/` directory beside the
-compiler along with its full-runtime sidecars.
+`pi` and `e`. `runtime/math.may` is loaded by every runtime with a library
+prelude and holds the shared binary64-only code:
+
+- Display (`str`, `print`, nested values) prints the shortest digits that parse
+  back to the same value, like Python's `repr`, in Maylang's layout (`1e20`,
+  `0.30000000000000004`, `-0.0`); nonfinite values print as `nan`, `inf` or
+  `-inf`. `float(text)`, JSON numbers and float literals are correctly rounded.
+- `sin`, `cos` and `tan` reduce arguments of any finite magnitude exactly and
+  return identical bits on the full, LLVM and core runtimes. Core also uses the
+  portable `ln`, `log2`, `log10`, `exp` and floating `pow`/`**`; full builds keep
+  the faster x87 sequences and LLVM uses libm for those. Every backend is within
+  one ulp of a correctly rounded result, and zeros, infinities, NaN and negative
+  bases follow C99 `pow`/`exp`. The `pow` builtin always returns a Float, while
+  `**` keeps integer powers exact.
+- The core runtime never frees memory, so these pure functions release their
+  temporaries before returning.
+
+FFI still requires the full x86-64 Linux runtime and is diagnosed before
+output. Use `--runtime core` on Linux for small portable programs and lower
+compilation overhead. Deploy the `runtime/` directory beside the compiler along
+with its full-runtime sidecars; full builds also need `runtime/math.may`.
 
 ARM64/RISC-V raw targets support integers, literal strings, globals and locals,
 conditionals, loops, direct calls and tail self-calls, `addr`/`cstr`/literal `len`,

@@ -23,6 +23,7 @@
 - Map lookup statically yields an optional value; handle absence with `counts["key"] ?? 0`.
 - Strict conditions require Bool; dynamic truthiness is available with `bool(value)` or `truthy(value)`.
 - **Operators** — arithmetic `+`, `-`, `*`, `/`, `%`, `**`; equality `==`, `!=`; ordering `<`, `<=`, `>`, `>=`; logical `and`/`&&`, `or`/`||`, `not`/`!`.
+- **Comparisons** — values of different types cannot be compared. Strict checking rejects comparing different static types, including `Int` with `Float` (convert with `to_float`, `float` or `int`); integer widths and `Ptr` compare with each other. At runtime, `==` between values of different types is `false` and `!=` is `true` (any value may be tested against `nil`), while `<`, `<=`, `>` and `>=` raise a catchable `type` fault. `match` patterns of another type simply do not match.
 - Integer `/` truncates toward zero; `%` follows signed remainder behavior; division by zero and tagged integer overflow fault in the full runtime.
 - `+` additionally handles string concatenation and list concatenation through dynamic runtime dispatch. Mixed/dynamic operations may require explicit Any boundaries in strict code.
 - Precedence, weakest to strongest: assignment; `??`; `|>`; `or`/`||`; `and`/`&&`; equality; ordering; ranges; `+`/`-`; `*`/`/`/`%`; unary negation/not; `**`; postfix calls/index/property access.

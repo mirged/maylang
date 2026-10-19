@@ -215,6 +215,7 @@ def main():
                              ("numeric_contracts.py", "numeric bounds and array lengths"),
                              ("float_literals.py", "correctly rounded float literals"),
                              ("float_math.py", "transcendental functions and floating powers on every backend"),
+                             ("float_text.py", "shortest round-trip display and correctly rounded parsing"),
                              ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
                              ("diagnostics.py", "structured diagnostics and recovery"),
                              ("debug_traces.py", "debug traces and fiber isolation"),

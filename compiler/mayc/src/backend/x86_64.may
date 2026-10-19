@@ -2513,12 +2513,12 @@ fun cg_bin_dyn(ctx: Any, n: Any) -> Any {
     else if (op == TK_STAR) { call_rt2(ctx, addr("rt_mul"), len("rt_mul")); }
     else if (op == TK_SLASH) { call_rt2(ctx, addr("rt_div"), len("rt_div")); }
     else if (op == TK_PCT) { call_rt2(ctx, addr("rt_mod"), len("rt_mod")); }
-    else if (op == TK_EQ) { call_rt2(ctx, addr("rt_eq"), len("rt_eq")); }
-    else if (op == TK_NE) { call_rt2(ctx, addr("rt_ne"), len("rt_ne")); }
-    else if (op == TK_LT) { call_rt2(ctx, addr("rt_lt"), len("rt_lt")); }
-    else if (op == TK_LE) { call_rt2(ctx, addr("rt_le"), len("rt_le")); }
-    else if (op == TK_GT) { call_rt2(ctx, addr("rt_gt"), len("rt_gt")); }
-    else { call_rt2(ctx, addr("rt_ge"), len("rt_ge")); }
+    else if (op == TK_EQ) { call_rt2(ctx, addr("rt_op_eq"), len("rt_op_eq")); }
+    else if (op == TK_NE) { call_rt2(ctx, addr("rt_op_ne"), len("rt_op_ne")); }
+    else if (op == TK_LT) { call_rt2(ctx, addr("rt_op_lt"), len("rt_op_lt")); }
+    else if (op == TK_LE) { call_rt2(ctx, addr("rt_op_le"), len("rt_op_le")); }
+    else if (op == TK_GT) { call_rt2(ctx, addr("rt_op_gt"), len("rt_op_gt")); }
+    else { call_rt2(ctx, addr("rt_op_ge"), len("rt_op_ge")); }
     placelab(ctx, done);
     return 0;
 }

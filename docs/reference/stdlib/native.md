@@ -40,10 +40,7 @@
 - `int` explicit fault strings: `"runtime"`; runtime/callback faults can also propagate.
 - **float** — `fun float(x: Any) -> Any` — Convert a number or numeric string to a floating-point value.
 - `float` explicit fault strings: `"runtime"`; runtime/callback faults can also propagate.
-- **bump** — `fun bump(s: Any) -> Any` — Increment a decimal digit string; returns `[carry, result]` where `carry` is `1` when the whole part must be bumped (all nines).
-- **float_norm** — `fun float_norm(v: Any) -> Any` — Decompose a positive finite float into `[leading_digit, digits, exponent]` so the value is `leading.digits * 10^exponent`. A single scaling division keeps the mantissa close to exact (repeated division accumulates error).
-- **float_sci** — `fun float_sci(value: Any) -> Any` — Format a magnitude outside the safe plain-decimal range in scientific notation; the mantissa is rounded to 16 significant digits and trimmed.
-- **float_str** — `fun float_str(f: Any) -> Any` — Format a boxed float; spell nonfinite values nan, inf and -inf.
+- **float_str** — `fun float_str(f: Any) -> Any` — Format a boxed float with the shortest digits that parse back to the same value; spell nonfinite values nan, inf and -inf and keep the sign of negative zero.
 - **reverse** — `fun reverse(x: Any) -> Any` — Build a list with the input items in reverse order.
 - **range** — `fun range(a: Any, b: Any) -> Any` — Return an eager list of integers from inclusive a to exclusive b; the full-runtime source function takes exactly two arguments.
 - **sum** — `fun sum(xs: Any) -> Any` — Add the numeric values in a list.
@@ -138,3 +135,6 @@
 - **ccall** — `fun ccall(fn: Any, args: Any) -> Any` — Call machine code at a raw address with up to six integer arguments using the native calling convention.
 - **extern_c** — `fun extern_c(fn: Any) -> Any` — Wrap a native function address as a callable Maylang function accepting six integer arguments.
 - `extern_c`: The wrapper has six positional parameters and returns a raw integer C result; use ccall for a list of up to six integer arguments.
+- **sin** — `fun sin(value: Any) -> Any` — Return the sine of an angle in radians, reducing any finite argument exactly. Within one ulp.
+- **cos** — `fun cos(value: Any) -> Any` — Return the cosine of an angle in radians, reducing any finite argument exactly. Within one ulp.
+- **tan** — `fun tan(value: Any) -> Any` — Return the tangent of an angle in radians, reducing any finite argument exactly. Within one ulp.

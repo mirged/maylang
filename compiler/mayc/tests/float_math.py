@@ -28,7 +28,7 @@ fun high(v: Any) -> Int { return load32(addr(v) + 4); }
 # Each line runs as its own program so emulation stays within its budget.
 SPECIAL = [
     ('print(sin(z), sin(nz), cos(z), tan(nz), sin(inf), cos(nan), tan(0.0 - inf));',
-     '0.0 0.0 1.0 0.0 nan nan nan'),
+     '0.0 -0.0 1.0 -0.0 nan nan nan'),
     ('print(ln(1.0), ln(z), ln(-1.0), ln(inf), ln(nan), log2(1024.0), log2(0.5), log10(1000.0), log10(0.001), log10(1e300));',
      '0.0 -inf nan inf nan 10.0 -1.0 3.0 -3.0 300.0'),
     ('print(exp(z), exp(inf), exp(0.0 - inf), exp(710.0), exp(-746.0), exp(nan));',
@@ -36,20 +36,20 @@ SPECIAL = [
     ('print(pow(2.0, 3.0), pow(-2.0, 3.0), pow(-2.0, 2.0), pow(-8.0, 0.5), pow(nan, z), pow(1.0, nan), pow(nan, 1.0));',
      '8.0 -8.0 4.0 nan 1.0 1.0 nan'),
     ('print(pow(z, 3.0), pow(nz, 3.0), pow(nz, 2.0), pow(z, -1.0), pow(nz, -1.0), pow(nz, -2.0), pow(z, inf), pow(z, 0.0 - inf));',
-     '0.0 0.0 0.0 inf -inf inf 0.0 inf'),
+     '0.0 -0.0 0.0 inf -inf inf 0.0 inf'),
     ('print(pow(inf, 0.5), pow(inf, -0.5), pow(0.0 - inf, 3.0), pow(0.0 - inf, 2.0), pow(0.0 - inf, -3.0), pow(-1.0, inf), '
      'pow(0.5, inf), pow(2.0, inf), pow(0.5, 0.0 - inf), pow(2.0, 0.0 - inf));',
-     'inf 0.0 -inf inf 0.0 1.0 0.0 inf inf 0.0'),
+     'inf 0.0 -inf inf -0.0 1.0 0.0 inf inf 0.0'),
     ('print(pow(2.0, 1024.0), pow(2.0, -1075.0), pow(2.0, -1074.0), pow(9.0, 0.5), pow(10.0, 2.0), pow(2.0, 0.5));',
-     'inf 0.0 4.94065645841247e-324 3.0 100.0 1.4142135623730951'),
+     'inf 0.0 5e-324 3.0 100.0 1.4142135623730951'),
     ('print(pow(2, 8), pow(2, -1), pow(1.5, 2), 2 ** 10, 2.0 ** 10, 2 ** -2, 9.0 ** 0.5);',
      '256.0 0.5 2.25 1024 1024.0 0.25 3.0'),
     ('print(sqrt(4), floor(3), ceil(3), trunc(-3), sin(0), cos(0), exp(0), ln(1), log2(8), log10(100), tan(0));',
      '2.0 3 3 -3 0.0 1.0 1.0 0.0 3.0 2.0 0.0'),
-    # Signed zeros are invisible in display; compare their sign bits.
+    # Signed zeros display as -0.0; also compare their sign bits.
     ('print(high(sin(nz)), high(tan(nz)), high(pow(nz, 3.0)), high(pow(nz, 2.0)), high(pow(0.0 - inf, -3.0)), high(pow(-0.5, 1075.0)));',
      '2147483648 2147483648 2147483648 0 2147483648 2147483648'),
-    ('let a: Any = 1.5; let b: Any = nil; print(a != b, b != a, a == b, a < 2, a != 1.5);',
+    ('let a: Any = 1.5; let b: Any = nil; print(a != b, b != a, a == b, a < 2.0, a != 1.5);',
      'true true false true false'),
 ]
 
@@ -148,6 +148,18 @@ def main():
                 assert error <= 1.0, (name, args, got, want)
                 worst = max(worst, error)
         print(f'PASS portable transcendentals and powers within {worst:.0f} ulp of the host libm ({len(cases)} inputs)', flush=True)
+        # Full and LLVM share the portable trigonometry; their x87/libm logs,
+        # exp and pow may differ from core only in the last place.
+        portable = decode(native)
+        for name, flags in [('full', [])] + ([('llvm', ['--target', 'clang-llvm'])] if have_llvm else []):
+            compile_source(options.compiler, source, work / name, *flags)
+            for (function, args), got, core in zip(cases, decode(run_binary(work / name)), portable):
+                if function in ('sin', 'cos', 'tan'):
+                    assert struct.pack('<d', got) == struct.pack('<d', core), (name, function, args, got, core)
+                elif got != core:
+                    want = oracle(function, args)
+                    assert math.isfinite(want) and abs(got - want) <= math.ulp(want), (name, function, args, got, want)
+        print('PASS full' + (' and LLVM' if have_llvm else '') + ' trigonometry matches core bit for bit', flush=True)
         if have_emulation:
             lines = native.splitlines(keepends=True)
             for start in range(0, len(calls), 24):

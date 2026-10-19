@@ -119,6 +119,47 @@ The second session completed most of remaining item 2 (numeric support).
   - The full runtime raised "division by zero" when displaying values below
     about 1e-323; `float_norm` scales subnormals before dividing.
 
+### Numeric follow-up
+
+- **Shared math sidecar.** `runtime/math.may` is loaded by the full, LLVM and
+  core runtimes. `native.may` routes `sin`/`cos`/`tan` to it, fixing the x87
+  results (wrong near multiples of π, unchanged above 2^63); `corelib.may`
+  routes all transcendentals to it.
+- **Core heap release.** Core never frees, so a loop of 200,000 `sin`/`exp`/`ln`
+  calls used to stop with "core heap limit exceeded". Pure math, parsing and
+  formatting calls now record the bump pointer and release their temporaries
+  before re-boxing the result (strings travel in four Ints across the release).
+- **Display and parsing.** Every runtime prints the shortest digits that parse
+  back to the same value (Steele-White/Burger-Dybvig digit generation), in the
+  existing layout, including nested values (previously six decimals) and `-0.0`.
+  `float(text)` and JSON numbers use an exact fast path for ≤ 15 digits and
+  |exponent| ≤ 22 and exact big-integer conversion otherwise. 2,198 random
+  values print exactly as Python's `repr` digits and parse back bit for bit.
+- **Comparisons.** Values of different types cannot be compared. Strict mode
+  rejects `Int` vs `Float`; dynamic `==` across types is `false` and `!=` is
+  `true`; ordering raises a `type` fault. Operators call `rt_op_*`, while
+  library equality and `match` keep the total `rt_eq`. Making `==` fault as
+  well was rejected because the compiler, tools and stdlib use `0` as an object
+  sentinel (`while (item != 0)`) at hundreds of sites. Numeric `Any` code in
+  `stdlib/` normalizes with `to_float`.
+
+Measured on this machine (single runs, wall time):
+
+| Workload | Full | Core | LLVM |
+| --- | --- | --- | --- |
+| 600k `sin`+`exp`+`ln` calls, before | 0.05 s | heap exhausted | 0.28 s |
+| same, after (portable trig) | 0.36 s | 0.60 s | 2.7 s |
+| 100k `str(x)` + `float(text)` round trips, before | 7.1 s | heap exhausted | not run |
+| same, after | 5.6–6.3 s | 5.1 s | 108 s |
+| 50k `str(x)` | 1.47 s | 1.39 s | not run |
+| 50k `float(text)`, 3 of 5 inputs with 16–17 digits | 1.00 s | 0.76 s | not run |
+
+Display costs about 30 µs per value and long-input parsing about 20 µs on
+x86-64; one conversion is about two million emulated RISC-V instructions,
+which is why `float_text.py` emulates small batches. Faster paths (inline
+two-limb Dragon4 for ordinary magnitudes, Clinger-style correction instead of
+long division for 16–19 digits) remain possible.
+
 ## Current boundaries
 
 | Area | Direct full Linux x86-64 | LLVM Linux x86-64 | Portable native runtime |
@@ -143,25 +184,19 @@ a cross-platform backend or enable `--runtime full` on other native targets.
    pruning with actual platform libraries. LLVM resolves explicit libraries
    individually while native ELF uses loader symbol lookup; this distinction
    also needs a deliberate parity decision.
-2. **Remaining numeric differences.** Transcendentals and powers are done (see
-   above). Still open:
-   - Runtime `float(text)` (the full runtime's `native.may`, core's
-     `corelib.may` and `rt_parse_float2`) still uses decimal scaling and can be
-     an ulp or two off; only compile-time literals are correctly rounded. Port
-     the `src/literals.may` algorithm behind a fast path for short inputs.
-   - Display is not shortest-round-trip: some values print 17 significant
-     digits (`0.86231887228768382`), subnormals print approximately
-     (`2.50000000000002e-310`), and core/full scientific normalization can
-     differ in the last digit. Negative zero displays as `0.0` everywhere.
-   - x87 `sin`/`cos`/`tan` in the full runtime reduce large arguments
-     inexactly (for example `sin(1e22)` returns `1e22`), so full results can
-     differ from core and LLVM. Routing the full runtime through the portable
-     implementation would remove the difference at some speed cost.
-   - `1.0 == 1` is false (strict tag equality) while `1.0 != 1` is also false
-     (numeric comparison) on every backend. Decide one rule.
-   - Portable math allocates a box per intermediate value, so it is much
-     slower than x87/libm; the emulator's 20M-instruction budget limits how
-     many calls one emulated test program can make.
+2. **Numeric follow-ups.** The numeric gaps recorded after the first numeric
+   session are resolved (see [Numeric follow-up](#numeric-follow-up)). Still
+   open:
+   - Full builds keep x87 `ln`/`log2`/`log10`/`exp`/`pow` and LLVM keeps libm
+     for speed, so those can differ from core in the last place (all within
+     one ulp). Trigonometry, display and parsing are identical everywhere.
+   - Floats are boxed, so portable math costs about 1–2 µs per call on the
+     full runtime and more under LLVM, and exact display/parsing costs
+     20–30 µs per value; measurements are below.
+   - NaN compares equal to itself (`nan == nan` is `true`) on every backend,
+     following the old COMISD flag mapping rather than IEEE 754.
+   - `contains`/`index_of` accept only strings but strict mode does not check
+     their arguments; passing a list crashes.
 3. **All standard-library OS APIs.** Port file and directory operations,
    binary/Unicode I/O, stdin/input, arguments/environment, clocks/sleep,
    process execution/waiting/status/inheritance and networking. Linux syscall
@@ -187,6 +222,26 @@ a cross-platform backend or enable `--runtime full` on other native targets.
    it does not establish real loader or library compatibility.
 
 ## Validation completed
+
+### Numeric follow-up and comparison rule
+
+Run with `MAYLANG_STDLIB` unset so the checkout's stdlib is tested (a shell
+that points it at an installed toolchain silently tests that copy instead).
+Unicorn came from temporary dependencies outside the repository.
+
+| Command | Result |
+| --- | --- |
+| `sh compiler/rust/build.sh`, `make check` | Passed |
+| `make test-compiler MAYC=compiler/mayc/mayc_new` | 121 passed, 0 failed (adds `float_text.py`) |
+| `make test-compliance`, `make test-docs`, `make test-llvm` | Passed (69 compliance cases, 25 strict doc examples) |
+| `make test-rust`, `make test-bootstrap` | Passed; stages 2/3 byte-identical |
+| `make test-tools`, `make test-ui`, `make test-browser` | Passed |
+| `make test-distribution`, `make test-installer` | Passed |
+| `raw_codegen.py`; `backends.py`, `core_runtime.py`, `portable_values.py`, `float_math.py`, `float_text.py` with `--require-emulation` | Passed on all five targets |
+
+The first commit's tree was also checked on its own in a separate worktree
+(`make check`, 121 compiler checks, emulated `portable_values.py`). Real
+Windows/macOS hosts and the four-generation `run.sh` were not run.
 
 ### Numeric support session (after merging `origin/main`)
 

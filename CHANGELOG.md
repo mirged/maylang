@@ -1,5 +1,20 @@
 # Unreleased
 
+- Reject comparisons between values of different types. Strict checking now
+  rejects `Int` vs `Float` comparisons; on dynamic values `==` across types is
+  `false`, `!=` is `true` (so `1.0 != 1` is now `true`), and `<`, `<=`, `>`
+  and `>=` raise a catchable `type` fault. `match` patterns of another type
+  still simply fail to match. `Any`-typed stdlib numeric code now normalizes
+  with `to_float`.
+- Display floats with the shortest digits that round-trip (`0.1 + 0.2` prints
+  `0.30000000000000004`, `-0.0` keeps its sign, nested values no longer
+  truncate to six decimals) and parse `float(text)` and JSON numbers with
+  correct rounding, on every runtime.
+- Share exact `sin`, `cos` and `tan` between the full, LLVM and core runtimes;
+  the full runtime's x87 versions were inaccurate near multiples of pi and
+  returned arguments above 2^63 unchanged. The new `runtime/math.may` sidecar
+  holds this shared code, and core releases the temporaries of pure math,
+  parsing and formatting calls so long loops no longer exhaust its heap.
 - Support `sin`, `cos`, `tan`, `ln`, `log2`, `log10`, `exp` and floating
   `pow`/`**` in the portable runtime on every native target. The binary64-only
   implementation is bit-identical across targets, within one ulp of the host

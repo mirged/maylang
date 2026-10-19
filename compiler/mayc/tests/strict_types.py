@@ -120,6 +120,8 @@ FAIL = {
     'map_write': ('let m: Map<Str, Int> = {"a": 1};\nm["b"] = "wrong";', 'expected Int, found Str'),
     'nil_call': ('let f: Nil = nil;\nf();', 'cannot call Nil'),
     'wrong_loop_type': ('for x: Str in [1] { print(x); }', 'expected Str, found Int'),
+    'compare_float_int': ('let f: Float = 1.5;\nprint(f > 0);', 'cannot compare Float with Int'),
+    'compare_int_float': ('let n: Int = 1;\nprint(n == 1.0);', 'cannot compare Int with Float'),
 }
 
 

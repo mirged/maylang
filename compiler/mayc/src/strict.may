@@ -588,7 +588,15 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
         if (k == E_COALESCE) { return st_join(if (left.name == "Optional") { left.arguments[0] } else if (left.name == "Nil") { st_type("Never", []) } else { left }, right, node.span); }
         if (k == E_AND or k == E_OR) { st_dynamic_require(st_type("Bool", []), left, node.span); st_dynamic_require(st_type("Bool", []), right, node.span); return if (left.name == "Any" or right.name == "Any") { st_any() } else { st_type("Bool", []) }; }
         if (k == E_BIN and node.op >= TK_EQ and node.op <= TK_GE) {
-            if (not (has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float", "Float32", "Float64", "Ptr"], left.name) and has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float", "Float32", "Float64", "Ptr"], right.name))) { st_dynamic_require(left, right, node.span); }
+            // Values of different types cannot be compared; integer widths and
+            // Ptr share one integer representation, while Floats stand apart.
+            let integers: Any = ["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Ptr"];
+            let floats: Any = ["Float", "Float32", "Float64"];
+            if ((has(integers, left.name) and has(floats, right.name)) or (has(floats, left.name) and has(integers, right.name))) {
+                diagnostic(node.span, "cannot compare ${st_show(left)} with ${st_show(right)}; convert one side with float() or int()");
+            } else if (not ((has(integers, left.name) and has(integers, right.name)) or (has(floats, left.name) and has(floats, right.name)))) {
+                st_dynamic_require(left, right, node.span);
+            }
             return st_type("Bool", []);
         }
         if (left.name == "Any" or right.name == "Any") { return st_any(); }

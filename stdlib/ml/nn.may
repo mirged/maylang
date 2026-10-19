@@ -49,7 +49,7 @@ fun nn_forward(model: Any, batch: Any) -> Any {
 fun nn_activation_delta(layer: Any, grad: Any, batch_index: Any, output_index: Any) -> Any {
     let y: Any = layer.cache_output[batch_index][output_index];
     if (layer.activation == "linear") { return grad[batch_index][output_index]; }
-    if (layer.activation == "relu") { return if (layer.cache_z[batch_index][output_index] > 0) { grad[batch_index][output_index] } else { 0.0 }; }
+    if (layer.activation == "relu") { return if (to_float(layer.cache_z[batch_index][output_index]) > 0.0) { grad[batch_index][output_index] } else { 0.0 }; }
     if (layer.activation == "sigmoid") { return grad[batch_index][output_index] * y * (1 - y); }
     if (layer.activation == "tanh") { return grad[batch_index][output_index] * (1 - y * y); }
     if (layer.activation == "softmax") {

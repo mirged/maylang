@@ -5,7 +5,8 @@ print(floor(-2.5), ceil(-2.5), trunc(-2.5), floor(2.5), ceil(2.5), round(-2.5), 
 print(sqrt(16.0), pi() > 3.14, e() > 2.7);
 print(float(" -12.25e1 "), float(42), int(3.75), int(-3.75));
 print(2.0 == 2.0, 2.0 != 3.0, 2.0 < 3.0, 2.0 <= 2.0, 3.0 > 2.0, 3.0 >= 3.0);
-print(2.0 == 2, 2.0 != 2, 2.0 < 3, 2 < 3.0);
+let two: Any = 2;
+print(2.0 == two, 2.0 != two, 2.0 < to_float(3), to_float(2) < 3.0);
 print([1.25, -2.5], {"number": 3.75});
 let recovered: Any = may { 1.0 / 0.0 } otherwise { err.kind };
 print(recovered);

@@ -99,6 +99,11 @@ fun ls_diagnostics_entries(doc: Any, entries: Any) -> Any {
             let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
             if (builtin != nil) { ls_check_append(builtin, true); }
         }
+        let math_uri: Any = ls_math_uri();
+        if (math_uri != nil) {
+            let math: Any = ls_document(math_uri);
+            if (math != nil) { ls_check_append(math, true); }
+        }
         for entry: Any in entries { ls_check_append(entry, false); }
         if (len(keys(LS_CHECK_ERRORS)) == 0) {
             LS_CHECK_TEXT = ls_join(LS_CHECK_PARTS, "");
