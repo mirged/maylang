@@ -253,8 +253,15 @@ fun st_signature(rec: Any) -> Any {
     let module: Any = source_module(rec.moduleSpan ?? rec.body.span); let variables: Any = [];
     for variable: Any in rec.typeParameters ?? [] { push(variables, variable.name); }
     let params: Any = [];
-    for param: Any in rec.parr { push(params, st_annotation(param.annotation, module, variables, param.span)); }
-    let result: Any = st_annotation(rec.returnType, module, variables, rec.body.span);
+    for param: Any in rec.parr {
+        // UInt and Void are C binding types; values crossing the boundary are
+        // ordinary Maylang integers and nil, with ranges checked by the FFI.
+        if (rec.foreign == true and param.annotation.name == "UInt") { push(params, st_type("Int", [])); }
+        else { push(params, st_annotation(param.annotation, module, variables, param.span)); }
+    }
+    let result: Any = if (rec.foreign == true and rec.returnType.name == "UInt") { st_type("Int", []) }
+        else if (rec.foreign == true and rec.returnType.name == "Void") { st_type("Nil", []) }
+        else { st_annotation(rec.returnType, module, variables, rec.body.span) };
     if (rec.foreign == true) {
         for param: Any in params { if (st_has_behavior(param)) { diagnostic(rec.moduleSpan ?? rec.body.span, "foreign callable behavior contracts are not supported"); } }
         if (st_has_behavior(result)) { diagnostic(rec.moduleSpan ?? rec.body.span, "foreign callable behavior contracts are not supported"); }
