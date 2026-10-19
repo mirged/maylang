@@ -184,6 +184,8 @@ def main():
         record("linear-scan allocation and GC roots", allocator.returncode == 0, (allocator.stdout + allocator.stderr).decode())
         core = run(["python3", COMPILER / "tests/core_runtime.py", "--compiler", compiler], timeout=180)
         record("portable core runtime across formats", core.returncode == 0, (core.stdout + core.stderr).decode())
+        portable = run(["python3", COMPILER / "tests/portable_values.py", "--compiler", compiler], timeout=180)
+        record("portable collections, closures and calling conventions", portable.returncode == 0, (portable.stdout + portable.stderr).decode())
         maps = run(["python3", COMPILER / "tests/runtime_maps.py", "--compiler", compiler], timeout=180)
         record("runtime hash tables and allocation bins", maps.returncode == 0, (maps.stdout + maps.stderr).decode())
         gc = run(["python3", COMPILER / "tests/gc.py", "--compiler", compiler], timeout=180)
@@ -211,9 +213,13 @@ def main():
                              ("behavior_callbacks.py", "source callable ceilings and callback laundering rejection"),
                              ("list_guards.py", "dynamic list type and index guards"),
                              ("numeric_contracts.py", "numeric bounds and array lengths"),
+                             ("float_literals.py", "correctly rounded float literals"),
+                             ("float_math.py", "transcendental functions and floating powers on every backend"),
                              ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
                              ("diagnostics.py", "structured diagnostics and recovery"),
                              ("debug_traces.py", "debug traces and fiber isolation"),
+                             ("fibers.py", "suspended fiber handlers and caught errors"),
+                             ("externs.py", "typed scalar externs and C-ABI stack arguments"),
                              ("fuzz.py", "bounded frontend fuzzing")]:
             result = run(["python3", COMPILER / "tests" / script, "--compiler", compiler], timeout=180)
             record(name, result.returncode == 0, (result.stdout + result.stderr).decode())

@@ -1,0 +1,32 @@
+struct Point { x: Int, y: Int }
+enum Choice { Number(value: Int), Empty }
+fun describe(choice: Choice) -> Int {
+    return match (choice) { Number(value) => value, Empty => -1 };
+}
+let point: Point = Point(3, 4);
+point.x = 9;
+print(point.x, point.y, describe(Number(42)), describe(Empty()));
+let record: Any = {"b": [1, 2], "a": 7};
+record.b[1] = 8; record.c = "λ";
+print(record.a, record.b, record?.c, record?.missing, len(record));
+print(record);
+let integers: Map<Int, Str> = {1: "one", -2: "two"};
+integers[3] = "three";
+print(integers[1], integers[-2], integers[0], keys(integers), values(integers));
+print(has(integers, 3), has(integers, 0));
+let copied: Any = {"zero": 0, ...record, "a": 99};
+print(copied.a, copied.b == record.b, len(copied));
+print(merge({"a": 1}, {"b": 2, "a": 3}));
+let many: Map<Str, Int> = {};
+for i: Int in 0..100 { many[str(i)] = i; }
+mut checksum: Int = 0;
+for i: Int in 0..100 { checksum += many[str(i)] ?? 0; }
+many["5"] = 500;
+print(len(many), checksum, many["5"], many["absent"]);
+let first: Any = {"self": nil, "items": [1, {"n": 2}]};
+let second: Any = {"items": [1, {"n": 2}], "self": nil};
+first.self = first; second.self = second;
+print(first == second, first);
+second.items[0] = 3;
+print(first == second);
+exit(0);

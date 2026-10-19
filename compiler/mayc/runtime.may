@@ -40,6 +40,10 @@ mut ERRFLAG: Any = 0;
 mut ERRVAL: Any = 2;
 mut HDEPTH: Any = 0;
 mut HSTACK: Any = 0;
+fun rt_handler_limit() -> Any {
+    if (HDEPTH >= 64) { return rt_failstr(rt_from(addr("exception handler limit exceeded"), 32)); }
+    return 0;
+}
 mut TRACE_STACK: Any = 0;
 mut TRACE_DEPTH: Any = 0;
 
@@ -181,7 +185,8 @@ fun rt_init() -> Any {
     GBASE = 0;
     GCOUNT = 0;
     CSTOP = STACKTOP;
-    HSTACK = rt_alloc(64 * 24);
+    // Native handlers use 64 bytes; LLVM's libc jump buffers need 256.
+    HSTACK = rt_alloc(64 * 256);
     GCFLAG = 1;
     return 0;
 }
@@ -260,6 +265,7 @@ fun rt_gc() -> Any {
     // Runtime metadata must also survive standalone/raw runtime harnesses.
     rt_scan_word(GROOTS); rt_scan_word(HSTACK); rt_scan_word(ERRVAL);
     rt_scan_word(FIB_TAB); rt_scan_word(FIB_SAVE0); rt_scan_word(FIB_CUR);
+    rt_scan_word(FIB_HSTACK0); rt_scan_word(FIB_ERRVAL0); rt_scan_word(FIB_TRACE0);
     rt_scan_word(TRACE_STACK);
     mut i: Any = 0;
     while (i < GCOUNT) {
@@ -1628,7 +1634,88 @@ fun rt_pow(a: Any, b: Any) -> Any {
             return r * 8;
         }
     }
-    return __fpow2(rt_to_f(a), rt_to_f(b));
+    return rt_powf(a, b);
+}
+
+// C99 pow special cases around the x87 sequence, which only handles
+// positive finite bases. The `pow` builtin always returns a Float.
+fun rt_powf(a: Any, b: Any) -> Any {
+    if ((a % 8 != 0 and a % 8 != 6) or (b % 8 != 0 and b % 8 != 6)) { return rt_failtype(rt_from(addr("pow requires numbers"), 20)); }
+    return rt_fpow(rt_to_f(a), rt_to_f(b));
+}
+
+// 0 zero, 1 finite, 2 infinite, 3 NaN.
+fun rt_fkind(v: Any) -> Any {
+    let high: Any = load32(v - 2) % 2147483648;
+    let low: Any = load32(v - 6);
+    if (high >= 2146435072) {
+        if (high == 2146435072 and low == 0) { return 2; }
+        return 3;
+    }
+    if (high == 0 and low == 0) { return 0; }
+    return 1;
+}
+
+// -1 for a non-integer, 0 for an even integer, 1 for an odd integer.
+fun rt_fparity(v: Any) -> Any {
+    let kind: Any = rt_fkind(v);
+    if (kind == 0 or kind == 2) { return 0; }
+    if (kind == 3) { return -1; }
+    let high: Any = load32(v - 2) % 2147483648;
+    let e: Any = high / 1048576 - 1023;
+    if (e >= 53) { return 0; }
+    if (e < 0) { return -1; }
+    let mantissa: Any = (high % 1048576 + 1048576) * 4294967296 + load32(v - 6);
+    let unit: Any = power2(52 - e);
+    if (mantissa % unit != 0) { return -1; }
+    return (mantissa / unit) % 2;
+}
+
+fun rt_fsigned(negative: Any, high: Any) -> Any {
+    if (negative == 1) { return rt_const_hi_lo(high + 2147483648, 0); }
+    return rt_const_hi_lo(high, 0);
+}
+
+fun rt_fpow(x: Any, y: Any) -> Any {
+    let kx: Any = rt_fkind(x);
+    let ky: Any = rt_fkind(y);
+    if (ky == 0) { return rt_const_hi_lo(1072693248, 0); }
+    if (load32(x - 2) == 1072693248 and load32(x - 6) == 0) { return x; }
+    if (kx == 3 or ky == 3) { return rt_const_hi_lo(2146959360, 0); }
+    let nx: Any = if (load32(x - 2) >= 2147483648) { 1 } else { 0 };
+    let ny: Any = if (load32(y - 2) >= 2147483648) { 1 } else { 0 };
+    let parity: Any = rt_fparity(y);
+    let ax: Any = if (nx == 1) { __fabs(x) } else { x };
+    let ahigh: Any = load32(ax - 2);
+    if (ky == 2) {
+        if (ahigh == 1072693248 and load32(ax - 6) == 0) { return rt_const_hi_lo(1072693248, 0); }
+        let below: Any = if (ahigh < 1072693248) { 1 } else { 0 };
+        if (below == ny) { return rt_const_hi_lo(2146435072, 0); }
+        return rt_const_hi_lo(0, 0);
+    }
+    let odd: Any = if (nx == 1 and parity == 1) { 1 } else { 0 };
+    if (kx == 0) {
+        if (ny == 1) { return rt_fsigned(odd, 2146435072); }
+        return rt_fsigned(odd, 0);
+    }
+    if (kx == 2) {
+        if (ny == 1) { return rt_fsigned(odd, 0); }
+        return rt_fsigned(odd, 2146435072);
+    }
+    if (nx == 1 and parity < 0) { return rt_const_hi_lo(2146959360, 0); }
+    let result: Any = __fpow2(ax, y);
+    if (odd == 1) { return __fbin(2, result, rt_const_hi_lo(3220176896, 0)); }
+    return result;
+}
+
+// The x87 exponential sequence turns infinities into NaN.
+fun rt_exp(v: Any) -> Any {
+    let x: Any = rt_to_f(v);
+    if (rt_fkind(x) == 2) {
+        if (load32(x - 2) >= 2147483648) { return rt_const_hi_lo(0, 0); }
+        return x;
+    }
+    return __fexp(x);
 }
 
 fun rt_pop(l: Any) -> Any {
@@ -2314,17 +2401,24 @@ mut FIB_CUR: Any = 0;
 mut FIB_SAVE0: Any = 0;
 mut FIB_TRACE0: Any = 0;
 mut FIB_TRACE_DEPTH0: Any = 0;
+mut FIB_HSTACK0: Any = 0;
+mut FIB_HDEPTH0: Any = 0;
+mut FIB_ERRVAL0: Any = 2;
+mut FIB_ERRFLAG0: Any = 0;
 
 fun rt_spawn(fn: Any) -> Any {
     if (FIB_N >= 128) { return rt_failstr(rt_from(addr("fiber limit exceeded"), 20)); }
     if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
-    let rec: Any = rt_alloc(48);
+    let rec: Any = rt_alloc(80);
     store64(rec + 32, 0); store64(rec + 40, 0);
+    store64(rec + 48, rt_alloc(64 * 256)); store64(rec + 56, 0);
+    store64(rec + 64, 2); store64(rec + 72, 0);
     store64(rec + 8, fn);
     store64(rec + 16, 1);
     let size: Any = 262144;
     let base: Any = syscall(9, 0, size, 3, 34, 0 - 1, 0);
+    if (base < 0) { return rt_failstr(rt_from(addr("cannot allocate fiber stack"), 27)); }
     let top: Any = base + size;
     store64(rec + 24, top);
     let sp: Any = top - 56;
@@ -2342,20 +2436,28 @@ fun rt_spawn(fn: Any) -> Any {
 }
 
 fun rt_yield() -> Any {
-    if (FIB_CUR == 0) { return 0; }
+    if (FIB_CUR == 0) { return 2; }
     CSTOP = load64(FIB_CUR + 24);
     store64(FIB_CUR + 32, TRACE_STACK); store64(FIB_CUR + 40, TRACE_DEPTH);
+    store64(FIB_CUR + 48, HSTACK); store64(FIB_CUR + 56, HDEPTH);
+    store64(FIB_CUR + 64, ERRVAL); store64(FIB_CUR + 72, ERRFLAG);
     TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
+    HSTACK = FIB_HSTACK0; HDEPTH = FIB_HDEPTH0;
+    ERRVAL = FIB_ERRVAL0; ERRFLAG = FIB_ERRFLAG0;
     __fib_switch(FIB_CUR, FIB_SAVE0);
     TRACE_STACK = load64(FIB_CUR + 32); TRACE_DEPTH = load64(FIB_CUR + 40);
+    HSTACK = load64(FIB_CUR + 48); HDEPTH = load64(FIB_CUR + 56);
+    ERRVAL = load64(FIB_CUR + 64); ERRFLAG = load64(FIB_CUR + 72);
     CSTOP = load64(FIB_CUR + 24);
-    return 0;
+    return 2;
 }
 
 fun rt_run() -> Any {
     if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
     FIB_TRACE0 = TRACE_STACK; FIB_TRACE_DEPTH0 = TRACE_DEPTH;
+    FIB_HSTACK0 = HSTACK; FIB_HDEPTH0 = HDEPTH;
+    FIB_ERRVAL0 = ERRVAL; FIB_ERRFLAG0 = ERRFLAG;
     mut again: Any = 1;
     while (again == 1) {
         again = 0;
@@ -2367,8 +2469,12 @@ fun rt_run() -> Any {
                 FIB_CUR = rec;
                 CSTOP = load64(rec + 24);
                 TRACE_STACK = load64(rec + 32); TRACE_DEPTH = load64(rec + 40);
+                HSTACK = load64(rec + 48); HDEPTH = load64(rec + 56);
+                ERRVAL = load64(rec + 64); ERRFLAG = load64(rec + 72);
                 __fib_switch(FIB_SAVE0, rec);
                 TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
+                HSTACK = FIB_HSTACK0; HDEPTH = FIB_HDEPTH0;
+                ERRVAL = FIB_ERRVAL0; ERRFLAG = FIB_ERRFLAG0;
                 CSTOP = STACKTOP;
                 FIB_CUR = 0;
             }
@@ -2386,6 +2492,8 @@ fun rt_fiber_entry() -> Any {
     store64(rec + 16, 0);
     store64(rec + 32, TRACE_STACK); store64(rec + 40, TRACE_DEPTH);
     TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
+    HSTACK = FIB_HSTACK0; HDEPTH = FIB_HDEPTH0;
+    ERRVAL = FIB_ERRVAL0; ERRFLAG = FIB_ERRFLAG0;
     __fib_switch(rec, FIB_SAVE0);
     return 0;
 }
@@ -2651,7 +2759,8 @@ fun rt_eq(a: Any, b: Any) -> Any {
 fun rt_ne(a: Any, b: Any) -> Any {
     let ta: Any = a % 8;
     let tb: Any = b % 8;
-    if (ta == 6  or  tb == 6) { return __fcmp(1, rt_to_f(a), rt_to_f(b)); }
+    // Only numbers convert; a Float compared with nil, text or a collection differs.
+    if ((ta == 6  and  (tb == 6  or  tb == 0))  or  (tb == 6  and  ta == 0)) { return __fcmp(1, rt_to_f(a), rt_to_f(b)); }
     if (rt_eq(a, b) == 4) { return 3; }
     return 4;
 }
@@ -2659,7 +2768,7 @@ fun rt_ne(a: Any, b: Any) -> Any {
 fun rt_lt(a: Any, b: Any) -> Any {
     let ta: Any = a % 8;
     let tb: Any = b % 8;
-    if (ta == 6  or  tb == 6) { return __fcmp(2, rt_to_f(a), rt_to_f(b)); }
+    if ((ta == 6  and  (tb == 6  or  tb == 0))  or  (tb == 6  and  ta == 0)) { return __fcmp(2, rt_to_f(a), rt_to_f(b)); }
     if (ta == 0) {
         if (tb == 0) {
             if (a < b) { return 4; }

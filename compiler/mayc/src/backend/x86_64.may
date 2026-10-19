@@ -9,6 +9,7 @@ import "../ast.may";
 import "../lexer.may";
 import "../sema.may";
 import "../ir.may";
+import "../literals.may";
 // backend/x86_64.may — x86-64 byte encoder for linear IR.
 //
 // Function bodies use the SysV integer ABI and aligned frames. Small entry
@@ -418,13 +419,11 @@ fun x86_put_temp(ctx: Any, value: Any) -> Any {
 }
 
 fun x86_handler_begin(ctx: Any, label: Any) -> Any {
+    call_rt0(ctx, addr("rt_handler_limit"), len("rt_handler_limit"));
     let hd: Any = glob_find(ctx, addr("HDEPTH"), 6);
     let hs: Any = glob_find(ctx, addr("HSTACK"), 6);
     ld_abs(ctx, glob_off(ctx, hd));
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);
-    e8(ctx, 72); e8(ctx, 1); e8(ctx, 192);
-    e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
-    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 6);
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
     ld_abs(ctx, glob_off(ctx, hs));
     e8(ctx, 72); e8(ctx, 1); e8(ctx, 194);
@@ -432,6 +431,7 @@ fun x86_handler_begin(ctx: Any, label: Any) -> Any {
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 106); e8(ctx, 8);
     addr_lab(ctx, label, 6);
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 66); e8(ctx, 16);
+    for byte: Any in [72,137,90,24,76,137,98,32,76,137,106,40,76,137,114,48,76,137,122,56] { e8(ctx, byte); }
     ld_abs(ctx, glob_off(ctx, hd));
     e8(ctx, 72); e8(ctx, 5); e32(ctx, 1);
     st_abs(ctx, glob_off(ctx, hd));
@@ -2044,9 +2044,11 @@ fun cg_store_dyn(ctx: Any, args: Any, width: Any) -> Any {
 
 fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     let platformName: Any = symbol_name(np, nl);
+    if (platformName == "__fiber_stack") { x86_core_fiber_stack(ctx, args); return 1; }
     if (platformName == "__host_write" or platformName == "__host_alloc" or platformName == "__host_exit") { x86_host(ctx, platformName, args); return 1; }
     if (ctx.runtime == "core" and ctx.mode == 1 and platformName == "exit") { cg_expr(ctx, args); call_rt1(ctx, addr("rt_exit"), 7); return 1; }
-    if (ctx.runtime == "core" and ctx.mode == 1 and platformName == "pow") { cg_calln(ctx, addr("rt_pow"), 6, args); return 1; }
+    if (ctx.mode == 1 and platformName == "pow") { cg_calln(ctx, addr("rt_powf"), 7, args); return 1; }
+    if (ctx.runtime != "core" and ctx.mode == 1 and platformName == "exp") { cg_expr(ctx, args); call_rt1(ctx, addr("rt_exp"), 6); return 1; }
     if (name_eq(np, nl, addr("__ccall6"), len("__ccall6")) == 1) { cg_ccall6(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__longjmp"), len("__longjmp")) == 1) { cg_longjmp(ctx); return 1; }
     if (name_eq(np, nl, addr("__sp"), len("__sp")) == 1) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 224); return 1; }
@@ -2062,6 +2064,7 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (name_eq(np, nl, addr("__fsign"), len("__fsign")) == 1) { cg_fsign(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__fabs"), len("__fabs")) == 1) { cg_f1op(ctx, 13, args); return 1; }
     if (name_eq(np, nl, addr("__fpow2"), len("__fpow2")) == 1) { cg_fpow2(ctx, args, args.next); return 1; }
+    if (platformName == "__fexp") { cg_f1op(ctx, 11, args); return 1; }
     if (name_eq(np, nl, addr("__fiber_entry"), len("__fiber_entry")) == 1) {
         let fr: Any = backend_find_func(ctx, addr("rt_fiber_entry"), len("rt_fiber_entry"));
         addr_lab(ctx, fr.lab, 6);
@@ -2211,7 +2214,11 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (name_eq(np, nl, addr("log2"), len("log2")) == 1) { cg_f1op(ctx, 9, args); return 1; }
     if (name_eq(np, nl, addr("log10"), len("log10")) == 1) { cg_f1op(ctx, 10, args); return 1; }
     if (name_eq(np, nl, addr("exp"), len("exp")) == 1) { cg_f1op(ctx, 11, args); return 1; }
-    if (name_eq(np, nl, addr("pow"), len("pow")) == 1) { cg_fpow2(ctx, args, args.next); return 1; }
+    if (name_eq(np, nl, addr("pow"), len("pow")) == 1) {
+        if (ctx.runtime == "core") { cg_calln(ctx, addr("rt_pow"), len("rt_pow"), args); }
+        else { cg_fpow2(ctx, args, args.next); }
+        return 1;
+    }
     if (name_eq(np, nl, addr("chars"), len("chars")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_chars"), len("rt_chars")); return 1; }
     if (name_eq(np, nl, addr("reverse"), len("reverse")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_reverse"), len("rt_reverse")); return 1; }
     if (name_eq(np, nl, addr("sort"), len("sort")) == 1) { cg_expr(ctx, args); call_rt1(ctx, addr("rt_sort"), len("rt_sort")); return 1; }
@@ -2720,9 +2727,8 @@ fun cg_operation(ctx: Any, n: Any) -> Any {
         if (ctx.mode == 0) { die_str("mayc: float in raw mode\n"); }
         // Parse literals once in the compiler. Emit their exact binary64 bits
         // and allocate a fresh runtime box, rather than reparsing every use.
-        let value: Any = float(symbol_name(n.span.source + n.start, n.length));
-        let address: Any = addr(value);
-        e8(ctx, 72); e8(ctx, 184); e32(ctx, load32(address)); e32(ctx, load32(address + 4));
+        let bits: Any = float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)));
+        e8(ctx, 72); e8(ctx, 184); e32(ctx, bits[0]); e32(ctx, bits[1]);
         call_rt1(ctx, addr("rt_box"), len("rt_box"));
     }
     else if (k == E_STRB) {
@@ -2873,6 +2879,7 @@ fun cg_pow2_seq(ctx: Any) -> Any {
 
 fun cg_f1op(ctx: Any, op: Any, x: Any) -> Any {
     cg_expr(ctx, x);
+    if (ctx.mode == 1 and op <= 11) { x86_float_operand(ctx); }
     mut boxed: Any = 1;
     if (op == 0) {
         e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);
@@ -2919,6 +2926,16 @@ fun cg_f1op(ctx: Any, op: Any, x: Any) -> Any {
         e8(ctx, 72); e8(ctx, 139); e8(ctx, 68); e8(ctx, 36); e8(ctx, 248);
     }
     if (boxed == 1) { call_rt1(ctx, addr("rt_box"), len("rt_box")); }
+    return 0;
+}
+
+// User code may pass an Int where the float intrinsics expect a boxed Float.
+fun x86_float_operand(ctx: Any) -> Any {
+    let ready: Any = newlab(ctx);
+    e8(ctx, 168); e8(ctx, 7); // test al, 7
+    jcc(ctx, 133, ready);
+    call_rt1(ctx, addr("rt_to_f"), len("rt_to_f"));
+    placelab(ctx, ready);
     return 0;
 }
 
@@ -2993,13 +3010,11 @@ fun cg_longjmp(ctx: Any) -> Any {
     placelab(ctx, live);
     ld_abs(ctx, glob_off(ctx, hd));
     e8(ctx, 72); e8(ctx, 45); e32(ctx, 1);
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);
-    e8(ctx, 72); e8(ctx, 1); e8(ctx, 192);
-    e8(ctx, 72); e8(ctx, 1); e8(ctx, 200);
-    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 6);
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 194);
     ld_abs(ctx, glob_off(ctx, hs));
     e8(ctx, 72); e8(ctx, 1); e8(ctx, 194);
+    for byte: Any in [72,139,90,24,76,139,98,32,76,139,106,40,76,139,114,48,76,139,122,56] { e8(ctx, byte); }
     e8(ctx, 72); e8(ctx, 139); e8(ctx, 66); e8(ctx, 16);
     e8(ctx, 72); e8(ctx, 139); e8(ctx, 34);
     e8(ctx, 72); e8(ctx, 139); e8(ctx, 106); e8(ctx, 8);

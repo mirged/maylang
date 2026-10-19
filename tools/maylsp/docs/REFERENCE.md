@@ -1646,12 +1646,12 @@ run();
 ### `yield`
 
 ```may
-yield()
+yield() -> Nil
 ```
 
 Suspend the current cooperative fiber so another scheduled fiber can run. Outside a fiber it has no scheduling effect.
 
-**Returns:** A runtime scheduling result.
+**Returns:** Nil.
 
 **Example**
 ```may
@@ -1662,12 +1662,12 @@ run();
 ### `run`
 
 ```may
-run()
+run() -> Nil
 ```
 
 Execute scheduled cooperative fibers until they finish. Fibers yield explicitly with `yield()`.
 
-**Returns:** A runtime scheduling result.
+**Returns:** Nil.
 
 **Example**
 ```may

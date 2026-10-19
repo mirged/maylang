@@ -25,3 +25,43 @@
 - **is_space_code** — `fun is_space_code(c: Int) -> Bool` — Test ASCII space, tab, line feed or carriage return character codes.
 - **trim** — `fun trim(s: Str) -> Str` — Remove whitespace from the beginning and end of a string.
 - **repeat** — `fun repeat(s: Str, n: Int) -> Str` — Return a string repeated n times; nonpositive counts produce an empty string.
+- **float** — `fun float(x: Any) -> Any` — Convert a number or numeric string to a floating-point value.
+- **bump** — `fun bump(s: Any) -> Any` — Increment decimal digits, returning the carry and updated string; internal float-formatting helper.
+- **float_norm** — `fun float_norm(v: Any) -> Any` — Normalize a positive finite float with decimal scaling; internal formatting helper.
+- **float_sci** — `fun float_sci(value: Any) -> Any` — Format a finite magnitude in scientific notation; internal formatting helper.
+- **float_str** — `fun float_str(f: Any) -> Any` — Format a boxed float; spell nonfinite values nan, inf and -inf.
+- **round** — `fun round(value: Any) -> Any` — Return `floor(x + 0.5)`; halfway negative values round toward positive infinity.
+- **__math_high** — `fun __math_high(x: Any) -> Any` — Read the high 32 bits of a Float; internal math helper.
+- **__math_low** — `fun __math_low(x: Any) -> Any` — Read the low 32 bits of a Float; internal math helper.
+- **__math_bits** — `fun __math_bits(low: Any, high: Any) -> Any` — Build a fresh Float from its low and high 32-bit words; internal math helper.
+- **__math_nan** — `fun __math_nan() -> Any` — Return a quiet NaN; internal math helper.
+- **__math_inf** — `fun __math_inf(negative: Any) -> Any` — Return positive or negative infinity; internal math helper.
+- **__math_zero** — `fun __math_zero(negative: Any) -> Any` — Return positive or negative zero; internal math helper.
+- **__math_negative** — `fun __math_negative(x: Any) -> Any` — Test the sign bit of a Float, including negative zero; internal math helper.
+- **__math_kind** — `fun __math_kind(x: Any) -> Any` — 0 zero, 1 finite, 2 infinite, 3 NaN.
+- **__math_pow2** — `fun __math_pow2(k: Any) -> Any` — Exact 2^k for normal exponents -1022..1023.
+- **__math_scale** — `fun __math_scale(x: Any, k: Any) -> Any` — Multiply by 2^k for any integer k, saturating to infinity or zero; internal math helper.
+- **__math_split** — `fun __math_split(x: Any) -> Any` — Split a positive finite x into [k, m] with x = m * 2^k and sqrt(2)/2 <= m < sqrt(2).
+- **__math_log_kernel** — `fun __math_log_kernel(m: Any) -> Any` — ln(m) for sqrt(2)/2 <= m < sqrt(2) as an unevaluated sum [hi, lo].
+- **__math_log_special** — `fun __math_log_special(x: Any) -> Any` — Return the result of ln/log2/log10 for zero, negative, infinite or NaN input, or nil for positive finite input; internal math helper.
+- **ln** — `fun ln(value: Any) -> Any` — Return the natural logarithm; zero gives -inf and negative input NaN. Within one ulp.
+- **log2** — `fun log2(value: Any) -> Any` — Return the base-2 logarithm; exact for powers of two. Within one ulp.
+- **log10** — `fun log10(value: Any) -> Any` — Return the base-10 logarithm. Within one ulp.
+- **__math_exp_kernel** — `fun __math_exp_kernel(hi: Any, lo: Any, k: Any) -> Any` — exp(hi - lo) * 2^k for |hi - lo| <= ln(2)/2. The Taylor tail is added to 1 + hi with compensation, which rounds correctly far more often than fdlibm's rational kernel.
+- **exp** — `fun exp(value: Any) -> Any` — Return e raised to a number; overflows to inf above about 709.78 and underflows to zero. Within one ulp.
+- **__math_sin_kernel** — `fun __math_sin_kernel(x: Any, y: Any, tail: Any) -> Any` — Evaluate sin(x + y) for |x + y| <= pi/4 (fdlibm kernel); internal math helper.
+- **__math_cos_kernel** — `fun __math_cos_kernel(x: Any, y: Any) -> Any` — Evaluate cos(x + y) for |x + y| <= pi/4 (fdlibm kernel); internal math helper.
+- **__math_tan_kernel** — `fun __math_tan_kernel(x0: Any, y0: Any, odd: Any) -> Any` — tan(x + y) for |x + y| <= pi/4, or -1/tan when odd (musl __tan).
+- **__math_exponent** — `fun __math_exponent(x: Any) -> Any` — Read the biased binary exponent of a Float; internal math helper.
+- **__math_reduce** — `fun __math_reduce(x: Any) -> Any` — Reduce x to [n mod 4, y0, y1] with x = n*pi/2 + y0 + y1 (fdlibm medium path). Extra rounds run only after cancellation, where they are exact.
+- **__math_reduce_large** — `fun __math_reduce_large(x: Any) -> Any` — Payne-Hanek reduction for |x| >= 2^20 * pi/2: multiply the 53-bit significand by 24-bit limbs of 2/pi, keep the value modulo 4 with 192 fraction bits, then multiply the fraction by pi/2 in exact 24-bit pieces.
+- **__math_trig** — `fun __math_trig(value: Any, which: Any) -> Any` — Evaluate sin, cos or tan (selector 0, 1 or 2) with argument reduction; internal math helper.
+- **sin** — `fun sin(value: Any) -> Any` — Return the sine of an angle in radians, reducing any finite argument exactly. Within one ulp.
+- **cos** — `fun cos(value: Any) -> Any` — Return the cosine of an angle in radians, reducing any finite argument exactly. Within one ulp.
+- **tan** — `fun tan(value: Any) -> Any` — Return the tangent of an angle in radians, reducing any finite argument exactly. Within one ulp.
+- **__math_parity** — `fun __math_parity(y: Any) -> Any` — -1 for a non-integer, 0 for an even integer, 1 for an odd integer.
+- **__math_powf** — `fun __math_powf(x: Any, y: Any) -> Any` — Raise one Float to another with C99 special cases for zeros, infinities, NaN and negative bases; internal math helper.
+- **__math_clear_low** — `fun __math_clear_low(x: Any) -> Any` — Clear the low 32 bits of a Float to split it exactly; internal math helper.
+- **__math_log2_split** — `fun __math_log2_split(x: Any) -> Any` — log2(x) as [t1, t2] with t1 holding at most 21 significant bits (fdlibm e_pow.c).
+- **__math_pow_positive** — `fun __math_pow_positive(x: Any, y: Any) -> Any` — x^y for positive finite x and finite nonzero y; within one ulp (fdlibm e_pow.c).
+- **__core_pow** — `fun __core_pow(a: Any, b: Any) -> Any` — Convert both operands to Float and raise the first to the second; used by `pow` and floating `**`.

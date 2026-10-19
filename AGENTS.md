@@ -207,7 +207,7 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   operators (`&`, `|`, `<<`, `>>`), and destructuring in strict mode. Use
   arithmetic, and use `load8`/`store8` for byte work.
 - Integers are 61-bit tagged values (±2^60). Overflow and division by zero raise
-  catchable `arithmetic` faults (exit 70 in the core runtime). `/` truncates
+  catchable `arithmetic` faults (uncaught core faults exit 70). `/` truncates
   toward zero and `%` has the dividend's sign.
 - Strings are UTF-8 and `len`/indexing count code points. For byte length use
   `byte_length` from `import "net";`, or `load64(addr(s) - 8)` as `net.may`
@@ -219,9 +219,12 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   `from "algo" import zip;`. Paths resolve relative to the importer first and
   then the stdlib. The same resolved file expands only once. A module that
   marks any declaration `pub` exports only its `pub` names.
-- Closures, maps/records, floats, faults, fibers and FFI need the full
-  x86-64 Linux runtime. The core runtime and the cross-compilation targets
-  reject them.
+- Maps, records, structs, enums and closures work in the core runtime on every
+  native target, including recoverable faults, debug traces and cooperative
+  fibers. Core supports Float/Float32 arithmetic, conversions, rounding,
+  square roots, transcendentals and floating powers (pure binary64, identical
+  bits on every target). FFI and OS libraries still need the full x86-64 Linux
+  runtime.
 - Many older files (and much of the compiler) use `Any`-typed signatures.
   Follow the style of the file you are editing; write new code with concrete
   types.
@@ -244,10 +247,10 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 
 ## Generated documentation
 
-- `docs/reference/` is mostly generated. `STDLIB.md`, `SYNTAX.md`, the
+- `docs/reference/` is mostly generated. `STDLIB.md`, `SYNTAX.md`, `RUNTIME.md`, the
   `stdlib/*.md` module pages and `inventory.json` come from source declarations,
   `docs/reference/descriptions.json` and `tools/maylsp/docs/reference.json`.
-  `LANGUAGE.md`, `RUNTIME.md`, `TOOLCHAIN.md` and `EXAMPLES.md` are edited by
+  `LANGUAGE.md`, `TOOLCHAIN.md` and `EXAMPLES.md` are edited by
   hand.
 - Every reference page is list-only: each nonblank line is a top-level
   `- ` bullet, with no headings, tables or fenced code.

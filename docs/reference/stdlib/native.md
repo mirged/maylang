@@ -43,7 +43,7 @@
 - **bump** — `fun bump(s: Any) -> Any` — Increment a decimal digit string; returns `[carry, result]` where `carry` is `1` when the whole part must be bumped (all nines).
 - **float_norm** — `fun float_norm(v: Any) -> Any` — Decompose a positive finite float into `[leading_digit, digits, exponent]` so the value is `leading.digits * 10^exponent`. A single scaling division keeps the mantissa close to exact (repeated division accumulates error).
 - **float_sci** — `fun float_sci(value: Any) -> Any` — Format a magnitude outside the safe plain-decimal range in scientific notation; the mantissa is rounded to 16 significant digits and trimmed.
-- **float_str** — `fun float_str(f: Any) -> Any` — Format a boxed float, choosing the shortest rounded decimal that round-trips.
+- **float_str** — `fun float_str(f: Any) -> Any` — Format a boxed float; spell nonfinite values nan, inf and -inf.
 - **reverse** — `fun reverse(x: Any) -> Any` — Build a list with the input items in reverse order.
 - **range** — `fun range(a: Any, b: Any) -> Any` — Return an eager list of integers from inclusive a to exclusive b; the full-runtime source function takes exactly two arguments.
 - **sum** — `fun sum(xs: Any) -> Any` — Add the numeric values in a list.

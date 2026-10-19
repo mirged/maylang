@@ -46,7 +46,7 @@ field meanings or coordinate units require a schema-version change. Stage codes
 such as `E_PARSE` and `E_TYPE` identify categories rather than unique errors.
 LSP consumes the same records and converts byte columns to its UTF-16 positions.
 
-`--debug` instruments user functions in full-runtime builds with source frames.
+`--debug` instruments user functions in full and core builds with source frames.
 Uncaught faults print the captured trace; caught faults expose it in `err.stack`.
 Frames name the function and its declaration location, rather than every call
 site. Tail calls keep bounded trace depth, handlers restore unwound frames, and
@@ -111,8 +111,14 @@ link failures preserve existing executable outputs.
 
 The experimental backend supports integer/float arithmetic, strings, lists/maps,
 functions, shared captures, pipelines, loops, interpolation, imports, and
-`may`/`otherwise`. It currently requires the full runtime on x86-64 Linux;
-`--raw`, core/none runtimes, extern functions, and fibers are rejected.
+`may`/`otherwise`, cooperative fibers, and typed extern functions. It currently
+requires the full runtime on x86-64 Linux; `--raw` and core/none runtimes are
+rejected. Extern declarations use the same checked scalar conversions as the
+native backend, including C stack arguments and first-class function values.
+Only reachable bindings are loaded, using `dlopen`/`dlsym` before user code;
+their libraries remain open until process exit. Missing libraries or symbols
+produce an uncaught runtime fault. Fibers retain independent exception handlers,
+caught errors and debug traces while suspended.
 `--check` does not require Clang. The regression script validates direct emission,
 compiler invocation, and observable behavior against the native backend.
 
@@ -128,17 +134,24 @@ is explicit and does not depend on the host:
 | `riscv64-linux` | ELF64 | Core runtime and `--raw` (RV64IM) |
 | `arm64-macos` | Mach-O ARM64 | Core runtime and `--raw`; sign on macOS |
 | `x86_64-windows` | PE32+ | Core runtime with kernel32 imports and `--raw` |
-| `clang-llvm` (experimental) | LLVM IR / ELF64 | Full runtime on x86-64 Linux; excludes FFI and fibers |
+| `clang-llvm` (experimental) | LLVM IR / ELF64 | Full runtime on x86-64 Linux |
 
 | Capability | Full native | Full LLVM | Core | Raw |
 | --- | --- | --- | --- | --- |
 | Integers, booleans, direct functions and control flow | Yes | Yes | Yes | Yes |
 | Allocated UTF-8 strings and lists | Yes | Yes | Yes | Literal strings and pointer operations |
-| Floats, maps/records and closures | Yes | Yes | Rejected | Use raw storage/operations |
-| Recoverable faults and source traces | Yes | Yes | Faults exit 70; tracing rejected | No injected runtime |
-| Fibers and typed extern functions | Yes | Rejected | Rejected | No full-runtime ABI |
+| Maps, records, structs and enums | Yes | Yes | Yes | Use raw storage/operations |
+| Closures, shared captures and higher-order calls | Yes | Yes | Yes | No injected callable runtime |
+| Float literals, arithmetic, conversions and Float32 | Yes | Yes | Yes | Use raw storage/operations |
+| Transcendentals and floating-point powers | Yes (x87) | Yes (libm) | Yes (portable, within 1 ulp) | Use raw storage/operations |
+| Recoverable faults and source traces | Yes | Yes | Yes; uncaught faults exit 70 | No injected runtime |
+| Cooperative fibers | Yes | Yes | Yes | No injected scheduler |
+| Typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
 | File/process/network libraries | Linux x86-64 | Linux x86-64 | Rejected | Explicit target OS calls |
 | Heap lifetime | Conservative GC | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
+
+The [backend parity handoff](../../docs/internals/BACKEND_PARITY_PROGRESS.md)
+records completed work, validation and remaining language/OS API gaps.
 
 The core/raw modes apply to the direct targets above; LLVM accepts the full
 runtime only. `tests/backends.py`, `tests/core_runtime.py` and `tests/llvm.py`
@@ -161,7 +174,7 @@ codesign --force --sign - hello-macos
 The shared [`runtime/core.may`](runtime/core.may) uses the existing tagged ABI
 for integers, booleans, nil, UTF-8 strings and lists. It supplies console output,
 indexing and mutation, string comparison/search/split/join, integer arithmetic,
-conversion and powers. [`runtime/corelib.may`](runtime/corelib.may) adds
+conversion and integer powers, along with boxed floating-point arithmetic. [`runtime/corelib.may`](runtime/corelib.may) adds
 `str`, `substring`, `trim`, `repeat`, `range`, `sum`, `clamp`, `gcd`, `lcm`,
 `alloc` and `memcpy`. Case conversion is ASCII-only. Integer overflow and
 division by zero print a diagnostic and exit with status 70.
@@ -176,17 +189,45 @@ mapped chunk bytes. See [ownership rules and measured growth](../../docs/interna
 
 Core allocation uses native heap chunks of at least 1 MiB, retained until
 process exit. It has no garbage collector or individual free operation.
-Closures, maps/records, floats, exceptions, fibers and FFI still require the
-full x86-64 Linux runtime; core compilation diagnoses unsupported operations
-before writing output. Use `--runtime core` on Linux for small portable programs
+Maps retain insertion order for keys/values, use a string-key hash index, and
+support property access, mutation, spread and cycle-safe printing. Struct and
+enum constructors and pattern matching use this same portable representation.
+Closures share mutable captured cells, including across nested callbacks and
+recursive local functions. Callback helpers include `map`, `filter`, `reduce`,
+`any`, `all`, `count`, `each` and `times`.
+`may`/`otherwise` catches fail/type/arithmetic faults and exposes `err.kind`,
+`err.message` and `err.stack`; `--debug` includes function/source traces. Uncaught
+core faults retain the plain diagnostic and exit status 70. At most 64 handlers
+may be active; exhausting that capacity raises a catchable runtime fault.
+Fibers share the same `spawn`/`yield`/`run` API on all native targets and keep
+independent handlers, caught errors and traces. Each gets a 256 KiB stack;
+at most 128 may be created per process. `yield()` returns `nil`.
+Core floats use binary64 boxes on every target, with Float32 boundary rounding,
+`float`/`int` conversion, comparisons, `sqrt`, `floor`, `ceil`, `round`, `trunc`,
+`pi` and `e`. Scalar display uses decimal/scientific formatting; nonfinite values
+print as `nan`, `inf` or `-inf`. Nested display retains the full runtime's
+existing `str_of` formatting. Scientific normalization uses decimal scaling
+in core and platform math in full builds; the last displayed digits may differ.
+Core `sin`, `cos`, `tan`, `ln`, `log2`, `log10`, `exp` and floating `pow`/`**`
+are implemented in `runtime/corelib.may` with binary64 arithmetic only, so every
+core target produces identical bits; results are within one ulp of a correctly
+rounded value, and trigonometric arguments of any finite magnitude are reduced
+exactly. Zeros, infinities, NaN and negative bases follow C99 `pow`/`exp` on all
+three runtimes. The `pow` builtin always returns a Float, while `**` keeps
+integer powers exact. The full runtime's x87 results can differ from core and
+LLVM in the last digit (x87 `sin`/`cos` reduce large arguments inexactly). FFI
+still requires the full x86-64 Linux runtime and is diagnosed before output.
+Float literals are converted with exact big-integer arithmetic and are correctly
+rounded on every backend. Use `--runtime core` on Linux for small portable programs
 and lower compilation overhead. Deploy the `runtime/` directory beside the
 compiler along with its full-runtime sidecars.
 
 ARM64/RISC-V raw targets support integers, literal strings, globals and locals,
 conditionals, loops, direct calls and tail self-calls, `addr`/`cstr`/literal `len`,
 `ptr`, `load8/16/32/64`, `store8/16/32/64`, `exit`, and native `syscall`.
-They currently allow eight function parameters, six syscall arguments and a
-2000-byte frame. `syscall` numbers and flags are those of the **selected target**:
+The first eight function parameters use registers and further parameters use
+the stack. Frames are limited to 2000 bytes; syscalls accept six arguments.
+`syscall` numbers and flags are those of the **selected target**:
 Linux ARM64/RISC-V use write=64, mmap=222, exit=93; Darwin uses write=4, exit=1.
 `exit` chooses the target ABI automatically. The Windows raw target rejects
 `syscall` and `exit`; its entry point returns to the Windows loader. The core

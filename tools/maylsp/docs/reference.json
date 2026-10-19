@@ -878,16 +878,16 @@
       ]
     },
     "yield": {
-      "signature": "yield()",
+      "signature": "yield() -> Nil",
       "summary": "Suspend the current cooperative fiber so another scheduled fiber can run. Outside a fiber it has no scheduling effect.",
       "example": "spawn(fun() -> Any { print(\"first\"); yield(); return print(\"again\"); });\nrun();",
-      "returns": "A runtime scheduling result."
+      "returns": "Nil."
     },
     "run": {
-      "signature": "run()",
+      "signature": "run() -> Nil",
       "summary": "Execute scheduled cooperative fibers until they finish. Fibers yield explicitly with `yield()`.",
       "example": "spawn(fun() -> Any { return print(\"hello\"); });\nrun();",
-      "returns": "A runtime scheduling result."
+      "returns": "Nil."
     },
     "fail": {
       "signature": "fail(message)",

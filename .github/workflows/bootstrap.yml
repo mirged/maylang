@@ -132,6 +132,7 @@ jobs:
           /tmp/maylang-validation/bin/python -m pip install unicorn==2.1.4
           set -- /tmp/maylang-toolchain/maylang-*/bin/mayc
           /tmp/maylang-validation/bin/python compiler/mayc/tests/core_runtime.py --compiler "$1" --require-emulation
+          /tmp/maylang-validation/bin/python compiler/mayc/tests/portable_values.py --compiler "$1" --require-emulation
   performance:
     if: github.event_name == 'workflow_dispatch'
     needs: bootstrap

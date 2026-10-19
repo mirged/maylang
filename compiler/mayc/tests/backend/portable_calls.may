@@ -1,0 +1,40 @@
+fun plus(n: Int) -> Int { return n + 1; }
+let first: Any = plus;
+print(first(41), [plus][0](9));
+fun bank(balance: Int) -> Any {
+    return [fun(n: Int) -> Int { balance += n; return balance; },
+            fun(n: Int) -> Int { balance -= n; return balance; }];
+}
+let account: Any = bank(100);
+print(account[0](50), account[1](30));
+fun nested(n: Int) -> Any {
+    return fun() -> Any { return fun() -> Int { n += 1; return n; }; };
+}
+let counter: Any = nested(2)(); print(counter(), counter());
+fun recursive(n: Int) -> Any {
+    fun step(x: Int) -> Int { if (x == 0) { return n; } return step(x-1) + 1; }
+    return step;
+}
+let recurse: Any = recursive(3); print(recurse(5));
+fun adders() -> Any {
+    let out: Any = [];
+    for i: Int in 0..3 { push(out, fun(n: Int) -> Int { return n + i; }); }
+    return out;
+}
+let functions: Any = adders();
+print(functions[0](10), functions[1](10), functions[2](10));
+fun twelve(a: Any, b: Any, c: Any, d: Any, e: Any, f: Any,
+           g: Any, h: Any, i: Any, j: Any, k: Any, l: Any) -> Any {
+    return [a,b,c,d,e,f,g,h,i,j,k,l];
+}
+let many: Any = twelve;
+print(twelve(1,2,3,4,5,6,7,8,9,10,11,12));
+print(many(21,22,23,24,25,26,27,28,29,30,31,32));
+print(many(1,2));
+print(map([1,2,3], plus), filter([1,2,3,4], fun(n: Int) -> Bool { return n % 2 == 0; }));
+print(reduce([1,2,3], fun(a: Int, b: Int) -> Int { return a+b; }, 0));
+struct Vec { x: Any, y: Any, "+": add_vec }
+fun add_vec(a: Any, b: Any) -> Any { return Vec(a.x+b.x, a.y+b.y); }
+let left: Any = Vec(1,2); let right: Any = Vec(3,4);
+let vector: Any = left + right; print(vector.x, vector.y);
+exit(0);

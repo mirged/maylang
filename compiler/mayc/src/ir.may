@@ -173,7 +173,6 @@ fun ir_contract(ctx: Any, value: Any, t: Any, span: Any) -> Any {
         return ir_runtime("rt_int_contract", [value, ir_integer(low, span), ir_integer(high, span)], span);
     }
     if (t.name == "Float32") {
-        if (ctx.runtime == "core") { diagnostic(span, "Float32 requires the full runtime"); }
         return ir_runtime("rt_float32", [value], span);
     }
     if (t.name == "Optional") {
@@ -326,7 +325,23 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         return result;
     }
     if (kind == S_EXPR) { return ir_node(ctx, node.expression); }
-    if (kind == S_LET) { return ir_declare(node.name, node.length, ir_node(ctx, node.initializer), node.global, span); }
+    if (kind == S_LET) {
+        // A recursive local closure must capture its cell before that cell is
+        // filled with the closure value. Allocate the binding first.
+        if (node.global == 0 and node.initializer.kind == E_CLOSURE) {
+            mut capture: Any = node.initializer.captures;
+            while (capture != 0) {
+                if (name_eq(capture.name, capture.length, node.name, node.length) == 1) {
+                    ir_declare(node.name, node.length, ir_nil(span), 0, span);
+                    let value: Any = ir_node(ctx, node.initializer);
+                    ir_emit(S_ASSIGN, 0, value, 0, {"name": node.name, "length": node.length, "value": value}, span);
+                    return value;
+                }
+                capture = capture.next;
+            }
+        }
+        return ir_declare(node.name, node.length, ir_node(ctx, node.initializer), node.global, span);
+    }
     if (kind == S_ASSIGN) {
         let value: Any = ir_node(ctx, node.value);
         ir_emit(kind, 0, value, 0, {"name": node.name, "length": node.length, "value": value}, span);
@@ -539,7 +554,7 @@ fun ir_program(ctx: Any) -> Any {
         if (DYNMODE == 0) { raw = 1; }
         ir_begin(raw);
         IR_FUNCTION = rec;
-        IR_TRACE_ACTIVE = DEBUG_TRACES and ctx.runtime == "full" and rec.mode == 0 and source_module(rec.moduleSpan ?? rec.body.span) != "";
+        IR_TRACE_ACTIVE = DEBUG_TRACES and ctx.runtime != "none" and rec.mode == 0 and source_module(rec.moduleSpan ?? rec.body.span) != "";
         if (IR_TRACE_ACTIVE) {
             let location: Any = diagnostic_record(rec.moduleSpan ?? rec.body.span, "");
             let parts: Any = split(symbol_name(rec.p, rec.l), "::");

@@ -1,5 +1,38 @@
 # Unreleased
 
+- Support `sin`, `cos`, `tan`, `ln`, `log2`, `log10`, `exp` and floating
+  `pow`/`**` in the portable runtime on every native target. The binary64-only
+  implementation is bit-identical across targets, within one ulp of the host
+  libm, and reduces trigonometric arguments of any magnitude exactly. The `pow`
+  builtin now returns a Float in the core runtime, as documented, and negative
+  integer exponents of `**` produce a Float instead of a fault.
+- Convert float literals with exact big-integer arithmetic so they are
+  correctly rounded on every backend; decimal scaling misrounded most
+  17-digit literals by one or two ulps.
+- Follow C99 `pow` special cases (zeros, infinities, NaN, negative bases with
+  integer exponents) and return `inf`/`0.0` from `exp(±inf)` in the full
+  runtime. Accept Int arguments to `sqrt`, `floor`, `ceil`, `sin`, `exp`, `pow`
+  and related builtins on x86-64 instead of crashing.
+- Stop crashing when a Float is compared with `nil` or another non-number
+  using `!=` or `<`, and when the full runtime displays the smallest
+  subnormals.
+- Support boxed Float/Float32 arithmetic, conversions, comparisons, square roots
+  and rounding on every native target. Format nonfinite scalar floats as
+  `nan`, `inf` or `-inf` in both runtimes. Cross-platform FFI remains
+  unsupported in the portable runtime.
+
+- Support cooperative fibers on every native target with isolated handlers and
+  traces; return `nil` from `yield()` consistently with its declared type.
+- Support recoverable faults and debug traces on every native target; preserve
+  callee-saved registers during unwinding and check the 64-handler limit.
+- Support closures, shared captures, callbacks, overloaded struct operators and
+  stack arguments in the portable runtime; fix recursive local closure binding.
+- Support maps, records, structs and enums in the core runtime on every native
+  target; preserve exclusive range endpoints on ARM64 and RISC-V.
+- Support typed extern calls and cooperative fibers in the LLVM backend,
+  including C stack arguments, function values and isolated suspended handlers.
+- Preserve each fiber's caught error and exception handlers across yields, and
+  accept the C binding types `UInt` and `Void` under strict checking.
 - Lower signed power-of-two division and remainder up to 2^59 with shifts
   instead of `idiv` (#84).
 - Branch directly on RAW `and`/`or` conditions instead of materializing a

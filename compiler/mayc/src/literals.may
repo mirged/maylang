@@ -1,0 +1,160 @@
+// literals.may — correctly rounded decimal to binary64 conversion for float
+// literals. Decimal scaling in binary64 (as the runtime `float` does) can be
+// off by an ulp or two, so the compiler converts with exact big integers and
+// rounds half to even.
+
+// Little-endian magnitudes in base 2^30.
+let LITERAL_LIMB: Int = 1073741824;
+
+fun literal_trim(a: List<Int>) -> List<Int> {
+    while (len(a) > 1 and a[len(a) - 1] == 0) { pop(a); }
+    return a;
+}
+
+fun literal_mul_add(a: List<Int>, factor: Int, addend: Int) -> List<Int> {
+    let out: List<Int> = [];
+    mut carry: Int = addend;
+    for limb: Int in a {
+        let value: Int = limb * factor + carry;
+        push(out, value % LITERAL_LIMB);
+        carry = value / LITERAL_LIMB;
+    }
+    while (carry > 0) { push(out, carry % LITERAL_LIMB); carry = carry / LITERAL_LIMB; }
+    return literal_trim(out);
+}
+
+fun literal_shift(a: List<Int>, bits: Int) -> List<Int> {
+    mut out: List<Int> = a;
+    mut left: Int = bits;
+    while (left >= 30) {
+        let wider: List<Int> = [0];
+        for limb: Int in out { push(wider, limb); }
+        out = literal_trim(wider);
+        left -= 30;
+    }
+    while (left > 0) {
+        let step: Int = if (left > 20) { 20 } else { left };
+        mut factor: Int = 1;
+        mut k: Int = 0;
+        while (k < step) { factor = factor * 2; k += 1; }
+        out = literal_mul_add(out, factor, 0);
+        left -= step;
+    }
+    return out;
+}
+
+fun literal_cmp(a: List<Int>, b: List<Int>) -> Int {
+    if (len(a) != len(b)) { return if (len(a) < len(b)) { -1 } else { 1 }; }
+    mut i: Int = len(a) - 1;
+    while (i >= 0) {
+        if (a[i] != b[i]) { return if (a[i] < b[i]) { -1 } else { 1 }; }
+        i -= 1;
+    }
+    return 0;
+}
+
+// a - b for a >= b.
+fun literal_sub(a: List<Int>, b: List<Int>) -> List<Int> {
+    let out: List<Int> = [];
+    mut borrow: Int = 0;
+    mut i: Int = 0;
+    while (i < len(a)) {
+        mut value: Int = a[i] - borrow - (if (i < len(b)) { b[i] } else { 0 });
+        borrow = 0;
+        if (value < 0) { value += LITERAL_LIMB; borrow = 1; }
+        push(out, value);
+        i += 1;
+    }
+    return literal_trim(out);
+}
+
+fun literal_bit_length(a: List<Int>) -> Int {
+    mut top: Int = a[len(a) - 1];
+    mut bits: Int = (len(a) - 1) * 30;
+    while (top > 0) { bits += 1; top = top / 2; }
+    return bits;
+}
+
+fun literal_pow10(a: List<Int>, count: Int) -> List<Int> {
+    mut out: List<Int> = a;
+    mut k: Int = 0;
+    while (k < count) { out = literal_mul_add(out, 10, 0); k += 1; }
+    return out;
+}
+
+/// Return the IEEE binary64 bits of a decimal literal as `[low32, high32]`.
+fun float_literal_bits(text: Str) -> List<Int> {
+    mut digits: List<Int> = [0];
+    mut i: Int = 0;
+    mut negative: Bool = false;
+    mut fraction: Int = 0;
+    mut dot: Bool = false;
+    mut exponent: Int = 0;
+    let n: Int = len(text);
+    if (n > 0 and char_at(text, 0) == 45) { negative = true; i = 1; }
+    while (i < n) {
+        let c: Int = char_at(text, i);
+        if (c == 46) { dot = true; }
+        else if (c == 101 or c == 69) {
+            i += 1;
+            mut sign: Int = 1;
+            if (i < n and char_at(text, i) == 45) { sign = -1; i += 1; }
+            else if (i < n and char_at(text, i) == 43) { i += 1; }
+            mut value: Int = 0;
+            while (i < n and char_at(text, i) >= 48 and char_at(text, i) <= 57) {
+                if (value < 100000000) { value = value * 10 + char_at(text, i) - 48; }
+                i += 1;
+            }
+            exponent = sign * value;
+            break;
+        } else if (c >= 48 and c <= 57) {
+            digits = literal_mul_add(digits, 10, c - 48);
+            if (dot) { fraction += 1; }
+        }
+        i += 1;
+    }
+    let sign_high: Int = if (negative) { 2147483648 } else { 0 };
+    if (len(digits) == 1 and digits[0] == 0) { return [0, sign_high]; }
+    let scale: Int = exponent - fraction;
+    // A nonzero value is at least 10^scale and below 10^(scale + 10 * limbs).
+    if (scale > 310) { return [0, sign_high + 2146435072]; }
+    if (scale + len(digits) * 10 < -400) { return [0, sign_high]; }
+    let numerator: List<Int> = if (scale > 0) { literal_pow10(digits, scale) } else { digits };
+    let denominator: List<Int> = if (scale < 0) { literal_pow10([1], 0 - scale) } else { [1] };
+    // Choose e so that 2^52 <= numerator / (denominator * 2^e) < 2^53.
+    mut e: Int = literal_bit_length(numerator) - literal_bit_length(denominator) - 53;
+    if (e < -1074) { e = -1074; }
+    mut top: List<Int> = numerator;
+    mut bottom: List<Int> = denominator;
+    while (true) {
+        top = if (e < 0) { literal_shift(numerator, 0 - e) } else { numerator };
+        bottom = if (e > 0) { literal_shift(denominator, e) } else { denominator };
+        if (e > -1074 and literal_cmp(top, literal_shift(bottom, 52)) < 0) { e -= 1; continue; }
+        if (literal_cmp(top, literal_shift(bottom, 53)) >= 0) { e += 1; continue; }
+        break;
+    }
+    // Binary long division for the 53-bit quotient.
+    let multiples: List<List<Int>> = [bottom];
+    mut k: Int = 1;
+    while (k <= 53) { push(multiples, literal_shift(multiples[k - 1], 1)); k += 1; }
+    mut remainder: List<Int> = top;
+    mut quotient: Int = 0;
+    mut bit: Int = 53;
+    mut weight: Int = 9007199254740992;
+    while (bit >= 0) {
+        if (literal_cmp(remainder, multiples[bit]) >= 0) {
+            remainder = literal_sub(remainder, multiples[bit]);
+            quotient += weight;
+        }
+        bit -= 1;
+        weight = weight / 2;
+    }
+    let half: Int = literal_cmp(literal_shift(remainder, 1), bottom);
+    if (half > 0 or (half == 0 and quotient % 2 == 1)) { quotient += 1; }
+    if (quotient == 9007199254740992) { quotient = 4503599627370496; e += 1; }
+    if (e + 1075 >= 2047) { return [0, sign_high + 2146435072]; }
+    mut biased: Int = 0;
+    mut mantissa: Int = quotient;
+    if (quotient >= 4503599627370496) { biased = e + 1075; mantissa = quotient - 4503599627370496; }
+    return [mantissa % 4294967296, sign_high + biased * 1048576 + mantissa / 4294967296];
+}

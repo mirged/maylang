@@ -90,6 +90,9 @@ test-browser:
 
 test-llvm:
 	$(PYTHON) compiler/mayc/tests/llvm.py --compiler "$(MAYC)"
+	$(PYTHON) compiler/mayc/tests/externs.py --compiler "$(MAYC)" --llvm
+	$(PYTHON) compiler/mayc/tests/fibers.py --compiler "$(MAYC)" --llvm
+	$(PYTHON) compiler/mayc/tests/debug_traces.py --compiler "$(MAYC)" --llvm
 	$(PYTHON) compiler/mayc/tests/reachability.py --compiler "$(MAYC)" --llvm
 
 test-limits:

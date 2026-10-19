@@ -45,11 +45,13 @@ fun fiber_b() -> Nil { yield(); print(may { fail("b"); "bad" } otherwise { conta
 spawn(fiber_a); spawn(fiber_b); run();
 print(may { fail("main"); "bad" } otherwise { contains(str(err.stack), "fiber_a (") });
 ''')
-        binary=work/'fibers'
-        subprocess.run([str(args.compiler.resolve()),'--debug',str(source),'-o',str(binary)],check=True,timeout=60)
-        result=subprocess.run([str(binary)],capture_output=True,timeout=10)
-        assert result.returncode==0 and result.stdout==b'false\nfalse\nfalse\n',result
-        print('PASS uncaught output and isolated cooperative fiber traces',flush=True)
+        for target in ['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']:
+            binary = work / ('fibers-' + target)
+            subprocess.run([str(args.compiler.resolve()), '--debug', '--target', target,
+                            str(source), '-o', str(binary)], check=True, timeout=60)
+            result = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            assert result.returncode == 0 and result.stdout == b'false\nfalse\nfalse\n', result
+            print('PASS isolated cooperative fiber traces on ' + target, flush=True)
 
 
 if __name__=='__main__':main()

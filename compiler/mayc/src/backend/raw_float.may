@@ -1,0 +1,103 @@
+import "../emitter.may";
+import "../lexer.may";
+import "raw.may";
+import "riscv.may";
+
+// Floating values stay boxed in the integer ABI. Only these short sequences
+// use caller-saved FP temporaries; none remains live across a runtime call.
+fun raw_float_bits(ctx: Any, emitter: Any, value: Any, fp: Any, boxed: Any) -> Any {
+    raw_get(ctx, emitter, value, 0);
+    if (boxed) { (emitter.immediate)(ctx, 6, 1); (emitter.binary)(ctx, TK_MINUS); (emitter.move)(ctx, 2, 0); (emitter.load)(ctx, 0, 2, 0, 8); }
+    e32(ctx, if (ctx.target.arch == "arm64") { 2657550336 + fp } else { 4060414035 + fp * 128 });
+    return 0;
+}
+
+fun raw_float_result(ctx: Any, emitter: Any) -> Any {
+    e32(ctx, if (ctx.target.arch == "arm64") { 2657484800 } else { 3791652179 });
+    (emitter.move)(ctx, 10, 0); return raw_invoke(ctx, emitter, "rt_box");
+}
+
+// Match CVTTSD2SI's indefinite result for NaNs, infinities and magnitudes
+// outside signed 64-bit range. ARM and RISC-V otherwise saturate differently.
+fun raw_float_truncate(ctx: Any, emitter: Any, rounding: Any) -> Any {
+    let invalid: Any = newlab(ctx); let done: Any = newlab(ctx);
+    e32(ctx, if (ctx.target.arch == "arm64") { 2657484800 } else { 3791652179 });
+    if (ctx.target.arch == "arm64") { e32(ctx, 3547659264); } // lsr x0,x0,#52
+    else { riscv_i(ctx, 20499, 10, 10, 52); } // srli a0,a0,52
+    (emitter.immediate)(ctx, 2048, 1); (emitter.binary)(ctx, TK_PCT);
+    (emitter.immediate)(ctx, 1086, 1); (emitter.binary)(ctx, TK_GE);
+    (emitter.branch)(ctx, invalid, false);
+    if (ctx.target.arch == "arm64") {
+        e32(ctx, [2658664448, 2658140160, 2657615872][rounding]); // fcvtzs, fcvtms, fcvtps
+    } else { e32(ctx, 3256878419 + [1, 2, 3][rounding] * 4096); }
+    (emitter.jump)(ctx, done, false);
+    placelab(ctx, invalid);
+    (emitter.immediate)(ctx, -1152921504606846976, 0);
+    (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR);
+    placelab(ctx, done); return 0;
+}
+
+fun raw_float_call(ctx: Any, emitter: Any, name: Any, args: Any) -> Any {
+    if (name == "__fbin" or name == "__fcmp") {
+        let operation: Any = args.value;
+        raw_float_bits(ctx, emitter, args.next, 0, true);
+        raw_float_bits(ctx, emitter, args.next.next, 1, true);
+        if (name == "__fbin") {
+            let opcodes: Any = if (ctx.target.arch == "arm64") { [509683712, 509687808, 509675520, 509679616] }
+                else { [34631763, 168849491, 303067219, 437284947] };
+            e32(ctx, opcodes[operation]); return raw_float_result(ctx, emitter);
+        }
+        if (ctx.target.arch == "arm64") {
+            e32(ctx, 509681664); // fcmp d0,d1
+            // EQ/LT/LE include unordered, as in the native x86 runtime.
+            let conditions: Any = [1, 0, 10, 12, 13, 11];
+            e32(ctx, 2594113504 + conditions[operation] * 4096);
+            if (operation == 0 or operation == 1) {
+                e32(ctx, 2594113505 + 7 * 4096); // cset x1,vs
+                if (operation == 0) { e32(ctx, 2852192256); } // orr x0,x0,x1
+                else { e32(ctx, 2317418496); } // bic x0,x0,x1
+            }
+        } else {
+            let opcodes: Any = [2718967123, 2718967123, 2718963027, 2718958931, 2717947219, 2717943123];
+            e32(ctx, opcodes[operation]);
+            if (operation <= 3) {
+                e32(ctx, 2717918675); // feq.d a1,f0,f0
+                e32(ctx, 2719000147); // feq.d a2,f1,f1
+                riscv_r(ctx, 28723, 11, 11, 12); // and a1,a1,a2 (ordered)
+                if (operation == 1) { riscv_i(ctx, 16403, 10, 10, 1); riscv_r(ctx, 28723, 10, 10, 11); }
+                else { riscv_i(ctx, 16403, 11, 11, 1); riscv_r(ctx, 24627, 10, 10, 11); }
+            }
+        }
+        (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_PLUS); return 0;
+    }
+    if (name == "__fsign") {
+        raw_get(ctx, emitter, args, 0);
+        if (ctx.target.arch == "arm64") { e32(ctx, 3548380160); }
+        else { riscv_i(ctx, 20499, 10, 10, 63); }
+        return 0;
+    }
+    let boxed: Any = name != "__ftrunc" and name != "__ffrac" and name != "__f32";
+    raw_float_bits(ctx, emitter, args, 0, boxed);
+    if (name == "__ftrunc") { return raw_float_truncate(ctx, emitter, 0); }
+    if (name == "__ffrac") {
+        raw_float_truncate(ctx, emitter, 0);
+        e32(ctx, if (ctx.target.arch == "arm64") { 2657222657 } else { 3525669075 });
+        e32(ctx, if (ctx.target.arch == "arm64") { 509687808 } else { 168849491 });
+        raw_get(ctx, emitter, args.next, 0);
+        e32(ctx, if (ctx.target.arch == "arm64") { 2657222658 } else { 3525669203 });
+        e32(ctx, if (ctx.target.arch == "arm64") { 509741056 } else { 304115795 });
+        return raw_float_truncate(ctx, emitter, 0);
+    }
+    if (name == "__f32") {
+        e32(ctx, if (ctx.target.arch == "arm64") { 509755392 } else { 1074819155 });
+        e32(ctx, if (ctx.target.arch == "arm64") { 505593856 } else { 1107296339 });
+        e32(ctx, if (ctx.target.arch == "arm64") { 2657484800 } else { 3791652179 }); return 0;
+    }
+    if (name == "__fabs" or name == "sqrt") {
+        e32(ctx, if (ctx.target.arch == "arm64") { if (name == "sqrt") { 509722624 } else { 509657088 } }
+            else { if (name == "sqrt") { 1509978195 } else { 570433619 } });
+        return raw_float_result(ctx, emitter);
+    }
+    raw_float_truncate(ctx, emitter, if (name == "floor") { 1 } else if (name == "ceil") { 2 } else { 0 });
+    (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR); return 0;
+}

@@ -1,6 +1,6 @@
 - **Runtime API** — built-ins and automatically available full-runtime functions for self-hosted mayc.
 - These signatures describe calls; dynamic values may have several runtime types. Read [native module](stdlib/native.md) for exact source-defined signatures and additional automatically loaded helpers.
-- Availability: full Linux x86-64 runtime unless a core/raw subset explicitly provides the operation. Fibers and C calls are unavailable in clang-llvm.
+- Availability: full Linux x86-64 runtime, including clang-llvm. The core subset on all five native targets supports collections, closures, faults, traces, fibers and basic Float/Float32 operations; transcendental math, floating powers and C calls require the full runtime.
 - String method syntax forwards the receiver as the first argument: `s.trim()` = `trim(s)`, `s.split(",")` = `split(s, ",")`; the same convention applies to library helpers.
 - Errors: I/O, parsing, arithmetic, type, indexing and callback faults may propagate; catch recoverable failures with `may ... otherwise`.
 - Pointer operations use integer machine addresses; syscall results/ABI and memory validity remain the caller’s responsibility.
@@ -180,11 +180,11 @@
 - `spawn` parameter `f`: A zero-argument function to schedule.
 - `spawn` returns: A runtime fiber handle.
 - `spawn` example: `spawn(fun() -> Any { return print("worker"); }); run();`.
-- **yield** — `yield()` — Suspend the current cooperative fiber so another scheduled fiber can run. Outside a fiber it has no scheduling effect.
-- `yield` returns: A runtime scheduling result.
+- **yield** — `yield() -> Nil` — Suspend the current cooperative fiber so another scheduled fiber can run. Outside a fiber it has no scheduling effect.
+- `yield` returns: Nil.
 - `yield` example: `spawn(fun() -> Any { print("first"); yield(); return print("again"); }); run();`.
-- **run** — `run()` — Execute scheduled cooperative fibers until they finish. Fibers yield explicitly with `yield()`.
-- `run` returns: A runtime scheduling result.
+- **run** — `run() -> Nil` — Execute scheduled cooperative fibers until they finish. Fibers yield explicitly with `yield()`.
+- `run` returns: Nil.
 - `run` example: `spawn(fun() -> Any { return print("hello"); }); run();`.
 - **fail** — `fail(message)` — Raise a runtime failure. A surrounding `may` block can catch it and access `err.message`.
 - `fail` parameter `message`: The failure description.

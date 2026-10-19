@@ -1,0 +1,23 @@
+fun calculate(a: Float, b: Float) -> Float { return a * 2.0 + b / 2.0; }
+print(1.25 + 2.5, 7.0 - 2, 2 * 1.5, 7.0 / 2.0, -2.5, abs(-2.5));
+print(1.0 / 3.0, 0.1 + 0.2, calculate(2.5, 3.0));
+print(floor(-2.5), ceil(-2.5), trunc(-2.5), floor(2.5), ceil(2.5), round(-2.5), round(2.5));
+print(sqrt(16.0), pi() > 3.14, e() > 2.7);
+print(float(" -12.25e1 "), float(42), int(3.75), int(-3.75));
+print(2.0 == 2.0, 2.0 != 3.0, 2.0 < 3.0, 2.0 <= 2.0, 3.0 > 2.0, 3.0 >= 3.0);
+print(2.0 == 2, 2.0 != 2, 2.0 < 3, 2 < 3.0);
+print([1.25, -2.5], {"number": 3.75});
+let recovered: Any = may { 1.0 / 0.0 } otherwise { err.kind };
+print(recovered);
+let nan: Float = sqrt(-1.0);
+print(nan == nan, nan != nan, nan < nan, nan <= nan, nan > nan, nan >= nan);
+print(str(nan));
+let captured: () -> Float = fun() -> Float { return 1.25 + 2.5; };
+print(captured());
+let narrow: Float32 = 1.00000001;
+print(narrow, 1.0e20, 1.0e-10);
+mut total: Float = 0.5;
+spawn(fun() -> Nil { total += 1.25; yield(); total *= 2.0; return; });
+run();
+print(total);
+exit(0);

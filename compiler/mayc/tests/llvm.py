@@ -47,13 +47,11 @@ def main():
 
         invalid = work / 'invalid.may'
         invalid.write_text('let n: Int = "wrong"; print(n);')
-        unsupported = work / 'fibers.may'
-        unsupported.write_text('spawn(fun(){print("hello");}); run();')
         output = work / 'existing output'
         output.write_text('preserve this file')
         for flags, src in (([], invalid), (['--raw'], source),
                            (['--runtime', 'core'], source),
-                           (['--runtime', 'none'], source), ([], unsupported)):
+                           (['--runtime', 'none'], source)):
             result = run(target + flags + [src, '-o', output], env=environment)
             assert result.returncode != 0, (flags, src)
             assert output.read_text() == 'preserve this file'
@@ -97,6 +95,8 @@ def main():
                        'let f=c(2);print(f(),f());',
             'nested-capture': 'fun c(){mut x=0;return fun(){return fun(){x+=1;return x;};};}'
                               'let g=c()();print(g(),g());',
+            'recursive-local': 'fun make(n:Int)->Any{fun step(x:Int)->Int{if(x==0){return n;}'
+                               'return step(x-1)+1;}return step;}let f:Any=make(3);print(f(5));',
             'handler': 'print(may {fail("caught");} otherwise {"ok"});'
                        'print(may {print(may {fail("inner");} otherwise {"in"});fail("out");} otherwise {"outer"});',
             'inferred-handler': 'fun test_may(){let result=may{let bad=10/0;bad}'
@@ -123,7 +123,8 @@ def main():
         fixtures['nan'] = 'let n:Any=sqrt(-1.0);print(n==n,n!=n,n<0.0,n<=0.0,n>0.0,n>=0.0,trunc(n));print(trunc(1e308),trunc(-1e308));'
         fixtures['many-args'] = 'fun eight(a:Any,b:Any,c:Any,d:Any,e:Any,f:Any,g:Any,h:Any){return [a,b,c,d,e,f,g,h];}let f:Any=eight;print(eight(1,2,3,4,5,6,7,8),f(11,12,13,14,15,16,17,18));'
         fixtures['gc-capture'] = 'fun exercise(){mut xs:Any=["alive"];let get:Any=fun(){return xs[0];};mut i:Any=0;while(i<3000000){let t:Any=str(i);i+=1;}return get;}let f:Any=exercise();print(f());'
-        for name in ('architecture', 'arith_overflow', 'floats', 'edge', 'div_zero', 'closures_adv'):
+        fixtures['portable-faults'] = (ROOT / 'compiler/mayc/tests/backend/portable_faults.may').read_text()
+        for name in ('architecture', 'arith_overflow', 'floats', 'edge', 'div_zero', 'closures_adv', 'fibers1'):
             fixtures[name] = (ROOT / 'compiler/mayc/tests' / f'{name}.may').read_text()
         if any(name not in fixtures for name in args.case):
             parser.error("unknown --case name")

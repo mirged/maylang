@@ -1,0 +1,19 @@
+fun fiber_a() -> Nil {
+    let result: Str = may { yield(); fail("a"); "bad" } otherwise {
+        yield();
+        print(contains(str(err.stack), "fiber_a ("), contains(str(err.stack), "fiber_b ("));
+        str(err.message)
+    };
+    print("a", result); return nil;
+}
+fun fiber_b() -> Nil {
+    let result: Str = may { yield(); fail("b"); "bad" } otherwise {
+        yield();
+        print(contains(str(err.stack), "fiber_b ("), contains(str(err.stack), "fiber_a ("));
+        str(err.message)
+    };
+    print("b", result); return nil;
+}
+spawn(fiber_a); spawn(fiber_b);
+print(may { run(); fail("main"); "bad" } otherwise { str(err.message) });
+exit(0);
