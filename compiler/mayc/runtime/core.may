@@ -773,9 +773,12 @@ fun __core_equal(a: Any, b: Any, path: Any) -> Any {
     }
     rt_pop(path); rt_pop(path); return 4;
 }
-fun rt_ne(a: Any, b: Any) -> Any { if (a % 8 == 6 or b % 8 == 6) { return __fcmp(1, rt_to_f(a), rt_to_f(b)); } return rt_not(rt_eq(a, b)); }
+fun rt_ne(a: Any, b: Any) -> Any {
+    if ((a % 8 == 6 and (b % 8 == 6 or b % 8 == 0)) or (b % 8 == 6 and a % 8 == 0)) { return __fcmp(1, rt_to_f(a), rt_to_f(b)); }
+    return rt_not(rt_eq(a, b));
+}
 fun rt_lt(a: Any, b: Any) -> Any {
-    if (a % 8 == 6 or b % 8 == 6) { return __fcmp(2, rt_to_f(a), rt_to_f(b)); }
+    if ((a % 8 == 6 and (b % 8 == 6 or b % 8 == 0)) or (b % 8 == 6 and a % 8 == 0)) { return __fcmp(2, rt_to_f(a), rt_to_f(b)); }
     if (a % 8 == 1 and b % 8 == 1) { if (rt_str_lt(a, b) == 1) { return 4; } return 3; }
     if (a < b) { return 4; } return 3;
 }

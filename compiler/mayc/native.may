@@ -312,8 +312,8 @@ fun bump(s: Any) -> Any {
 /// keeps the mantissa close to exact (repeated division accumulates error).
 fun float_norm(v: Any) -> Any {
     mut e: Any = floor(log10(v));
-    let p: Any = pow(10.0, to_float(e));
-    mut m: Any = v / p;
+    // 10^e underflows to zero below 1e-323, so scale subnormals up first.
+    mut m: Any = if (e < -300) { (v * 1e30) / pow(10.0, to_float(e + 30)) } else { v / pow(10.0, to_float(e)) };
     if (cmp(m, 10.0) >= 0) { m = m / 10.0; e = e + 1; }
     while (cmp(m, 1.0) < 0) { m = m * 10.0; e = e - 1; }
     let whole: Any = floor(m);

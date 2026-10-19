@@ -2678,7 +2678,8 @@ fun rt_eq(a: Any, b: Any) -> Any {
 fun rt_ne(a: Any, b: Any) -> Any {
     let ta: Any = a % 8;
     let tb: Any = b % 8;
-    if (ta == 6  or  tb == 6) { return __fcmp(1, rt_to_f(a), rt_to_f(b)); }
+    // Only numbers convert; a Float compared with nil, text or a collection differs.
+    if ((ta == 6  and  (tb == 6  or  tb == 0))  or  (tb == 6  and  ta == 0)) { return __fcmp(1, rt_to_f(a), rt_to_f(b)); }
     if (rt_eq(a, b) == 4) { return 3; }
     return 4;
 }
@@ -2686,7 +2687,7 @@ fun rt_ne(a: Any, b: Any) -> Any {
 fun rt_lt(a: Any, b: Any) -> Any {
     let ta: Any = a % 8;
     let tb: Any = b % 8;
-    if (ta == 6  or  tb == 6) { return __fcmp(2, rt_to_f(a), rt_to_f(b)); }
+    if ((ta == 6  and  (tb == 6  or  tb == 0))  or  (tb == 6  and  ta == 0)) { return __fcmp(2, rt_to_f(a), rt_to_f(b)); }
     if (ta == 0) {
         if (tb == 0) {
             if (a < b) { return 4; }
