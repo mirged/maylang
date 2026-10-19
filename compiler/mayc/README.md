@@ -148,6 +148,9 @@ is explicit and does not depend on the host:
 | File/process/network libraries | Linux x86-64 | Linux x86-64 | Rejected | Explicit target OS calls |
 | Heap lifetime | Conservative GC | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
 
+The [backend parity handoff](../../docs/internals/BACKEND_PARITY_PROGRESS.md)
+records completed work, validation and remaining language/OS API gaps.
+
 The core/raw modes apply to the direct targets above; LLVM accepts the full
 runtime only. `tests/backends.py`, `tests/core_runtime.py` and `tests/llvm.py`
 exercise accepted capabilities and reject unsupported combinations before
