@@ -181,7 +181,8 @@ fun rt_init() -> Any {
     GBASE = 0;
     GCOUNT = 0;
     CSTOP = STACKTOP;
-    HSTACK = rt_alloc(64 * 24);
+    // Native handlers use 24 bytes; LLVM's libc jump buffers need 256.
+    HSTACK = rt_alloc(64 * 256);
     GCFLAG = 1;
     return 0;
 }
@@ -260,6 +261,7 @@ fun rt_gc() -> Any {
     // Runtime metadata must also survive standalone/raw runtime harnesses.
     rt_scan_word(GROOTS); rt_scan_word(HSTACK); rt_scan_word(ERRVAL);
     rt_scan_word(FIB_TAB); rt_scan_word(FIB_SAVE0); rt_scan_word(FIB_CUR);
+    rt_scan_word(FIB_HSTACK0); rt_scan_word(FIB_ERRVAL0); rt_scan_word(FIB_TRACE0);
     rt_scan_word(TRACE_STACK);
     mut i: Any = 0;
     while (i < GCOUNT) {
@@ -2314,17 +2316,24 @@ mut FIB_CUR: Any = 0;
 mut FIB_SAVE0: Any = 0;
 mut FIB_TRACE0: Any = 0;
 mut FIB_TRACE_DEPTH0: Any = 0;
+mut FIB_HSTACK0: Any = 0;
+mut FIB_HDEPTH0: Any = 0;
+mut FIB_ERRVAL0: Any = 2;
+mut FIB_ERRFLAG0: Any = 0;
 
 fun rt_spawn(fn: Any) -> Any {
     if (FIB_N >= 128) { return rt_failstr(rt_from(addr("fiber limit exceeded"), 20)); }
     if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
-    let rec: Any = rt_alloc(48);
+    let rec: Any = rt_alloc(80);
     store64(rec + 32, 0); store64(rec + 40, 0);
+    store64(rec + 48, rt_alloc(64 * 256)); store64(rec + 56, 0);
+    store64(rec + 64, 2); store64(rec + 72, 0);
     store64(rec + 8, fn);
     store64(rec + 16, 1);
     let size: Any = 262144;
     let base: Any = syscall(9, 0, size, 3, 34, 0 - 1, 0);
+    if (base < 0) { return rt_failstr(rt_from(addr("cannot allocate fiber stack"), 27)); }
     let top: Any = base + size;
     store64(rec + 24, top);
     let sp: Any = top - 56;
@@ -2345,9 +2354,15 @@ fun rt_yield() -> Any {
     if (FIB_CUR == 0) { return 0; }
     CSTOP = load64(FIB_CUR + 24);
     store64(FIB_CUR + 32, TRACE_STACK); store64(FIB_CUR + 40, TRACE_DEPTH);
+    store64(FIB_CUR + 48, HSTACK); store64(FIB_CUR + 56, HDEPTH);
+    store64(FIB_CUR + 64, ERRVAL); store64(FIB_CUR + 72, ERRFLAG);
     TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
+    HSTACK = FIB_HSTACK0; HDEPTH = FIB_HDEPTH0;
+    ERRVAL = FIB_ERRVAL0; ERRFLAG = FIB_ERRFLAG0;
     __fib_switch(FIB_CUR, FIB_SAVE0);
     TRACE_STACK = load64(FIB_CUR + 32); TRACE_DEPTH = load64(FIB_CUR + 40);
+    HSTACK = load64(FIB_CUR + 48); HDEPTH = load64(FIB_CUR + 56);
+    ERRVAL = load64(FIB_CUR + 64); ERRFLAG = load64(FIB_CUR + 72);
     CSTOP = load64(FIB_CUR + 24);
     return 0;
 }
@@ -2356,6 +2371,8 @@ fun rt_run() -> Any {
     if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
     FIB_TRACE0 = TRACE_STACK; FIB_TRACE_DEPTH0 = TRACE_DEPTH;
+    FIB_HSTACK0 = HSTACK; FIB_HDEPTH0 = HDEPTH;
+    FIB_ERRVAL0 = ERRVAL; FIB_ERRFLAG0 = ERRFLAG;
     mut again: Any = 1;
     while (again == 1) {
         again = 0;
@@ -2367,8 +2384,12 @@ fun rt_run() -> Any {
                 FIB_CUR = rec;
                 CSTOP = load64(rec + 24);
                 TRACE_STACK = load64(rec + 32); TRACE_DEPTH = load64(rec + 40);
+                HSTACK = load64(rec + 48); HDEPTH = load64(rec + 56);
+                ERRVAL = load64(rec + 64); ERRFLAG = load64(rec + 72);
                 __fib_switch(FIB_SAVE0, rec);
                 TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
+                HSTACK = FIB_HSTACK0; HDEPTH = FIB_HDEPTH0;
+                ERRVAL = FIB_ERRVAL0; ERRFLAG = FIB_ERRFLAG0;
                 CSTOP = STACKTOP;
                 FIB_CUR = 0;
             }
@@ -2386,6 +2407,8 @@ fun rt_fiber_entry() -> Any {
     store64(rec + 16, 0);
     store64(rec + 32, TRACE_STACK); store64(rec + 40, TRACE_DEPTH);
     TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
+    HSTACK = FIB_HSTACK0; HDEPTH = FIB_HDEPTH0;
+    ERRVAL = FIB_ERRVAL0; ERRFLAG = FIB_ERRFLAG0;
     __fib_switch(rec, FIB_SAVE0);
     return 0;
 }
