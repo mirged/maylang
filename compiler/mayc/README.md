@@ -143,7 +143,7 @@ is explicit and does not depend on the host:
 | Maps, records, structs and enums | Yes | Yes | Yes | Use raw storage/operations |
 | Closures, shared captures and higher-order calls | Yes | Yes | Yes | No injected callable runtime |
 | Float literals, arithmetic, conversions and Float32 | Yes | Yes | Yes | Use raw storage/operations |
-| Transcendentals and floating-point powers | Yes | Yes | Unsupported | Use raw storage/operations |
+| Transcendentals and floating-point powers | Yes (x87) | Yes (libm) | Yes (portable, within 1 ulp) | Use raw storage/operations |
 | Recoverable faults and source traces | Yes | Yes | Yes; uncaught faults exit 70 | No injected runtime |
 | Cooperative fibers | Yes | Yes | Yes | No injected scheduler |
 | Typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
@@ -208,9 +208,17 @@ Core floats use binary64 boxes on every target, with Float32 boundary rounding,
 print as `nan`, `inf` or `-inf`. Nested display retains the full runtime's
 existing `str_of` formatting. Scientific normalization uses decimal scaling
 in core and platform math in full builds; the last displayed digits may differ.
-Transcendentals and FFI still require the full x86-64 Linux runtime and are
-diagnosed before output. Core floating-point powers raise a catchable type fault;
-integer powers remain supported. Use `--runtime core` on Linux for small portable programs
+Core `sin`, `cos`, `tan`, `ln`, `log2`, `log10`, `exp` and floating `pow`/`**`
+are implemented in `runtime/corelib.may` with binary64 arithmetic only, so every
+core target produces identical bits; results are within one ulp of a correctly
+rounded value, and trigonometric arguments of any finite magnitude are reduced
+exactly. Zeros, infinities, NaN and negative bases follow C99 `pow`/`exp` on all
+three runtimes. The `pow` builtin always returns a Float, while `**` keeps
+integer powers exact. The full runtime's x87 results can differ from core and
+LLVM in the last digit (x87 `sin`/`cos` reduce large arguments inexactly). FFI
+still requires the full x86-64 Linux runtime and is diagnosed before output.
+Float literals are converted with exact big-integer arithmetic and are correctly
+rounded on every backend. Use `--runtime core` on Linux for small portable programs
 and lower compilation overhead. Deploy the `runtime/` directory beside the
 compiler along with its full-runtime sidecars.
 

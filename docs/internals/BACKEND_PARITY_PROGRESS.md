@@ -6,12 +6,14 @@ and all standard-library OS APIs, including files, processes and networking.
 
 Branch: `feat/backend-parity-progress`.
 Starting revision: `beb593cdcffb2ff4c30db060686c3eb312807d62`.
-Latest implementation milestone: `12f31fe`.
+Latest implementation milestone: portable numeric support (see
+[Numeric support](#numeric-support)).
 
-The branch preserves the original checkout's base. Three subsequent changes on
-`origin/main` concerning x86 code alignment and its measurements have not been
-merged into this series. Integrate current main and rerun checks before merging.
-No version bump or performance claim is part of this work.
+The three x86 code-alignment changes from `origin/main` (`a2a3d35`, `5373bed`,
+`3bdbe0e`) were merged into this branch in `cb48c83`; the only conflict was the
+`--help` text, which keeps both the new `--no-code-align` flag and this
+branch's runtime-neutral `--debug` description. No version bump or performance
+claim is part of this work.
 
 ## What changed
 
@@ -80,6 +82,43 @@ The [compiler capability matrix](../../compiler/mayc/README.md) and generated
 reference documents have been updated. The optional emulation workflow and
 native-loader fixtures include the new portable cases.
 
+### Numeric support
+
+The second session completed most of remaining item 2 (numeric support).
+
+- **Portable transcendentals.** `runtime/corelib.may` implements `sin`, `cos`,
+  `tan`, `ln`, `log2`, `log10`, `exp` and floating powers using only binary64
+  arithmetic and bit inspection, so every core target produces identical bits.
+  The kernels follow fdlibm/musl: Cody-Waite reduction below 2^20·π/2 and a
+  Payne-Hanek reduction with a 1440-bit 2/π table above it, musl's `__tan`,
+  fdlibm `e_pow.c` (extended-precision log2 split) and an exp kernel whose
+  Taylor tail is added with compensation. Measured against glibc on 784 seeded
+  inputs, including trigonometric arguments up to 1.8e308, every result is
+  within one ulp and most are identical.
+- **One `pow` contract.** `pow` always returns a Float on every backend (the
+  core runtime returned an Int for Int operands, the full runtime crashed).
+  `**` keeps exact integer powers; negative integer exponents now produce a
+  Float in core as they already did in the full runtime. All three runtimes
+  follow C99 special cases for zeros, infinities, NaN and negative bases with
+  integer exponents. The full runtime implements them in `rt_fpow` around the
+  x87 sequence; LLVM uses libm.
+- **Correctly rounded literals.** The compiler converted float literals by
+  accumulating digits and scaling by powers of ten in binary64, which
+  misrounded 349 of 475 sampled literals by one or two ulps (including most
+  17-digit `repr` values). `src/literals.may` now converts with exact big
+  integers and round-half-even, covering subnormals, overflow and halfway
+  cases, for the direct, portable and LLVM backends.
+- **Crash fixes found on the way.**
+  - Direct x86-64 code passed Int arguments to `sqrt`, `floor`, `ceil`,
+    `round`, `trunc`, `sin`…`exp` unconverted, which segfaulted in both full
+    and core builds. User code now converts tagged Ints first.
+  - The full runtime's `exp(±inf)` returned NaN; `rt_exp` handles infinities
+    before the x87 sequence (through a new internal `__fexp` intrinsic).
+  - `Float != nil` (and `<` against non-numbers) dereferenced `nil` as a float
+    box on every backend; only numbers convert now.
+  - The full runtime raised "division by zero" when displaying values below
+    about 1e-323; `float_norm` scales subnormals before dividing.
+
 ## Current boundaries
 
 | Area | Direct full Linux x86-64 | LLVM Linux x86-64 | Portable native runtime |
@@ -87,7 +126,7 @@ native-loader fixtures include the new portable cases.
 | Collections, closures and pattern matching | Supported | Supported | Supported |
 | Recoverable faults, traces and cooperative fibers | Supported | Supported | Supported |
 | Basic Float/Float32 operations | Supported | Supported | Supported |
-| Transcendental functions and floating powers | Supported | Supported | Still missing |
+| Transcendental functions and floating powers | Supported (x87) | Supported (libm) | Supported (≤ 1 ulp) |
 | Typed scalar extern calls | Supported | Supported | Still missing |
 | File/process/network standard-library APIs | Existing Linux APIs | Existing Linux APIs | Still missing |
 | Heap reclamation | Conservative GC | Conservative GC | Process lifetime; 256 MiB cap |
@@ -104,11 +143,25 @@ a cross-platform backend or enable `--runtime full` on other native targets.
    pruning with actual platform libraries. LLVM resolves explicit libraries
    individually while native ELF uses loader symbol lookup; this distinction
    also needs a deliberate parity decision.
-2. **Complete numeric support.** Implement `sin`, `cos`, `tan`, `ln`, `log2`,
-   `log10`, `exp` and floating-point powers on portable targets. Core floating
-   powers currently raise a catchable type fault; unsupported transcendental
-   builtins are diagnosed during compilation. Resolve scientific formatting
-   differences and test extreme/subnormal/nonfinite values across backends.
+2. **Remaining numeric differences.** Transcendentals and powers are done (see
+   above). Still open:
+   - Runtime `float(text)` (the full runtime's `native.may`, core's
+     `corelib.may` and `rt_parse_float2`) still uses decimal scaling and can be
+     an ulp or two off; only compile-time literals are correctly rounded. Port
+     the `src/literals.may` algorithm behind a fast path for short inputs.
+   - Display is not shortest-round-trip: some values print 17 significant
+     digits (`0.86231887228768382`), subnormals print approximately
+     (`2.50000000000002e-310`), and core/full scientific normalization can
+     differ in the last digit. Negative zero displays as `0.0` everywhere.
+   - x87 `sin`/`cos`/`tan` in the full runtime reduce large arguments
+     inexactly (for example `sin(1e22)` returns `1e22`), so full results can
+     differ from core and LLVM. Routing the full runtime through the portable
+     implementation would remove the difference at some speed cost.
+   - `1.0 == 1` is false (strict tag equality) while `1.0 != 1` is also false
+     (numeric comparison) on every backend. Decide one rule.
+   - Portable math allocates a box per intermediate value, so it is much
+     slower than x87/libm; the emulator's 20M-instruction budget limits how
+     many calls one emulated test program can make.
 3. **All standard-library OS APIs.** Port file and directory operations,
    binary/Unicode I/O, stdin/input, arguments/environment, clocks/sleep,
    process execution/waiting/status/inheritance and networking. Linux syscall
@@ -134,6 +187,36 @@ a cross-platform backend or enable `--runtime full` on other native targets.
    it does not establish real loader or library compatibility.
 
 ## Validation completed
+
+### Numeric support session (after merging `origin/main`)
+
+The compiler was rebuilt from source after the last compiler edit. `MAYC` was
+set explicitly. Unicorn was supplied from temporary dependencies outside the
+repository through `PYTHONPATH`/`LD_LIBRARY_PATH`; nothing from them is
+committed.
+
+| Command | Result |
+| --- | --- |
+| `sh compiler/rust/build.sh` | Passed |
+| `make check` | Passed |
+| `make test-rust MAYC=compiler/mayc/mayc_new` | 60 passed; the four pre-existing historical-parser tests remain ignored |
+| `make test-compiler MAYC=compiler/mayc/mayc_new` | 120 passed, 0 failed (adds `float_literals.py` and `float_math.py`) |
+| `make test-compliance MAYC=compiler/mayc/mayc_new` | 69 passed, 0 failed, 0 observations |
+| `make test-docs MAYC=compiler/mayc/mayc_new` | 25 runnable strict examples passed |
+| `make test-llvm MAYC=compiler/mayc/mayc_new` | Passed |
+| `make test-bootstrap MAYC=compiler/mayc/mayc_new` | Passed: source-only chain and byte-identical stages 2/3 |
+| `make test-tools MAYC=compiler/mayc/mayc_new` | Passed |
+| `python3 compiler/mayc/tests/raw_codegen.py --compiler compiler/mayc/mayc_new` | Passed |
+| `backends.py`, `core_runtime.py`, `portable_values.py`, `float_math.py` with `--require-emulation` | Passed on all five targets |
+
+`float_math.py` checks IEEE special cases, Int arguments and signed zeros on the
+full, LLVM and core runtimes, holds 784 seeded portable results within one ulp
+of glibc, and requires bit-identical results on every core target.
+`float_literals.py` compares 500 literals with Python's correctly rounded
+parser on the full, core and LLVM backends. Real Windows/macOS hosts and the
+four-generation `compiler/mayc/tests/run.sh` were not run.
+
+### First session
 
 The compiler was rebuilt from source after compiler edits. Final implementation
 checks ran in an isolated worktree containing this series. Set `MAYC` explicitly

@@ -1,9 +1,25 @@
 # Unreleased
 
+- Support `sin`, `cos`, `tan`, `ln`, `log2`, `log10`, `exp` and floating
+  `pow`/`**` in the portable runtime on every native target. The binary64-only
+  implementation is bit-identical across targets, within one ulp of the host
+  libm, and reduces trigonometric arguments of any magnitude exactly. The `pow`
+  builtin now returns a Float in the core runtime, as documented, and negative
+  integer exponents of `**` produce a Float instead of a fault.
+- Convert float literals with exact big-integer arithmetic so they are
+  correctly rounded on every backend; decimal scaling misrounded most
+  17-digit literals by one or two ulps.
+- Follow C99 `pow` special cases (zeros, infinities, NaN, negative bases with
+  integer exponents) and return `inf`/`0.0` from `exp(±inf)` in the full
+  runtime. Accept Int arguments to `sqrt`, `floor`, `ceil`, `sin`, `exp`, `pow`
+  and related builtins on x86-64 instead of crashing.
+- Stop crashing when a Float is compared with `nil` or another non-number
+  using `!=` or `<`, and when the full runtime displays the smallest
+  subnormals.
 - Support boxed Float/Float32 arithmetic, conversions, comparisons, square roots
   and rounding on every native target. Format nonfinite scalar floats as
-  `nan`, `inf` or `-inf` in both runtimes. Transcendentals, floating powers
-  and cross-platform FFI remain unsupported in the portable runtime.
+  `nan`, `inf` or `-inf` in both runtimes. Cross-platform FFI remains
+  unsupported in the portable runtime.
 
 - Support cooperative fibers on every native target with isolated handlers and
   traces; return `nil` from `yield()` consistently with its declared type.
