@@ -8,6 +8,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 
 
 PROFILES = {
@@ -19,6 +20,27 @@ PROFILES = {
     'package': ('cargo', 'rustc', 'cc', 'make', 'sha256sum'),
     'editor': ('node', 'npm'),
 }
+
+
+def probe_c_compiler(cc):
+    """Compile and link a minimal program with the selected compiler in a temporary directory."""
+    remedy = 'install gcc or clang, or set CC to a working C compiler'
+    with tempfile.TemporaryDirectory(prefix='maylang-doctor-') as directory:
+        source = Path(directory) / 'probe.c'
+        source.write_text('int main(void) { return 0; }\n')
+        try:
+            result = subprocess.run([cc, str(source), '-o', str(Path(directory) / 'probe')],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                    text=True, errors='replace', timeout=30)
+        except subprocess.TimeoutExpired:
+            return False, f'{cc} timed out compiling a test program; {remedy}.'
+        except OSError as error:
+            return False, f'{cc} could not run ({error.strerror or error}); {remedy}.'
+    if result.returncode != 0:
+        lines = result.stderr.strip().splitlines()
+        reason = f': {lines[0]}' if lines else ''
+        return False, f'{cc} failed to compile a test program (exit {result.returncode}){reason}; {remedy}.'
+    return True, cc
 
 
 def inspect(profile):
@@ -35,6 +57,9 @@ def inspect(profile):
     for command in PROFILES[profile]:
         selected = commands.get(command, command)
         found = shutil.which(selected)
+        if found and command == 'cc':
+            checks.append((command, *probe_c_compiler(found)))
+            continue
         checks.append((command, bool(found), found or f'Install {command} and add it to PATH.'))
     if profile in ('ui', 'browser', 'package'):
         cc = shutil.which(os.environ.get('CC', 'cc'))

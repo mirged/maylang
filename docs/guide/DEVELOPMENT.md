@@ -51,7 +51,11 @@ See the [Rust bootstrap](../../compiler/rust/README.md) and
 
 ## Optional dependency profiles
 
-These checks report requirements without installing anything:
+These checks report requirements without installing anything. Profiles that
+need a C compiler compile and link a one-line program with `CC` (or `cc`) in a
+temporary directory, so a compiler that is present but broken is reported as
+missing instead of failing later in the bootstrap. `CC` must name a single
+executable; paths containing spaces are fine.
 
 ```sh
 python3 scripts/doctor.py --profile test

@@ -5,6 +5,9 @@
 - `mayfmt --help` and `mayfmt -h` print usage and exit 0 without reading or
   writing files, and unknown options are rejected before any file is
   formatted ([#64](https://github.com/mirged/maylang/issues/64)).
+- `scripts/doctor.py` compiles and links a test program with the selected
+  `CC` instead of only finding it on `PATH`, so a broken compiler is reported
+  before the bootstrap fails ([#66](https://github.com/mirged/maylang/issues/66)).
 
 # Maylang 0.13.103 — Dahlia
 

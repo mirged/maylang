@@ -47,6 +47,49 @@ class DeveloperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn('MISSING cargo', result.stdout)
 
+    def test_c_compiler_probe_requires_a_working_compiler(self):
+        with tempfile.TemporaryDirectory(prefix='may doctor ') as temporary:
+            directory = Path(temporary)
+            scripts = {
+                'working cc': '#!/bin/sh\nexec cc "$@"\n',
+                'failing cc': '#!/bin/sh\necho "probe.c: fatal error: no headers" >&2\nexit 3\n',
+                'slow cc': '#!/bin/sh\nsleep 5\n',
+            }
+            for name, body in scripts.items():
+                (directory / name).write_text(body)
+                (directory / name).chmod(0o755)
+            not_executable = directory / 'plain file'
+            not_executable.write_text('')
+            before = set(Path(tempfile.gettempdir()).glob('maylang-doctor-*'))
+
+            ready, detail = doctor.probe_c_compiler(str(directory / 'working cc'))
+            self.assertTrue(ready, detail)
+            ready, detail = doctor.probe_c_compiler(str(directory / 'failing cc'))
+            self.assertFalse(ready)
+            self.assertIn('exit 3', detail)
+            self.assertIn('no headers', detail)
+            self.assertIn('set CC', detail)
+            ready, detail = doctor.probe_c_compiler(str(not_executable))
+            self.assertFalse(ready)
+            self.assertIn('could not run', detail)
+            with patch.object(doctor.subprocess, 'run',
+                              side_effect=subprocess.TimeoutExpired('cc', 30)):
+                ready, detail = doctor.probe_c_compiler(str(directory / 'slow cc'))
+            self.assertFalse(ready)
+            self.assertIn('timed out', detail)
+            self.assertEqual(set(Path(tempfile.gettempdir()).glob('maylang-doctor-*')), before)
+
+            for cc, code in (('/usr/bin/false', 1), (str(directory / 'working cc'), 0)):
+                with self.subTest(cc=cc):
+                    result = subprocess.run(['/usr/bin/python3', str(ROOT / 'scripts/doctor.py'),
+                                             '--profile', 'build'], env={**os.environ, 'CC': cc},
+                                            capture_output=True, text=True, timeout=60)
+                    self.assertEqual(result.returncode, code, result.stdout)
+                    self.assertIn(('OK cc: ' if code == 0 else 'MISSING cc: ') + cc, result.stdout)
+            with patch.object(doctor, 'probe_c_compiler') as probe:
+                doctor.inspect('editor')
+            probe.assert_not_called()
+
     def test_shell_environment_handles_metacharacters_and_repeated_sourcing(self):
         with tempfile.TemporaryDirectory(prefix="may tools ' $ ") as temporary:
             output = Path(temporary)
