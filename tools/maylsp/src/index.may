@@ -10,8 +10,18 @@ fun ls_builtin_uris() -> Any {
     if (LS_BUILTIN_PATH != LS_STDLIB) {
         LS_BUILTIN_PATH = LS_STDLIB;
         LS_BUILTIN_URIS = [ls_uri(LS_STDLIB + "/native.may"), ls_uri(LS_STDLIB + "/prelude.may")];
+        let math: Any = ls_math_uri();
+        if (math != nil) { push(LS_BUILTIN_URIS, math); }
     }
     return LS_BUILTIN_URIS;
+}
+// The compiler loads runtime/math.may after the native library: beside the
+// checkout's compiler, or under bin/ in an installed bundle.
+fun ls_math_uri() -> Any {
+    for candidate: Any in [LS_STDLIB + "/../compiler/mayc/runtime/math.may", LS_STDLIB + "/../bin/runtime/math.may"] {
+        if (file_exists(candidate)) { return ls_uri(ls_normal(candidate)); }
+    }
+    return nil;
 }
 let LS_BUILTINS: Any = ["print", "len", "str", "int", "bool", "push", "pop", "map", "filter", "reduce", "sum", "any", "all", "min", "max", "abs", "sort", "reverse", "slice", "keys", "values", "has", "map_get", "map_set", "read_file", "write_file", "read_dir", "file_exists", "json_parse", "json_stringify", "input", "read_stdin", "clock", "time", "sleep", "spawn", "yield", "run", "fail", "exit", "syscall", "addr", "cstr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "ccall", "extern_c", "sqrt", "floor", "ceil", "sin", "cos", "tan", "env", "args"];
 let LS_TYPES: Any = ["Any", "Bool", "Str", "Nil", "Void", "Never", "Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Byte", "Float", "Float32", "Float64", "F32", "F64", "Ptr", "RawPtr", "List", "Map", "Slice", "Array", "Optional", "Option", "Result", "Tuple"];

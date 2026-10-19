@@ -43,7 +43,11 @@ print(json_stringify(json_parse(json_stringify(document))));
             print(f'PASS JSON U+0000–U+001F, quotes, backslashes, Unicode, keys and roundtrips on {target}', flush=True)
         # The raw runtime helper is separate from native.may's public API.
         runtime = (ROOT / 'compiler/mayc/runtime.may').read_text()
+        # Float text conversion lives in the tagged runtime/math.may; string
+        # escaping never reaches it, so raw stubs satisfy name resolution.
         source.write_text(runtime + r'''
+fun __math_parse(text: Any) -> Any { return 0; }
+fun __math_format(value: Any) -> Any { return 0; }
 fun json_controls() -> Any {
     STACKTOP = __sp(); rt_init();
     let bytes: Any = rt_alloc(32);

@@ -9,7 +9,7 @@ mkdir -p "$bundle/bin/runtime" "$bundle/stdlib"
 for tool in mayc may mayfmt maypkg maylsp; do
     printf '#!/bin/sh\necho fixture\n' > "$bundle/bin/$tool"
 done
-for file in bin/runtime.may bin/native.may bin/prelude.may bin/runtime/core.may stdlib/prelude.may; do
+for file in bin/runtime.may bin/native.may bin/prelude.may bin/runtime/core.may bin/runtime/math.may stdlib/prelude.may; do
     echo '// fixture' > "$bundle/$file"
 done
 echo '// external sidecar' > "$work/runtime.may"

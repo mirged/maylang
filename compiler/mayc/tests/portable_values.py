@@ -28,10 +28,11 @@ CALL_EXPECTED = (b'42 10\n150 120\n3 4\n8\n10 11 12\n'
 FAULT_EXPECTED = (b'42\n["fail", "explicit"]\nrender\narithmetic\ntype\nfirst\nsecond\n'
                   b'7\n3 once\n4\nexception handler limit exceeded\nafter\n')
 DEBUG_EXPECTED = b'true true true\ntrue false true\ntrue\nfalse\n'
-FLOAT_EXPECTED = (b'3.75 5.0 3.0 3.5 -2.5 2.5\n0.3333333333333333 0.3 6.5\n'
+FLOAT_EXPECTED = (b'3.75 5.0 3.0 3.5 -2.5 2.5\n'
+                  b'0.3333333333333333 0.30000000000000004 6.5\n'
                   b'-3 -2 -2 2 3 -2 3\n4.0 true true\n-122.5 42.0 3 -3\n'
                   b'true true true true true true\nfalse false true true\n'
-                  b'[1.25, -2.499999] {"number": 3.75}\narithmetic\n'
+                  b'[1.25, -2.5] {"number": 3.75}\narithmetic\n'
                   b'true false true true true true\nnan\n3.75\n1.0 1e20 1e-10\n3.5\n')
 FIBER_EXPECTED = b'true false\na a\ntrue false\nb b\nmain\n'
 

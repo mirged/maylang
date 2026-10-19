@@ -131,6 +131,12 @@ def program(seed, steps):
     return '\n'.join(functions + output)
 
 
+RAW_MATH_STUBS = '''
+fun __math_parse(text: Any) -> Any { return 0; }
+fun __math_format(value: Any) -> Any { return 0; }
+'''
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
@@ -148,7 +154,9 @@ def main():
         work = Path(directory)
         for seed in args.seeds:
             source = work / 'stress.may'; binary = work / 'stress'
-            source.write_text(runtime + INVARIANTS + program(seed, args.steps))
+            # Float text conversion lives in the tagged runtime/math.may, which a
+            # raw program cannot load; the stress program never reaches it.
+            source.write_text(runtime + RAW_MATH_STUBS + INVARIANTS + program(seed, args.steps))
             stage = 'compile'
             try:
                 result = subprocess.run([str(args.compiler.resolve()), '--raw', '--legacy', str(source), '-o', str(binary)],
@@ -171,7 +179,7 @@ def main():
             results.append({'seed': seed, 'steps': args.steps, 'passed': True})
             print(f'PASS GC seed {seed}: live-graph oracle, encoded roots and heap/free-bin invariants', flush=True)
         if args.self_test:
-            original = runtime + INVARIANTS + program(1, 32)
+            original = runtime + RAW_MATH_STUBS + INVARIANTS + program(1, 32)
             mutations = {
                 'identity': ('rt_gc(); stress_heap_check();', 'rt_gc(); store8(GCSTARTS + (load64(ledger) - HEAP) / 8, 1); stress_heap_check();', 23),
                 'free_count': ('rt_gc(); stress_heap_check();', 'rt_gc(); FREECOUNT += 1; stress_heap_check();', 24),
@@ -195,6 +203,7 @@ def main():
         (work / 'runtime.may').write_text(runtime)
         shutil.copy2(ROOT / 'compiler/mayc/native.may', work / 'native.may')
         shutil.copy2(ROOT / 'stdlib/prelude.may', work / 'prelude.may')
+        shutil.copytree(ROOT / 'compiler/mayc/runtime', work / 'runtime')
         compiled = subprocess.run([str(copied), str(ROOT / 'compiler/mayc/tests/library/gc_objects.may'), '-o', str(binary)],
                                   env=env, capture_output=True, timeout=120)
         assert compiled.returncode == 0, compiled.stderr

@@ -105,6 +105,24 @@ fun load_native(a0: Any, a0l: Any) -> Any {
     return slurp(addr(cwd_rel), len(cwd_rel));
 }
 
+fun load_math(a0: Any, a0l: Any) -> Any {
+    // 1. runtime/ next to the mayc executable
+    let name: Any = "runtime/math.may";
+    let m1: Any = side_slurp(a0, a0l, addr(name), len(name));
+    if (LASTLEN > 0) { return m1; }
+
+    // 2. Repo-relative to compiler/mayc
+    let repo_rel: Any = "../../compiler/mayc/runtime/math.may";
+    let m2: Any = side_slurp(a0, a0l, addr(repo_rel), len(repo_rel));
+    if (LASTLEN > 0) { return m2; }
+
+    // 3. Current working directory (a checkout root)
+    let cwd_rel: Any = "compiler/mayc/runtime/math.may";
+    let m3: Any = slurp(addr(cwd_rel), len(cwd_rel));
+    if (LASTLEN == 0) { die_str("mayc: cannot find runtime/math.may\n"); }
+    return m3;
+}
+
 fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
     let name: Any = "runtime/" + file;
     let source: Any = side_slurp(a0, a0l, addr(name), len(name));
@@ -329,9 +347,12 @@ fun main2() -> Any {
         let nb: Any = if (ctx.runtime == "core") { 0 } else { load_native(a0, a0l) };
         if (ctx.runtime == "core") { LASTLEN = 0; }
         let nn: Any = LASTLEN;
+        // Portable math is shared by every runtime that has a library prelude.
+        let mb: Any = if (pn > 0) { load_math(a0, a0l) } else { 0 };
+        let mn: Any = if (pn > 0) { LASTLEN } else { 0 };
 
         if (pn + nn > 0) {
-            let cb: Any = irt_alloc(pn + nn + un + 8);
+            let cb: Any = irt_alloc(pn + nn + mn + un + 8);
             mut z: Any = 0;
             while (z < pn) {
                 store8(cb + z, load8(pb + z));
@@ -343,17 +364,23 @@ fun main2() -> Any {
                 z = z + 1;
             }
             z = 0;
+            while (z < mn) {
+                store8(cb + pn + nn + z, load8(mb + z));
+                z = z + 1;
+            }
+            z = 0;
             while (z < un) {
-                store8(cb + pn + nn + z, load8(ub + z));
+                store8(cb + pn + nn + mn + z, load8(ub + z));
                 z = z + 1;
             }
             SRC = cb;
-            SRCLEN = pn + nn + un;
+            SRCLEN = pn + nn + mn + un;
             mut origins: Any = [];
             push(origins, SourceOrigin(0, "prelude.may", 1));
             push(origins, SourceOrigin(pn, "native.may", 1));
+            push(origins, SourceOrigin(pn + nn, "runtime/math.may", 1));
             for origin: Any in EXPAND_ORIGINS {
-                push(origins, SourceOrigin(pn + nn + origin.start, origin.path, origin.line));
+                push(origins, SourceOrigin(pn + nn + mn + origin.start, origin.path, origin.line));
             }
             SOURCE_FILES[cb] = SourceFile(symbol_name(sp, sl), origins);
         }

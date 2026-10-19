@@ -124,6 +124,7 @@ def main():
                              'native.may': ROOT / 'compiler/mayc/native.may',
                              'prelude.may': ROOT / 'stdlib/prelude.may'}.items():
             (install / name).symlink_to(origin)
+        (install / 'runtime').symlink_to(ROOT / 'compiler/mayc/runtime')
         (install / 'stdlib').mkdir()
         (install / 'stdlib/string.may').write_text('pub fun marker() -> Int { return 42; }\n')
         source = work / 'relocated.may'

@@ -232,186 +232,14 @@ fun float(x: Any) -> Any {
     if (t == 6) { return x; }
     if (t == 0) { return to_float(x); }
     if (t != 1) { return raise_error("runtime", "cannot convert to Float"); }
-    let s: Any = trim(x);
-    let n: Any = len(s);
-    mut i: Any = 0;
-    mut sign: Any = 1.0;
-    if (n > 0 && char_at(s, 0) == 45) { sign = 0.0 - 1.0; i = 1; }
-    else if (n > 0 && char_at(s, 0) == 43) { i = 1; }
-    mut val: Any = 0.0;
-    mut fd: Any = 0;
-    mut seen: Any = false;
-    while (i < n) {
-        let c: Any = char_at(s, i);
-        if (c >= 48 && c <= 57) { val = val * 10.0 + to_float(c - 48); seen = true; i = i + 1; }
-        else { break; }
-    }
-    if (i < n && char_at(s, i) == 46) {
-        i = i + 1;
-        while (i < n) {
-            let c: Any = char_at(s, i);
-            if (c >= 48 && c <= 57) {
-                val = val * 10.0 + to_float(c - 48);
-                fd = fd + 1;
-                seen = true;
-                i = i + 1;
-            } else { break; }
-        }
-    }
-    if (!seen) { return raise_error("runtime", "cannot convert to Float"); }
-    mut ex: Any = 0;
-    mut esign: Any = 1;
-    if (i < n && (char_at(s, i) == 101 || char_at(s, i) == 69)) {
-        i = i + 1;
-        if (i < n && char_at(s, i) == 45) { esign = -1; i = i + 1; }
-        else if (i < n && char_at(s, i) == 43) { i = i + 1; }
-        while (i < n) {
-            let c: Any = char_at(s, i);
-            if (c >= 48 && c <= 57) { ex = ex * 10 + (c - 48); i = i + 1; }
-            else { break; }
-        }
-    }
-    if (i != n) { return raise_error("runtime", "cannot convert to Float"); }
-    let e: Any = esign * ex - fd;
-    if (e > 0) {
-        mut p: Any = 1.0;
-        mut k: Any = 0;
-        while (k < e) { p = p * 10.0; k = k + 1; }
-        val = val * p;
-    } else if (e < 0) {
-        mut p: Any = 1.0;
-        mut k: Any = 0;
-        let ne: Any = 0 - e;
-        while (k < ne) { p = p * 10.0; k = k + 1; }
-        val = val / p;
-    }
-    return sign * val;
+    // Correctly rounded; see __math_parse in runtime/math.may.
+    let value: Any = __math_parse(trim(x));
+    if (value == nil) { return raise_error("runtime", "cannot convert to Float"); }
+    return value;
 }
 
-/// Increment a decimal digit string; returns `[carry, result]` where `carry`
-/// is `1` when the whole part must be bumped (all nines).
-fun bump(s: Any) -> Any {
-    mut out: Any = s;
-    mut i: Any = len(out) - 1;
-    mut carry: Any = 1;
-    while (i >= 0 && carry == 1) {
-        let c: Any = char_at(out, i);
-        if (c == 57) {
-            out = substring(out, 0, i) + "0" + substring(out, i + 1, len(out) - i - 1);
-        } else {
-            out = substring(out, 0, i) + char_from(c + 1) + substring(out, i + 1, len(out) - i - 1);
-            carry = 0;
-        }
-        i = i - 1;
-    }
-    return [carry, out];
-}
-
-/// Decompose a positive finite float into `[leading_digit, digits, exponent]`
-/// so the value is `leading.digits * 10^exponent`. A single scaling division
-/// keeps the mantissa close to exact (repeated division accumulates error).
-fun float_norm(v: Any) -> Any {
-    mut e: Any = floor(log10(v));
-    // 10^e underflows to zero below 1e-323, so scale subnormals up first.
-    mut m: Any = if (e < -300) { (v * 1e30) / pow(10.0, to_float(e + 30)) } else { v / pow(10.0, to_float(e)) };
-    if (cmp(m, 10.0) >= 0) { m = m / 10.0; e = e + 1; }
-    while (cmp(m, 1.0) < 0) { m = m * 10.0; e = e - 1; }
-    let whole: Any = floor(m);
-    mut digits: Any = "";
-    mut fr: Any = m - to_float(whole);
-    mut i: Any = 0;
-    while (i < 18 && cmp(fr, 0.000000000000000001) > 0) {
-        fr = fr * 10.0;
-        let d: Any = floor(fr);
-        digits = digits + str(d);
-        fr = fr - to_float(d);
-        i = i + 1;
-    }
-    return [str(whole), digits, e];
-}
-
-/// Format a magnitude outside the safe plain-decimal range in scientific
-/// notation; the mantissa is rounded to 16 significant digits and trimmed.
-fun float_sci(value: Any) -> Any {
-    let n: Any = float_norm(value);
-    let whole: Any = n[0];
-    mut digits: Any = n[1];
-    mut e: Any = n[2];
-    // Whole digit plus at most 14 fractional digits = 15 significant digits.
-    let extra: Any = if (len(digits) > 14) { 14 } else { len(digits) };
-    mut mant: Any = whole + substring(digits, 0, extra);
-    if (len(digits) > 14 && char_at(digits, 14) >= 53) {
-        let r: Any = bump(mant);
-        mant = r[1];
-        if (r[0] == 1) { mant = "1" + mant; e = e + 1; }
-    }
-    // Trim trailing zeros, keeping at least the leading digit.
-    mut end: Any = len(mant);
-    while (end > 1 && char_at(mant, end - 1) == 48) { end = end - 1; }
-    mant = substring(mant, 0, end);
-    let lead: Any = substring(mant, 0, 1);
-    let rest: Any = substring(mant, 1, len(mant) - 1);
-    if (len(rest) == 0) { return lead + "e" + str(e); }
-    return lead + "." + rest + "e" + str(e);
-}
-
-/// Format a boxed float, choosing the shortest rounded decimal that round-trips.
-fun float_str(f: Any) -> Any {
-    let payload: Any = addr(f);
-    let high: Any = load32(payload + 4);
-    if (high % 2147483648 >= 2146435072) {
-        if (high % 1048576 != 0 || load32(payload) != 0) { return "nan"; }
-        if (high >= 2147483648) { return "-inf"; }
-        return "inf";
-    }
-    mut sign: Any = "";
-    mut value: Any = f;
-    if (cmp(value, 0.0) < 0) {
-        sign = "-";
-        value = 0.0 - value;
-    }
-    if (cmp(value, 0.0) == 0) { return sign + "0.0"; }
-    if (cmp(value, 10000000000000000.0) >= 0 || cmp(value, 0.0001) < 0) {
-        return sign + float_sci(value);
-    }
-    let whole: Any = floor(value);
-    let frac: Any = value - to_float(whole);
-    mut digits: Any = "";
-    mut fr: Any = frac;
-    mut i: Any = 0;
-    while (i < 18 && fr > 0.000000000000001) {
-        fr = fr * 10.0;
-        mut d: Any = floor(fr);
-        digits = digits + str(d);
-        fr = fr - to_float(d);
-        i = i + 1;
-    }
-    let nd: Any = len(digits);
-    mut d: Any = 0;
-    mut fb: Any = str(whole) + ".0";
-    while (d <= nd) {
-        mut prefix: Any = substring(digits, 0, d);
-        mut carry: Any = 0;
-        if (d < nd && char_at(digits, d) >= 53) {
-            let r: Any = bump(prefix);
-            carry = r[0];
-            prefix = r[1];
-        }
-        let w: Any = whole + carry;
-        mut end: Any = len(prefix);
-        while (end > 0 && char_at(prefix, end - 1) == 48) { end = end - 1; }
-        let kept: Any = substring(prefix, 0, end);
-        mut cand: Any = str(w);
-        if (len(kept) > 0) { cand = cand + "." + kept; }
-        if (d <= 15) { fb = cand; }
-        if (cmp(float(cand), value) == 0) {
-            if (len(kept) == 0) { return sign + str(w) + ".0"; }
-            return sign + str(w) + "." + kept;
-        }
-        d = d + 1;
-    }
-    return sign + fb;
-}
+/// Format a boxed float with the shortest digits that parse back to the same value; spell nonfinite values nan, inf and -inf and keep the sign of negative zero.
+fun float_str(f: Any) -> Any { return __math_format(f); }
 
 // ------------------------------------------------------------------ lists
 
@@ -1000,3 +828,15 @@ fun extern_c(fn: Any) -> Any {
     }
     return tramp;
 }
+
+// Trigonometry uses the shared portable implementation in runtime/math.may:
+// x87 FSIN/FCOS/FPTAN reduce with a 66-bit pi, losing accuracy near multiples
+// of pi/2, and return arguments above 2^63 unchanged. The portable reduction
+// is exact for every finite input, and results match the core runtime bit for
+// bit. Logarithms, exp and pow keep the faster x87 sequences (within one ulp).
+/// Return the sine of an angle in radians, reducing any finite argument exactly. Within one ulp.
+fun sin(value: Any) -> Any { return __math_trig(value, 0); }
+/// Return the cosine of an angle in radians, reducing any finite argument exactly. Within one ulp.
+fun cos(value: Any) -> Any { return __math_trig(value, 1); }
+/// Return the tangent of an angle in radians, reducing any finite argument exactly. Within one ulp.
+fun tan(value: Any) -> Any { return __math_trig(value, 2); }
