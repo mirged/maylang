@@ -36,7 +36,7 @@
 - **chars** — `fun chars(s: Any) -> Any` — Return Unicode codepoints as one-character strings.
 - **repeat** — `fun repeat(s: Any, n: Any) -> Any` — Return a string repeated n times; nonpositive counts produce an empty string.
 - **join** — `fun join(xs: Any, sep: Any) -> Any` — Convert items to strings and combine them with a separator between neighboring items.
-- **int** — `fun int(x: Any) -> Any` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; invalid text raises a catchable failure.
+- **int** — `fun int(x: Any) -> Any` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
 - `int` explicit fault strings: `"runtime"`; runtime/callback faults can also propagate.
 - **float** — `fun float(x: Any) -> Any` — Convert a number or numeric string to a floating-point value.
 - `float` explicit fault strings: `"runtime"`; runtime/callback faults can also propagate.
@@ -84,8 +84,8 @@
 - **env** — `fun env(name: Any) -> Any` — Read an environment variable (Linux: via `/proc/self/environ`).
 - **pi** — `fun pi() -> Any` — Return the binary64 approximation of π, 3.141592653589793.
 - **e** — `fun e() -> Any` — Return the binary64 approximation of Euler's number, 2.718281828459045.
-- **round** — `fun round(x: Any) -> Any` — Return `floor(x + 0.5)`; halfway negative values round toward positive infinity.
-- `round`: Integer return; the source uses floor(x + 0.5), including negative halfway cases.
+- **round** — `fun round(x: Any) -> Any` — Round to the nearest integral Float; halfway values round toward positive infinity (`round(-2.5)` is `-2.0`).
+- `round`: Float return; halfway values, including negative ones, round toward positive infinity. Convert with int() where an Int is needed.
 - **sinh** — `fun sinh(x: Any) -> Any` — Compute `(exp(x) - exp(-x)) / 2.0`.
 - **cosh** — `fun cosh(x: Any) -> Any` — Compute `(exp(x) + exp(-x)) / 2.0`.
 - **tanh** — `fun tanh(x: Any) -> Any` — Compute `(exp(2*x) - 1) / (exp(2*x) + 1)`; large inputs may overflow the exponential.

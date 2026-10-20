@@ -27,7 +27,7 @@
 - **repeat** — `fun repeat(s: Str, n: Int) -> Str` — Return a string repeated n times; nonpositive counts produce an empty string.
 - **float** — `fun float(x: Any) -> Any` — Convert a number or numeric string to a floating-point value.
 - **float_str** — `fun float_str(f: Any) -> Any` — Format a boxed float with the shortest digits that parse back to the same value; spell nonfinite values nan, inf and -inf and keep the sign of negative zero.
-- **round** — `fun round(value: Any) -> Any` — Return `floor(x + 0.5)`; halfway negative values round toward positive infinity.
+- **round** — `fun round(value: Any) -> Any` — Round to the nearest integral Float; halfway values round toward positive infinity (`round(-2.5)` is `-2.0`).
 - **__math_keep** — `fun __math_keep(top: Any, end: Any, result: Any) -> Any` — Return a Float with the bits of `result` after releasing the heap above `top`; internal math helper.
 - **__math_keep_text** — `fun __math_keep_text(top: Any, end: Any, text: Any) -> Any` — Return a copy of short ASCII text after releasing the heap above `top`; the bytes travel in four Ints. Longer text is returned without releasing; internal math helper.
 - **ln** — `fun ln(value: Any) -> Any` — Return the natural logarithm; zero gives -inf and negative input NaN. Within one ulp.

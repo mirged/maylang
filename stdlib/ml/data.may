@@ -11,7 +11,7 @@ fun ml_train_test_split(xs: Any, ys: Any, test_fraction: Any, rng: Any) -> Any {
     if (len(xs) < 2) { fail("train/test split needs at least two rows"); }
     if (to_float(test_fraction) <= 0.0 || to_float(test_fraction) >= 1.0) { fail("test fraction must be between 0 and 1"); }
     let order: Any = random_shuffle(rng, [i for i: Any in 0..len(xs)]);
-    let ntest: Any = max(1, min(len(xs) - 1, round(len(xs) * test_fraction)));
+    let ntest: Any = max(1, min(len(xs) - 1, int(round(len(xs) * test_fraction))));
     let test_i: Any = slice(order, 0, ntest); let train_i: Any = slice(order, ntest, len(order));
     return {"x_train": [xs[i] for i: Any in train_i], "y_train": [ys[i] for i: Any in train_i],
      "x_test": [xs[i] for i: Any in test_i], "y_test": [ys[i] for i: Any in test_i]};

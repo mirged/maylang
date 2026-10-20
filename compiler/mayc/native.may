@@ -488,7 +488,11 @@ fun env(name: Any) -> Any {
 fun pi() -> Any { return 3.141592653589793; }
 fun e() -> Any { return 2.718281828459045; }
 
-fun round(x: Any) -> Any { return floor(x + 0.5); }
+fun round(x: Any) -> Any {
+    // x - floor(x) is exact, unlike x + 0.5, which rounds 0.49999999999999994 up.
+    let f: Any = to_float(x); let r: Any = floor(f);
+    return if (f - r >= 0.5) { r + 1.0 } else { r };
+}
 
 fun sinh(x: Any) -> Any { return (exp(x) - exp(0.0 - x)) / 2.0; }
 fun cosh(x: Any) -> Any { return (exp(x) + exp(0.0 - x)) / 2.0; }

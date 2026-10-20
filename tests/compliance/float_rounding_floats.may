@@ -1,0 +1,1 @@
+print(floor(1.0e300) == 1.0e300, floor(2.5), ceil(-2.5), round(-2.5), round(2.5), type(floor(3)), int(floor(-2.5)));

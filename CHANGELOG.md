@@ -14,6 +14,21 @@
   compiler now stops with the offending line and the chain of imports that
   reached it ([#38](https://github.com/mirged/maylang/issues/38)).
 
+## Runtime
+
+- Fault with a catchable `arithmetic` error ("Float outside Int range") when
+  `int` or `trunc` would produce an Int outside ±2^60 or is given NaN or an
+  infinity. These conversions previously returned 0 or a wrapped value
+  silently. Full, core and LLVM runtimes agree on every target
+  ([#89](https://github.com/mirged/maylang/issues/89)).
+- **Behavior change:** `floor`, `ceil` and `round` return Floats, as their
+  strict types always declared (`floor(2.5)` prints `2.0`, `floor(1.0e300)` is
+  `1e300`, and NaN, infinities and `-0.0` pass through). Use `int(floor(x))`
+  where an Int is needed; `random_int`, `stats_quantile` and the ML train/test
+  split do so. `round` no longer rounds `0.49999999999999994` or odd values
+  above 2^52 incorrectly, and `format_bytes` keeps its decimal (`1.5 KiB`
+  instead of `1 KiB`) ([#89](https://github.com/mirged/maylang/issues/89)).
+
 ## Behavior contracts
 
 - Accept `for` loops over literal `Int` ranges (`a..b`, `a..=b`) in functions

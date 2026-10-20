@@ -27,7 +27,7 @@ fun stats_quantile(xs: Any, q: Any) -> Any {
     if (len(xs) == 0) { return nil; }
     if (to_float(q) < 0.0 || to_float(q) > 1.0) { fail("quantile must be in [0, 1]"); }
     let s: Any = sort(xs); let p: Any = q * (len(s) - 1);
-    let lo: Any = floor(p); let hi: Any = ceil(p);
+    let lo: Any = int(floor(p)); let hi: Any = int(ceil(p));
     return s[lo] + (s[hi] - s[lo]) * (p - lo);
 }
 fun stats_median(xs: Any) -> Any { return stats_quantile(xs, 0.5); }

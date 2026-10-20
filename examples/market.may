@@ -231,7 +231,7 @@ fun sparkline(values: Any) -> Any {
     mut out: Any = "";
     for v: Any in values {
         let frac: Any = if (span <= 0.0) { 0.5 } else { (v - lo) / span };
-        out = out + chr(9601 + round(frac * 7.0));
+        out = out + chr(9601 + int(round(frac * 7.0)));
     }
     return out;
 }

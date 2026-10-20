@@ -64,7 +64,11 @@ fun float_str(f: Any) -> Any {
 
 // ------------------------------------------------------------------ lists
 
-fun round(value: Any) -> Any { return floor(value + 0.5); }
+fun round(value: Any) -> Any {
+    // x - floor(x) is exact, unlike x + 0.5, which rounds 0.49999999999999994 up.
+    let f: Any = to_float(value); let r: Any = floor(f);
+    return if (f - r >= 0.5) { r + 1.0 } else { r };
+}
 
 // ------------------------------------------------------------------ math
 // Transcendentals come from runtime/math.may. Core never frees memory, so each

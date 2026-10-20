@@ -960,7 +960,7 @@ print(str(42));
 int(value)
 ```
 
-Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; invalid text raises a catchable failure.
+Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
 
 **Parameters**
 - `value`: A number or a trimmed decimal string with optional sign.
@@ -1987,12 +1987,12 @@ print(sqrt(9.0));
 floor(x)
 ```
 
-Round a number down to an integer-valued numeric result.
+Round a number down to an integral Float; NaN, infinities and -0.0 are returned unchanged.
 
 **Parameters**
 - `x`: The number to evaluate; trigonometric angles use radians.
 
-**Returns:** The rounded value.
+**Returns:** The rounded Float; use int(floor(x)) for an Int.
 
 **Example**
 ```may
@@ -2005,12 +2005,12 @@ print(floor(2.9));
 ceil(x)
 ```
 
-Round a number up to an integer-valued numeric result.
+Round a number up to an integral Float; NaN, infinities and -0.0 are returned unchanged.
 
 **Parameters**
 - `x`: The number to evaluate; trigonometric angles use radians.
 
-**Returns:** The rounded value.
+**Returns:** The rounded Float; use int(ceil(x)) for an Int.
 
 **Example**
 ```may

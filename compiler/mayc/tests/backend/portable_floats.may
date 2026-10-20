@@ -13,6 +13,8 @@ print(recovered);
 let nan: Float = sqrt(-1.0);
 print(nan == nan, nan != nan, nan < nan, nan <= nan, nan > nan, nan >= nan);
 print(str(nan));
+print(may { str(trunc(nan)) } otherwise { err.kind }, may { str(int(1.0e19)) } otherwise { err.message },
+    trunc(-1152921504606846976.0), may { str(int(1152921504606846976.0)) } otherwise { err.kind });
 let captured: () -> Float = fun() -> Float { return 1.25 + 2.5; };
 print(captured());
 let narrow: Float32 = 1.00000001;

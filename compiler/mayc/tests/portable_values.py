@@ -30,10 +30,13 @@ FAULT_EXPECTED = (b'42\n["fail", "explicit"]\nrender\narithmetic\ntype\nfirst\ns
 DEBUG_EXPECTED = b'true true true\ntrue false true\ntrue\nfalse\n'
 FLOAT_EXPECTED = (b'3.75 5.0 3.0 3.5 -2.5 2.5\n'
                   b'0.3333333333333333 0.30000000000000004 6.5\n'
-                  b'-3 -2 -2 2 3 -2 3\n4.0 true true\n-122.5 42.0 3 -3\n'
+                  b'-3.0 -2.0 -2 2.0 3.0 -2.0 3.0\n4.0 true true\n-122.5 42.0 3 -3\n'
                   b'true true true true true true\nfalse true true true\n'
                   b'[1.25, -2.5] {"number": 3.75}\narithmetic\n'
-                  b'true false true true true true\nnan\n3.75\n1.0 1e20 1e-10\n3.5\n')
+                  b'true false true true true true\nnan\n'
+                  b'arithmetic Float outside Int range -1152921504606846976 arithmetic\n3.75\n1.0 1e20 1e-10\n3.5\n')
+ROUNDING_EXPECTED = (b'2.0 3.0 -3.0 -2.0 -0.0 -0.0 0.0\ntrue true nan -inf\n'
+                     b'3.0 -2.0 2.0 0.0 -0.0\ntrue true true true\n')
 FIBER_EXPECTED = b'true false\na a\ntrue false\nb b\nmain\n'
 COMPARE_EXPECTED = (b'true false true true true false true false false\ntrue 1\none letter other other\n'
                     b'type: cannot compare Float with Int\ntype: cannot compare Nil with Int\n'
@@ -56,7 +59,8 @@ def main():
         for name, expected in [('portable_collections', EXPECTED), ('portable_calls', CALL_EXPECTED),
                                ('portable_faults', FAULT_EXPECTED), ('portable_debug', DEBUG_EXPECTED),
                                ('portable_fibers', FIBER_EXPECTED), ('portable_floats', FLOAT_EXPECTED),
-                               ('portable_compare', COMPARE_EXPECTED)]:
+                               ('portable_compare', COMPARE_EXPECTED),
+                               ('portable_rounding', ROUNDING_EXPECTED)]:
             source = HERE / 'backend' / (name + '.may')
             flags = ['--debug'] if name in ('portable_debug', 'portable_fibers') else []
             oracle = work / 'full'
@@ -81,6 +85,12 @@ def main():
             'fun bits(value: Any) -> Nil { let p: Any = addr(value); print(load32(p), load32(p + 4)); return; }',
             'fun number(low: Int, high: Int) -> Float { let value: Float = 0.0; let p: Any = addr(value); store32(p, low); store32(p + 4, high); return value; }',
             'fun narrow(value: Float32) -> Float32 { return value; }',
+            # Out-of-range and non-finite Int conversions fault identically on every target.
+            # floor/ceil results print as bit patterns: exact, and cheap enough for the
+            # emulator's instruction budget, unlike shortest decimals near 2^63.
+            'fun word(value: Float) -> Str { let p: Any = addr(value); return "${load32(p)}:${load32(p + 4)}"; }',
+            'fun convert(value: Float) -> Nil { print(may { str(int(value)) } otherwise { err.kind }, word(floor(value)),'
+            ' word(ceil(value)), may { str(trunc(value)) } otherwise { err.kind }); return; }',
         ]
         for literal in LITERALS:
             body.append(f'bits({literal}); bits(-{literal}); bits(narrow({literal}));')
@@ -92,8 +102,7 @@ def main():
                     0x43dfffffffffffff, 0x43e0000000000000, 0xc3e0000000000000,
                     0x7ff0000000000000, 0xfff0000000000000, 0x7ff8000000000000]:
             low, high = struct.unpack('<II', struct.pack('<Q', raw))
-            body.append(f'let value_{raw}: Float = number({low}, {high});')
-            body.append(f'print(int(value_{raw}), floor(value_{raw}), ceil(value_{raw}), trunc(value_{raw}));')
+            body.append(f'convert(number({low}, {high}));')
         body.append('print(str(number(0, 2146435072)), str(number(0, 4293918720))); exit(0);')
         source.write_text('\n'.join(body))
         binary = work / 'float-oracle'

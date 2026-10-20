@@ -170,7 +170,7 @@
     "parse_float": "Parse a trimmed floating-point string through native conversion.",
     "pi": "Return the binary64 approximation of π, 3.141592653589793.",
     "e": "Return the binary64 approximation of Euler's number, 2.718281828459045.",
-    "round": "Return `floor(x + 0.5)`; halfway negative values round toward positive infinity.",
+    "round": "Round to the nearest integral Float; halfway values round toward positive infinity (`round(-2.5)` is `-2.0`).",
     "sinh": "Compute `(exp(x) - exp(-x)) / 2.0`.",
     "cosh": "Compute `(exp(x) + exp(-x)) / 2.0`.",
     "tanh": "Compute `(exp(2*x) - 1) / (exp(2*x) + 1)`; large inputs may overflow the exponential.",
@@ -447,7 +447,7 @@
       "Returns dynamic maps/lists/scalars; rejects trailing content and malformed strings. See the implementation for supported Unicode escape behavior."
     ],
     "native.may:round": [
-      "Integer return; the source uses floor(x + 0.5), including negative halfway cases."
+      "Float return; halfway values, including negative ones, round toward positive infinity. Convert with int() where an Int is needed."
     ],
     "net.may:tcp_receive": [
       "Require 1..16777216 maximum bytes. An empty result means orderly TCP EOF."
@@ -485,7 +485,7 @@
     ],
     "trunc": [
       "trunc(x) -> Int",
-      "Truncate a numeric value toward zero."
+      "Truncate a numeric value toward zero; NaN, infinities and results outside the Int range raise an arithmetic fault."
     ],
     "ln": [
       "ln(x) -> Float",

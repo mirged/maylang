@@ -14,7 +14,7 @@ fun random_next_int(rng: Any) -> Any {
 fun random_float(rng: Any) -> Any { return random_next_int(rng) / (1.0 * RANDOM_MODULUS); }
 fun random_int(rng: Any, lo: Any, hi: Any) -> Any {
     if (hi < lo) { fail("random_int upper bound is below lower bound"); }
-    return lo + floor(random_float(rng) * (hi - lo + 1));
+    return lo + int(floor(random_float(rng) * (hi - lo + 1)));
 }
 fun random_choice(rng: Any, xs: Any) -> Any {
     if (len(xs) == 0) { return nil; }
