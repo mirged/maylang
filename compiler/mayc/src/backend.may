@@ -19,6 +19,7 @@ struct CodeEmitter { immediate: Any, move: Any, load: Any, store: Any, binary: A
 fun target_select(name: Any) -> Any {
     if (name == "clang-llvm") { return Target(name, "llvm", "linux", "llvm", 0, 1, true); }
     if (name == "x86_64-linux") { return Target(name, "x86_64", "linux", "elf", 62, 4096, true); }
+    if (name == "x86_64-nodeos") { return Target(name, "x86_64", "nodeos", "nxf", 62, 4096, true); }
     if (name == "arm64-linux") { return Target(name, "arm64", "linux", "elf", 183, 4096, false); }
     if (name == "riscv64-linux") { return Target(name, "riscv64", "linux", "elf", 243, 4096, false); }
     if (name == "arm64-macos") { return Target(name, "arm64", "macos", "macho", 16777228, 16384, false); }
@@ -32,7 +33,7 @@ fun backend_validate(ctx: Any, raw: Any) -> Any {
         die_str("mayc: experimental clang-llvm supports only the full Maylang runtime; --raw and --runtime core/none are unsupported\n");
     }
     if (raw == 0 and ctx.runtime == "full" and not ctx.target.runtime) {
-        die_str("mayc: `${ctx.target.name}` supports the core runtime; --runtime full requires x86_64-linux\n");
+        die_str("mayc: `${ctx.target.name}` supports the core runtime; --runtime full requires x86_64-linux or x86_64-nodeos\n");
     }
     return 0;
 }
@@ -53,6 +54,9 @@ fun riscv_emit(ctx: Any) -> Any { return raw_program(ctx, riscv_emitter()); }
 
 fun backend_emit(ctx: Any) -> Any {
     if (ctx.runtime == "core") { core_validate(ctx); }
+    // NodeOS loads NXF images without a dynamic linker, so there is nothing
+    // to resolve a C library symbol against.
+    if (ctx.target.os == "nodeos" and len(ctx.foreign) > 0) { die_str("mayc: x86_64-nodeos has no dynamic loader; extern functions are unsupported\n"); }
     let selected: Any = backend_for(ctx);
     let emit: Any = selected.emit;
     return emit(ctx);

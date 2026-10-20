@@ -16,6 +16,9 @@
 mut HEAP: Any = 0;
 mut HP: Any = 0;
 mut HEAPEND: Any = 0;
+// End of the reserved heap. HEAPEND, where collection starts, moves toward
+// it only when a collection cannot free enough.
+mut HEAPLIMIT: Any = 0;
 // Allocation identity lives outside the collected heap. Header-shaped bytes
 // inside payloads or coalesced regions are not allocations. One byte per
 // aligned heap word is demand-paged and does not depend on payload contents.
@@ -167,19 +170,29 @@ fun rt_badop(os: Any, ol: Any, a: Any, b: Any) -> Any {
 }
 
 fun rt_init() -> Any {
+    // Collection starts when `sz` bytes are in use. The address space reserved
+    // behind it is four times larger, committed on demand, so live data that
+    // outgrows the threshold extends it (rt_alloc) instead of exhausting the
+    // heap. Where the system refuses the reservation, the heap is fixed.
     mut sz: Any = 268435456;
-    HEAP = syscall(9, 0, sz, 3, 34, 0 - 1, 0);
+    mut reserve: Any = sz * 4;
+    HEAP = syscall(9, 0, reserve, 3, 34, 0 - 1, 0);
     if (HEAP < 0) {
-        sz = 134217728;
+        reserve = sz;
+        HEAP = syscall(9, 0, reserve, 3, 34, 0 - 1, 0);
+    }
+    if (HEAP < 0) {
+        sz = 134217728; reserve = sz;
         HEAP = syscall(9, 0, sz, 3, 34, 0 - 1, 0);
     }
     if (HEAP < 0) {
-        sz = 33554432;
+        sz = 33554432; reserve = sz;
         HEAP = syscall(9, 0, sz, 3, 34, 0 - 1, 0);
     }
     if (HEAP < 0) { syscall(60, 70); }
-    GCSTARTS = syscall(9, 0, sz / 8, 3, 34, 0 - 1, 0);
+    GCSTARTS = syscall(9, 0, reserve / 8, 3, 34, 0 - 1, 0);
     if (GCSTARTS < 0) { syscall(60, 70); }
+    HEAPLIMIT = HEAP + reserve;
     HEAPEND = HEAP + sz;
     HP = HEAP;
     FREELIST = 0;
@@ -412,8 +425,15 @@ fun rt_alloc(n: Any) -> Any {
         p = rt_fit(need);
         if (p != 0) { return p; }
         if (HP + need > HEAPEND) {
-            rt_write(addr("out of memory\n"), 14);
-            syscall(60, 70);
+            // Live data outgrew the threshold: extend it by 64 MiB (or what
+            // this request needs) within the reservation, rather than fail.
+            if (HP + need > HEAPLIMIT) {
+                rt_write(addr("out of memory\n"), 14);
+                syscall(60, 70);
+            }
+            HEAPEND = HEAPEND + 67108864;
+            if (HEAPEND < HP + need) { HEAPEND = HP + need; }
+            if (HEAPEND > HEAPLIMIT) { HEAPEND = HEAPLIMIT; }
         }
     }
     let H: Any = HP;
@@ -1846,7 +1866,14 @@ fun rt_wait(pid: Any) -> Any {
     return ((status / 256) % 256) * 8;
 }
 
-// Run `cmd` under `/bin/sh -c`; returns the exit status.
+// A command started through the spawn extension: wait for its status.
+fun rt_spawned(child: Any) -> Any {
+    if (child < 0) { return 127 * 8; }
+    return rt_wait(child * 8);
+}
+
+// Run `cmd` under `/bin/sh -c`; returns the exit status. Where there is no
+// shell to fork (x86_64-nodeos), the command line runs as one program.
 fun rt_system(cmd: Any) -> Any {
     let sh: Any = rt_alloc(16);
     store8(sh + 0, 47);
@@ -1867,6 +1894,8 @@ fun rt_system(cmd: Any) -> Any {
     store64(argv + 16, rt_cstr(cmd) / 8);
     store64(argv + 24, 0);
     let pid: Any = syscall(57);
+    // Without fork (x86_64-nodeos), the personality spawns the command line.
+    if (pid == 0 - 38) { return rt_spawned(syscall(1024, rt_cstr(cmd) / 8, 0)); }
     if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
     if (pid == 0) {
         mut envp: Any = INITIAL_ENVP;
@@ -1889,6 +1918,11 @@ fun rt_exec(lst: Any) -> Any {
     }
     store64(argv + n * 8, 0);
     let pid: Any = syscall(57);
+    if (pid == 0 - 38) {
+        let child: Any = syscall(1024, load64(argv), argv);
+        if (child < 0) { return rt_failstr(rt_from(addr("cannot start process"), 20)); }
+        return child * 8;
+    }
     if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
     if (pid == 0) {
         // Linux's initial stack is argc, argv[argc], NULL, envp[], NULL.

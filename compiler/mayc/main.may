@@ -11,6 +11,8 @@ import "src/ir.may";
 import "src/backend.may";
 import "src/backend/llvm.may";
 import "src/formats.may";
+import "src/formats/bytes.may";
+import "src/formats/nxf.may";
 import "src/modules.may";
 import "src/profile.may";
 
@@ -123,6 +125,40 @@ fun load_math(a0: Any, a0l: Any) -> Any {
     return m3;
 }
 
+// NodeOS programs carry a Linux syscall personality, which is part of the
+// raw runtime in every runtime mode (see runtime/nodeos.may).
+fun load_nodeos(a0: Any, a0l: Any) -> Any {
+    let name: Any = "runtime/nodeos.may";
+    let source: Any = side_slurp(a0, a0l, addr(name), len(name));
+    if (LASTLEN == 0) { die_str("mayc: cannot find ${name}\n"); }
+    return source;
+}
+
+// Append the personality to the runtime source already in SRC, keeping each
+// file's own line numbers for diagnostics.
+fun append_nodeos(a0: Any, a0l: Any, runtimeName: Any) -> Any {
+    let base: Any = SRC; let baseLength: Any = SRCLEN;
+    let extra: Any = load_nodeos(a0, a0l);
+    let extraLength: Any = LASTLEN;
+    let combined: Any = irt_alloc(baseLength + extraLength + 2);
+    image_copy(combined, base, baseLength);
+    store8(combined + baseLength, 10);
+    image_copy(combined + baseLength + 1, extra, extraLength);
+    store8(combined + baseLength + 1 + extraLength, 0);
+    SRC = combined; SRCLEN = baseLength + 1 + extraLength;
+    SOURCE_FILES[combined] = SourceFile(runtimeName, [SourceOrigin(0, runtimeName, 1), SourceOrigin(baseLength + 1, "runtime/nodeos.may", 1)]);
+    return 0;
+}
+
+// A compiler running on NodeOS builds for NodeOS unless told otherwise. The
+// personality reports itself through uname, so this asks the system rather
+// than how the compiler was built.
+fun host_target() -> Any {
+    let names: Any = irt_alloc(390);
+    if (syscall(63, names) == 0 and name_eq(names, 6, addr("NodeOS"), 6) == 1 and load8(names + 6) == 0) { return "x86_64-nodeos"; }
+    return "x86_64-linux";
+}
+
 fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
     let name: Any = "runtime/" + file;
     let source: Any = side_slurp(a0, a0l, addr(name), len(name));
@@ -137,17 +173,18 @@ fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
 // ------------------------------------------------------------- Driver Entry
 
 fun cli_usage() -> Any {
-    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without .may)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --no-code-align     Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME      full (x86 Linux), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default), arm64-linux, riscv64-linux,\n                      arm64-macos, x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without\n                      .may, or with .nxf for x86_64-nodeos)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --no-code-align     Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME      full (x86-64 Linux/NodeOS), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default on Linux), x86_64-nodeos (default\n                      on NodeOS), arm64-linux, riscv64-linux, arm64-macos,\n                      x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
     syscall(1, 1, addr(message), len(message));
     syscall(60, 0);
     return 0;
 }
 
-fun cli_default_output(pointer: Any, length: Any) -> Any {
+fun cli_default_output(pointer: Any, length: Any, targetName: Any) -> Any {
     mut baseLength: Any = length;
     let hasMaySuffix: Any = length >= 4 and load8(pointer + length - 4) == 46 and load8(pointer + length - 3) == 109 and load8(pointer + length - 2) == 97 and load8(pointer + length - 1) == 121;
     if (hasMaySuffix) { baseLength = length - 4; }
-    let suffix: Any = if (hasMaySuffix) { "" } else { ".out" };
+    // NodeOS runs images by name only when they carry the .nxf suffix.
+    let suffix: Any = if (targetName == "x86_64-nodeos") { ".nxf" } else if (hasMaySuffix) { "" } else { ".out" };
     let suffixLength: Any = len(suffix);
     let result: Any = irt_alloc(baseLength + suffixLength + 1);
     mut i: Any = 0;
@@ -161,13 +198,13 @@ fun cli_default_output(pointer: Any, length: Any) -> Any {
 fun cli_list_targets() -> Any {
     let header: Str = "target\tformat\tdefault-runtime\n";
     syscall(1, 1, addr(header), len(header));
-    for name: Str in ["x86_64-linux", "arm64-linux", "riscv64-linux", "arm64-macos", "x86_64-windows", "clang-llvm"] {
+    for name: Str in ["x86_64-linux", "x86_64-nodeos", "arm64-linux", "riscv64-linux", "arm64-macos", "x86_64-windows", "clang-llvm"] {
         let target: Any = target_select(name);
         let runtime: Str = if (target.runtime) { "full" } else { "core" };
         let line: Str = "${name}\t${target.format}\t${runtime}\n";
         syscall(1, 1, addr(line), len(line));
     }
-    let note: Str = "Compiler host: Linux x86-64; clang-llvm is experimental.\n";
+    let note: Str = "Compiler hosts: Linux x86-64 and NodeOS; clang-llvm is experimental.\n";
     syscall(1, 1, addr(note), len(note));
     syscall(60, 0);
     return 0;
@@ -206,7 +243,7 @@ fun main2() -> Any {
     mut sl: Any = 0;
     mut op: Any = 0;
     mut ol: Any = 0;
-    mut targetName: Any = "x86_64-linux";
+    mut targetName: Any = host_target();
     mut runtimeName: Any = "auto";
     mut rawflag: Any = 0;
     mut dumpflag: Any = 0;
@@ -285,7 +322,7 @@ fun main2() -> Any {
         die_str("mayc: missing source file (use --help)\n");
     }
     if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
-        let default: Any = cli_default_output(sp, sl);
+        let default: Any = cli_default_output(sp, sl, targetName);
         op = default[0]; ol = default[1];
         if (llvmflag == 1) {
             let llvmOutput: Any = symbol_name(op, ol) + ".ll";
@@ -297,7 +334,8 @@ fun main2() -> Any {
     }
 
     let ctx: Any = emitter_new(target_select(targetName));
-    if (runtimeName == "auto") { runtimeName = if (targetName == "x86_64-linux" or targetName == "clang-llvm") { "full" } else { "core" }; }
+    if (runtimeName == "auto") { runtimeName = if (targetName == "x86_64-linux" or targetName == "x86_64-nodeos" or targetName == "clang-llvm") { "full" } else { "core" }; }
+    let nodeos: Any = ctx.target.os == "nodeos";
     if (runtimeName == "none") { rawflag = 1; }
     ctx.runtime = if (rawflag == 1) { "none" } else { runtimeName };
     profile_begin();
@@ -305,6 +343,15 @@ fun main2() -> Any {
     if (rawflag == 1) {
         PARSE_RAW = 1;
         DYNMODE = 0;
+        if (nodeos and expandedflag == 0) {
+            // Raw programs still reach the system through the personality.
+            SRC = load_nodeos(a0, a0l); SRCLEN = LASTLEN;
+            SOURCE_FILES[SRC] = SourceFile("runtime/nodeos.may", []);
+            DIAGNOSTIC_STAGE = "lex"; lex_all();
+            DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
+            RUNTIME_BODY = MAINBODY;
+            for r: Any in FUNC_HEAD { r.mode = 1; }
+        }
         expand(sp, sl);
         if (expandedflag == 1) {
             syscall(1, 1, SRC, SRCLEN);
@@ -324,6 +371,7 @@ fun main2() -> Any {
         DYNMODE = 1;
         if (ctx.runtime == "core") { load_core(a0, a0l, "core.may"); }
         else { load_runtime(a0, a0l); }
+        if (nodeos) { append_nodeos(a0, a0l, if (ctx.runtime == "core") { "runtime/core.may" } else { RUNTIME_FILE_NAME }); }
         PARSE_RAW = 1;
         DIAGNOSTIC_STAGE = "lex"; lex_all();
         DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
@@ -408,6 +456,7 @@ fun main2() -> Any {
         profile_mark("clang-llvm");
         return 0;
     }
+    if (nodeos) { nxf_set_image_name(symbol_name(op, ol)); }
     backend_emit(ctx);
     profile_mark("emit");
     pad_code(ctx);
