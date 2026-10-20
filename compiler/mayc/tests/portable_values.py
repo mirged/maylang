@@ -85,9 +85,12 @@ def main():
             'fun bits(value: Any) -> Nil { let p: Any = addr(value); print(load32(p), load32(p + 4)); return; }',
             'fun number(low: Int, high: Int) -> Float { let value: Float = 0.0; let p: Any = addr(value); store32(p, low); store32(p + 4, high); return value; }',
             'fun narrow(value: Float32) -> Float32 { return value; }',
-            # Out-of-range and non-finite conversions fault identically on every target.
-            'fun convert(value: Float) -> Nil { print(may { str(int(value)) } otherwise { err.kind }, may { str(floor(value)) } otherwise { err.kind },'
-            ' may { str(ceil(value)) } otherwise { err.kind }, may { str(trunc(value)) } otherwise { err.kind }); return; }',
+            # Out-of-range and non-finite Int conversions fault identically on every target.
+            # floor/ceil results print as bit patterns: exact, and cheap enough for the
+            # emulator's instruction budget, unlike shortest decimals near 2^63.
+            'fun word(value: Float) -> Str { let p: Any = addr(value); return "${load32(p)}:${load32(p + 4)}"; }',
+            'fun convert(value: Float) -> Nil { print(may { str(int(value)) } otherwise { err.kind }, word(floor(value)),'
+            ' word(ceil(value)), may { str(trunc(value)) } otherwise { err.kind }); return; }',
         ]
         for literal in LITERALS:
             body.append(f'bits({literal}); bits(-{literal}); bits(narrow({literal}));')
