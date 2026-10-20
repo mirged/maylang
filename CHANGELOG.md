@@ -1,4 +1,42 @@
-# Unreleased
+# Maylang 0.14.0 — Elm
+
+Released 2026-10-20 UTC. Maylang targets NodeOS, a capability microkernel,
+with every runtime, and the compiler runs there: it rebuilds itself on NodeOS
+into a compiler byte-identical to the one cross-built on Linux. The full
+runtime's heap can now outgrow 256 MiB, and Float rounding and conversion
+are stricter.
+
+## Behavior changes
+
+- `floor`, `ceil` and `round` return Floats, and `int`/`trunc` fault on
+  values outside the Int range (details under Runtime).
+- The full runtime reserves 1 GiB of address space for its heap (committed on
+  demand). Collection still starts at 256 MiB; a program whose live data
+  exceeds that now keeps running instead of exiting with `out of memory`.
+
+## Remaining limits
+
+- On NodeOS there are no C externs (no dynamic loader), no sockets (no network
+  service) and no wall clock; children do not inherit the working directory
+  or environment, and created file names must fit 8.3.
+- Compiler hosts are Linux x86-64 and NodeOS; release bundles are Linux
+  x86-64 only.
+
+## Targets
+
+- Add `--target x86_64-nodeos` for [NodeOS](https://github.com/mirged/nodeos),
+  with the full, core and raw runtimes. Images are NXF, written directly with
+  the CRC-32 NodeOS's loader checks. Each `syscall` site calls a gate into
+  `runtime/nodeos.may`, an in-process personality that answers the Linux calls
+  Maylang uses with NodeOS syscalls and IPC: console and file I/O, directories,
+  memory, time, `exec`/`system`/`wait` through a spawn extension, and
+  `/proc/self` arguments. C externs and sockets are unsupported there.
+  See [NodeOS target](docs/internals/NODEOS.md).
+- The compiler runs on NodeOS. A `mayc` built for NodeOS compiles programs
+  there and defaults to `x86_64-nodeos`; it rebuilds itself on NodeOS into a
+  compiler byte-identical to the one cross-built on Linux. Without `-o`, NodeOS
+  output is named `<source>.nxf`. `compiler/mayc/tests/nodeos.py` checks the
+  images; NodeOS's `make test-maylang` runs them.
 
 ## Compiler
 
@@ -16,6 +54,12 @@
 
 ## Runtime
 
+- Let the full runtime's heap outgrow 256 MiB instead of failing with `out of
+  memory`: collection still starts at 256 MiB, and when a collection cannot
+  satisfy an allocation the threshold grows within a 1 GiB on-demand
+  reservation. The self-hosted compiler sat at the old limit while compiling
+  itself. `exec` and `system` fall back to a spawn extension where `fork`
+  returns `ENOSYS`.
 - Fault with a catchable `arithmetic` error ("Float outside Int range") when
   `int` or `trunc` would produce an Int outside ±2^60 or is given NaN or an
   infinity. These conversions previously returned 0 or a wrapped value

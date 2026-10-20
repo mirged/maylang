@@ -61,7 +61,7 @@ fun x86_host(ctx: Any, name: Any, args: Any) -> Any {
             e8(ctx, 73); e8(ctx, 199); e8(ctx, 192); e32(ctx, -1);
             e8(ctx, 69); e8(ctx, 49); e8(ctx, 201); mov_imm(ctx, 9);
         } else { cg_expr(ctx, args); e8(ctx, 72); e8(ctx, 137); e8(ctx, 199); mov_imm(ctx, 60); }
-        e8(ctx, 15); e8(ctx, 5);
+        x86_syscall_instruction(ctx);
     }
     return 0;
 }

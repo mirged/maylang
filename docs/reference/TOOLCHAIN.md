@@ -3,10 +3,10 @@
 - Bootstrap from the repository root: `sh compiler/rust/build.sh`.
 - Compiler launcher: `compiler/mayc/mayc_new`; the launcher builds and caches the compiler on first use. Keep runtime/prelude/native sidecars and the runtime directory with the compiler.
 - Compile: `compiler/mayc/mayc_new examples/hello.may -o /tmp/maylang-hello`; run: `/tmp/maylang-hello`.
-- Default output removes a final `.may` suffix; other suffixes receive `.out`.
+- Default output removes a final `.may` suffix; other suffixes receive `.out`. For x86_64-nodeos the output is named `<source>.nxf`.
 - `-h`, `--help` — print command-line help and exit.
 - `-V`, `--version` — print the compiler identity/version.
-- `--list-targets` — list supported target names, executable formats and default runtimes without a source file; the compiler host remains Linux x86-64.
+- `--list-targets` — list supported target names, executable formats and default runtimes without a source file; compiler hosts are Linux x86-64 and NodeOS.
 - `-o PATH`, `--output PATH` — select output path.
 - `--check` — expand imports, parse, strictly check and resolve names without producing an executable.
 - `--strict` — enable strict checking, the default.
@@ -14,19 +14,20 @@
 - `--legacy` — disable the strict pass for legacy untyped sources; name resolution and mutability checks still apply.
 - `--raw` — omit runtime, native library and prelude.
 - `--no-code-align` — emit raw x86-64 code without the NOP padding that aligns function bodies and loop heads; for layout experiments.
-- `--runtime full|core|none` — select runtime; none is equivalent to raw; full defaults on x86_64-linux and clang-llvm, core on other native targets.
+- `--runtime full|core|none` — select runtime; none is equivalent to raw; full defaults on x86_64-linux, x86_64-nodeos and clang-llvm, core on other native targets.
 - `--time` — report compilation-stage timings to stderr.
-- `--target TARGET` — select one of the supported targets listed below.
+- `--target TARGET` — select one of the supported targets listed below. The default is x86_64-linux, or x86_64-nodeos when the compiler runs on NodeOS.
 - `--emit-llvm` — write textual LLVM IR when selecting clang-llvm; without explicit output, a final .may becomes .ll.
 - `--dump-expanded` — print import-expanded source and exit.
 - `x86_64-linux` — default ELF64 target with full, core or raw runtime.
+- `x86_64-nodeos` — NodeOS NXF image with full, core or raw runtime; `syscall` keeps Linux numbering through an in-process personality, and C externs are rejected. See [NodeOS target](../internals/NODEOS.md).
 - `arm64-linux` — ELF64 with core or raw runtime.
 - `riscv64-linux` — ELF64 RV64IM with core or raw runtime.
 - `arm64-macos` — macOS 11+ Mach-O ARM64 PIE, loaded through dyld with core/raw runtime; ad-hoc signing required on macOS: `codesign --force --sign - output`.
 - `x86_64-windows` — PE32+ with core kernel32 imports or raw output.
 - `clang-llvm` — experimental direct LLVM IR and linked Linux x86-64 executable with the full Maylang runtime, cooperative fibers and typed extern FFI; raw and core modes are unsupported.
 - LLVM executable generation requires Clang, linker and libc development files; `CLANG` chooses an alternative Clang executable. Emitting IR or checking sources does not require Clang.
-- Cross-target emission does not make the compiler itself run on another host. the [native target suite](../internals/NATIVE_TARGETS.md) runs signed macOS ARM64 and Windows x86-64 fixtures through real loaders; emulator checks separately cover all five direct targets.
+- Cross-target emission does not make the compiler itself run on another host; NodeOS is the exception, where a compiler built with `--target x86_64-nodeos` runs and rebuilds itself. The [native target suite](../internals/NATIVE_TARGETS.md) runs signed macOS ARM64 and Windows x86-64 fixtures through real loaders; emulator checks separately cover all five direct targets.
 - Full runtime supports integers, boxed floats, UTF-8 strings, lists, maps, records, closures, structured errors, fibers and native C interfaces on Linux x86-64.
 - Core runtime supports tagged integers/Booleans/nil/strings/lists, direct functions, loops, console output, indexing/mutation, ASCII case conversion and integer/string helpers.
 - Core helpers include `str`, `substring`, `trim`, `repeat`, `range`, `sum`, `clamp`, `gcd`, `lcm`, `alloc` and `memcpy`; signatures/implementation are in [corelib](../../compiler/mayc/runtime/corelib.may).

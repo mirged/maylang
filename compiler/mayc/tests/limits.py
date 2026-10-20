@@ -434,7 +434,10 @@ def run_gc(args, report, compiler):
                 else:
                     passed = passed and 'PASS retained objects' in text
             if expected_exit == 70:
-                passed = passed and metrics.get('heap_bytes') == heap * 1024**2
+                # Exhausting live data grows the collection threshold to the
+                # whole reservation, four times the configured heap, first.
+                limit = heap * 4 if case == 'gc_capacity' else heap
+                passed = passed and metrics.get('heap_bytes') == limit * 1024**2
                 if case == 'gc_root_capacity':
                     passed = passed and metrics.get('root_slots') == 131072
                 if case == 'gc_mark_capacity':

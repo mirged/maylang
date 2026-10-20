@@ -221,6 +221,7 @@ def main():
                              ("debug_traces.py", "debug traces and fiber isolation"),
                              ("fibers.py", "suspended fiber handlers and caught errors"),
                              ("externs.py", "typed scalar externs and C-ABI stack arguments"),
+                             ("nodeos.py", "x86_64-nodeos NXF images and target diagnostics"),
                              ("fuzz.py", "bounded frontend fuzzing")]:
             result = run(["python3", COMPILER / "tests" / script, "--compiler", compiler], timeout=180)
             record(name, result.returncode == 0, (result.stdout + result.stderr).decode())

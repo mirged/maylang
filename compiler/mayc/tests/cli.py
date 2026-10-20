@@ -30,11 +30,11 @@ def main():
         assert lines[0].split('\t') == ['target', 'format', 'default-runtime'], lines
         assert 'Linux x86-64' in lines[-1] and 'experimental' in lines[-1], lines
         rows = [line.split('\t') for line in lines[1:-1]]
-        assert len(rows) == 6 and len({row[0] for row in rows}) == 6, rows
+        assert len(rows) == 7 and len({row[0] for row in rows}) == 7, rows
         assert sorted(path.name for path in work.iterdir()) == ['mayc']
         source = work / 'hello.may'
         source.write_text('print(42);\n')
-        magic = {'elf': b'\x7fELF', 'macho': b'\xcf\xfa\xed\xfe', 'pe': b'MZ'}
+        magic = {'elf': b'\x7fELF', 'nxf': b'NXF\0', 'macho': b'\xcf\xfa\xed\xfe', 'pe': b'MZ'}
         for target, format_name, runtime in rows:
             assert runtime in ('full', 'core'), rows
             output = work / target

@@ -3,7 +3,7 @@
 An experimental programming language with a self-hosted compiler, strict
 checking by default, and direct native executable output.
 
-[![Maylang 0.13.103 — Dahlia](https://img.shields.io/badge/Maylang-0.13.103%20Dahlia-green)](https://github.com/mirged/maylang/releases/tag/v0.13.103)
+[![Maylang 0.14.0 — Elm](https://img.shields.io/badge/Maylang-0.14.0%20Elm-green)](https://github.com/mirged/maylang/releases/tag/v0.14.0)
 
 [Releases](https://github.com/mirged/maylang/releases) ·
 [Install](docs/guide/INSTALL.md) · [Language guide](docs/guide/STRICT.md) ·
@@ -115,6 +115,7 @@ Compiler **host** support and emitted **program targets** are separate:
 | Program target | Format | Runtime |
 | --- | --- | --- |
 | `x86_64-linux` | ELF64 | Full, core, raw |
+| `x86_64-nodeos` | NXF | Full, core, raw; the compiler also runs on NodeOS |
 | `arm64-linux` | ELF64 | Core, raw |
 | `riscv64-linux` | ELF64 (RV64IM) | Core, raw |
 | `arm64-macos` | Mach-O | Core, raw; signing required |
@@ -125,6 +126,8 @@ Use `mayc --list-targets` for discovery and see the
 [compiler guide](compiler/mayc/README.md#cross-compilation) for feature limits.
 LLVM output requires Clang and excludes fibers and FFI. Native Windows and
 macOS program execution is covered by the [native target suite](docs/internals/NATIVE_TARGETS.md).
+[NodeOS](docs/internals/NODEOS.md), a capability microkernel, runs Maylang
+programs and the compiler itself, which rebuilds itself there byte-identically.
 
 ## Find your way around
 

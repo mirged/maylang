@@ -90,7 +90,7 @@ def main():
         (bundle/'VERSION').write_text(version+'\n')
         shutil.copy2(ROOT / 'RELEASE.json', bundle / 'RELEASE.json')
         shutil.copy2(ROOT / 'CHANGELOG.md', bundle / 'CHANGELOG.md')
-        (bundle/'README.txt').write_text('Add this bundle\'s bin directory to PATH. Keep the entire bundle together.\nCompiler host: Linux x86-64. Full runtime: Linux x86-64 only.\nUse mayc --help, may help, mayfmt file.may and maylsp with an LSP-capable editor.\nmaypkg remains available for older projects.\nRun the complete desktop app: cd examples/apps/mayboard && may run.\nSokol UI needs a C compiler, X11/Xi/Xcursor/OpenGL development libraries and a TrueType font; windows need X11/XWayland and OpenGL 4.3.\nUse may run -- --demo --snapshot /tmp/mayboard.png for a headless preview.\nUpgrade by extracting a new bundle and changing PATH.\n')
+        (bundle/'README.txt').write_text('Add this bundle\'s bin directory to PATH. Keep the entire bundle together.\nCompiler host: Linux x86-64. Full runtime: Linux x86-64; cross-compile for NodeOS with --target x86_64-nodeos.\nUse mayc --help, may help, mayfmt file.may and maylsp with an LSP-capable editor.\nmaypkg remains available for older projects.\nRun the complete desktop app: cd examples/apps/mayboard && may run.\nSokol UI needs a C compiler, X11/Xi/Xcursor/OpenGL development libraries and a TrueType font; windows need X11/XWayland and OpenGL 4.3.\nUse may run -- --demo --snapshot /tmp/mayboard.png for a headless preview.\nUpgrade by extracting a new bundle and changing PATH.\n')
         (bundle/'provenance.json').write_text(json.dumps({
             'version':version, 'commit':commit, 'tag':tag,
             'release':metadata,

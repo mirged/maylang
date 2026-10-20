@@ -1,0 +1,193 @@
+import "bytes.may";
+import "../emitter.may";
+// formats/nxf.may — NodeOS eXecutable Format images.
+//
+// NXF is NodeOS's loader format (nodeos/docs/NXF.md): a header, segment,
+// capability and resource tables, then page-aligned segment contents. The
+// image uses the same address layout as the ELF writer (`elf_layout`), so code
+// and relocations are identical; only the container differs. Every value
+// written here is checked by NodeOS's `Image::parse` at load: W^X per segment,
+// table bounds, an entry inside an executable segment, and the CRC-32.
+
+let NXF_HEADER_SIZE: Any = 136;
+let NXF_SEGMENT_SIZE: Any = 48;
+let NXF_CAPABILITY_SIZE: Any = 16;
+let NXF_RESOURCE_SIZE: Any = 80;
+let NXF_CHECKSUM_OFFSET: Any = 108;
+let NXF_PAGE: Any = 4096;
+
+// The image name the loader reports; the driver sets it from the output path.
+mut NXF_IMAGE_NAME: Any = "maylang";
+
+// Capability classes (nodeos_abi::CapClass) as [class, required]. A Maylang
+// program needs channels, memory and the clock to start. Files and process
+// creation back the runtime's file and `exec` builtins and are optional: a
+// launcher that withholds them makes those calls fail, not the program.
+let NXF_CAPABILITIES: Any = [[10, true], [8, true], [12, true], [1, false], [2, false], [3, false], [9, false], [14, false]];
+
+// The image name is the output file's, without the directory or `.nxf`.
+fun nxf_set_image_name(path: Any) -> Any {
+    let parts: Any = split(path, "/");
+    mut name: Any = parts[len(parts) - 1];
+    if (ends_with(to_lower(name), ".nxf")) { name = substring(name, 0, len(name) - 4); }
+    if (name != "") { NXF_IMAGE_NAME = name; }
+    return 0;
+}
+
+struct NxfSegment { kind: Any, flags: Any, offset: Any, size: Any }
+
+fun nxf_segments(ctx: Any) -> Any {
+    let segments: Any = [NxfSegment(1, 5, ctx.layout.codeOffset, ctx.code.length)];
+    let dataOffset: Any = ctx.layout.dataOffset;
+    push(segments, NxfSegment(3, 3, dataOffset, ctx.rodataOffset));
+    let roSize: Any = ctx.data.length - ctx.rodataOffset;
+    if (roSize > 0) { push(segments, NxfSegment(2, 1, dataOffset + ctx.rodataOffset, roSize)); }
+    return segments;
+}
+
+fun build_nxf(ctx: Any) -> Any {
+    let segments: Any = nxf_segments(ctx);
+    let last: Any = segments[len(segments) - 1];
+    let imageSize: Any = image_align(last.offset + last.size, NXF_PAGE);
+
+    let strings: Any = "\0" + NXF_IMAGE_NAME + "\0";
+    let segmentOffset: Any = NXF_HEADER_SIZE;
+    let capOffset: Any = segmentOffset + len(segments) * NXF_SEGMENT_SIZE;
+    let resourceOffset: Any = capOffset + len(NXF_CAPABILITIES) * NXF_CAPABILITY_SIZE;
+    let strOffset: Any = resourceOffset + NXF_RESOURCE_SIZE;
+    mut cursor: Any = image_align(strOffset + len(strings), NXF_PAGE);
+    let fileOffsets: Any = [];
+    for segment: Any in segments {
+        push(fileOffsets, cursor);
+        cursor = image_align(cursor + segment.size, NXF_PAGE);
+    }
+    sink_require(ctx.image, cursor);
+    ctx.image.length = cursor;
+    let image: Any = ctx.image.data;
+
+    store32(image, 4610126); // "NXF\0"
+    store16(image + 4, 1); store16(image + 6, NXF_HEADER_SIZE);
+    store16(image + 8, 1); store16(image + 10, 1); // x86-64, ABI 1
+    store32(image + 12, 0);
+    store64(image + 16, ctx.layout.codeAddress - ctx.layout.base);
+    store64(image + 24, ctx.layout.base);
+    store64(image + 32, imageSize);
+    store32(image + 40, segmentOffset); store32(image + 44, len(segments));
+    store32(image + 48, capOffset); store32(image + 52, 0); // no relocations: position dependent
+    store32(image + 56, 0); store32(image + 60, 0);          // no dependencies
+    store32(image + 64, capOffset); store32(image + 68, len(NXF_CAPABILITIES));
+    store32(image + 72, resourceOffset);
+    store32(image + 76, strOffset); store32(image + 80, len(strings));
+    store32(image + 84, 0); store32(image + 88, 0);          // unsigned
+    store32(image + 112, 1);                                  // name offset
+    store32(image + 116, 1);                                  // image version
+
+    for index: Any in 0..len(segments) {
+        let segment: Any = segments[index];
+        let entry: Any = image + segmentOffset + index * NXF_SEGMENT_SIZE;
+        store32(entry, segment.kind); store32(entry + 4, segment.flags);
+        store64(entry + 8, fileOffsets[index]); store64(entry + 16, segment.size);
+        store64(entry + 24, segment.offset); store64(entry + 32, segment.size);
+        store64(entry + 40, NXF_PAGE);
+    }
+    for index: Any in 0..len(NXF_CAPABILITIES) {
+        let entry: Any = image + capOffset + index * NXF_CAPABILITY_SIZE;
+        store32(entry, NXF_CAPABILITIES[index][0]);
+        store32(entry + 4, if (NXF_CAPABILITIES[index][1]) { 1 } else { 2 });
+    }
+    // The resource envelope. Maylang reserves its collected heap and the
+    // compiler its source arena up front, and both are committed lazily, so
+    // the ceiling is generous. The stack matches Linux's default, which deep
+    // recursion in the compiler and in user programs relies on.
+    let resources: Any = image + resourceOffset;
+    store64(resources, 2147483648);      // max_memory_bytes
+    store64(resources + 8, 8388608);     // stack_size
+    store64(resources + 16, 16777216);   // heap_reserve
+    store32(resources + 40, 16);         // max_threads
+    store32(resources + 44, 256);        // max_handles
+    store32(resources + 48, 64);         // max_channels
+    store32(resources + 52, 2);          // sched_class: normal
+    store32(resources + 56, 16);         // sched_priority
+    image_copy(image + strOffset, addr(strings), len(strings));
+
+    let code: Any = segments[0];
+    image_copy(image + fileOffsets[0], ctx.code.data, code.size);
+    for index: Any in 1..len(segments) {
+        let segment: Any = segments[index];
+        image_copy(image + fileOffsets[index], ctx.data.data + segment.offset - ctx.layout.dataOffset, segment.size);
+    }
+
+    let crc: Any = NxfCrc(sink_new(65536), sink_new(1024));
+    nxf_crc_tables(crc);
+    // A build identifier derived from the loaded contents, as nxfpack does.
+    let contents: Any = nxf_crc(crc, image + fileOffsets[0], cursor - fileOffsets[0]);
+    store32(image + 92, contents); store32(image + 96, imageSize % 4294967296);
+    store32(image + 100, cursor); store32(image + 104, nxf_crc(crc, image, NXF_HEADER_SIZE));
+    store32(image + NXF_CHECKSUM_OFFSET, nxf_crc(crc, image, cursor));
+    sink_release(crc.xor); sink_release(crc.table);
+    return 0;
+}
+
+// CRC-32 (IEEE, reflected, as nodeos_abi::nxf::crc32). Maylang has no bitwise
+// operators, so XOR comes from a 256x256 byte table and the polynomial
+// division from a 256-entry word table built with it.
+struct NxfCrc { xor: Any, table: Any }
+
+// Loops here are `while` loops: a range allocates, and these run once per
+// byte of the image.
+fun nxf_xor32(crc: Any, a: Any, b: Any) -> Any {
+    let table: Any = crc.xor.data;
+    mut result: Any = 0;
+    mut scale: Any = 1;
+    mut x: Any = a; mut y: Any = b;
+    while (scale < 4294967296) {
+        result += load8(table + (x % 256) * 256 + y % 256) * scale;
+        x = x / 256; y = y / 256; scale = scale * 256;
+    }
+    return result;
+}
+
+fun nxf_crc_tables(crc: Any) -> Any {
+    mut pair: Any = 0;
+    while (pair < 65536) {
+        mut x: Any = pair / 256; mut y: Any = pair % 256; mut bit: Any = 1; mut value: Any = 0;
+        while (bit < 256) {
+            if (x % 2 != y % 2) { value += bit; }
+            x = x / 2; y = y / 2; bit = bit * 2;
+        }
+        store8(crc.xor.data + pair, value);
+        pair += 1;
+    }
+    mut n: Any = 0;
+    while (n < 256) {
+        mut value: Any = n;
+        mut k: Any = 0;
+        while (k < 8) {
+            if (value % 2 == 1) { value = nxf_xor32(crc, value / 2, 3988292384); }
+            else { value = value / 2; }
+            k += 1;
+        }
+        store32(crc.table.data + n * 4, value);
+        n += 1;
+    }
+    return 0;
+}
+
+fun nxf_crc(crc: Any, data: Any, count: Any) -> Any {
+    let xor: Any = crc.xor.data;
+    let table: Any = crc.table.data;
+    mut state: Any = 4294967295;
+    mut i: Any = 0;
+    while (i < count) {
+        let index: Any = load8(xor + (state % 256) * 256 + load8(data + i));
+        // (table[index] ^ (state >> 8)), a byte at a time.
+        let entry: Any = load32(table + index * 4);
+        let high: Any = state / 256;
+        state = load8(xor + (entry % 256) * 256 + high % 256)
+            + load8(xor + ((entry / 256) % 256) * 256 + (high / 256) % 256) * 256
+            + load8(xor + ((entry / 65536) % 256) * 256 + (high / 65536) % 256) * 65536
+            + load8(xor + (entry / 16777216) * 256 + high / 16777216) * 16777216;
+        i += 1;
+    }
+    return 4294967295 - state;
+}

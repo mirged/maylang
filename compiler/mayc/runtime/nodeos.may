@@ -1,0 +1,916 @@
+// runtime/nodeos.may — the Linux syscall personality for x86_64-nodeos.
+//
+// Maylang's runtimes and libraries reach the operating system through Linux
+// x86-64 syscall numbers (`syscall(2, path, flags, mode)` is `open`). NodeOS
+// has neither those numbers nor a file system in its kernel: a process starts
+// with one bootstrap channel, receives its console and filesystem channels as
+// a message, and does everything else by message or memory object
+// (nodeos/docs/ARCHITECTURE.md). On x86_64-nodeos every `syscall` site calls
+// the backend's gate, which calls rt_nodeos_syscall below. It answers the
+// Linux calls Maylang uses with NodeOS syscalls (`__nodeos_syscall`) and IPC,
+// inside the program's own process and with only the handles it was given.
+//
+// This file is in mayc's raw subset, like runtime.may, and is appended to the
+// runtime in every runtime mode. It never allocates from the Maylang heap: the
+// heap itself is created through it. All state lives in one region mapped at
+// first use, and every global starts at zero because runtime initializers do
+// not run.
+//
+// Handled: read, write, open, close, stat, fstat, lstat, lseek, mmap,
+// munmap, mprotect, brk, ioctl, access, nanosleep, getpid, exit, wait4,
+// uname, fcntl, getcwd, chdir, rename, mkdir, rmdir, unlink, readlink, chmod,
+// gettimeofday, getuid/getgid, time, getdents64, clock_gettime, exit_group,
+// openat, newfstatat and getrandom. fork and execve return ENOSYS, which the
+// runtime's exec and system builtins take as the cue to use the spawn
+// extension (1024) instead. Anything else returns ENOSYS.
+
+mut NODEOS_BOOT: Any = 0;      // bootstrap channel, stored by _start
+mut NODEOS_READY: Any = 0;
+mut NODEOS_STATE: Any = 0;     // base of the personality's own memory
+mut NODEOS_CONSOLE: Any = 0;
+mut NODEOS_FILES: Any = 0;
+mut NODEOS_CMDLINE: Any = 0;   // bytes of the NUL-separated command line
+mut NODEOS_INPUT_POS: Any = 0;
+mut NODEOS_INPUT_LEN: Any = 0;
+mut NODEOS_MIRROR_LEN: Any = 0;
+mut NODEOS_RANDOM: Any = 0;
+
+// Layout of the state region (offsets from NODEOS_STATE).
+//   0      request message descriptor        64     reply message descriptor
+//   128    handle values (16 x u32)          256    path buffer
+//   4352   second path buffer                8448   working directory
+//   12544  descriptor table (64 x 64)        16640  console input line
+//   20736  log mirror line                   21248  small replies and records
+//   24576  command line (64 KiB)             90112  request payload (36 KiB)
+//   126976 reply payload (64 KiB)
+fun rt_nodeos_path() -> Any { return NODEOS_STATE + 256; }
+fun rt_nodeos_path2() -> Any { return NODEOS_STATE + 4352; }
+fun rt_nodeos_cwd() -> Any { return NODEOS_STATE + 8448; }
+fun rt_nodeos_fd(fd: Any) -> Any { return NODEOS_STATE + 12544 + fd * 64; }
+fun rt_nodeos_small() -> Any { return NODEOS_STATE + 21248; }
+fun rt_nodeos_request() -> Any { return NODEOS_STATE + 90112; }
+fun rt_nodeos_reply() -> Any { return NODEOS_STATE + 126976; }
+
+// ---------------------------------------------------------------- startup
+
+fun rt_nodeos_init() -> Any {
+    NODEOS_READY = 1;
+    let size: Any = 196608;
+    let vmo: Any = __nodeos_syscall(8, size, 0);
+    if (vmo < 0) { __nodeos_syscall(3, 71); }
+    // READ | WRITE in the heap window (MapWindow::Heap = 1).
+    let base: Any = __nodeos_syscall(9, 0, vmo, 0, size, 3 + 65536, 0);
+    if (base < 0) { __nodeos_syscall(3, 71); }
+    __nodeos_syscall(19, vmo);
+    NODEOS_STATE = base;
+    NODEOS_CMDLINE = 0;
+    store8(rt_nodeos_cwd(), 47); store8(rt_nodeos_cwd() + 1, 0);
+    // Descriptors 0-2 are the console.
+    store64(rt_nodeos_fd(0), 1); store64(rt_nodeos_fd(1), 2); store64(rt_nodeos_fd(2), 2);
+    NODEOS_RANDOM = __nodeos_syscall(23) % 2147483647 + 1;
+    if (NODEOS_BOOT == 0) { return 0; }
+    // The first message on the bootstrap channel: a BootstrapMessage (48
+    // bytes), then the arguments, each NUL-terminated; its handles are the
+    // session's console and filesystem channels, then optional display and
+    // audio connections, which a Maylang program does not use.
+    let reply: Any = rt_nodeos_reply();
+    let d: Any = NODEOS_STATE + 64;
+    rt_nodeos_descriptor(d, 0, 0, reply, 65536, 16, NODEOS_STATE + 128);
+    if (__nodeos_syscall(15, NODEOS_BOOT, d) < 0) { return 0; }
+    if (load32(d) != 1313817669) { return 0; }
+    let count: Any = load32(d + 28);
+    if (count > 0) { NODEOS_CONSOLE = load32(NODEOS_STATE + 128); }
+    if (count > 1) { NODEOS_FILES = load32(NODEOS_STATE + 132); }
+    mut extra: Any = 2;
+    while (extra < count) { __nodeos_syscall(19, load32(NODEOS_STATE + 128 + extra * 4)); extra += 1; }
+    let received: Any = load32(d + 24);
+    if (received > 48) {
+        rt_nodeos_copy(NODEOS_STATE + 24576, reply + 48, received - 48);
+        NODEOS_CMDLINE = received - 48;
+    }
+    return 0;
+}
+
+fun rt_nodeos_descriptor(d: Any, kind: Any, flags: Any, payload: Any, length: Any, handles: Any, table: Any) -> Any {
+    store32(d, kind); store32(d + 4, flags); store64(d + 8, 0);
+    store64(d + 16, payload); store32(d + 24, length);
+    store32(d + 28, handles); store64(d + 32, table);
+    return 0;
+}
+
+fun rt_nodeos_copy(destination: Any, source: Any, count: Any) -> Any {
+    mut i: Any = 0;
+    while (i + 8 <= count) { store64(destination + i, load64(source + i)); i += 8; }
+    while (i < count) { store8(destination + i, load8(source + i)); i += 1; }
+    return 0;
+}
+
+fun rt_nodeos_zero(destination: Any, count: Any) -> Any {
+    mut i: Any = 0;
+    while (i < count) { store8(destination + i, 0); i += 1; }
+    return 0;
+}
+
+fun rt_nodeos_strlen(p: Any) -> Any {
+    mut n: Any = 0;
+    while (load8(p + n) != 0) { n += 1; }
+    return n;
+}
+
+fun rt_nodeos_equal(a: Any, an: Any, b: Any, bn: Any) -> Any {
+    if (an != bn) { return 0; }
+    mut i: Any = 0;
+    while (i < an) {
+        if (load8(a + i) != load8(b + i)) { return 0; }
+        i += 1;
+    }
+    return 1;
+}
+
+// ---------------------------------------------------------------- errors
+
+// NodeOS statuses (nodeos_abi::Error) as negated Linux errno values.
+fun rt_nodeos_errno(status: Any) -> Any {
+    let e: Any = 0 - status;
+    if (e == 16) { return 0 - 2; }          // NotFound -> ENOENT
+    if (e == 17) { return 0 - 17; }         // AlreadyExists -> EEXIST
+    if (e == 7) { return 0 - 12; }          // NoMemory -> ENOMEM
+    if (e == 8) { return 0 - 28; }          // NoSpace -> ENOSPC
+    if (e == 2) { return 0 - 22; }          // InvalidArgument -> EINVAL
+    if (e == 3) { return 0 - 9; }           // BadHandle -> EBADF
+    if (e == 4 or e == 18 or e == 20) { return 0 - 13; } // denied -> EACCES
+    if (e == 9) { return 0 - 14; }          // BadAddress -> EFAULT
+    if (e == 10) { return 0 - 32; }         // PeerClosed -> EPIPE
+    if (e == 1 or e == 14) { return 0 - 38; } // unsupported -> ENOSYS
+    return 0 - 5;                           // EIO
+}
+
+// ---------------------------------------------------------------- channels
+
+// Send `kind` with `length` bytes at `payload` and wait for the reply, which
+// lands in the reply buffer. Returns the reply length or a negated errno.
+fun rt_nodeos_call(channel: Any, kind: Any, payload: Any, length: Any) -> Any {
+    if (channel == 0) { return 0 - 9; }
+    let request: Any = NODEOS_STATE;
+    let response: Any = NODEOS_STATE + 64;
+    let reply: Any = rt_nodeos_reply();
+    rt_nodeos_descriptor(request, kind, 1, payload, length, 0, 0);
+    rt_nodeos_descriptor(response, 0, 0, reply, 65536, 0, 0);
+    let status: Any = __nodeos_syscall(16, channel, request, response);
+    if (status < 0) { return rt_nodeos_errno(status); }
+    let got: Any = load32(response + 24);
+    if ((load32(response + 4) / 16) % 2 == 1) {
+        if (got < 4) { return 0 - 5; }
+        mut code: Any = load32(reply);
+        if (code >= 2147483648) { code = code - 4294967296; }
+        return rt_nodeos_errno(code);
+    }
+    return got;
+}
+
+// A request whose payload is a path: copies it to the request buffer.
+fun rt_nodeos_path_call(kind: Any, path: Any, length: Any) -> Any {
+    rt_nodeos_copy(rt_nodeos_request(), path, length);
+    return rt_nodeos_call(NODEOS_FILES, kind, rt_nodeos_request(), length);
+}
+
+// ---------------------------------------------------------------- paths
+
+// Resolve `p` (NUL-terminated) against the working directory into `out`,
+// removing `.`, `..` and repeated separators. Returns the length or -1.
+fun rt_nodeos_resolve(p: Any, out: Any) -> Any {
+    mut n: Any = 0;
+    if (load8(p) != 47) {
+        let cwd: Any = rt_nodeos_cwd();
+        n = rt_nodeos_strlen(cwd);
+        if (n == 1) { n = 0; }                          // the root adds no prefix
+        rt_nodeos_copy(out, cwd, n);
+    }
+    let length: Any = rt_nodeos_strlen(p);
+    mut i: Any = 0;
+    while (i <= length) {
+        while (i < length and load8(p + i) == 47) { i += 1; }
+        let start: Any = i;
+        while (i < length and load8(p + i) != 47) { i += 1; }
+        let part: Any = i - start;
+        if (part == 0) { i += 1; continue; }
+        if (part == 1 and load8(p + start) == 46) { continue; }
+        if (part == 2 and load8(p + start) == 46 and load8(p + start + 1) == 46) {
+            while (n > 0 and load8(out + n - 1) != 47) { n -= 1; }
+            if (n > 0) { n -= 1; }
+            continue;
+        }
+        if (n + part + 2 >= 4096) { return 0 - 1; }
+        store8(out + n, 47); n += 1;
+        rt_nodeos_copy(out + n, p + start, part); n += part;
+    }
+    if (n == 0) { store8(out, 47); n = 1; }
+    store8(out + n, 0);
+    return n;
+}
+
+// ---------------------------------------------------------------- descriptors
+//
+// Each slot is 64 bytes: kind, node, offset, size, data pointer, data length,
+// open flags, cursor. Kinds: 1 console input, 2 console output, 3 file,
+// 4 directory (data is the FS_LIST reply), 5 bytes in memory, 6 /dev/null.
+
+fun rt_nodeos_slot() -> Any {
+    mut fd: Any = 3;
+    while (fd < 64) {
+        if (load64(rt_nodeos_fd(fd)) == 0) { return fd; }
+        fd += 1;
+    }
+    return 0 - 24;                                 // EMFILE
+}
+
+fun rt_nodeos_kind(fd: Any) -> Any {
+    if (fd < 0 or fd >= 64) { return 0; }
+    return load64(rt_nodeos_fd(fd));
+}
+
+// An anonymous memory object mapped read-write in the heap window.
+fun rt_nodeos_map(length: Any) -> Any {
+    let size: Any = (length + 4095) / 4096 * 4096;
+    if (size <= 0) { return 0 - 22; }
+    let vmo: Any = __nodeos_syscall(8, size, 0);
+    if (vmo < 0) { return 0 - 12; }
+    let base: Any = __nodeos_syscall(9, 0, vmo, 0, size, 3 + 65536, 0);
+    __nodeos_syscall(19, vmo);
+    if (base < 0) { return 0 - 12; }
+    return base;
+}
+
+fun rt_nodeos_open_virtual(fd: Any, path: Any, n: Any) -> Any {
+    let slot: Any = rt_nodeos_fd(fd);
+    if (rt_nodeos_equal(path, n, addr("/dev/null"), 9) == 1) { store64(slot, 6); return 1; }
+    if (rt_nodeos_equal(path, n, addr("/dev/tty"), 8) == 1) { store64(slot, 2); return 1; }
+    if (rt_nodeos_equal(path, n, addr("/proc/self/cmdline"), 18) == 1) {
+        store64(slot, 5); store64(slot + 32, NODEOS_STATE + 24576); store64(slot + 40, NODEOS_CMDLINE);
+        store64(slot + 16, 0); return 1;
+    }
+    if (rt_nodeos_equal(path, n, addr("/proc/self/environ"), 18) == 1) {
+        store64(slot, 5); store64(slot + 32, addr("PATH=/bin\0HOME=/\0TERM=dumb\0")); store64(slot + 40, 27);
+        store64(slot + 16, 0); return 1;
+    }
+    return 0;
+}
+
+// open(path, flags, mode). O_WRONLY 1, O_RDWR 2, O_CREAT 64, O_EXCL 128,
+// O_TRUNC 512, O_APPEND 1024, O_DIRECTORY 65536.
+fun rt_nodeos_open(p: Any, flags: Any) -> Any {
+    let fd: Any = rt_nodeos_slot();
+    if (fd < 0) { return fd; }
+    let path: Any = rt_nodeos_path();
+    let n: Any = rt_nodeos_resolve(p, path);
+    if (n < 0) { return 0 - 36; }
+    if (rt_nodeos_open_virtual(fd, path, n) == 1) { return fd; }
+    let create: Any = (flags / 64) % 2;
+    let exclusive: Any = (flags / 128) % 2;
+    let truncate: Any = (flags / 512) % 2;
+    let writing: Any = flags % 4;
+    mut r: Any = 0;
+    if (create == 1 and truncate == 1 and exclusive == 0) {
+        r = rt_nodeos_path_call(12289, path, n);            // FS_CREATE truncates
+    } else {
+        r = rt_nodeos_path_call(12290, path, n);            // FS_OPEN
+        if (r == 0 - 2 and create == 1) { r = rt_nodeos_path_call(12289, path, n); }
+        else if (r >= 0 and create == 1 and exclusive == 1) { rt_nodeos_close_node(load64(rt_nodeos_reply())); return 0 - 17; }
+    }
+    if (r < 0) { return r; }
+    if (r < 24) { return 0 - 5; }
+    let reply: Any = rt_nodeos_reply();
+    let node: Any = load64(reply);
+    let size: Any = load64(reply + 8);
+    let kind: Any = load32(reply + 16);
+    let slot: Any = rt_nodeos_fd(fd);
+    rt_nodeos_zero(slot, 64);
+    store64(slot + 8, node); store64(slot + 24, size); store64(slot + 48, flags);
+    if (kind == 2) {
+        rt_nodeos_close_node(node);
+        if (writing != 0) { return 0 - 21; }                    // EISDIR
+        // Directories are read once, as the listing getdents64 walks.
+        let listing: Any = rt_nodeos_path_call(12294, path, n);   // FS_LIST
+        if (listing < 0) { return listing; }
+        let data: Any = rt_nodeos_map(listing + 1);
+        if (data < 0) { return data; }
+        rt_nodeos_copy(data, rt_nodeos_reply(), listing);
+        store64(slot, 4); store64(slot + 32, data); store64(slot + 40, listing);
+        return fd;
+    }
+    if ((flags / 65536) % 2 == 1) { rt_nodeos_close_node(node); return 0 - 20; } // ENOTDIR
+    if (truncate == 1 and size > 0) {
+        let request: Any = rt_nodeos_request();
+        store64(request, node); store64(request + 8, 0);
+        rt_nodeos_call(NODEOS_FILES, 12300, request, 16);   // FS_TRUNCATE
+        store64(slot + 24, 0);
+    }
+    store64(slot, 3);
+    return fd;
+}
+
+fun rt_nodeos_close_node(node: Any) -> Any {
+    store64(rt_nodeos_request(), node);
+    rt_nodeos_call(NODEOS_FILES, 12299, rt_nodeos_request(), 8); // FS_CLOSE
+    return 0;
+}
+
+fun rt_nodeos_close(fd: Any) -> Any {
+    let kind: Any = rt_nodeos_kind(fd);
+    if (kind == 0) { return 0 - 9; }
+    let slot: Any = rt_nodeos_fd(fd);
+    if (kind == 3) { rt_nodeos_close_node(load64(slot + 8)); }
+    if (kind == 4) { __nodeos_syscall(10, 0, load64(slot + 32)); }
+    if (fd > 2) { rt_nodeos_zero(slot, 64); } else { store64(slot, 6); }
+    return 0;
+}
+
+// ---------------------------------------------------------------- reading
+
+fun rt_nodeos_read(fd: Any, buffer: Any, count: Any) -> Any {
+    let kind: Any = rt_nodeos_kind(fd);
+    if (kind == 0) { return 0 - 9; }
+    if (count <= 0) { return 0; }
+    let slot: Any = rt_nodeos_fd(fd);
+    if (kind == 1) { return rt_nodeos_read_console(buffer, count); }
+    if (kind == 2) { return 0 - 9; }
+    if (kind == 6) { return 0; }
+    if (kind == 4) { return 0 - 21; }
+    if (kind == 5) {
+        let offset: Any = load64(slot + 16);
+        mut n: Any = load64(slot + 40) - offset;
+        if (n > count) { n = count; }
+        if (n <= 0) { return 0; }
+        rt_nodeos_copy(buffer, load64(slot + 32) + offset, n);
+        store64(slot + 16, offset + n);
+        return n;
+    }
+    if (load64(slot + 48) % 4 == 1) { return 0 - 9; }   // O_WRONLY
+    let offset: Any = load64(slot + 16);
+    mut done: Any = 0;
+    while (done < count) {
+        mut want: Any = count - done;
+        if (want > 32768) { want = 32768; }
+        let request: Any = rt_nodeos_request();
+        store64(request, load64(slot + 8)); store64(request + 8, offset + done);
+        store32(request + 16, want); store32(request + 20, 0);
+        let got: Any = rt_nodeos_call(NODEOS_FILES, 12291, request, 24); // FS_READ
+        if (got < 0) {
+            if (done > 0) { break; }
+            return got;
+        }
+        rt_nodeos_copy(buffer + done, rt_nodeos_reply(), got);
+        done += got;
+        if (got < want) { break; }
+    }
+    store64(slot + 16, offset + done);
+    return done;
+}
+
+// The console edits and echoes a line and replies on Enter. A line holding
+// only Ctrl+D is end of input; without a console, input is always at its end.
+fun rt_nodeos_read_console(buffer: Any, count: Any) -> Any {
+    let line: Any = NODEOS_STATE + 16640;
+    if (NODEOS_INPUT_POS >= NODEOS_INPUT_LEN) {
+        if (NODEOS_CONSOLE == 0) { return 0; }
+        let got: Any = rt_nodeos_call(NODEOS_CONSOLE, 20487, rt_nodeos_request(), 0);  // CONSOLE_READ_LINE
+        if (got < 0) { return 0; }
+        if (got == 1 and load8(rt_nodeos_reply()) == 4) { return 0; }
+        mut size: Any = got;
+        if (size > 4095) { size = 4095; }
+        rt_nodeos_copy(line, rt_nodeos_reply(), size);
+        store8(line + size, 10);
+        NODEOS_INPUT_POS = 0; NODEOS_INPUT_LEN = size + 1;
+    }
+    mut n: Any = NODEOS_INPUT_LEN - NODEOS_INPUT_POS;
+    if (n > count) { n = count; }
+    rt_nodeos_copy(buffer, line + NODEOS_INPUT_POS, n);
+    NODEOS_INPUT_POS += n;
+    return n;
+}
+
+// ---------------------------------------------------------------- writing
+
+fun rt_nodeos_write(fd: Any, data: Any, count: Any) -> Any {
+    let kind: Any = rt_nodeos_kind(fd);
+    if (kind == 0) { return 0 - 9; }
+    if (count <= 0) { return 0; }
+    if (kind == 2) { return rt_nodeos_write_console(data, count); }
+    if (kind == 6) { return count; }
+    if (kind != 3) { return 0 - 9; }
+    let slot: Any = rt_nodeos_fd(fd);
+    if (load64(slot + 48) % 4 == 0) { return 0 - 9; }    // O_RDONLY
+    mut offset: Any = load64(slot + 16);
+    if ((load64(slot + 48) / 1024) % 2 == 1) { offset = load64(slot + 24); }
+    mut done: Any = 0;
+    while (done < count) {
+        mut chunk: Any = count - done;
+        if (chunk > 32768) { chunk = 32768; }
+        let request: Any = rt_nodeos_request();
+        store64(request, load64(slot + 8)); store64(request + 8, offset + done);
+        store32(request + 16, chunk); store32(request + 20, 0);
+        rt_nodeos_copy(request + 24, data + done, chunk);
+        let got: Any = rt_nodeos_call(NODEOS_FILES, 12292, request, 24 + chunk); // FS_WRITE
+        if (got < 0) {
+            if (done > 0) { break; }
+            return got;
+        }
+        let written: Any = load32(rt_nodeos_reply() + 16);
+        done += written;
+        if (written < chunk) { break; }
+    }
+    store64(slot + 16, offset + done);
+    if (offset + done > load64(slot + 24)) { store64(slot + 24, offset + done); }
+    return done;
+}
+
+// Console text must be UTF-8, so chunks end on a character boundary. Every
+// line is also copied to the kernel log as `may: | <line>`, which is what a
+// headless test reads and the only record if there is no console.
+fun rt_nodeos_write_console(data: Any, count: Any) -> Any {
+    mut done: Any = 0;
+    while (done < count and NODEOS_CONSOLE != 0) {
+        mut chunk: Any = count - done;
+        if (chunk > 16384) {
+            chunk = 16384;
+            while (chunk > 1 and load8(data + done + chunk) >= 128 and load8(data + done + chunk) < 192) { chunk -= 1; }
+        }
+        rt_nodeos_copy(rt_nodeos_request(), data + done, chunk);
+        if (rt_nodeos_call(NODEOS_CONSOLE, 20483, rt_nodeos_request(), chunk) < 0) { break; } // CONSOLE_WRITE_TEXT
+        done += chunk;
+    }
+    let mirror: Any = NODEOS_STATE + 20736;
+    mut i: Any = 0;
+    while (i < count) {
+        let byte: Any = load8(data + i);
+        if (byte == 10) { rt_nodeos_flush_mirror(); }
+        else if (NODEOS_MIRROR_LEN < 480) {
+            mut shown: Any = byte;
+            if (byte >= 128 or byte < 32) { shown = 63; }   // the log takes ASCII
+            store8(mirror + 7 + NODEOS_MIRROR_LEN, shown);
+            NODEOS_MIRROR_LEN += 1;
+        }
+        i += 1;
+    }
+    return count;
+}
+
+fun rt_nodeos_flush_mirror() -> Any {
+    let mirror: Any = NODEOS_STATE + 20736;
+    rt_nodeos_copy(mirror, addr("may: | "), 7);
+    __nodeos_syscall(24, mirror, 7 + NODEOS_MIRROR_LEN);
+    NODEOS_MIRROR_LEN = 0;
+    return 0;
+}
+
+// ---------------------------------------------------------------- metadata
+
+// struct stat for x86-64 Linux (144 bytes). FAT has no owners or modes, so
+// they are synthesized, as liblx does.
+fun rt_nodeos_fill_stat(out: Any, node: Any, size: Any, directory: Any) -> Any {
+    rt_nodeos_zero(out, 144);
+    store64(out + 8, node + 1);
+    store64(out + 16, 1);
+    store32(out + 24, 33188);                           // 0100644
+    if (directory == 1) { store32(out + 24, 16877); }   // 040755
+    store64(out + 48, size);
+    store64(out + 56, 4096);
+    store64(out + 64, (size + 511) / 512);
+    return 0;
+}
+
+fun rt_nodeos_stat(p: Any, out: Any) -> Any {
+    let path: Any = rt_nodeos_path();
+    let n: Any = rt_nodeos_resolve(p, path);
+    if (n < 0) { return 0 - 36; }
+    if (rt_nodeos_equal(path, n, addr("/dev/null"), 9) == 1) {
+        rt_nodeos_fill_stat(out, 0, 0, 0); store32(out + 24, 8630); return 0;
+    }
+    let r: Any = rt_nodeos_path_call(12293, path, n);   // FS_STAT
+    if (r < 0) { return r; }
+    if (r < 24) { return 0 - 5; }
+    let reply: Any = rt_nodeos_reply();
+    if (out != 0) {
+        mut directory: Any = 0;
+        if (load32(reply + 20) == 2) { directory = 1; }
+        rt_nodeos_fill_stat(out, load64(reply), load64(reply + 8), directory);
+    }
+    return 0;
+}
+
+fun rt_nodeos_fstat(fd: Any, out: Any) -> Any {
+    let kind: Any = rt_nodeos_kind(fd);
+    if (kind == 0) { return 0 - 9; }
+    let slot: Any = rt_nodeos_fd(fd);
+    if (kind == 3) { rt_nodeos_fill_stat(out, load64(slot + 8), load64(slot + 24), 0); return 0; }
+    if (kind == 4) { rt_nodeos_fill_stat(out, load64(slot + 8), 0, 1); return 0; }
+    if (kind == 5) { rt_nodeos_fill_stat(out, 0, load64(slot + 40), 0); return 0; }
+    rt_nodeos_fill_stat(out, 0, 0, 0);
+    store32(out + 24, 8592);                            // 020620: a character device
+    return 0;
+}
+
+fun rt_nodeos_lseek(fd: Any, offset: Any, whence: Any) -> Any {
+    let kind: Any = rt_nodeos_kind(fd);
+    if (kind == 0) { return 0 - 9; }
+    if (kind != 3 and kind != 5) { return 0 - 29; }    // ESPIPE
+    let slot: Any = rt_nodeos_fd(fd);
+    mut base: Any = 0;
+    if (whence == 1) { base = load64(slot + 16); }
+    else if (whence == 2 and kind == 3) { base = load64(slot + 24); }
+    else if (whence == 2) { base = load64(slot + 40); }
+    else if (whence != 0) { return 0 - 22; }
+    let target: Any = base + offset;
+    if (target < 0) { return 0 - 22; }
+    store64(slot + 16, target);
+    return target;
+}
+
+// getdents64 over the cached FS_LIST reply: records of name, tab, `d` or `f`,
+// tab, size, NUL. Each becomes a linux_dirent64.
+fun rt_nodeos_getdents(fd: Any, out: Any, count: Any) -> Any {
+    if (rt_nodeos_kind(fd) != 4) { return 0 - 20; }
+    let slot: Any = rt_nodeos_fd(fd);
+    let data: Any = load64(slot + 32);
+    let length: Any = load64(slot + 40);
+    mut cursor: Any = load64(slot + 16);
+    mut written: Any = 0;
+    while (cursor < length) {
+        mut end: Any = cursor;
+        while (end < length and load8(data + end) != 0) { end += 1; }
+        mut name: Any = cursor;
+        while (name < end and load8(data + name) != 9) { name += 1; }
+        let nameLength: Any = name - cursor;
+        mut entryType: Any = 8;                              // DT_REG
+        if (name + 1 < end and load8(data + name + 1) == 100) { entryType = 4; }  // DT_DIR
+        let record: Any = (19 + nameLength + 1 + 7) / 8 * 8;
+        if (written + record > count) {
+            if (written == 0) { return 0 - 22; }
+            break;
+        }
+        let entry: Any = out + written;
+        store64(entry, cursor + 1); store64(entry + 8, end + 1);
+        store16(entry + 16, record); store8(entry + 18, entryType);
+        rt_nodeos_copy(entry + 19, data + cursor, nameLength);
+        rt_nodeos_zero(entry + 19 + nameLength, record - 19 - nameLength);
+        written += record;
+        cursor = end + 1;
+    }
+    store64(slot + 16, cursor);
+    return written;
+}
+
+// ---------------------------------------------------------------- namespace
+
+fun rt_nodeos_simple_path(kind: Any, p: Any) -> Any {
+    let path: Any = rt_nodeos_path();
+    let n: Any = rt_nodeos_resolve(p, path);
+    if (n < 0) { return 0 - 36; }
+    let r: Any = rt_nodeos_path_call(kind, path, n);
+    if (r < 0) { return r; }
+    if (kind == 12297 and r >= 8) { rt_nodeos_close_node(load64(rt_nodeos_reply())); } // FS_MKDIR opens it
+    return 0;
+}
+
+fun rt_nodeos_rmdir(p: Any) -> Any {
+    let path: Any = rt_nodeos_path();
+    let n: Any = rt_nodeos_resolve(p, path);
+    if (n < 0) { return 0 - 36; }
+    let r: Any = rt_nodeos_path_call(12293, path, n);
+    if (r < 0) { return r; }
+    if (load32(rt_nodeos_reply() + 20) != 2) { return 0 - 20; }
+    if (load32(rt_nodeos_reply() + 16) != 0) { return 0 - 39; }     // ENOTEMPTY
+    return rt_nodeos_path_call(12295, path, n);                  // FS_UNLINK
+}
+
+fun rt_nodeos_chdir(p: Any) -> Any {
+    let path: Any = rt_nodeos_path();
+    let n: Any = rt_nodeos_resolve(p, path);
+    if (n < 0) { return 0 - 36; }
+    if (n > 1) {
+        let r: Any = rt_nodeos_path_call(12293, path, n);
+        if (r < 0) { return r; }
+        if (load32(rt_nodeos_reply() + 20) != 2) { return 0 - 20; }
+    }
+    rt_nodeos_copy(rt_nodeos_cwd(), path, n + 1);
+    return 0;
+}
+
+fun rt_nodeos_getcwd(out: Any, size: Any) -> Any {
+    let n: Any = rt_nodeos_strlen(rt_nodeos_cwd());
+    if (n + 1 > size) { return 0 - 34; }               // ERANGE
+    rt_nodeos_copy(out, rt_nodeos_cwd(), n + 1);
+    return n + 1;
+}
+
+// The filesystem has no rename, so a file is copied and the source removed.
+// Directories cannot be renamed this way and are refused.
+fun rt_nodeos_rename(from: Any, to: Any) -> Any {
+    let source: Any = rt_nodeos_open(from, 0);
+    if (source < 0) { return source; }
+    if (rt_nodeos_kind(source) != 3) { rt_nodeos_close(source); return 0 - 21; }
+    let target: Any = rt_nodeos_open(to, 577);
+    if (target < 0) { rt_nodeos_close(source); return target; }
+    let buffer: Any = rt_nodeos_map(32768);
+    if (buffer < 0) { rt_nodeos_close(source); rt_nodeos_close(target); return buffer; }
+    mut status: Any = 0;
+    while (1) {
+        let got: Any = rt_nodeos_read(source, buffer, 32768);
+        if (got <= 0) { status = got; break; }
+        let put: Any = rt_nodeos_write(target, buffer, got);
+        if (put != got) { status = 0 - 28; break; }
+    }
+    __nodeos_syscall(10, 0, buffer);
+    rt_nodeos_close(source); rt_nodeos_close(target);
+    if (status < 0) { return status; }
+    return rt_nodeos_simple_path(12295, from);
+}
+
+// readlink: /proc/self/exe is the path the program was started from.
+fun rt_nodeos_readlink(p: Any, out: Any, size: Any) -> Any {
+    let n: Any = rt_nodeos_strlen(p);
+    if (rt_nodeos_equal(p, n, addr("/proc/self/exe"), 14) == 0) { return 0 - 22; }
+    let cmdline: Any = NODEOS_STATE + 24576;
+    mut length: Any = 0;
+    while (length < NODEOS_CMDLINE and load8(cmdline + length) != 0) { length += 1; }
+    if (length == 0) { return 0 - 2; }
+    let path: Any = rt_nodeos_path2();
+    rt_nodeos_copy(path, cmdline, length); store8(path + length, 0);
+    let resolved: Any = rt_nodeos_path();
+    mut r: Any = rt_nodeos_resolve(path, resolved);
+    if (r < 0) { return 0 - 36; }
+    if (r > size) { r = size; }
+    rt_nodeos_copy(out, resolved, r);
+    return r;
+}
+
+// ---------------------------------------------------------------- memory
+
+// mmap: anonymous private mappings only, placed by the kernel in the heap
+// window and committed on first touch.
+fun rt_nodeos_mmap(address: Any, length: Any, flags: Any, fd: Any) -> Any {
+    if ((flags / 32) % 2 == 0) { return 0 - 19; }     // ENODEV unless MAP_ANONYMOUS
+    if (length <= 0) { return 0 - 22; }
+    return rt_nodeos_map(length);
+}
+
+// The kernel removes whole mappings by base address. Maylang unmaps what it
+// mapped, so that is the common case; a partial unmap is accepted and keeps
+// the pages until exit.
+fun rt_nodeos_munmap(address: Any) -> Any {
+    __nodeos_syscall(10, 0, address);
+    return 0;
+}
+
+// ---------------------------------------------------------------- time
+
+fun rt_nodeos_clock_gettime(out: Any) -> Any {
+    let now: Any = __nodeos_syscall(23);
+    store64(out, now / 1000000000); store64(out + 8, now % 1000000000);
+    return 0;
+}
+
+fun rt_nodeos_sleep(request: Any) -> Any {
+    let deadline: Any = __nodeos_syscall(23) + load64(request) * 1000000000 + load64(request + 8);
+    while (__nodeos_syscall(23) < deadline) { __nodeos_syscall(7); }
+    return 0;
+}
+
+// ---------------------------------------------------------------- processes
+
+// The spawn extension (1024): start `path` with `argv` (a NULL-terminated
+// array of C strings), or, when argv is 0, the command line `path` split at
+// spaces. A bare name runs /bin/<name>.nxf, as at the shell. The child gets
+// this process's console and filesystem, and the result is its process
+// handle, which wait4 accepts as a pid.
+fun rt_nodeos_spawn(path: Any, argv: Any) -> Any {
+    let args: Any = rt_nodeos_path2();
+    mut length: Any = 0;
+    if (argv == 0) {
+        let line: Any = rt_nodeos_strlen(path);
+        mut at: Any = 0;
+        while (at < line) {
+            while (at < line and load8(path + at) == 32) { at += 1; }
+            if (at >= line) { break; }
+            while (at < line and load8(path + at) != 32) {
+                if (length >= 4000) { return 0 - 7; }  // E2BIG
+                store8(args + length, load8(path + at)); length += 1; at += 1;
+            }
+            store8(args + length, 0); length += 1;
+        }
+    } else {
+        mut k: Any = 0;
+        while (load64(argv + k * 8) != 0) {
+            let arg: Any = load64(argv + k * 8);
+            let n: Any = rt_nodeos_strlen(arg);
+            if (length + n + 1 >= 4000) { return 0 - 7; }
+            rt_nodeos_copy(args + length, arg, n + 1); length += n + 1;
+            k += 1;
+        }
+    }
+    if (length == 0) { return 0 - 2; }
+    // Resolve the program the way the shell does.
+    let program: Any = rt_nodeos_small();
+    let name: Any = rt_nodeos_strlen(args);
+    mut hasSlash: Any = 0;
+    mut scan: Any = 0;
+    while (scan < name) { if (load8(args + scan) == 47) { hasSlash = 1; } scan += 1; }
+    mut n: Any = 0;
+    if (hasSlash == 0) { rt_nodeos_copy(program, addr("/bin/"), 5); n = 5; }
+    if (name + n + 5 > 240) { return 0 - 36; }
+    rt_nodeos_copy(program + n, args, name); n += name;
+    store8(program + n, 0);
+    mut node: Any = rt_nodeos_open(program, 0);
+    if (node < 0 and hasSlash == 0) {
+        rt_nodeos_copy(program + n, addr(".nxf"), 5);
+        node = rt_nodeos_open(program, 0);
+    }
+    if (node < 0) { return node; }
+    let fd: Any = node;
+    if (rt_nodeos_kind(fd) != 3) { rt_nodeos_close(fd); return 0 - 13; }
+    let size: Any = load64(rt_nodeos_fd(fd) + 24);
+    let vmo: Any = __nodeos_syscall(8, size + 1, 0);
+    if (vmo < 0) { rt_nodeos_close(fd); return 0 - 12; }
+    // Stage the image in a memory object for process_load.
+    let buffer: Any = rt_nodeos_map(32768);
+    mut offset: Any = 0;
+    mut status: Any = 0;
+    while (offset < size and buffer > 0) {
+        let got: Any = rt_nodeos_read(fd, buffer, 32768);
+        if (got <= 0) { status = 0 - 5; break; }
+        __nodeos_syscall(12, vmo, offset, buffer, got, 1);
+        offset += got;
+    }
+    if (buffer > 0) { __nodeos_syscall(10, 0, buffer); }
+    rt_nodeos_close(fd);
+    if (status < 0 or buffer < 0) { __nodeos_syscall(19, vmo); return 0 - 5; }
+    let resolved: Any = rt_nodeos_path();
+    let resolvedLength: Any = rt_nodeos_resolve(program, resolved);
+    let process: Any = __nodeos_syscall(1, resolved, resolvedLength, 4294967295);
+    if (process < 0) { __nodeos_syscall(19, vmo); return rt_nodeos_errno(process); }
+    let info: Any = rt_nodeos_small() + 272;
+    let loaded: Any = __nodeos_syscall(31, process, vmo, size, info);
+    __nodeos_syscall(19, vmo);
+    if (loaded < 0) { __nodeos_syscall(19, process); return rt_nodeos_errno(loaded); }
+    // The bootstrap message: a BootstrapMessage, then the arguments with the
+    // resolved program path as argv[0], as the shell sends them.
+    let message: Any = rt_nodeos_request();
+    rt_nodeos_zero(message, 48);
+    store32(message, 1);
+    // Granted classes, as the shell grants them: files, memory, process,
+    // channel, clock and load.
+    store32(message + 4, 2 + 4 + 8 + 256 + 512 + 1024 + 4096 + 16384);
+    store64(message + 32, 16777216);
+    mut handles: Any = 0;
+    let table: Any = NODEOS_STATE + 128;
+    if (NODEOS_CONSOLE != 0) {
+        let console: Any = __nodeos_syscall(17, NODEOS_CONSOLE, 262143);
+        if (console > 0) { store32(table, console); handles = 1; }
+    }
+    if (handles == 1 and NODEOS_FILES != 0) {
+        let files: Any = __nodeos_syscall(17, NODEOS_FILES, 262143);
+        if (files > 0) { store32(table + 4, files); handles = 2; }
+    }
+    store32(message + 40, handles);
+    rt_nodeos_copy(message + 48, resolved, resolvedLength + 1);
+    let first: Any = rt_nodeos_strlen(args) + 1;
+    rt_nodeos_copy(message + 48 + resolvedLength + 1, args + first, length - first);
+    let total: Any = 48 + resolvedLength + 1 + length - first;
+    let pair: Any = rt_nodeos_small() + 256;
+    if (__nodeos_syscall(13, pair) < 0) { __nodeos_syscall(19, process); return 0 - 12; }
+    let parent: Any = load32(pair);
+    let child: Any = load32(pair + 4);
+    let d: Any = NODEOS_STATE;
+    rt_nodeos_descriptor(d, 1313817669, 0, message, total, handles, table);
+    let sent: Any = __nodeos_syscall(14, parent, d);
+    if (sent < 0) {
+        __nodeos_syscall(19, parent); __nodeos_syscall(19, child); __nodeos_syscall(19, process);
+        return rt_nodeos_errno(sent);
+    }
+    let started: Any = __nodeos_syscall(2, process, load64(info), load64(info + 8), child);
+    __nodeos_syscall(19, parent);
+    if (started < 0) { __nodeos_syscall(19, process); return rt_nodeos_errno(started); }
+    return process;
+}
+
+// wait4(pid, status, options, rusage) on a handle from the spawn extension:
+// wait for PROCESS_TERMINATED, then read the exit code from capability_query.
+fun rt_nodeos_wait(pid: Any, status: Any) -> Any {
+    if (pid <= 0) { return 0 - 10; }                    // ECHILD
+    let item: Any = rt_nodeos_small() + 128;
+    store32(item, pid); store32(item + 4, 8); store32(item + 8, 0); store32(item + 12, 0);
+    let r: Any = __nodeos_syscall(21, item, 1, 0);
+    if (r < 0) { return 0 - 10; }
+    let info: Any = rt_nodeos_small() + 160;
+    rt_nodeos_zero(info, 48);
+    __nodeos_syscall(20, pid, info);
+    let code: Any = load64(info + 32);              // HandleInfo.exit_code
+    __nodeos_syscall(19, pid);
+    if (status != 0) { store32(status, (code % 256) * 256); }
+    return pid;
+}
+
+// Exit, reporting the status to the kernel log as `may: exited with N`.
+fun rt_nodeos_exit(code: Any) -> Any {
+    let status: Any = (code % 256 + 256) % 256;
+    if (NODEOS_STATE != 0) {
+        if (NODEOS_MIRROR_LEN > 0) { rt_nodeos_flush_mirror(); }
+        let line: Any = NODEOS_STATE + 20736;
+        rt_nodeos_copy(line, addr("may: exited with "), 17);
+        mut n: Any = 17;
+        if (status >= 100) { store8(line + n, 48 + status / 100); n += 1; }
+        if (status >= 10) { store8(line + n, 48 + (status / 10) % 10); n += 1; }
+        store8(line + n, 48 + status % 10); n += 1;
+        __nodeos_syscall(24, line, n);
+    }
+    __nodeos_syscall(3, status);
+    return 0;
+}
+
+// ---------------------------------------------------------------- misc
+
+fun rt_nodeos_uname(out: Any) -> Any {
+    rt_nodeos_zero(out, 390);
+    rt_nodeos_copy(out, addr("NodeOS"), 7);
+    rt_nodeos_copy(out + 65, addr("nodeos"), 7);
+    rt_nodeos_copy(out + 130, addr("1"), 2);
+    rt_nodeos_copy(out + 195, addr("NodeOS"), 7);
+    rt_nodeos_copy(out + 260, addr("x86_64"), 7);
+    return 0;
+}
+
+fun rt_nodeos_random(out: Any, count: Any) -> Any {
+    mut i: Any = 0;
+    while (i < count) {
+        NODEOS_RANDOM = (NODEOS_RANDOM * 1103515245 + 12345 + __nodeos_syscall(23) % 1024) % 2147483648;
+        store8(out + i, (NODEOS_RANDOM / 65536) % 256);
+        i += 1;
+    }
+    return count;
+}
+
+fun rt_nodeos_ioctl(fd: Any, request: Any, arg: Any) -> Any {
+    let kind: Any = rt_nodeos_kind(fd);
+    if (kind == 0) { return 0 - 9; }
+    if (kind != 1 and kind != 2) { return 0 - 25; }    // ENOTTY
+    if (request == 21523) {                            // TIOCGWINSZ
+        mut rows: Any = 25; mut cols: Any = 80;
+        if (rt_nodeos_call(NODEOS_CONSOLE, 20481, rt_nodeos_request(), 0) >= 16) {   // CONSOLE_GET_INFO
+            cols = load32(rt_nodeos_reply() + 8); rows = load32(rt_nodeos_reply() + 12);
+        }
+        store16(arg, rows); store16(arg + 2, cols); store16(arg + 4, 0); store16(arg + 6, 0);
+        return 0;
+    }
+    if (request == 21505) { rt_nodeos_zero(arg, 60); return 0; }   // TCGETS
+    return 0 - 22;
+}
+
+// ---------------------------------------------------------------- dispatch
+
+fun rt_nodeos_syscall(n: Any, a: Any, b: Any, c: Any, d: Any, e: Any, f: Any) -> Any {
+    if (NODEOS_READY == 0) { rt_nodeos_init(); }
+    if (n == 0) { return rt_nodeos_read(a, b, c); }
+    if (n == 1) { return rt_nodeos_write(a, b, c); }
+    if (n == 2) { return rt_nodeos_open(a, b); }
+    if (n == 3) { return rt_nodeos_close(a); }
+    if (n == 4 or n == 6) { return rt_nodeos_stat(a, b); }
+    if (n == 5) { return rt_nodeos_fstat(a, b); }
+    if (n == 8) { return rt_nodeos_lseek(a, b, c); }
+    if (n == 9) { return rt_nodeos_mmap(a, b, d, e); }
+    if (n == 10) { return 0; }                                    // mprotect
+    if (n == 11) { return rt_nodeos_munmap(a); }
+    if (n == 12) { return 0 - 12; }                               // brk: use mmap
+    if (n == 16) { return rt_nodeos_ioctl(a, b, c); }
+    if (n == 21) { return rt_nodeos_stat(a, 0); }                 // access
+    if (n == 35) { return rt_nodeos_sleep(a); }
+    if (n == 39) { return 1; }                                    // getpid
+    if (n == 57 or n == 58 or n == 59) { return 0 - 38; }         // fork, vfork, execve
+    if (n == 60 or n == 231) { return rt_nodeos_exit(a); }
+    if (n == 61) { return rt_nodeos_wait(a, b); }
+    if (n == 63) { return rt_nodeos_uname(a); }
+    if (n == 72) { return 0; }                                    // fcntl
+    if (n == 79) { return rt_nodeos_getcwd(a, b); }
+    if (n == 80) { return rt_nodeos_chdir(a); }
+    if (n == 82) { return rt_nodeos_rename(a, b); }
+    if (n == 83) { return rt_nodeos_simple_path(12297, a); }      // mkdir: FS_MKDIR
+    if (n == 84) { return rt_nodeos_rmdir(a); }
+    if (n == 87) { return rt_nodeos_simple_path(12295, a); }      // unlink: FS_UNLINK
+    if (n == 89) { return rt_nodeos_readlink(a, b, c); }
+    if (n == 90 or n == 91) { return 0; }                         // chmod, fchmod
+    if (n == 96) {                                                // gettimeofday
+        rt_nodeos_clock_gettime(a); store64(a + 8, load64(a + 8) / 1000); return 0;
+    }
+    if (n == 102 or n == 104 or n == 107 or n == 108) { return 0; } // uid/gid: no users
+    if (n == 201) {                                               // time
+        let seconds: Any = __nodeos_syscall(23) / 1000000000;
+        if (a != 0) { store64(a, seconds); }
+        return seconds;
+    }
+    if (n == 217) { return rt_nodeos_getdents(a, b, c); }
+    if (n == 228) { return rt_nodeos_clock_gettime(b); }
+    if (n == 257) { return rt_nodeos_open(b, c); }                // openat (AT_FDCWD)
+    if (n == 262) { return rt_nodeos_stat(b, c); }                // newfstatat
+    if (n == 318) { return rt_nodeos_random(a, b); }
+    if (n == 1024) { return rt_nodeos_spawn(a, b); }
+    return 0 - 38;
+}
