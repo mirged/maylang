@@ -34,8 +34,9 @@ FLOAT_EXPECTED = (b'3.75 5.0 3.0 3.5 -2.5 2.5\n'
                   b'true true true true true true\nfalse true true true\n'
                   b'[1.25, -2.5] {"number": 3.75}\narithmetic\n'
                   b'true false true true true true\nnan\n'
-                  b'arithmetic Float outside Int range -1152921504606846976 arithmetic\n'
-                  b'1e300 -0.0 -0.0 0.0 4503599627370497.0 4503599627370496.0 nan -inf\n3.75\n1.0 1e20 1e-10\n3.5\n')
+                  b'arithmetic Float outside Int range -1152921504606846976 arithmetic\n3.75\n1.0 1e20 1e-10\n3.5\n')
+ROUNDING_EXPECTED = (b'2.0 3.0 -3.0 -2.0 -0.0 -0.0 0.0\ntrue true nan -inf\n'
+                     b'3.0 -2.0 2.0 0.0 -0.0\ntrue true true true\n')
 FIBER_EXPECTED = b'true false\na a\ntrue false\nb b\nmain\n'
 COMPARE_EXPECTED = (b'true false true true true false true false false\ntrue 1\none letter other other\n'
                     b'type: cannot compare Float with Int\ntype: cannot compare Nil with Int\n'
@@ -58,7 +59,8 @@ def main():
         for name, expected in [('portable_collections', EXPECTED), ('portable_calls', CALL_EXPECTED),
                                ('portable_faults', FAULT_EXPECTED), ('portable_debug', DEBUG_EXPECTED),
                                ('portable_fibers', FIBER_EXPECTED), ('portable_floats', FLOAT_EXPECTED),
-                               ('portable_compare', COMPARE_EXPECTED)]:
+                               ('portable_compare', COMPARE_EXPECTED),
+                               ('portable_rounding', ROUNDING_EXPECTED)]:
             source = HERE / 'backend' / (name + '.may')
             flags = ['--debug'] if name in ('portable_debug', 'portable_fibers') else []
             oracle = work / 'full'

@@ -15,8 +15,6 @@ print(nan == nan, nan != nan, nan < nan, nan <= nan, nan > nan, nan >= nan);
 print(str(nan));
 print(may { str(trunc(nan)) } otherwise { err.kind }, may { str(int(1.0e19)) } otherwise { err.message },
     trunc(-1152921504606846976.0), may { str(int(1152921504606846976.0)) } otherwise { err.kind });
-print(floor(1.0e300), ceil(-0.5), floor(-0.0), round(0.49999999999999994), round(4503599627370497.0),
-    ceil(4503599627370495.5), floor(nan), ceil(-1.0e308 * 10.0));
 let captured: () -> Float = fun() -> Float { return 1.25 + 2.5; };
 print(captured());
 let narrow: Float32 = 1.00000001;
