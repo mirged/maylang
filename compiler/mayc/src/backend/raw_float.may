@@ -99,5 +99,5 @@ fun raw_float_call(ctx: Any, emitter: Any, name: Any, args: Any) -> Any {
         return raw_float_result(ctx, emitter);
     }
     raw_float_truncate(ctx, emitter, if (name == "floor") { 1 } else if (name == "ceil") { 2 } else { 0 });
-    (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR); return 0;
+    (emitter.move)(ctx, 10, 0); return raw_invoke(ctx, emitter, "rt_float_int");
 }

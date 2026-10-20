@@ -16,7 +16,7 @@
 - `str` parameter `value`: The value to format.
 - `str` returns: A string.
 - `str` example: `print(str(42));`.
-- **int** — `int(value)` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; invalid text raises a catchable failure.
+- **int** — `int(value)` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
 - `int` parameter `value`: A number or a trimmed decimal string with optional sign.
 - `int` returns: An integer.
 - `int` example: `print(int(" 42 ")); print(int(3.9));`.
@@ -319,7 +319,7 @@
 - **wait** — `wait(pid) -> Int` — Wait for a child and return its decoded exit status; failures raise; signal termination is encoded as 128 plus signal number.
 - **system** — `system(command) -> Int` — Run /bin/sh -c and wait for its exit status.
 - **type** — `type(value) -> Str` — Return a tagged runtime type name: Int, Float, Str, Bool, Nil, List or Map.
-- **trunc** — `trunc(x) -> Int` — Truncate a numeric value toward zero.
+- **trunc** — `trunc(x) -> Int` — Truncate a numeric value toward zero; NaN, infinities and results outside the Int range raise an arithmetic fault.
 - **ln** — `ln(x) -> Float` — Natural logarithm; use positive numeric inputs.
 - **log2** — `log2(x) -> Float` — Base-two logarithm; use positive numeric inputs.
 - **log10** — `log10(x) -> Float` — Base-ten logarithm; use positive numeric inputs.

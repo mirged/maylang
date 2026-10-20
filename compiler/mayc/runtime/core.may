@@ -97,6 +97,11 @@ fun rt_fail(s: Any) -> Any { return __core_raise(addr("fail"), 4, s); }
 fun rt_failtype(s: Any) -> Any { return __core_raise(addr("type"), 4, s); }
 fun rt_failarith(s: Any) -> Any { return __core_raise(addr("arithmetic"), 10, s); }
 fun rt_failstr(s: Any) -> Any { return __core_raise(addr("runtime"), 7, s); }
+// Tag a truncated Float; invalid conversions arrive as -2^63 and fault too.
+fun rt_float_int(n: Any) -> Any {
+    if (n < -1152921504606846976 or n > 1152921504606846975) { return rt_failarith(rt_from(addr("Float outside Int range"), 23)); }
+    return n * 8;
+}
 fun rt_handler_limit() -> Any {
     if (HDEPTH >= 64) { return rt_failstr(rt_from(addr("exception handler limit exceeded"), 32)); }
     return 0;
@@ -906,7 +911,7 @@ fun rt_powf(a: Any, b: Any) -> Any {
     return __core_pow(a, b);
 }
 fun rt_int(s: Any) -> Any {
-    if (s % 8 == 6) { return __ftrunc(load64(s - 6)) * 8; }
+    if (s % 8 == 6) { return rt_float_int(__ftrunc(load64(s - 6))); }
     if (s % 8 == 0) { return s; }
     if (s % 8 != 1) { return rt_failtype(rt_from(addr("int requires a string"), 21)); }
     let n: Any = rt_slen(s); mut i: Any = 0; mut negative: Any = 0; mut value: Any = 0;

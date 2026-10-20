@@ -36,7 +36,7 @@
 - **chars** — `fun chars(s: Any) -> Any` — Return Unicode codepoints as one-character strings.
 - **repeat** — `fun repeat(s: Any, n: Any) -> Any` — Return a string repeated n times; nonpositive counts produce an empty string.
 - **join** — `fun join(xs: Any, sep: Any) -> Any` — Convert items to strings and combine them with a separator between neighboring items.
-- **int** — `fun int(x: Any) -> Any` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; invalid text raises a catchable failure.
+- **int** — `fun int(x: Any) -> Any` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
 - `int` explicit fault strings: `"runtime"`; runtime/callback faults can also propagate.
 - **float** — `fun float(x: Any) -> Any` — Convert a number or numeric string to a floating-point value.
 - `float` explicit fault strings: `"runtime"`; runtime/callback faults can also propagate.

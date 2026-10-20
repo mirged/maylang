@@ -485,7 +485,7 @@
     ],
     "trunc": [
       "trunc(x) -> Int",
-      "Truncate a numeric value toward zero."
+      "Truncate a numeric value toward zero; NaN, infinities and results outside the Int range raise an arithmetic fault."
     ],
     "ln": [
       "ln(x) -> Float",

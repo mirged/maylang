@@ -2898,7 +2898,7 @@ fun cg_f1op(ctx: Any, op: Any, x: Any) -> Any {
         if (op != 3) {
             boxed = 0;
             e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 44); e8(ctx, 192);
-            e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+            call_rt1(ctx, addr("rt_float_int"), len("rt_float_int"));
         }
     } else if (op == 12) {
         e8(ctx, 72); e8(ctx, 139); e8(ctx, 64); e8(ctx, 250);

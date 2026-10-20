@@ -960,7 +960,7 @@ print(str(42));
 int(value)
 ```
 
-Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; invalid text raises a catchable failure.
+Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
 
 **Parameters**
 - `value`: A number or a trimmed decimal string with optional sign.

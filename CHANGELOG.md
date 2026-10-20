@@ -14,6 +14,14 @@
   compiler now stops with the offending line and the chain of imports that
   reached it ([#38](https://github.com/mirged/maylang/issues/38)).
 
+## Runtime
+
+- Fault with a catchable `arithmetic` error ("Float outside Int range") when
+  `int`, `trunc`, `floor` or `ceil` would produce an Int outside ±2^60 or is
+  given NaN or an infinity. These conversions previously returned 0 or a
+  wrapped value silently. Full, core and LLVM runtimes agree on every target
+  ([#89](https://github.com/mirged/maylang/issues/89)).
+
 ## Behavior contracts
 
 - Accept `for` loops over literal `Int` ranges (`a..b`, `a..=b`) in functions

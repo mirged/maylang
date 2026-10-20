@@ -120,7 +120,9 @@ def main():
             'process': 'print(wait(exec(["/bin/sh","-c","test -n \\"$PATH\\" && exit 7"])));',
             'short-call': 'let f:Any=fun(a:Any,b:Any){return [a,b];}; print(f(1));',
         }
-        fixtures['nan'] = 'let n:Any=sqrt(-1.0);print(n==n,n!=n,n<0.0,n<=0.0,n>0.0,n>=0.0,trunc(n));print(trunc(1e308),trunc(-1e308));'
+        fixtures['nan'] = ('let n:Any=sqrt(-1.0);print(n==n,n!=n,n<0.0,n<=0.0,n>0.0,n>=0.0,may{str(trunc(n))}otherwise{err.kind});'
+                          'print(may{str(trunc(1e308))}otherwise{err.message},may{str(int(-1e308))}otherwise{err.kind},'
+                          'trunc(-1152921504606846976.0),may{str(trunc(1152921504606846976.0))}otherwise{err.kind});')
         fixtures['many-args'] = 'fun eight(a:Any,b:Any,c:Any,d:Any,e:Any,f:Any,g:Any,h:Any){return [a,b,c,d,e,f,g,h];}let f:Any=eight;print(eight(1,2,3,4,5,6,7,8),f(11,12,13,14,15,16,17,18));'
         fixtures['gc-capture'] = 'fun exercise(){mut xs:Any=["alive"];let get:Any=fun(){return xs[0];};mut i:Any=0;while(i<3000000){let t:Any=str(i);i+=1;}return get;}let f:Any=exercise();print(f());'
         fixtures['portable-faults'] = (ROOT / 'compiler/mayc/tests/backend/portable_faults.may').read_text()

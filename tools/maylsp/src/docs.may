@@ -434,7 +434,7 @@ let LS_REFERENCE: Any = {
     },
     "int": {
         "signature": "int(value)",
-        "docs": "Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; invalid text raises a catchable failure.\n\n**Parameters**\n- `value`: A number or a trimmed decimal string with optional sign.\n\n**Returns:** An integer.\n\n**Example**\n```may\nprint(int(\" 42 \"));\nprint(int(3.9));\n```",
+        "docs": "Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.\n\n**Parameters**\n- `value`: A number or a trimmed decimal string with optional sign.\n\n**Returns:** An integer.\n\n**Example**\n```may\nprint(int(\" 42 \"));\nprint(int(3.9));\n```",
         "params": [
             "value"
         ],

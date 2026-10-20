@@ -33,7 +33,8 @@ FLOAT_EXPECTED = (b'3.75 5.0 3.0 3.5 -2.5 2.5\n'
                   b'-3 -2 -2 2 3 -2 3\n4.0 true true\n-122.5 42.0 3 -3\n'
                   b'true true true true true true\nfalse true true true\n'
                   b'[1.25, -2.5] {"number": 3.75}\narithmetic\n'
-                  b'true false true true true true\nnan\n3.75\n1.0 1e20 1e-10\n3.5\n')
+                  b'true false true true true true\nnan\n'
+                  b'arithmetic Float outside Int range -1152921504606846976 arithmetic\n3.75\n1.0 1e20 1e-10\n3.5\n')
 FIBER_EXPECTED = b'true false\na a\ntrue false\nb b\nmain\n'
 COMPARE_EXPECTED = (b'true false true true true false true false false\ntrue 1\none letter other other\n'
                     b'type: cannot compare Float with Int\ntype: cannot compare Nil with Int\n'
@@ -81,6 +82,9 @@ def main():
             'fun bits(value: Any) -> Nil { let p: Any = addr(value); print(load32(p), load32(p + 4)); return; }',
             'fun number(low: Int, high: Int) -> Float { let value: Float = 0.0; let p: Any = addr(value); store32(p, low); store32(p + 4, high); return value; }',
             'fun narrow(value: Float32) -> Float32 { return value; }',
+            # Out-of-range and non-finite conversions fault identically on every target.
+            'fun convert(value: Float) -> Nil { print(may { str(int(value)) } otherwise { err.kind }, may { str(floor(value)) } otherwise { err.kind },'
+            ' may { str(ceil(value)) } otherwise { err.kind }, may { str(trunc(value)) } otherwise { err.kind }); return; }',
         ]
         for literal in LITERALS:
             body.append(f'bits({literal}); bits(-{literal}); bits(narrow({literal}));')
@@ -92,8 +96,7 @@ def main():
                     0x43dfffffffffffff, 0x43e0000000000000, 0xc3e0000000000000,
                     0x7ff0000000000000, 0xfff0000000000000, 0x7ff8000000000000]:
             low, high = struct.unpack('<II', struct.pack('<Q', raw))
-            body.append(f'let value_{raw}: Float = number({low}, {high});')
-            body.append(f'print(int(value_{raw}), floor(value_{raw}), ceil(value_{raw}), trunc(value_{raw}));')
+            body.append(f'convert(number({low}, {high}));')
         body.append('print(str(number(0, 2146435072)), str(number(0, 4293918720))); exit(0);')
         source.write_text('\n'.join(body))
         binary = work / 'float-oracle'
