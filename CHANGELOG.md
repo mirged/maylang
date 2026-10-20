@@ -1,5 +1,21 @@
 # Unreleased
 
+## Targets
+
+- Add `--target x86_64-nodeos` for [NodeOS](https://github.com/mirged/nodeos),
+  with the full, core and raw runtimes. Images are NXF, written directly with
+  the CRC-32 NodeOS's loader checks. Each `syscall` site calls a gate into
+  `runtime/nodeos.may`, an in-process personality that answers the Linux calls
+  Maylang uses with NodeOS syscalls and IPC: console and file I/O, directories,
+  memory, time, `exec`/`system`/`wait` through a spawn extension, and
+  `/proc/self` arguments. C externs and sockets are unsupported there.
+  See [NodeOS target](docs/internals/NODEOS.md).
+- The compiler runs on NodeOS. A `mayc` built for NodeOS compiles programs
+  there and defaults to `x86_64-nodeos`; it rebuilds itself on NodeOS into a
+  compiler byte-identical to the one cross-built on Linux. Without `-o`, NodeOS
+  output is named `<source>.nxf`. `compiler/mayc/tests/nodeos.py` checks the
+  images; NodeOS's `make test-maylang` runs them.
+
 ## Compiler
 
 - Bound the compiler's source arena: a failed mapping or an exhausted arena is
@@ -16,6 +32,12 @@
 
 ## Runtime
 
+- Let the full runtime's heap outgrow 256 MiB instead of failing with `out of
+  memory`: collection still starts at 256 MiB, and when a collection cannot
+  satisfy an allocation the threshold grows within a 1 GiB on-demand
+  reservation. The self-hosted compiler sat at the old limit while compiling
+  itself. `exec` and `system` fall back to a spawn extension where `fork`
+  returns `ENOSYS`.
 - Fault with a catchable `arithmetic` error ("Float outside Int range") when
   `int` or `trunc` would produce an Int outside ±2^60 or is given NaN or an
   infinity. These conversions previously returned 0 or a wrapped value

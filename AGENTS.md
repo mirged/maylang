@@ -74,7 +74,7 @@ that span components. Relative imports between siblings use
   testing the old compiler.
 - **Runtime sidecars are read at compile time and need no rebuild:**
   `compiler/mayc/runtime.may`, `compiler/mayc/native.may`,
-  `compiler/mayc/runtime/{core,corelib,math}.may` and `stdlib/prelude.may` are
+  `compiler/mayc/runtime/{core,corelib,math,nodeos}.may` and `stdlib/prelude.may` are
   symlinked beside the cached binary, so edits apply to the next program you
   compile. They are still compiled into the compiler itself, so a sidecar
   change that the compiler relies on also needs a rebuild and a bootstrap
@@ -91,13 +91,19 @@ that span components. Relative imports between siblings use
   executable or under the current directory. Outside a checkout, missing
   sidecars are an error. `runtime/math.may` (shared float parsing, display and
   transcendentals) is loaded by every runtime with a library prelude.
+- `--target x86_64-nodeos` routes every `syscall` site through a gate into
+  `runtime/nodeos.may`, a Linux-syscall personality written in the raw subset
+  ([docs/internals/NODEOS.md](docs/internals/NODEOS.md)). Its globals must be
+  zero-initialized (runtime initializers never run) and it must not allocate
+  from the Maylang heap. Running NodeOS images needs a NodeOS checkout:
+  `make test-maylang` there boots them, and the compiler, in QEMU.
 - `make build` additionally builds the tools into `build/dev/` and writes
   `build/dev/env.sh` (sets `PATH`, `MAYC`, `MAYLANG_STDLIB`). `make tools`
   rebuilds only the tools with `$(MAYC)`.
 - Useful compiler flags: `--check` (parse, type and name checks with no output),
   `--dump-expanded` (source after import expansion), `--time` (stage timings),
   `--diagnostics json`, `--debug` (source traces), `--legacy` (untyped mode),
-  `--target arm64-linux|riscv64-linux|arm64-macos|x86_64-windows|clang-llvm`,
+  `--target x86_64-nodeos|arm64-linux|riscv64-linux|arm64-macos|x86_64-windows|clang-llvm`,
   `--runtime full|core|none`, and `--raw`. See
   [compiler/mayc/README.md](compiler/mayc/README.md) for the capability matrix.
 - **A failed compile leaves any previous output file in place** (deliberately,
@@ -346,6 +352,10 @@ browser suite under Xvfb. `release.yml` handles tagged releases. CI uses Ubuntu
   Prefer preallocated lists of integers in hot loops. A crash in a long
   workload may be this bug rather than your change, so reproduce it before
   blaming the change.
+- **Heap tests rewrite one line:** harnesses shrink the full runtime's heap
+  by replacing `mut sz: Any = 268435456;` in `runtime.may`. Keep that exact
+  line as the only heap-size literal; the reservation (four times `sz`, so the
+  collection threshold can grow) is derived from it.
 - **Source size limits:** each source file is limited to 1 MiB and the
   expanded import closure to 4 MiB; both are rejected with an error, not
   truncated (#37, #38). The 256 MiB source arena is bounded and can be resized

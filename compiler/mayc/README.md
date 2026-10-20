@@ -129,12 +129,13 @@ compiler invocation, and observable behavior against the native backend.
 
 ## Cross compilation
 
-The compiler executable itself currently runs on x86-64 Linux. Target selection
-is explicit and does not depend on the host:
+The compiler executable runs on x86-64 Linux and on NodeOS. Target selection
+is explicit; only the default follows the host (`x86_64-nodeos` on NodeOS):
 
 | Target | Format | Supported programs |
 | --- | --- | --- |
 | `x86_64-linux` (default) | ELF64 | Full runtime, core runtime and `--raw` |
+| `x86_64-nodeos` | NXF | Full runtime, core runtime and `--raw`; no C externs |
 | `arm64-linux` | ELF64 | Core runtime and `--raw` |
 | `riscv64-linux` | ELF64 | Core runtime and `--raw` (RV64IM) |
 | `arm64-macos` | Mach-O ARM64 | Core runtime and `--raw`; sign on macOS |
@@ -152,8 +153,14 @@ is explicit and does not depend on the host:
 | Recoverable faults and source traces | Yes | Yes | Yes; uncaught faults exit 70 | No injected runtime |
 | Cooperative fibers | Yes | Yes | Yes | No injected scheduler |
 | Typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
-| File/process/network libraries | Linux x86-64 | Linux x86-64 | Rejected | Explicit target OS calls |
+| File/process/network libraries | Linux and NodeOS x86-64 (no NodeOS sockets) | Linux x86-64 | Rejected | Explicit target OS calls |
 | Heap lifetime | Conservative GC | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
+
+On `x86_64-nodeos`, `syscall` keeps Linux numbering: each site calls a gate
+into a personality in [`runtime/nodeos.may`](runtime/nodeos.may) that answers
+with NodeOS syscalls and IPC, and images are written as NXF. See
+[NodeOS target](../../docs/internals/NODEOS.md) for the mapping, the
+`exec`/`system` spawn path, hosting the compiler there, and limits.
 
 The [backend parity handoff](../../docs/internals/BACKEND_PARITY_PROGRESS.md)
 records completed work, validation and remaining language/OS API gaps.

@@ -115,6 +115,7 @@ Compiler **host** support and emitted **program targets** are separate:
 | Program target | Format | Runtime |
 | --- | --- | --- |
 | `x86_64-linux` | ELF64 | Full, core, raw |
+| `x86_64-nodeos` | NXF | Full, core, raw; the compiler also runs on NodeOS |
 | `arm64-linux` | ELF64 | Core, raw |
 | `riscv64-linux` | ELF64 (RV64IM) | Core, raw |
 | `arm64-macos` | Mach-O | Core, raw; signing required |
@@ -125,6 +126,8 @@ Use `mayc --list-targets` for discovery and see the
 [compiler guide](compiler/mayc/README.md#cross-compilation) for feature limits.
 LLVM output requires Clang and excludes fibers and FFI. Native Windows and
 macOS program execution is covered by the [native target suite](docs/internals/NATIVE_TARGETS.md).
+[NodeOS](docs/internals/NODEOS.md), a capability microkernel, runs Maylang
+programs and the compiler itself, which rebuilds itself there byte-identically.
 
 ## Find your way around
 

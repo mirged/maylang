@@ -13,6 +13,7 @@
 | Use networking | [Networking](guide/NETWORK.md) |
 | Configure language-server support | [LSP](guide/LSP.md), [server guide](../tools/maylsp/README.md) |
 | Review cross-target execution | [Native target tests](internals/NATIVE_TARGETS.md) |
+| Build for NodeOS or run the compiler there | [NodeOS target](internals/NODEOS.md) |
 | Make a release | [Releasing](guide/RELEASING.md), [distribution](../dist/README.md) |
 | Review findings and priorities | [Audit](AUDIT.md), [roadmap](../ROADMAP.md) |
 

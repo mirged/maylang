@@ -13,8 +13,16 @@ blocks; allocation restores it when a block is reused. This prevents stale
 headers inside coalesced/reused payloads from being treated as allocations and
 having their payload bytes modified by marking.
 
-The table reserves one byte per eight heap bytes (32 MiB for the default
-256 MiB heap), with pages committed on demand. Stack, global and suspended
+Collection starts when 256 MiB of heap is in use. The heap reserves four times
+that address space (1 GiB), committed on demand; when a full collection cannot
+satisfy an allocation, the threshold grows by 64 MiB (or the request's size)
+within the reservation instead of exiting with `out of memory`. Programs that
+fit in 256 MiB collect exactly as before. A system that refuses the 1 GiB
+reservation gets a fixed 256 MiB heap, then smaller ones. The self-hosted
+compiler needs this: compiling its own source keeps close to 256 MiB live.
+
+The table reserves one byte per eight reserved heap bytes (128 MiB for the
+default 1 GiB reservation), with pages committed on demand. Stack, global and suspended
 fiber roots are traced, including runtime metadata. Mark-stack exhaustion
 terminates with exit 70 instead of silently losing live descendants.
 The global-root registry admits 131,072 addresses; further registrations print
