@@ -1,4 +1,26 @@
-# Unreleased
+# Maylang 0.14.0 — Elm
+
+Released 2026-10-20 UTC. Maylang targets NodeOS, a capability microkernel,
+with every runtime, and the compiler runs there: it rebuilds itself on NodeOS
+into a compiler byte-identical to the one cross-built on Linux. The full
+runtime's heap can now outgrow 256 MiB, and Float rounding and conversion
+are stricter.
+
+## Behavior changes
+
+- `floor`, `ceil` and `round` return Floats, and `int`/`trunc` fault on
+  values outside the Int range (details under Runtime).
+- The full runtime reserves 1 GiB of address space for its heap (committed on
+  demand). Collection still starts at 256 MiB; a program whose live data
+  exceeds that now keeps running instead of exiting with `out of memory`.
+
+## Remaining limits
+
+- On NodeOS there are no C externs (no dynamic loader), no sockets (no network
+  service) and no wall clock; children do not inherit the working directory
+  or environment, and created file names must fit 8.3.
+- Compiler hosts are Linux x86-64 and NodeOS; release bundles are Linux
+  x86-64 only.
 
 ## Targets
 
