@@ -226,7 +226,7 @@ fun llvm_builtin(s: Any, name: Any, values: Any, nodes: Any) -> Any {
         mut d: Any = llvm_double(s, box); mut fn: Any = name;
         if (fn == "__fabs") { fn = "fabs"; } if (fn == "ln") { fn = "log"; } if (fn == "round") { fn = "nearbyint"; }
         mut result: Any = llvm_ssa(s, "call double @${fn}(double ${d})", "double");
-        if (name == "floor" or name == "ceil" or name == "trunc") { return llvm_call(s, "rt_float_int", [llvm_trunc(s,result)]); }
+        if (name == "trunc") { return llvm_call(s, "rt_float_int", [llvm_trunc(s,result)]); }
         return llvm_float_box(s, result);
     }
     if (name == "print") {

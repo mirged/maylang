@@ -45,7 +45,7 @@ SPECIAL = [
     ('print(pow(2, 8), pow(2, -1), pow(1.5, 2), 2 ** 10, 2.0 ** 10, 2 ** -2, 9.0 ** 0.5);',
      '256.0 0.5 2.25 1024 1024.0 0.25 3.0'),
     ('print(sqrt(4), floor(3), ceil(3), trunc(-3), sin(0), cos(0), exp(0), ln(1), log2(8), log10(100), tan(0));',
-     '2.0 3 3 -3 0.0 1.0 1.0 0.0 3.0 2.0 0.0'),
+     '2.0 3.0 3.0 -3 0.0 1.0 1.0 0.0 3.0 2.0 0.0'),
     # Signed zeros display as -0.0; also compare their sign bits.
     ('print(high(sin(nz)), high(tan(nz)), high(pow(nz, 3.0)), high(pow(nz, 2.0)), high(pow(0.0 - inf, -3.0)), high(pow(-0.5, 1075.0)));',
      '2147483648 2147483648 2147483648 0 2147483648 2147483648'),

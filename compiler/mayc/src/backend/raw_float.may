@@ -37,6 +37,28 @@ fun raw_float_truncate(ctx: Any, emitter: Any, rounding: Any) -> Any {
     placelab(ctx, done); return 0;
 }
 
+// Round d0 to an integral Float (floor: 1, ceil: 2). ARM64 has FRINTM/FRINTP.
+// RISC-V D has no such instruction: |x| >= 2^52, infinities and NaN are
+// already integral; smaller values round through a 64-bit integer, and FSGNJ
+// restores the sign of zero results such as ceil(-0.5).
+fun raw_float_round(ctx: Any, emitter: Any, rounding: Any) -> Any {
+    if (ctx.target.arch == "arm64") {
+        e32(ctx, if (rounding == 1) { 509952000 } else { 509919232 }); // frintm/frintp d0,d0
+        return raw_float_result(ctx, emitter);
+    }
+    let integral: Any = newlab(ctx);
+    e32(ctx, 3791652179); // fmv.x.d a0,f0
+    riscv_i(ctx, 20499, 10, 10, 52); // srli a0,a0,52
+    (emitter.immediate)(ctx, 2048, 1); (emitter.binary)(ctx, TK_PCT);
+    (emitter.immediate)(ctx, 1075, 1); (emitter.binary)(ctx, TK_GE);
+    (emitter.branch)(ctx, integral, false);
+    e32(ctx, 3256878419 + (rounding + 1) * 4096); // fcvt.l.d a0,f0,rdn/rup
+    e32(ctx, 3525640403); // fcvt.d.l f1,a0
+    e32(ctx, 570458195); // fsgnj.d f0,f1,f0
+    placelab(ctx, integral);
+    return raw_float_result(ctx, emitter);
+}
+
 fun raw_float_call(ctx: Any, emitter: Any, name: Any, args: Any) -> Any {
     if (name == "__fbin" or name == "__fcmp") {
         let operation: Any = args.value;
@@ -98,6 +120,7 @@ fun raw_float_call(ctx: Any, emitter: Any, name: Any, args: Any) -> Any {
             else { if (name == "sqrt") { 1509978195 } else { 570433619 } });
         return raw_float_result(ctx, emitter);
     }
-    raw_float_truncate(ctx, emitter, if (name == "floor") { 1 } else if (name == "ceil") { 2 } else { 0 });
+    if (name == "floor" or name == "ceil") { return raw_float_round(ctx, emitter, if (name == "floor") { 1 } else { 2 }); }
+    raw_float_truncate(ctx, emitter, 0);
     (emitter.move)(ctx, 10, 0); return raw_invoke(ctx, emitter, "rt_float_int");
 }

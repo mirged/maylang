@@ -84,8 +84,8 @@
 - **env** — `fun env(name: Any) -> Any` — Read an environment variable (Linux: via `/proc/self/environ`).
 - **pi** — `fun pi() -> Any` — Return the binary64 approximation of π, 3.141592653589793.
 - **e** — `fun e() -> Any` — Return the binary64 approximation of Euler's number, 2.718281828459045.
-- **round** — `fun round(x: Any) -> Any` — Return `floor(x + 0.5)`; halfway negative values round toward positive infinity.
-- `round`: Integer return; the source uses floor(x + 0.5), including negative halfway cases.
+- **round** — `fun round(x: Any) -> Any` — Round to the nearest integral Float; halfway values round toward positive infinity (`round(-2.5)` is `-2.0`).
+- `round`: Float return; halfway values, including negative ones, round toward positive infinity. Convert with int() where an Int is needed.
 - **sinh** — `fun sinh(x: Any) -> Any` — Compute `(exp(x) - exp(-x)) / 2.0`.
 - **cosh** — `fun cosh(x: Any) -> Any` — Compute `(exp(x) + exp(-x)) / 2.0`.
 - **tanh** — `fun tanh(x: Any) -> Any` — Compute `(exp(2*x) - 1) / (exp(2*x) + 1)`; large inputs may overflow the exponential.

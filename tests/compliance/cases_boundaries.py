@@ -23,6 +23,7 @@ cases.update({
  'json_surrogate_roundtrip': ('let x="🙂é中"; print(json_parse(json_stringify(x)) == x);', 'true\n'),
  'float_int_range': ('for x in [1.0e300, -1.0e300, 1.0e19, sqrt(-1.0), 1152921504606846976.0, 1.0e308 * 10.0] { print(may { trunc(x) } otherwise { err.kind }, may { int(x) } otherwise { err.kind }); }', 'arithmetic arithmetic\n'*6),
  'float_int_limits': ('print(trunc(-1152921504606846976.0), int(1152921504606846848.0), int(-2.9), trunc(1.0e18));', '-1152921504606846976 1152921504606846848 -2 1000000000000000000\n'),
+ 'float_rounding_floats': ('print(floor(1.0e300) == 1.0e300, floor(2.5), ceil(-2.5), round(-2.5), round(2.5), type(floor(3)), int(floor(-2.5)));', 'true 2.0 -2.0 -2.0 3.0 Float -3\n'),
  'float_large_mantissa': ('print(100000000000000000000.0 > 1.0);', 'true\n'),
 })
 (WORK/'module_select.may').write_text('pub let value=7; pub let other=9;\n')

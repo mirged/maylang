@@ -256,13 +256,13 @@
 - `sqrt` parameter `x`: The number to evaluate; trigonometric angles use radians.
 - `sqrt` returns: A floating-point result.
 - `sqrt` example: `print(sqrt(9.0));`.
-- **floor** — `floor(x)` — Round a number down to an integer-valued numeric result.
+- **floor** — `floor(x)` — Round a number down to an integral Float; NaN, infinities and -0.0 are returned unchanged.
 - `floor` parameter `x`: The number to evaluate; trigonometric angles use radians.
-- `floor` returns: The rounded value.
+- `floor` returns: The rounded Float; use int(floor(x)) for an Int.
 - `floor` example: `print(floor(2.9));`.
-- **ceil** — `ceil(x)` — Round a number up to an integer-valued numeric result.
+- **ceil** — `ceil(x)` — Round a number up to an integral Float; NaN, infinities and -0.0 are returned unchanged.
 - `ceil` parameter `x`: The number to evaluate; trigonometric angles use radians.
-- `ceil` returns: The rounded value.
+- `ceil` returns: The rounded Float; use int(ceil(x)) for an Int.
 - `ceil` example: `print(ceil(2.1));`.
 - **sin** — `sin(x)` — Compute the sine of an angle in radians.
 - `sin` parameter `x`: The number to evaluate; trigonometric angles use radians.

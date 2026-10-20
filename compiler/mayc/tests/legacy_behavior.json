@@ -61,7 +61,7 @@
   },
   "floats.may": {
     "exit": 0,
-    "stdout": "MC4zMzMzMzMzMzMzMzMzMzMzCjAuNjY2NjY2NjY2NjY2NjY2NgowLjMwMDAwMDAwMDAwMDAwMDA0CjFlMTYKMC4wMDAxCjE1MDAwMDAwMDAwLjAKMWUtMTAKMy4xNDE1OTI2NTM1ODk3OTMKNS4wIDIuNQotMyAtMiAtMiAtMgo=",
+    "stdout": "MC4zMzMzMzMzMzMzMzMzMzMzCjAuNjY2NjY2NjY2NjY2NjY2NgowLjMwMDAwMDAwMDAwMDAwMDA0CjFlMTYKMC4wMDAxCjE1MDAwMDAwMDAwLjAKMWUtMTAKMy4xNDE1OTI2NTM1ODk3OTMKNS4wIDIuNQotMy4wIC0yLjAgLTIgLTIuMAo=",
     "stderr": ""
   },
   "funcs.may": {
@@ -126,7 +126,7 @@
   },
   "math.may": {
     "exit": 0,
-    "stdout": "NC4wIDUgMi41CjIgMyAzIDIgMgozIDcgNSAwCi0xIDAgMQp0cnVlIHRydWUKMTAyNC4wIDEuNDE0MjEzNTYyMzczMDk1MQp0cnVlIHRydWUKMC4wIDEuMAozLjAgMy4wIDEuMAo=",
+    "stdout": "NC4wIDUgMi41CjIuMCAzLjAgMy4wIDIuMCAyCjMgNyA1IDAKLTEgMCAxCnRydWUgdHJ1ZQoxMDI0LjAgMS40MTQyMTM1NjIzNzMwOTUxCnRydWUgdHJ1ZQowLjAgMS4wCjMuMCAzLjAgMS4wCg==",
     "stderr": ""
   },
   "may1.may": {

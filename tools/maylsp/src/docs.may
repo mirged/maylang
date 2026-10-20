@@ -1012,7 +1012,7 @@ let LS_REFERENCE: Any = {
     },
     "floor": {
         "signature": "floor(x)",
-        "docs": "Round a number down to an integer-valued numeric result.\n\n**Parameters**\n- `x`: The number to evaluate; trigonometric angles use radians.\n\n**Returns:** The rounded value.\n\n**Example**\n```may\nprint(floor(2.9));\n```",
+        "docs": "Round a number down to an integral Float; NaN, infinities and -0.0 are returned unchanged.\n\n**Parameters**\n- `x`: The number to evaluate; trigonometric angles use radians.\n\n**Returns:** The rounded Float; use int(floor(x)) for an Int.\n\n**Example**\n```may\nprint(floor(2.9));\n```",
         "params": [
             "x"
         ],
@@ -1022,7 +1022,7 @@ let LS_REFERENCE: Any = {
     },
     "ceil": {
         "signature": "ceil(x)",
-        "docs": "Round a number up to an integer-valued numeric result.\n\n**Parameters**\n- `x`: The number to evaluate; trigonometric angles use radians.\n\n**Returns:** The rounded value.\n\n**Example**\n```may\nprint(ceil(2.1));\n```",
+        "docs": "Round a number up to an integral Float; NaN, infinities and -0.0 are returned unchanged.\n\n**Parameters**\n- `x`: The number to evaluate; trigonometric angles use radians.\n\n**Returns:** The rounded Float; use int(ceil(x)) for an Int.\n\n**Example**\n```may\nprint(ceil(2.1));\n```",
         "params": [
             "x"
         ],

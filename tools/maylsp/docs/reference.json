@@ -1107,9 +1107,9 @@
     },
     "floor": {
       "signature": "floor(x)",
-      "summary": "Round a number down to an integer-valued numeric result.",
+      "summary": "Round a number down to an integral Float; NaN, infinities and -0.0 are returned unchanged.",
       "example": "print(floor(2.9));",
-      "returns": "The rounded value.",
+      "returns": "The rounded Float; use int(floor(x)) for an Int.",
       "parameters": [
         {
           "name": "x",
@@ -1119,9 +1119,9 @@
     },
     "ceil": {
       "signature": "ceil(x)",
-      "summary": "Round a number up to an integer-valued numeric result.",
+      "summary": "Round a number up to an integral Float; NaN, infinities and -0.0 are returned unchanged.",
       "example": "print(ceil(2.1));",
-      "returns": "The rounded value.",
+      "returns": "The rounded Float; use int(ceil(x)) for an Int.",
       "parameters": [
         {
           "name": "x",

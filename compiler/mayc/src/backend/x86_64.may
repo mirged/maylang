@@ -2895,7 +2895,8 @@ fun cg_f1op(ctx: Any, op: Any, x: Any) -> Any {
         else if (op == 3) { e8(ctx, 0); }
         else { e8(ctx, 3); }
         e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 126); e8(ctx, 192);
-        if (op != 3) {
+        // floor, ceil and round keep the ROUNDSD result as a Float; trunc yields an Int.
+        if (op == 4) {
             boxed = 0;
             e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 44); e8(ctx, 192);
             call_rt1(ctx, addr("rt_float_int"), len("rt_float_int"));

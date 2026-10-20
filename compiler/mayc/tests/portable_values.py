@@ -30,11 +30,12 @@ FAULT_EXPECTED = (b'42\n["fail", "explicit"]\nrender\narithmetic\ntype\nfirst\ns
 DEBUG_EXPECTED = b'true true true\ntrue false true\ntrue\nfalse\n'
 FLOAT_EXPECTED = (b'3.75 5.0 3.0 3.5 -2.5 2.5\n'
                   b'0.3333333333333333 0.30000000000000004 6.5\n'
-                  b'-3 -2 -2 2 3 -2 3\n4.0 true true\n-122.5 42.0 3 -3\n'
+                  b'-3.0 -2.0 -2 2.0 3.0 -2.0 3.0\n4.0 true true\n-122.5 42.0 3 -3\n'
                   b'true true true true true true\nfalse true true true\n'
                   b'[1.25, -2.5] {"number": 3.75}\narithmetic\n'
                   b'true false true true true true\nnan\n'
-                  b'arithmetic Float outside Int range -1152921504606846976 arithmetic\n3.75\n1.0 1e20 1e-10\n3.5\n')
+                  b'arithmetic Float outside Int range -1152921504606846976 arithmetic\n'
+                  b'1e300 -0.0 -0.0 0.0 4503599627370497.0 4503599627370496.0 nan -inf\n3.75\n1.0 1e20 1e-10\n3.5\n')
 FIBER_EXPECTED = b'true false\na a\ntrue false\nb b\nmain\n'
 COMPARE_EXPECTED = (b'true false true true true false true false false\ntrue 1\none letter other other\n'
                     b'type: cannot compare Float with Int\ntype: cannot compare Nil with Int\n'
