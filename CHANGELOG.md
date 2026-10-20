@@ -1,3 +1,12 @@
+# Unreleased
+
+## Targets
+
+- On NodeOS, programs read the environment their launcher passes and start in
+  its `PWD`, so `cd /src; mayc main.may` at the NodeOS shell compiles
+  `/src/main.may`, and `env("NAME")` sees exported shell variables. `exec`
+  and `system` pass the environment on to the programs they start.
+
 # Maylang 0.14.0 — Elm
 
 Released 2026-10-20 UTC. Maylang targets NodeOS, a capability microkernel,

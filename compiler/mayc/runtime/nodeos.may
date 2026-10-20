@@ -30,6 +30,8 @@ mut NODEOS_STATE: Any = 0;     // base of the personality's own memory
 mut NODEOS_CONSOLE: Any = 0;
 mut NODEOS_FILES: Any = 0;
 mut NODEOS_CMDLINE: Any = 0;   // bytes of the NUL-separated command line
+mut NODEOS_ENV: Any = 0;       // the launcher's environment, if it sent one
+mut NODEOS_ENVLEN: Any = 0;
 mut NODEOS_INPUT_POS: Any = 0;
 mut NODEOS_INPUT_LEN: Any = 0;
 mut NODEOS_MIRROR_LEN: Any = 0;
@@ -84,9 +86,36 @@ fun rt_nodeos_init() -> Any {
     mut extra: Any = 2;
     while (extra < count) { __nodeos_syscall(19, load32(NODEOS_STATE + 128 + extra * 4)); extra += 1; }
     let received: Any = load32(d + 24);
+    let flags: Any = load32(reply + 44);
     if (received > 48) {
         rt_nodeos_copy(NODEOS_STATE + 24576, reply + 48, received - 48);
         NODEOS_CMDLINE = received - 48;
+    }
+    // BootstrapMessage.flags bit 0: an environment message follows, of
+    // NUL-terminated NAME=value strings (the shell's exported variables).
+    if (flags % 2 == 1) { rt_nodeos_init_environment(d, reply); }
+    return 0;
+}
+
+fun rt_nodeos_init_environment(d: Any, reply: Any) -> Any {
+    rt_nodeos_descriptor(d, 0, 0, reply, 65536, 0, 0);
+    if (__nodeos_syscall(15, NODEOS_BOOT, d) < 0) { return 0; }
+    if (load32(d) != 1162761801) { return 0; }
+    let length: Any = load32(d + 24);
+    let data: Any = rt_nodeos_map(length + 1);
+    if (data < 0) { return 0; }
+    rt_nodeos_copy(data, reply, length);
+    NODEOS_ENV = data; NODEOS_ENVLEN = length;
+    // Start in the launcher's working directory.
+    mut at: Any = 0;
+    while (at < length) {
+        mut end: Any = at;
+        while (end < length and load8(data + end) != 0) { end += 1; }
+        if (end - at > 5 and rt_nodeos_equal(data + at, 4, addr("PWD="), 4) == 1 and load8(data + at + 4) == 47 and end - at - 4 < 4000) {
+            rt_nodeos_copy(rt_nodeos_cwd(), data + at + 4, end - at - 4);
+            store8(rt_nodeos_cwd() + end - at - 4, 0);
+        }
+        at = end + 1;
     }
     return 0;
 }
@@ -251,6 +280,7 @@ fun rt_nodeos_open_virtual(fd: Any, path: Any, n: Any) -> Any {
     }
     if (rt_nodeos_equal(path, n, addr("/proc/self/environ"), 18) == 1) {
         store64(slot, 5); store64(slot + 32, addr("PATH=/bin\0HOME=/\0TERM=dumb\0")); store64(slot + 40, 27);
+        if (NODEOS_ENV != 0) { store64(slot + 32, NODEOS_ENV); store64(slot + 40, NODEOS_ENVLEN); }
         store64(slot + 16, 0); return 1;
     }
     return 0;
@@ -761,6 +791,7 @@ fun rt_nodeos_spawn(path: Any, argv: Any) -> Any {
     // channel, clock and load.
     store32(message + 4, 2 + 4 + 8 + 256 + 512 + 1024 + 4096 + 16384);
     store64(message + 32, 16777216);
+    if (NODEOS_ENV != 0) { store32(message + 44, 1); }   // an environment follows
     mut handles: Any = 0;
     let table: Any = NODEOS_STATE + 128;
     if (NODEOS_CONSOLE != 0) {
@@ -786,6 +817,11 @@ fun rt_nodeos_spawn(path: Any, argv: Any) -> Any {
     if (sent < 0) {
         __nodeos_syscall(19, parent); __nodeos_syscall(19, child); __nodeos_syscall(19, process);
         return rt_nodeos_errno(sent);
+    }
+    if (NODEOS_ENV != 0) {
+        // The child inherits this program's environment, as it arrived.
+        rt_nodeos_descriptor(d, 1162761801, 0, NODEOS_ENV, NODEOS_ENVLEN, 0, 0);
+        __nodeos_syscall(14, parent, d);
     }
     let started: Any = __nodeos_syscall(2, process, load64(info), load64(info + 8), child);
     __nodeos_syscall(19, parent);

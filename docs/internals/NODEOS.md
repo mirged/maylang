@@ -62,12 +62,12 @@ runs, because the full runtime's `rt_init` maps the heap through it.
 | `open` on a directory, `getdents64` | One `FS_LIST`, kept in a mapped buffer and returned as `linux_dirent64` records. |
 | `stat`, `lstat`, `fstat`, `newfstatat`, `access` | `FS_STAT`. Modes are synthesized (`0644`, `0755`); FAT has no owners. |
 | `mkdir`, `rmdir`, `unlink`, `rename` | `FS_MKDIR`, `FS_UNLINK`. `rename` copies and unlinks, because the filesystem has no rename; it refuses directories. |
-| `getcwd`, `chdir` | A working directory kept in the personality, starting at `/`. Relative paths are resolved against it. |
+| `getcwd`, `chdir` | A working directory kept in the personality, starting at the environment's `PWD` (the shell's directory) or `/`. Relative paths are resolved against it. |
 | `mmap` (anonymous), `munmap` | `memory_allocate` and `memory_map` in the heap window, committed on first touch; `memory_unmap` by base address. |
 | `clock_gettime`, `gettimeofday`, `time`, `nanosleep` | The kernel's monotonic clock. NodeOS has no wall clock, so time starts at boot. |
 | `exit`, `exit_group` | `process_exit`, after logging `may: exited with N`. |
 | `uname` | `NodeOS`. A compiler running on NodeOS uses this to default to `--target x86_64-nodeos`. |
-| `readlink("/proc/self/exe")`, `/proc/self/cmdline`, `/proc/self/environ` | The bootstrap arguments; `PATH=/bin`, `HOME=/`, `TERM=dumb`. |
+| `readlink("/proc/self/exe")`, `/proc/self/cmdline`, `/proc/self/environ` | The bootstrap arguments, and the environment message a launcher sends when it sets the bootstrap's `ENVIRONMENT` flag (the shell sends its exported variables); without one, `PATH=/bin`, `HOME=/`, `TERM=dumb`. |
 | `fork`, `vfork`, `execve` | `ENOSYS`. |
 | 1024 (spawn) | A Maylang extension: load an NXF with `process_create`/`process_load`, hand it the console and filesystem, and start it. |
 | `wait4` | `wait` for `PROCESS_TERMINATED`, then the exit code from `capability_query`. |
@@ -79,7 +79,8 @@ service yet, so `import "net"` compiles but its calls fail.
 they use the spawn extension instead: `exec` with the argument list, `system`
 with the command line split at spaces (there is no `/bin/sh`). A bare program
 name runs `/bin/<name>.nxf`, as at the NodeOS shell. Spawned programs share
-the parent's console and filesystem, and `wait` returns their exit status.
+the parent's console and filesystem and inherit its environment, and `wait`
+returns their exit status.
 
 The personality never allocates from the Maylang heap, which is created
 through it. Its state lives in one 192 KiB region mapped on first use, and all
@@ -103,8 +104,6 @@ needs about 400 MiB, so the self-hosting test boots with 1 GiB.
 - No sockets, signals, `fork` or threads beyond Maylang's cooperative fibers.
 - `munmap` of part of a mapping keeps the pages until exit.
 - Time is monotonic from boot; there is no real-time clock.
-- Child processes do not inherit a working directory or environment; NodeOS's
-  bootstrap message does not carry them yet.
 
 ## Tests
 
