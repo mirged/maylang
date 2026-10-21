@@ -40,7 +40,7 @@
 - Language server implementation: [Maylang maylsp](../../tools/maylsp/README.md); protocol/reference: [LSP guide](../guide/LSP.md).
 - VS Code integration: [extension installation and settings](../../editors/vscode/README.md); strict checking defaults on through `maylang.strict`; rebuild server/reload the window after toolchain changes.
 - Package manager: [maypkg usage and manifest reference](../../tools/maypkg/README.md); project manifests are mayproj.json, with mayproj.lock for dependency locking.
-- Compiler/bootstrap verification: `compiler/mayc/tests/run.sh`; source-only chain verification: `python3 compiler/rust/test.py`.
+- Compiler verification: `make test-compiler`; source-only chain and bootstrap fixpoint: `make test-bootstrap`.
 - Additional language/runtime regressions: `python3 tests/compliance/run.py`.
 - Networking verification: `python3 compiler/mayc/tests/network.py --llvm`; live tests may skip when socket creation is disallowed; CI can require sockets.
 - Documentation verification: `python3 docs/reference/generate.py --check`; this checks reference freshness, declaration description coverage and pure-list Markdown format.

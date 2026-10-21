@@ -425,18 +425,16 @@ returns tagged integer PIDs and checks wait failures and signal exit statuses.
 long allocation histories because the collector still has a reproducible
 corruption issue under sustained workloads.
 
-Run the bootstrap, feature regressions, ABI and diagnostics checks, all current
-example/project entry points, and ELF validation with:
+Run the feature regressions, area harnesses, ABI and diagnostics checks, all
+current example/project entry points, and ELF validation with:
 
 ```sh
-compiler/mayc/tests/run.sh
+make test-compiler
 ```
 
 The launcher obtains its initial native compiler from the Rust → C bootstrap.
-The verifier rebuilds it as `build/bootstrap/mayc_v2_seed`, then checks three
-successive native generations in `build/bootstrap/` for byte-identical output.
-`python3 compiler/rust/test.py` separately verifies the complete
-source-only chain, including C stage 1 and convergence of native stages 2 and 3.
+`make test-bootstrap` (`compiler/rust/test.py`) verifies the complete
+source-only chain, including C stage 1 and byte-identical native stages 2 and 3.
 
 Additional runtime and language compliance regressions live in
 [`tests/compliance`](../../tests/compliance/README.md). Run them with

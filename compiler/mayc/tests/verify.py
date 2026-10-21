@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
-"""Bootstrap, differential regressions, diagnostics, ELF, and current entrypoints.
+"""Differential regressions, area harnesses, diagnostics, ELF, and current entrypoints.
 
-The source-built compiler launcher first builds a seed. Following generations
-must converge to identical binaries.
+Bootstrap convergence is checked separately by compiler/rust/test.py
+(`make test-bootstrap`).
 """
 import argparse
 import base64
-import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 COMPILER = ROOT / "compiler/mayc"
-BOOTSTRAP = COMPILER / "build/bootstrap"
-BOOTSTRAP.mkdir(parents=True, exist_ok=True)
 ARTIFACTS = ROOT / "tests/compliance/build"
 ARTIFACTS.mkdir(parents=True, exist_ok=True)
 WORK = Path(tempfile.mkdtemp(prefix="verify-", dir=ARTIFACTS))
@@ -40,33 +38,6 @@ def compile_source(compiler, source, binary, timeout=180):
     result = run([compiler, source, "-o", binary], timeout=timeout)
     if result.returncode:
         raise RuntimeError(result.stderr.decode(errors="replace"))
-
-
-def sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def bootstrap():
-    # Each copied generation must carry the runtime it was compiled against.
-    for name in ('runtime.may', 'native.may'):
-        shutil.copy2(COMPILER / name, BOOTSTRAP / name)
-    shutil.copy2(ROOT / 'stdlib/prelude.may', BOOTSTRAP / 'prelude.may')
-    shutil.copytree(COMPILER / 'runtime', BOOTSTRAP / 'runtime', dirs_exist_ok=True)
-    seed = BOOTSTRAP / "mayc_v2_seed"
-    first = BOOTSTRAP / "mayc_v2_stage1"
-    second = BOOTSTRAP / "mayc_v2_stage2"
-    third = BOOTSTRAP / "mayc_v2_stage3"
-    # The launcher builds a strict-capable compiler from Rust/C on first use.
-    # The full self-hosted compiler can collect several times while building;
-    # allow longer than the small regression programs, including under load.
-    compile_source(COMPILER / "mayc_new", COMPILER / "main.may", seed, timeout=600)
-    compile_source(seed, COMPILER / "main.may", first, timeout=600)
-    compile_source(first, COMPILER / "main.may", second, timeout=600)
-    compile_source(second, COMPILER / "main.may", third, timeout=600)
-    hashes = {str(path.relative_to(ROOT)): sha256(path) for path in (seed, first, second, third)}
-    stable = hashes[str(first.relative_to(ROOT))] == hashes[str(second.relative_to(ROOT))] == hashes[str(third.relative_to(ROOT))]
-    record("bootstrap fixpoint", stable, json.dumps(hashes))
-    return first
 
 
 def features(compiler):
@@ -158,72 +129,61 @@ def targets(compiler):
     record("ELF sections and segment permissions", ok, elf.stderr.decode())
 
 
+# Area harnesses: each takes --compiler and exits nonzero on failure.
+HARNESSES = [
+    (["cli.py"], "source-free target discovery and runtime defaults"),
+    (["comments.py"], "nested comments and source-aware import expansion"),
+    (["strict_types.py"], "strict type contracts"),
+    (["modules.py"], "module identities and visibility"),
+    (["backends.py"], "backend contexts and cross-target formats"),
+    (["raw_codegen.py"], "raw x86-64 code generation and workload checksums"),
+    (["regalloc.py"], "linear-scan allocation and GC roots"),
+    (["core_runtime.py"], "portable core runtime across formats"),
+    (["portable_values.py"], "portable collections, closures and calling conventions"),
+    (["runtime_maps.py"], "runtime hash tables and allocation bins"),
+    (["gc.py"], "GC allocation identity and repeated collections"),
+    (["gc_stress.py", "--self-test"], "seeded GC graph oracle, heap invariants and suspended closures"),
+    (["stdlib_contracts.py"], "typed standard-library contracts"),
+    (["strings.py"], "Unicode string operations and long environments"),
+    (["json_controls.py"], "JSON control escaping and independent parser roundtrips"),
+    (["processes.py"], "process inheritance and exit contracts"),
+    (["file_io.py"], "complete binary file I/O"),
+    (["source_files.py"], "compiler source read failures and empty files"),
+    (["reachability.py"], "reachable functions, runtime helpers and loader dependencies"),
+    (["behavior.py"], "scalar pure behavior contracts"),
+    (["effect_rows.py"], "effect ceilings and recursive propagation"),
+    (["behavior_reports.py"], "inspectable behavior summaries"),
+    (["behavior_scalars.py"], "floating-point behavior contracts and pure constants"),
+    (["behavior_control_flow.py"], "private scalar state and while-loop behavior contracts"),
+    (["behavior_ir.py"], "behavior metadata survives frontend-to-IR snapshots"),
+    (["behavior_function_types.py"], "callable effect-row type operations and variance"),
+    (["behavior_callbacks.py"], "source callable ceilings and callback laundering rejection"),
+    (["list_guards.py"], "dynamic list type and index guards"),
+    (["numeric_contracts.py"], "numeric bounds and array lengths"),
+    (["float_literals.py"], "correctly rounded float literals"),
+    (["float_math.py"], "transcendental functions and floating powers on every backend"),
+    (["float_text.py"], "shortest round-trip display and correctly rounded parsing"),
+    (["strength_reduction.py"], "signed power-of-two codegen and runtime fallbacks"),
+    (["diagnostics.py"], "structured diagnostics and recovery"),
+    (["debug_traces.py"], "debug traces and fiber isolation"),
+    (["fibers.py"], "suspended fiber handlers and caught errors"),
+    (["externs.py"], "typed scalar externs and C-ABI stack arguments"),
+    (["nodeos.py"], "x86_64-nodeos NXF images and target diagnostics"),
+    (["fuzz.py"], "bounded frontend fuzzing"),
+]
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--skip-bootstrap", action="store_true")
-    parser.add_argument("--features-only", action="store_true")
-    parser.add_argument("--compiler", type=Path, help="test an existing compiler without bootstrapping")
+    parser.add_argument("--features-only", action="store_true", help="skip the example entry points")
+    parser.add_argument("--compiler", type=Path, default=COMPILER / "mayc_new")
     options = parser.parse_args()
+    compiler = options.compiler.resolve()
     try:
-        compiler = options.compiler.resolve() if options.compiler else (BOOTSTRAP / "mayc_v2_stage1" if options.skip_bootstrap else bootstrap())
         features(compiler)
         architecture(compiler)
-        cli = run(["python3", COMPILER / "tests/cli.py", "--compiler", compiler], timeout=180)
-        record("source-free target discovery and runtime defaults", cli.returncode == 0, (cli.stdout + cli.stderr).decode())
-        comments = run(["python3", COMPILER / "tests/comments.py", "--compiler", compiler], timeout=180)
-        record("nested comments and source-aware import expansion", comments.returncode == 0, (comments.stdout + comments.stderr).decode())
-        strict = run(["python3", COMPILER / "tests/strict_types.py", "--compiler", compiler], timeout=180)
-        record("strict type contracts", strict.returncode == 0, (strict.stdout + strict.stderr).decode())
-        modules = run(["python3", COMPILER / "tests/modules.py", "--compiler", compiler], timeout=180)
-        record("module identities and visibility", modules.returncode == 0, (modules.stdout + modules.stderr).decode())
-        backends = run(["python3", COMPILER / "tests/backends.py", "--compiler", compiler], timeout=180)
-        record("backend contexts and cross-target formats", backends.returncode == 0, (backends.stdout + backends.stderr).decode())
-        raw_codegen = run(["python3", COMPILER / "tests/raw_codegen.py", "--compiler", compiler], timeout=180)
-        record("raw x86-64 code generation and workload checksums", raw_codegen.returncode == 0, (raw_codegen.stdout + raw_codegen.stderr).decode())
-        allocator = run(["python3", COMPILER / "tests/regalloc.py", "--compiler", compiler], timeout=180)
-        record("linear-scan allocation and GC roots", allocator.returncode == 0, (allocator.stdout + allocator.stderr).decode())
-        core = run(["python3", COMPILER / "tests/core_runtime.py", "--compiler", compiler], timeout=180)
-        record("portable core runtime across formats", core.returncode == 0, (core.stdout + core.stderr).decode())
-        portable = run(["python3", COMPILER / "tests/portable_values.py", "--compiler", compiler], timeout=180)
-        record("portable collections, closures and calling conventions", portable.returncode == 0, (portable.stdout + portable.stderr).decode())
-        maps = run(["python3", COMPILER / "tests/runtime_maps.py", "--compiler", compiler], timeout=180)
-        record("runtime hash tables and allocation bins", maps.returncode == 0, (maps.stdout + maps.stderr).decode())
-        gc = run(["python3", COMPILER / "tests/gc.py", "--compiler", compiler], timeout=180)
-        record("GC allocation identity and repeated collections", gc.returncode == 0, (gc.stdout + gc.stderr).decode())
-        stress = run(["python3", COMPILER / "tests/gc_stress.py", "--compiler", compiler, "--self-test"], timeout=180)
-        record("seeded GC graph oracle, heap invariants and suspended closures", stress.returncode == 0, (stress.stdout + stress.stderr).decode())
-        libraries = run(["python3", COMPILER / "tests/stdlib_contracts.py", "--compiler", compiler], timeout=180)
-        record("typed standard-library contracts", libraries.returncode == 0, (libraries.stdout + libraries.stderr).decode())
-        strings = run(["python3", COMPILER / "tests/strings.py", "--compiler", compiler], timeout=180)
-        record("Unicode string operations and long environments", strings.returncode == 0, (strings.stdout + strings.stderr).decode())
-        json_controls = run(["python3", COMPILER / "tests/json_controls.py", "--compiler", compiler], timeout=180)
-        record("JSON control escaping and independent parser roundtrips", json_controls.returncode == 0, (json_controls.stdout + json_controls.stderr).decode())
-        processes = run(["python3", COMPILER / "tests/processes.py", "--compiler", compiler], timeout=180)
-        record("process inheritance and exit contracts", processes.returncode == 0, (processes.stdout + processes.stderr).decode())
-        for script, name in [("file_io.py", "complete binary file I/O"),
-                             ("source_files.py", "compiler source read failures and empty files"),
-                             ("reachability.py", "reachable functions, runtime helpers and loader dependencies"),
-                             ("behavior.py", "scalar pure behavior contracts"),
-                             ("effect_rows.py", "effect ceilings and recursive propagation"),
-                             ("behavior_reports.py", "inspectable behavior summaries"),
-                             ("behavior_scalars.py", "floating-point behavior contracts and pure constants"),
-                             ("behavior_control_flow.py", "private scalar state and while-loop behavior contracts"),
-                             ("behavior_ir.py", "behavior metadata survives frontend-to-IR snapshots"),
-                             ("behavior_function_types.py", "callable effect-row type operations and variance"),
-                             ("behavior_callbacks.py", "source callable ceilings and callback laundering rejection"),
-                             ("list_guards.py", "dynamic list type and index guards"),
-                             ("numeric_contracts.py", "numeric bounds and array lengths"),
-                             ("float_literals.py", "correctly rounded float literals"),
-                             ("float_math.py", "transcendental functions and floating powers on every backend"),
-                             ("float_text.py", "shortest round-trip display and correctly rounded parsing"),
-                             ("strength_reduction.py", "signed power-of-two codegen and runtime fallbacks"),
-                             ("diagnostics.py", "structured diagnostics and recovery"),
-                             ("debug_traces.py", "debug traces and fiber isolation"),
-                             ("fibers.py", "suspended fiber handlers and caught errors"),
-                             ("externs.py", "typed scalar externs and C-ABI stack arguments"),
-                             ("nodeos.py", "x86_64-nodeos NXF images and target diagnostics"),
-                             ("fuzz.py", "bounded frontend fuzzing")]:
-            result = run(["python3", COMPILER / "tests" / script, "--compiler", compiler], timeout=180)
+        for (script, *args), name in HARNESSES:
+            result = run([sys.executable, COMPILER / "tests" / script, "--compiler", compiler, *args], timeout=180)
             record(name, result.returncode == 0, (result.stdout + result.stderr).decode())
         if not options.features_only:
             targets(compiler)
