@@ -119,8 +119,7 @@ that span components. Relative imports between siblings use
 | `make test` | `check` plus Rust, compiler, compliance, docs and distribution suites |
 | `make test-rust` | `cargo test --offline --locked --workspace` |
 | `make test-compiler` | `compiler/mayc/tests/verify.py --compiler $(MAYC)`: fixtures, diagnostics, CLI, strict types, modules, backends, regalloc, core runtime, GC, stdlib contracts, all example entry points, ELF checks |
-| `compiler/mayc/tests/run.sh` | The same verifier, but it first rebuilds the compiler four times and requires byte-identical stages 1–3 (bootstrap fixpoint). Slow; run it for compiler or runtime changes. |
-| `make test-bootstrap` | `compiler/rust/test.py`: full source-only chain and stage 2/3 convergence |
+| `make test-bootstrap` | `compiler/rust/test.py`: full source-only chain and byte-identical stages 2 and 3 (bootstrap fixpoint). Slow; run it for compiler or runtime changes. |
 | `make test-compliance` | `tests/compliance/run.py`: runtime and coercion boundary cases |
 | `make test-tools` | `may`, `mayfmt`, `maypkg` and `maylsp` suites |
 | `make test-docs` | Compiles and runs the snippets in `docs/reference/EXAMPLES.md` and `docs/guide/STRICT.md` |
@@ -140,9 +139,9 @@ Socket and window tests skip when unavailable; say so in your report.
 | You changed | Run at least |
 | --- | --- |
 | Anything | `make check` |
-| Compiler frontend, IR, sema or strict checker | rebuild, `make test-rust test-compiler test-compliance`; `compiler/mayc/tests/run.sh` before merging |
+| Compiler frontend, IR, sema or strict checker | rebuild, `make test-rust test-compiler test-compliance`; `make test-bootstrap` before merging |
 | Backend or code generation | the above plus `make test-llvm`, `python3 compiler/mayc/tests/raw_codegen.py --compiler compiler/mayc/mayc_new`, and core-target harnesses (`backends.py`, `core_runtime.py`; add `--require-emulation` when Unicorn is installed) |
-| `runtime.may`, `native.may`, `prelude.may`, `runtime/` | `make test-compiler test-compliance` and the bootstrap fixpoint (`run.sh` or `make test-bootstrap`) |
+| `runtime.may`, `native.may`, `prelude.may`, `runtime/` | `make test-compiler test-compliance` and the bootstrap fixpoint (`make test-bootstrap`) |
 | `compiler/rust/**` | `make test-rust test-bootstrap` |
 | `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui` |
 | `tools/**` | `make test-tools` |
@@ -337,13 +336,13 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 
 ## CI
 
-`.github/workflows/`: `repository.yml` runs `make check` and
-`make test-distribution`. `bootstrap.yml` runs the source-only bootstrap, Rust
-tests, compiler verification, UI under X11, compliance, packaging and the
-editor; it also has optional core-emulation and performance jobs.
-`native-targets.yml` runs real Windows/macOS loaders. `maybrowser.yml` runs the
-browser suite under Xvfb. `release.yml` handles tagged releases. CI uses Ubuntu
-24.04 and Node 22.
+`.github/workflows/`: `bootstrap.yml` runs `make check` and
+`make test-distribution` as a quick `repository` job, then the source-only
+bootstrap, Rust tests, compiler verification, UI under X11, compliance,
+packaging and the editor; it also has optional core-emulation and performance
+jobs. `native-targets.yml` runs real Windows/macOS loaders. `maybrowser.yml`
+runs the browser suite under Xvfb. `release.yml` runs `bootstrap.yml` on a
+tag, then packages and publishes. CI uses Ubuntu 24.04 and Node 22.
 
 ## Known hazards
 

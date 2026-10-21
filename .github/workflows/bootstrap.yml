@@ -2,8 +2,10 @@ name: Source-only bootstrap
 
 on:
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -13,6 +15,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  repository:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check repository and generated references
+        run: make check
+      - name: Test developer setup and distribution contracts
+        run: make test-distribution
   bootstrap:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -26,10 +37,6 @@ jobs:
           rustup default stable
       - name: Check the unified Rust workspace
         run: cargo test --offline --locked --workspace
-      - name: Check synchronized public library reference
-        run: |
-          python3 docs/reference/generate.py --check
-          python3 tools/maylsp/docs/generate.py --check
       - name: Build and verify three compiler generations from source
         run: |
           test ! -e compiler/mayc/build/bin/mayc_new
@@ -82,7 +89,6 @@ jobs:
         run: python3 tests/ui/run.py --require-x11
       - name: Build and test an extracted release
         run: |
-          python3 dist/tests/test_release.py
           python3 dist/package.py --compiler compiler/mayc/mayc_new --output /tmp/maylang.tar.gz --installer-output /tmp/maylang-installers
           python3 dist/tests/test_package.py /tmp/maylang.tar.gz
           python3 dist/tests/test_installer.py --archive /tmp/maylang.tar.gz --artifacts /tmp/maylang-installers
