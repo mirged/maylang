@@ -1,3 +1,0 @@
-import "module_a.may" as a;
-import "module_b.may" as b;
-print(a.value(),b.value());

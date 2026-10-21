@@ -1,1 +1,0 @@
-print(may { [1,2]["oops"] } otherwise { "caught" });

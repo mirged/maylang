@@ -1,2 +1,0 @@
-import "module_a.may" as a;
-fun local(a) { a.value } print(local({value:8}),a.value());

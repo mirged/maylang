@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
 """Run self-hosted Maylang compliance checks; return nonzero on regressions."""
-from pathlib import Path
 import json
-import subprocess
-import sys
 
-HERE = Path(__file__).resolve().parent
-REPORTS = HERE / 'build/reports'
-(HERE / 'build').mkdir(exist_ok=True)
-for script in ('cases_core.py', 'cases_extended.py', 'cases_boundaries.py'):
-    result = subprocess.run([sys.executable, str(HERE / script)])
-    if result.returncode:
-        raise SystemExit(result.returncode)
-results = []
-for name in ('results.json', 'round2.json', 'followup.json'):
-    results.extend(json.loads((REPORTS / name).read_text()))
+from common import COMPILER, REPORTS, run_cases
+import cases_boundaries
+import cases_core
+import cases_extended
+
+cases, fixtures = {}, {}
+for module in (cases_core, cases_extended, cases_boundaries):
+    duplicate = cases.keys() & module.CASES.keys()
+    assert not duplicate, f'{module.__name__} redefines {sorted(duplicate)}'
+    cases.update(module.CASES)
+    fixtures.update(getattr(module, 'FIXTURES', {}))
+results = run_cases(cases, fixtures)
 report = {
-    'compiler': __import__('os').environ.get('MAYC', 'compiler/mayc/mayc_new'),
-    'passed': sum(r['passed'] is True for r in results),
-    'failed': sum(r['passed'] is False for r in results),
-    'observations': sum(r['passed'] is None for r in results),
+    'compiler': str(COMPILER),
+    'passed': sum(r['passed'] for r in results),
+    'failed': sum(not r['passed'] for r in results),
     'results': results,
 }
+REPORTS.mkdir(parents=True, exist_ok=True)
 (REPORTS / 'report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
-print(f"{report['passed']} passed, {report['failed']} failed, {report['observations']} observations")
+print(f"{report['passed']} passed, {report['failed']} failed")
 raise SystemExit(bool(report['failed']))

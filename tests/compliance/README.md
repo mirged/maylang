@@ -6,30 +6,24 @@ The deprecated Rust reference implementation is not involved.
 From the repository root:
 
 ```sh
-compiler/mayc/tests/run.sh
-python3 tests/compliance/run.py
+python3 tests/compliance/run.py    # or: make test-compliance
 ```
 
-The first command rebuilds the self-hosted compiler, verifies that three
-successive stages are byte-identical, and runs the existing feature, stress,
-ABI, diagnostic, example/project, and ELF checks. Its report is
-`verification.json`; the latest captured console output is `verification.log`
-in this directory. The entrypoint
-list is discovered dynamically, so adding an example no longer breaks a
-hard-coded count assertion.
+It compiles historical dynamic runtime cases with `--legacy`, runs them, and
+writes `build/reports/report.json`; it exits nonzero on failure. To test
+another self-hosted compiler, set `MAYC` to its absolute path. Compiler
+binaries need their `runtime.may` and `native.may` sidecars in the same
+directory. Strict-mode contracts are covered by the compiler verifier
+(`make test-compiler`, which runs `compiler/mayc/tests/strict_types.py`).
 
-The second command runs historical dynamic runtime cases with `--legacy` and
-writes `build/reports/report.json`. The compiler verification also runs `strict_types.py`
-with strict defaults, checking missing annotations, returns and concrete types.
-It exits nonzero on failure. To test another self-hosted compiler, set `MAYC`
-to its absolute path. Compiler binaries need their `runtime.may` and
-`native.may` sidecars in the same directory.
-
-Test sources and fixtures live here; generated reports, executables
-and verification artifacts go under `build/`. Historical report snapshots are
-preserved in `history/` and are not rewritten by tests. Each compilation is limited
-to 30 seconds and each compliance executable to 3 seconds. Core dumps are
-disabled. Python 3 and Linux are required.
+Cases are tables in `cases_core.py`, `cases_extended.py` and
+`cases_boundaries.py`: each maps a name to its source and expected stdout, or
+to `REJECT` for a program that must fail to compile. `run.py` writes each
+source, and the modules the cases import, to `build/cases/`; executables and
+reports also go under `build/`, which Git ignores. Historical report snapshots
+are preserved in `history/` and are not rewritten by tests. Each compilation is
+limited to 30 seconds and each compliance executable to 3 seconds. Core dumps
+are disabled. Python 3 and Linux are required.
 
 ## Fixed behavior
 
@@ -59,5 +53,4 @@ The `json_unicode` case records the existing source-string escape behavior.
 The JSON compliance tests construct backslash bytes explicitly to avoid
 confusing source-language escapes with JSON escapes.
 
-Current counts and individual outcomes are recorded in `build/reports/report.json` and
-`verification.json`, including the self-hosting fixpoint and discovered entrypoints.
+Current counts and individual outcomes are recorded in `build/reports/report.json`.

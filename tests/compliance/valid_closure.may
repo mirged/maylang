@@ -1,1 +1,0 @@
-fun make(x) { fun(y) { x+y } } print(make(4)(5));

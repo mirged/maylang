@@ -1,14 +1,12 @@
-from common import WORK, run_cases
+from common import REJECT
 
-cases={
+CASES = {
 'string_backslash':('let s="\\\\u00e9"; print(len(s), ord(s[0]), s);','6 92 \\u00e9\n'),
 'json_surrogate':('let s=chr(34)+chr(92)+"uD83D"+chr(92)+"uDE42"+chr(34); print(json_parse(s));','🙂\n'),
-'min_construct':('let x=0-int("1152921504606846975")-1; print(may { -x } otherwise { err.kind });','arithmetic\n'),
-'min_parse_caught':('print(may { int("-1152921504606846976") } otherwise { err.kind });','-1152921504606846976\n'),
 'json_string_roundtrip':('let s=chr(92)+"u00e9"; print(json_parse(json_stringify(s)) == s);','true\n'),
 }
 # Neighboring cases ensure the fixes cover more than the original examples.
-cases.update({
+CASES.update({
  'minimum_literal': ('print(-1152921504606846976);', '-1152921504606846976\n'),
  'minimum_abs': ('print(may { abs(-1152921504606846976) } otherwise { err.kind });', 'arithmetic\n'),
  'integer_parse_limits': ('print(may { int("1152921504606846976") } otherwise { err.kind }); print(may { int("-1152921504606846977") } otherwise { err.kind });', 'arithmetic\narithmetic\n'),
@@ -26,14 +24,12 @@ cases.update({
  'float_rounding_floats': ('print(floor(1.0e300) == 1.0e300, floor(2.5), ceil(-2.5), round(-2.5), round(2.5), type(floor(3)), int(floor(-2.5)));', 'true 2.0 -2.0 -2.0 3.0 Float -3\n'),
  'float_large_mantissa': ('print(100000000000000000000.0 > 1.0);', 'true\n'),
 })
-(WORK/'module_select.may').write_text('pub let value=7; pub let other=9;\n')
-cases['module_selective'] = ('from "module_select.may" import value;\nprint(value);', '7\n')
-cases['module_string_preserved'] = ('import "module_a.may" as a;\nprint("a.value", a.value());', 'a.value 11\n')
-cases['module_shared_name'] = ('import "module_a.may";\nimport "module_b.may";\nprint(value());', None)
-cases['module_selective_hidden'] = ('from "module_select.may" import value;\nprint(other);', None)
-cases['integer_positive_overflow'] = ('print(1152921504606846976);', None)
-cases['integer_negative_overflow'] = ('print(-1152921504606846977);', None)
+FIXTURES = {'module_select.may': 'pub let value=7; pub let other=9;\n'}
+CASES['module_selective'] = ('from "module_select.may" import value;\nprint(value);', '7\n')
+CASES['module_string_preserved'] = ('import "module_a.may" as a;\nprint("a.value", a.value());', 'a.value 11\n')
+CASES['module_shared_name'] = ('import "module_a.may";\nimport "module_b.may";\nprint(value());', REJECT)
+CASES['module_selective_hidden'] = ('from "module_select.may" import value;\nprint(other);', REJECT)
+CASES['integer_positive_overflow'] = ('print(1152921504606846976);', REJECT)
+CASES['integer_negative_overflow'] = ('print(-1152921504606846977);', REJECT)
 
-cases['module_alias_shadow'] = ('import "module_a.may" as a;\nfun local(a) { a.value } print(local({value:8}),a.value());', '8 11\n')
-
-run_cases(cases, "followup.json")
+CASES['module_alias_shadow'] = ('import "module_a.may" as a;\nfun local(a) { a.value } print(local({value:8}),a.value());', '8 11\n')

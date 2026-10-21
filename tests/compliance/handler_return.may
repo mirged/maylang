@@ -1,1 +1,0 @@
-fun f() { may { return 7; } otherwise { 0 } } print(f()); print(may { fail("after") } otherwise { "caught" });
