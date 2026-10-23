@@ -10,7 +10,7 @@ Duktape executes page scripts.
 ## Build and launch
 
 The current build targets Linux x86-64 with X11 or XWayland. It needs a native
-Maylang compiler, a C compiler, Python 3, X11 development headers, libcurl,
+Maylang compiler, a C compiler, Python 3, X11 and libcurl development headers,
 `libduktape.so.207`, and DejaVu fonts. On Ubuntu 24.04:
 
 ```sh
@@ -20,6 +20,10 @@ sh compiler/rust/build.sh
 make -C platform/maybrowser build
 platform/maybrowser/maybrowser
 ```
+
+The native adapter uses the official libcurl headers and links with `-lcurl`.
+For a nonstandard libcurl installation, set `CURL_CFLAGS` and `CURL_LIBS` when
+invoking Make; `CPPFLAGS` and `LDFLAGS` are also honored.
 
 Without an input, the browser opens its start page. Enter a file path or web
 address, or open the built-in playground to try interactive JavaScript.

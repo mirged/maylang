@@ -3,7 +3,8 @@ CC ?= cc
 PYTHON ?= python3
 TESTFLAGS ?=
 CFLAGS ?= -O2 -Wall -Wextra
-CURL_LIBS ?= -l:libcurl.so.4
+CURL_CFLAGS ?=
+CURL_LIBS ?= -lcurl
 WINDOW_LIBS ?= -lX11
 
 SOURCES := main.may $(wildcard src/*.may)
@@ -28,7 +29,7 @@ build/maybrowser: $(SOURCES) $(MAYC) ../../compiler/mayc/runtime.may ../../compi
 	mv $@.next $@
 
 build/libmaybrowser.so: native/maybrowser.c native/window.c $(VENDOR) | build/.dir
-	$(CC) $(CFLAGS) -fPIC -shared native/maybrowser.c native/window.c -o $@.next $(CURL_LIBS) $(WINDOW_LIBS) -lm
+	$(CC) $(CPPFLAGS) $(CURL_CFLAGS) $(CFLAGS) -fPIC -shared native/maybrowser.c native/window.c -o $@.next $(LDFLAGS) $(CURL_LIBS) $(WINDOW_LIBS) -lm
 	mv $@.next $@
 
 check: src/js_prelude.may

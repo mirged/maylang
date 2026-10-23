@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <curl/curl.h>
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "vendor/stb_truetype.h"
@@ -166,26 +167,6 @@ void mb_free(void *p) { free(p); }
 
 void *mb_alloc(long n) { return calloc(1, (size_t)(n > 0 ? n : 1)); }
 
-/*
- * libcurl is used through a hand-declared ABI (the development headers are not
- * present on the host).  The default write callback is used: setting only
- * CURLOPT_WRITEDATA makes libcurl fwrite() into the FILE* we supply.
- */
-typedef void CURL;
-typedef int CURLcode;
-typedef int CURLoption;
-extern CURL *curl_easy_init(void);
-extern CURLcode curl_easy_setopt(CURL *, CURLoption, ...);
-extern CURLcode curl_easy_perform(CURL *);
-extern void curl_easy_cleanup(CURL *);
-extern CURLcode curl_global_init(long);
-typedef void CURLU;
-extern CURLU *curl_url(void);
-extern int curl_url_set(CURLU *, int, const char *, unsigned);
-extern int curl_url_get(CURLU *, int, char **, unsigned);
-extern void curl_url_cleanup(CURLU *);
-extern void curl_free(void *);
-
 const char *mb_temp_file(void) {
     static char path[64];
     strcpy(path, "/tmp/maybrowser-XXXXXX");
@@ -200,25 +181,14 @@ const char *mb_url_resolve(const char *base, const char *reference) {
     free(result); result = NULL;
     CURLU *url = curl_url();
     char *resolved = NULL;
-    if (url && !curl_url_set(url, 0, base, 0) &&
-        !curl_url_set(url, 0, reference, 0) && !curl_url_get(url, 0, &resolved, 0))
+    if (url && !curl_url_set(url, CURLUPART_URL, base, 0) &&
+        !curl_url_set(url, CURLUPART_URL, reference, 0) &&
+        !curl_url_get(url, CURLUPART_URL, &resolved, 0))
         result = strdup(resolved);
     curl_free(resolved);
     if (url) curl_url_cleanup(url);
     return result ? result : "";
 }
-
-#define CURL_GLOBAL_DEFAULT 3L
-#define CURLOPT_WRITEDATA 10001
-#define CURLOPT_URL 10002
-#define CURLOPT_USERAGENT 10018
-#define CURLOPT_TIMEOUT 13
-#define CURLOPT_FOLLOWLOCATION 52
-#define CURLOPT_MAXREDIRS 68
-#define CURLOPT_ACCEPT_ENCODING 10102
-#define CURLOPT_NOSIGNAL 99
-#define CURLOPT_FAILONERROR 45
-#define CURLOPT_CONNECTTIMEOUT 78
 
 /* Returns a buffer: uint64 length, then the response bytes. NULL on failure. */
 static void *mb_fetch_mem(const char *url, size_t *out_len) {

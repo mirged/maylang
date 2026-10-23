@@ -160,6 +160,11 @@ def test_network(directory, required):
             pass
         def do_GET(self):
             requests.append(self.path)
+            if self.path == '/redirect':
+                self.send_response(302)
+                self.send_header('Location', '/nested/index.html')
+                self.end_headers()
+                return
             super().do_GET()
     try:
         server = http.server.ThreadingHTTPServer(('127.0.0.1',0), Handler)
@@ -178,7 +183,10 @@ def test_network(directory, required):
         assert pixel(png(output),799,699) == (41,75,109)
         assert set(['/nested/index.html','/assets/style.css','/assets/script.js','/assets/image.png']).issubset(requests), requests
         browser(origin+'/missing.html','-o',output,success=False)
-        passed('live HTTP, relative CSS/scripts/images, and HTTP errors')
+        result = browser(origin+'/redirect','-o',output,'--width','800','--height','700')
+        assert '[js] remote script loaded' in result
+        assert pixel(png(output),799,699) == (41,75,109)
+        passed('live HTTP, relative CSS/scripts/images, redirects, and HTTP error recovery')
     finally:
         server.shutdown()
         server.server_close()

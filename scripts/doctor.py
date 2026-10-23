@@ -91,6 +91,19 @@ def inspect(profile):
         font = Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')
         checks.append(('DejaVu font', font.is_file(), 'Install fonts-dejavu-core (Ubuntu/Debian).'))
     if profile == 'browser':
+        curl = False
+        if cc:
+            try:
+                curl = subprocess.run(
+                    [cc, '-x', 'c', '-', '-o', os.devnull, '-lcurl'],
+                    input='#include <curl/curl.h>\n'
+                          'int main(void) { return curl_global_init(CURL_GLOBAL_DEFAULT); }\n',
+                    text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=10).returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        checks.append(('libcurl development files', curl,
+                       'Install libcurl4-openssl-dev (Ubuntu/Debian).'))
         for library in ('curl', 'duktape'):
             found = ctypes.util.find_library(library)
             checks.append((library, bool(found), found or f'Install the {library} shared library.'))

@@ -1,5 +1,11 @@
 # Unreleased
 
+## Browser
+
+- Compile the native adapter against the official libcurl headers, link with
+  `-lcurl`, and check for the development files in the browser prerequisite
+  profile ([#46](https://github.com/mirged/maylang/issues/46)).
+
 ## Targets
 
 - On NodeOS, programs read the environment their launcher passes and start in

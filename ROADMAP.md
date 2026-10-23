@@ -31,7 +31,7 @@ Make internal ownership, native dependencies, licensing and missing integration
 coverage explicit. Changes should preserve compiler generation convergence,
 existing public tool entry points and self-contained release sidecars.
 
-- [ ] [#46: refactor(maybrowser): compile the curl adapter against official headers](https://github.com/mirged/maylang/issues/46)
+- [x] [#46: refactor(maybrowser): compile the curl adapter against official headers](https://github.com/mirged/maylang/issues/46)
 - [ ] [#47: test(native): run malformed-input adapter tests with sanitizers](https://github.com/mirged/maylang/issues/47)
 - [ ] [#48: refactor(native): track shared vendored headers and upstream provenance](https://github.com/mirged/maylang/issues/48)
 - [ ] [#49: refactor(compiler): replace ambient frontend globals with typed context](https://github.com/mirged/maylang/issues/49)
