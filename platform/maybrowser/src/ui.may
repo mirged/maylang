@@ -155,7 +155,10 @@ fun ui_navigate(state: UIState, raw: Str, record: Bool) -> Nil {
             let source: Str = if (address == "about:demo") { ui_demo_html() }
                 else if (address == "about:inline") { state.inline }
                 else { net_load_document(split(address, "#")[0]); };
-            if (source == "") { fail("The document could not be loaded. Check the address or your connection and try again."); }
+            if (source == "") {
+                if (NET_ERROR != "") { fail(NET_ERROR); }
+                fail("The document could not be loaded. Check the address or your connection and try again.");
+            }
             state.root = browser_prepare(source, state.run_js); ui_layout(state);
             ui_scroll_anchor(state, address);
         }

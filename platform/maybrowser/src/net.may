@@ -8,6 +8,7 @@ import "support.may";
 mut DOC_BASE: Str = "";
 mut DOC_URL: Str = "";
 mut NET_ASSETS: Map<Str, Str> = {};
+mut NET_ERROR: Str = "";
 
 fun net_release() -> Nil {
     for path: Str in values(NET_ASSETS) { if (path != "") { syscall(87, cstr(path)); } }
@@ -24,6 +25,7 @@ fun net_is_remote(s: Str) -> Bool {
 
 fun net_set_document(path_or_url: Str) -> Nil {
     net_release();
+    NET_ERROR = "";
     DOC_URL = path_or_url;
     if (net_is_url(path_or_url)) {
         let last: Int = last_index(path_or_url, "/");
@@ -90,7 +92,11 @@ fun net_resolve_src(src: Str) -> Str {
         let tmp: Str = mb_temp_file();
         if (tmp == "") { return ""; }
         let rc: Int = mb_fetch_file(url, tmp);
-        if (rc != 0) { syscall(87, cstr(tmp)); NET_ASSETS[url] = ""; return ""; }
+        if (rc != 0) {
+            NET_ERROR = mb_last_error();
+            print("maybrowser: " + NET_ERROR);
+            syscall(87, cstr(tmp)); NET_ASSETS[url] = ""; return "";
+        }
         NET_ASSETS[url] = tmp;
         return tmp;
     }

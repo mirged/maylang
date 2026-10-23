@@ -16,6 +16,7 @@ import threading
 import time
 import zlib
 
+import native
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / 'build'
 ENV = dict(os.environ, LD_LIBRARY_PATH=str(BUILD) + ':' + os.environ.get('LD_LIBRARY_PATH', ''))
@@ -160,6 +161,8 @@ def test_network(directory, required):
             pass
         def do_GET(self):
             requests.append(self.path)
+            if native.respond(self):
+                return
             if self.path == '/redirect':
                 self.send_response(302)
                 self.send_header('Location', '/nested/index.html')
@@ -187,6 +190,9 @@ def test_network(directory, required):
         assert '[js] remote script loaded' in result
         assert pixel(png(output),799,699) == (41,75,109)
         passed('live HTTP, relative CSS/scripts/images, redirects, and HTTP error recovery')
+        native.test_responses(BUILD/'libmaybrowser.so', directory, origin, browser)
+        run(BUILD/'state-tests', directory/'budget-recovery.png', origin)
+        passed('fixed/chunked/EOF/gzip response budgets, diagnostics, and recovery')
     finally:
         server.shutdown()
         server.server_close()
@@ -278,6 +284,8 @@ def main():
             assert 'PASS browser navigation' in state, state
             coordinates = json.loads(next(line[5:] for line in state.splitlines() if line.startswith('META ')))
             passed('Maylang navigation, JavaScript, input, scrolling, clipping, URL resolution, and cleanup')
+            native.test_images(BUILD/'libmaybrowser.so', directory)
+            passed('encoded-image, dimension and decoded-pixel budgets, diagnostics, and recovery')
             test_cli(directory)
             test_scripts(directory)
             test_network(directory,options.require_network)

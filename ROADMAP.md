@@ -21,7 +21,7 @@ before expanding related capabilities.
 - [x] [#42: fix(may): bound child shutdown and escalate after SIGTERM](https://github.com/mirged/maylang/issues/42)
 - [ ] [#89: fix(runtime): fault on out-of-range Float to Int conversions](https://github.com/mirged/maylang/issues/89)
 - [x] [#43: fix(distribution): reject archive links that escape the toolchain bundle](https://github.com/mirged/maylang/issues/43)
-- [ ] [#44: feat(maybrowser): enforce network and decoded-image resource budgets](https://github.com/mirged/maylang/issues/44)
+- [x] [#44: feat(maybrowser): enforce network and decoded-image resource budgets](https://github.com/mirged/maylang/issues/44)
 
 ## Maintainability and contributor confidence
 

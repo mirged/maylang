@@ -79,7 +79,10 @@ fun mb_main(argv: List<Str>) -> Int {
         else if (input == "-") { net_set_document(""); read_stdin() }
         else if (input == "about:demo") { net_set_document(input); ui_demo_html() }
         else { net_set_document(input); net_load_document(input) };
-    if (src == "") { print("maybrowser: could not read document: " + input); return 1; }
+    if (src == "") {
+        if (NET_ERROR == "") { print("maybrowser: could not read document: " + input); }
+        return 1;
+    }
     browser_render(src, out, width, height, run_js);
     print("MayBrowser rendered " + str(width) + "x" + str(height) + " to " + out);
     return 0;

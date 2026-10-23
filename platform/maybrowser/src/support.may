@@ -17,6 +17,7 @@ extern "libmaybrowser.so" {
     fun mb_image_load_b64(data: Str) -> Ptr = "mb_image_load_b64";
     fun mb_png_write(path: Str, data: Ptr, w: Int, h: Int, comp: Int) -> Int = "mb_png_write";
     fun mb_fetch_file(url: Str, path: Str) -> Int = "mb_fetch_file";
+    fun mb_last_error() -> Str = "mb_last_error";
     fun mb_free(p: Ptr) -> Void = "mb_free";
     fun mb_alloc(n: Int) -> Ptr = "mb_alloc";
     fun mb_url_resolve(base: Str, reference: Str) -> Str = "mb_url_resolve";
@@ -239,9 +240,14 @@ fun sup_image(src: Str) -> Any {
         if (comma < 0) { SUP_IMAGES[src] = nil; return nil; }
         p = mb_image_load_b64(substring(src, comma + 1, len(src) - comma - 1));
     } else {
-        if (file_exists(src)) { p = mb_image_load(src); }
+        if (not file_exists(src)) { SUP_IMAGES[src] = nil; return nil; }
+        p = mb_image_load(src);
     }
-    if (p == 0) { SUP_IMAGES[src] = nil; return nil; }
+    if (p == 0) {
+        let message: Str = mb_last_error();
+        if (message != "") { print("maybrowser: " + message); }
+        SUP_IMAGES[src] = nil; return nil;
+    }
     let m: Any = {"ptr": p, "w": load32(p), "h": load32(p + 4)};
     SUP_IMAGES[src] = m;
     return m;

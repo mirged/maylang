@@ -76,5 +76,13 @@ net_set_document("https://example.com");
 check(net_reference("styles.css") == "https://example.com/styles.css", "origin without path");
 for i: Int in 0..110 { ui_navigate(state, "about:home", true); }
 check(len(state.history) == 100 and state.at == 99, "bounded history");
+if (len(argv) > 2) {
+    ui_navigate(state, argv[2] + "/budget/gzip/16777217", true);
+    check(contains(state.error, "16 MiB"), "response budget on recovery page");
+    ui_navigate(state, "about:home", true);
+    check(state.error == "", "home recovery after response budget failure");
+    ui_navigate(state, argv[2] + "/nested/index.html", true);
+    check(state.error == "" and state.root >= 0, "HTTP recovery after response budget failure");
+}
 ui_cleanup();
 print("PASS browser navigation, JavaScript, input, scrolling, clipping, resources, and cleanup");

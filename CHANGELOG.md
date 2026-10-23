@@ -2,6 +2,13 @@
 
 ## Browser
 
+- Stop HTTP(S) responses above 16 MiB of decoded data, including chunked and
+  compressed transfers. Reject images above 16 MiB encoded, 8192 pixels per
+  axis, or 16,777,216 decoded pixels before decoding, and report resource
+  limit errors while allowing later navigation
+  ([#44](https://github.com/mirged/maylang/issues/44)).
+- Guard empty reads in the bundled image decoder so malformed PNG data
+  chunks do not pass a null destination to `memcpy`.
 - Compile the native adapter against the official libcurl headers, link with
   `-lcurl`, and check for the development files in the browser prerequisite
   profile ([#46](https://github.com/mirged/maylang/issues/46)).

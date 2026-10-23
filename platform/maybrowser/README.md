@@ -71,6 +71,21 @@ Local files, `file://` paths, HTTP(S), and text/base64 `data:` documents work in
 headless mode. Page viewports range from 1 to 4096 pixels per axis; graphical
 and interface snapshot viewports start at 640×400.
 
+## Resource limits
+
+Each HTTP(S) response is limited to 16 MiB after decompression, including
+chunked responses and responses without a content length. Transfers stop as
+soon as the decoded bytes would exceed the limit. Failed transfers discard
+their partial data and leave the browser ready for another navigation; the
+recovery page and headless output explain when the limit was exceeded.
+
+Images from files, HTTP(S), or base64 data URLs have a 16 MiB encoded-byte
+limit, an 8192-pixel limit per axis, and a 16,777,216-pixel decoded limit
+(64 MiB of RGBA pixels). Dimensions are checked before decoding. An image
+that exceeds a limit is skipped and a diagnostic is printed. These are
+per-resource limits; pages can still load multiple resources, and decoder
+working memory and page layout are additional allocations.
+
 ## Checks
 
 ```sh
@@ -83,7 +98,12 @@ xvfb-run -a make -C platform/maybrowser test TESTFLAGS='--require-network --gui'
 Tests cover navigation/history, URL resolution, Unicode address editing,
 load errors, JavaScript state and click handlers, stylesheet preservation,
 scrolling, clipping, resizing, PNG pixels, HTTP assets, clipboard input, and
-window shutdown. Socket checks explicitly skip when a sandbox blocks local
+window shutdown. Native adapter tests cover exact download/image boundaries,
+fixed-length/chunked/EOF/gzip responses, oversized image headers, and recovery.
+The bundled `stb_image.h` v2.30 has a local empty-read guard in `stbi__getn`
+to avoid passing a null destination to `memcpy` for empty PNG data chunks;
+the malformed-image fixtures exercise this case under UBSan as well.
+Socket checks explicitly skip when a sandbox blocks local
 servers; `--require-network` makes that a failure. Live window checks require
 `--gui`. Reports and screenshots are written to `build/` and uploaded by CI.
 
