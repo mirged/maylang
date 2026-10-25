@@ -452,9 +452,11 @@ fun sem_type(node: Any) -> Any {
     }
     if (kind == E_UN) {
         if (node.op == TK_NOT) { return "Bool"; }
+        if (node.op == TK_BITNOT) { return "Int"; }
         return sem_type(node.operand);
     }
     if (kind == E_BIN) {
+        if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], node.op)) { return "Int"; }
         if (node.op >= TK_EQ and node.op <= TK_GE) { return "Bool"; }
         let left: Any = sem_type(node.left); let right: Any = sem_type(node.right);
         if (node.op == TK_PLUS and (left == "Str" or right == "Str")) { return "Str"; }

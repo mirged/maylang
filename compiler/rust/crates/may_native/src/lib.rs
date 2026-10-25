@@ -354,6 +354,25 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn bitwise_operators_and_signed_shifts() {
+        assert_eq!(
+            run_elf(
+                "fun combine(a: Int, b: Int) -> Int { return (a & b) | (a ^ b); } \
+                 fun invert(a: Int) -> Int { return ~a; } \
+                 fun left(a: Int, b: Int) -> Int { return a << b; } \
+                 fun right(a: Int, b: Int) -> Int { return a >> b; } \
+                 print(6 & 3, 6 | 3, 6 ^ 3, combine(6, 3)); \
+                 print(invert(0), left(3, 2), right(-8, 2)); \
+                 print(1 << 60); print(1 | 2 ^ 3 & 4); print(1 & 2 == 0); \
+                 print(may { left(1, 61) } otherwise { err.kind });"
+            )
+            .trim(),
+            "2 7 5 7\n-1 12 -2\n-1152921504606846976\n3\ntrue\narithmetic"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn functions_recursion_and_strings() {
         let out = run_elf(
             "fun fib(n) { if (n < 2) { n } else { fib(n - 1) + fib(n - 2) } } print(\"fib\", fib(15));",

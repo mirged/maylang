@@ -33,6 +33,7 @@ PASS = {
     'void': ('fun announce() -> Nil { print("hello"); return; }\nannounce();', 'hello\n'),
     'dynamic_escape': ('let value: Any = "x";\nprint(value);', 'x\n'),
     'empty_collections': ('let xs: List<Int> = [];\nlet m: Map<Str, Int> = {};\nprint(sum(xs), len(m));', '0 0\n'),
+    'bitwise_integers': ('fun mask(a: Int, b: Int) -> Int { return (a & b) | (a ^ b); } print(mask(6,3), ~0, 3 << 2, -8 >> 2);', '7 -1 12 -2\n'),
 }
 PASS.update({
     'explicit_dynamic_conversions': ('let n: Any = 123; let s: Str = str(n); let i: Int = int("7"); let b: Bool = bool(n); let f: Float = float(n); print(s, i, b, f);', '123 7 true 123.0\n'),
@@ -122,6 +123,8 @@ FAIL = {
     'wrong_loop_type': ('for x: Str in [1] { print(x); }', 'expected Str, found Int'),
     'compare_float_int': ('let f: Float = 1.5;\nprint(f > 0);', 'cannot compare Float with Int'),
     'compare_int_float': ('let n: Int = 1;\nprint(n == 1.0);', 'cannot compare Int with Float'),
+    'bitwise_rejects_float': ('let f: Float = 1.5;\nprint(f & 1);', 'expected an integer, found Float'),
+    'bitnot_rejects_float': ('let f: Float = 1.5;\nprint(~f);', 'expected an integer, found Float'),
 }
 
 

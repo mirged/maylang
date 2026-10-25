@@ -123,6 +123,7 @@ pub enum Literal {
 pub enum UnaryOp {
     Neg,
     Not,
+    BitNot,
 }
 
 /// Binary operators.
@@ -140,6 +141,11 @@ pub enum BinaryOp {
     Le,
     Gt,
     Ge,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
 }
 
 /// A pattern in a `match` expression.

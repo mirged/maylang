@@ -10,6 +10,8 @@ if total(10, 0) != 55 { exit(11); }
 if eight(1, 2, 3, 4, 5, 6, 7, 8) != 36 { exit(12); }
 if checksum != 135 { exit(13); }
 if -17 / 8 != -2 or -17 % 8 != -1 { exit(14); }
+if 6 & 3 != 2 or 6 | 3 != 7 or 6 ^ 3 != 5 or ~0 != -1 { exit(16); }
+if 1 << 60 != -1152921504606846976 or -8 >> 2 != -2 { exit(17); }
 let memory: Any = syscall(222, 0, 4096, 3, 34, -1, 0);
 store8(memory, 123);
 store16(memory + 2, 4567);

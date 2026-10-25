@@ -2557,6 +2557,19 @@ fun rt_mod(a: Any, b: Any) -> Any {
     return rt_badop(addr("%"), 1, a, b);
 }
 
+fun rt_bit_and(a: Int, b: Int) -> Any { return a & b; }
+fun rt_bit_or(a: Int, b: Int) -> Any { return a | b; }
+fun rt_bit_xor(a: Int, b: Int) -> Any { return a ^ b; }
+fun rt_bit_not(a: Int) -> Any { return ~a; }
+fun rt_bit_shl(a: Int, b: Int) -> Any {
+    if (b < 0 or b > 60) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
+    return a << b;
+}
+fun rt_bit_shr(a: Int, b: Int) -> Any {
+    if (b < 0 or b > 60) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
+    return a >> b;
+}
+
 fun rt_eq(a: Any, b: Any) -> Any {
     let ta: Any = a % 8;
     let tb: Any = b % 8;

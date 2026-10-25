@@ -1,5 +1,12 @@
 # Unreleased
 
+## Compiler
+
+- Add integer bitwise operators `&`, `|`, `^`, `~`, `<<` and `>>` with
+  Rust-style precedence and signed 61-bit behavior. Replace the NodeOS NXF
+  CRC-32 lookup tables with a portable bitwise implementation
+  ([#91](https://github.com/mirged/maylang/issues/91)).
+
 ## Browser
 
 - Stop HTTP(S) responses above 16 MiB of decoded data, including chunked and

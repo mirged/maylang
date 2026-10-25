@@ -210,9 +210,8 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 - Error handling uses `may { expr } otherwise { fallback }`, with `err.kind`,
   `err.message` and `err.stack` inside `otherwise`. `fail("msg")` raises.
   `return`, `break` and `continue` inside `may` remain control flow.
-- **Not in the language:** hexadecimal literals (`0x10` is a name error), bitwise
-  operators (`&`, `|`, `<<`, `>>`), and destructuring in strict mode. Use
-  arithmetic, and use `load8`/`store8` for byte work.
+- **Not in the language:** hexadecimal literals (`0x10` is a name error) and
+  destructuring in strict mode. Use `load8`/`store8` for byte work.
 - Values of different types cannot be compared: strict mode rejects `Int` vs
   `Float` (write `0.0` or convert with `to_float`). On `Any` values `==` across
   types is `false`, `!=` is `true`, and ordering raises a `type` fault, so

@@ -70,7 +70,12 @@ fun riscv_store(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> 
 fun riscv_binary(ctx: Any, op: Any) -> Any {
     let arithmetic: Any = {20: 51, 21: 1073741875, 22: 33554483, 23: 33570867, 24: 33579059};
     if (has(arithmetic, op)) { riscv_r(ctx, arithmetic[op], 10, 10, 11); return 0; }
-    if (op == TK_EQ or op == TK_NE) {
+    if (op == TK_BITAND) { riscv_r(ctx, 28723, 10, 10, 11); }
+    else if (op == TK_PIPE) { riscv_r(ctx, 24627, 10, 10, 11); }
+    else if (op == TK_XOR) { riscv_r(ctx, 16435, 10, 10, 11); }
+    else if (op == TK_SHL) { riscv_r(ctx, 4147, 10, 10, 11); }
+    else if (op == TK_SHR) { riscv_r(ctx, 1073762355, 10, 10, 11); }
+    else if (op == TK_EQ or op == TK_NE) {
         riscv_r(ctx, 16435, 10, 10, 11); // xor
         if (op == TK_EQ) { riscv_i(ctx, 12307, 10, 10, 1); }
         else { riscv_r(ctx, 12339, 10, 0, 10); }
@@ -84,6 +89,7 @@ fun riscv_binary(ctx: Any, op: Any) -> Any {
 
 fun riscv_unary(ctx: Any, op: Any) -> Any {
     if (op == TK_MINUS) { riscv_r(ctx, 1073741875, 10, 0, 10); }
+    else if (op == TK_BITNOT) { riscv_i(ctx, 16403, 10, 10, -1); }
     else { riscv_i(ctx, 12307, 10, 10, 1); }
     return 0;
 }

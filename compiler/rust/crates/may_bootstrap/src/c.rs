@@ -244,6 +244,7 @@ impl C {
                 match op {
                     UnaryOp::Not => format!("boolean(!truth({right}))"),
                     UnaryOp::Neg => format!("negate({right})"),
+                    UnaryOp::BitNot => format!("unary_bit_not({right})"),
                 }
             }
             Expr::Binary { op, left, right } => {
@@ -260,6 +261,11 @@ impl C {
                     BinaryOp::Le => "<=",
                     BinaryOp::Gt => ">",
                     BinaryOp::Ge => ">=",
+                    BinaryOp::BitAnd => "&",
+                    BinaryOp::BitOr => "|",
+                    BinaryOp::BitXor => "^",
+                    BinaryOp::Shl => "<<",
+                    BinaryOp::Shr => ">>",
                 };
                 let a = self.expr(left);
                 let b = self.expr(right);
@@ -278,7 +284,12 @@ impl C {
                             "<" => "lt",
                             "<=" => "le",
                             ">" => "gt",
-                            _ => "ge",
+                            ">=" => "ge",
+                            "&" => "bit_and",
+                            "|" => "bit_or",
+                            "^" => "bit_xor",
+                            "<<" => "shl",
+                            _ => "shr",
                         }
                     ),
                     vec![a, b],

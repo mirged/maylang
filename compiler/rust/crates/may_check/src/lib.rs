@@ -568,6 +568,15 @@ impl Cx {
                         rt
                     }
                     UnaryOp::Not => Ty::Bool,
+                    UnaryOp::BitNot => {
+                        if !rt.is_any() && !matches!(rt, Ty::Int | Ty::Var(_)) {
+                            self.diags.error(
+                                line,
+                                format!("operator `~` requires Int, got `{}`", rt.name()),
+                            );
+                        }
+                        rt
+                    }
                 }
             }
             Expr::Binary { op, left, right } => {
@@ -828,6 +837,27 @@ impl Cx {
                     line,
                     format!(
                         "operator requires numbers, got `{}` and `{}`",
+                        lt.name(),
+                        rt.name()
+                    ),
+                );
+                Ty::Any
+            }
+            BitAnd | BitOr | BitXor | Shl | Shr => {
+                if lt.is_any()
+                    || rt.is_any()
+                    || matches!(lt, Ty::Var(_))
+                    || matches!(rt, Ty::Var(_))
+                {
+                    return Ty::Any;
+                }
+                if matches!(lt, Ty::Int) && matches!(rt, Ty::Int) {
+                    return Ty::Int;
+                }
+                self.diags.error(
+                    line,
+                    format!(
+                        "bitwise operator requires Int operands, got `{}` and `{}`",
                         lt.name(),
                         rt.name()
                     ),

@@ -932,6 +932,11 @@ impl Codegen {
                         self.asm.mov_reg_imm64(RAX, FALSE);
                         self.asm.bind(done);
                     }
+                    UnaryOp::BitNot => {
+                        self.asm.sar_imm(RAX, 3);
+                        self.asm.not(RAX);
+                        self.asm.shl_imm(RAX, 3);
+                    }
                 }
                 Ok(())
             }
@@ -1340,6 +1345,44 @@ impl Codegen {
             BinaryOp::Mul => self.dispatch_binop("rt_mul", RCX, RAX),
             BinaryOp::Div => self.dispatch_binop("rt_div", RCX, RAX),
             BinaryOp::Mod => self.dispatch_binop("rt_mod", RCX, RAX),
+            BinaryOp::BitAnd => {
+                self.asm.and_rr(RCX, RAX);
+                self.asm.mov_reg_reg(RAX, RCX);
+            }
+            BinaryOp::BitOr => {
+                self.asm.or_rr(RCX, RAX);
+                self.asm.mov_reg_reg(RAX, RCX);
+            }
+            BinaryOp::BitXor => {
+                self.asm.xor_rr(RCX, RAX);
+                self.asm.mov_reg_reg(RAX, RCX);
+            }
+            BinaryOp::Shl | BinaryOp::Shr => {
+                self.asm.mov_reg_reg(RDX, RAX);
+                self.asm.sar_imm(RDX, 3);
+                let invalid = self.asm.new_label();
+                let done = self.asm.new_label();
+                self.asm.cmp_imm32(RDX, 0);
+                self.asm.jcc(CC_L, invalid);
+                self.asm.cmp_imm32(RDX, 60);
+                self.asm.jcc(CC_G, invalid);
+                if matches!(op, BinaryOp::Shl) {
+                    self.asm.mov_reg_reg(RAX, RCX);
+                    self.asm.mov_reg_reg(RCX, RDX);
+                    self.asm.shl_cl(RAX);
+                } else {
+                    self.asm.mov_reg_reg(RAX, RCX);
+                    self.asm.sar_imm(RAX, 3);
+                    self.asm.mov_reg_reg(RCX, RDX);
+                    self.asm.sar_cl(RAX);
+                    self.asm.shl_imm(RAX, 3);
+                }
+                self.asm.jmp(done);
+                self.asm.bind(invalid);
+                self.asm.call_sym("raise_overflow");
+                self.asm.mov_reg_imm64(RAX, NIL);
+                self.asm.bind(done);
+            }
             BinaryOp::Eq | BinaryOp::Ne => {
                 self.asm.mov_reg_reg(RDI, RCX);
                 self.asm.mov_reg_reg(RSI, RAX);

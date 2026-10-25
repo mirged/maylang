@@ -48,6 +48,11 @@ let TK_SLASHEQ: Any = 59;
 let TK_POW: Any = 60;
 let TK_PUB: Any = 61;
 let TK_EXTERN: Any = 62;
+let TK_XOR: Any = 63;
+let TK_BITAND: Any = 64;
+let TK_SHL: Any = 65;
+let TK_SHR: Any = 66;
+let TK_BITNOT: Any = 67;
 let TK_PLUS: Any = 20;
 let TK_MINUS: Any = 21;
 let TK_STAR: Any = 22;
@@ -172,13 +177,14 @@ fun punct(b: Any, i: Any) -> Any {
     else if (b == 37) { tok(TK_PCT, i, 1, 0); }
     else if (b == 38) {
         if (load8(SRC + i + 1) == 38) { tok(TK_AND, i, 2, 0); return i + 2; }
-        lex_error(i, 1, "expected &&");
+        tok(TK_BITAND, i, 1, 0);
     }
     else if (b == 124) {
         if (load8(SRC + i + 1) == 124) { tok(TK_OR, i, 2, 0); return i + 2; }
         if (load8(SRC + i + 1) == 62) { tok(TK_PIPEOP, i, 2, 0); return i + 2; }
         tok(TK_PIPE, i, 1, 0);
     }
+    else if (b == 94) { tok(TK_XOR, i, 1, 0); }
     else if (b == 61) {
         if (load8(SRC + i + 1) == 61) { tok(TK_EQ, i, 2, 0); return i + 2; }
         if (load8(SRC + i + 1) == 62) { tok(TK_ARROW, i, 2, 0); return i + 2; }
@@ -195,15 +201,18 @@ fun punct(b: Any, i: Any) -> Any {
     }
     else if (b == 58) { tok(TK_COLON, i, 1, 0); }
     else if (b == 63) { tok(TK_QUEST, i, 1, 0); }
+    else if (b == 126) { tok(TK_BITNOT, i, 1, 0); }
     else if (b == 33) {
         if (load8(SRC + i + 1) == 61) { tok(TK_NE, i, 2, 0); return i + 2; }
         tok(TK_NOT, i, 1, 0);
     }
     else if (b == 60) {
+        if (load8(SRC + i + 1) == 60) { tok(TK_SHL, i, 2, 0); return i + 2; }
         if (load8(SRC + i + 1) == 61) { tok(TK_LE, i, 2, 0); return i + 2; }
         tok(TK_LT, i, 1, 0);
     }
     else if (b == 62) {
+        if (load8(SRC + i + 1) == 62) { tok(TK_SHR, i, 2, 0); return i + 2; }
         if (load8(SRC + i + 1) == 61) { tok(TK_GE, i, 2, 0); return i + 2; }
         tok(TK_GT, i, 1, 0);
     }

@@ -9,6 +9,11 @@
     "stdout": "YXJpdGhtZXRpYwphcml0aG1ldGljCjIwMDAwMDAwMDAwMDAwMDAwMAoxMDAwMDAwMDAwMDAwMDAwMDAKMTkwMDAwMDAwMDAwMDAwMDAwCg==",
     "stderr": ""
   },
+  "bitwise.may": {
+    "exit": 0,
+    "stdout": "MiA3IDUgLTEKMSAxMiAtMiAtMTE1MjkyMTUwNDYwNjg0Njk3NgozIHRydWUKYXJpdGhtZXRpYwoxCjkK",
+    "stderr": ""
+  },
   "closures_adv.may": {
     "exit": 0,
     "stdout": "MTAKMTEKMTIKMSAxMSAxMQo=",

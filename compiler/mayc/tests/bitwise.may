@@ -1,0 +1,8 @@
+print(6 & 3, 6 | 3, 6 ^ 3, ~0);
+print(1 << 0, 3 << 2, -8 >> 2, 1 << 60);
+print(1 | 2 ^ 3 & 4, 1 & 2 == 0);
+print(may { 1 << 61 } otherwise { err.kind });
+let nested: List<List<Int>> = [[1]];
+print(nested[0][0]);
+fun nested_value(values: List<List<Int>>, index: Int) -> Int { return values[0][index]; }
+print(nested_value([[9]], 0));

@@ -103,3 +103,22 @@ fn check_accepts_valid_programs() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn check_requires_integer_bitwise_operands() {
+    let dir = std::env::temp_dir().join(format!("maylang_bitwise_check_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("bad.may");
+    std::fs::write(&file, "let f = 1.0;\nlet n = f & 1;\n").unwrap();
+
+    let out = run_check(&file);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("bitwise operator requires Int operands"),
+        "{err}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

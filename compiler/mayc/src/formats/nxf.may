@@ -117,77 +117,27 @@ fun build_nxf(ctx: Any) -> Any {
         image_copy(image + fileOffsets[index], ctx.data.data + segment.offset - ctx.layout.dataOffset, segment.size);
     }
 
-    let crc: Any = NxfCrc(sink_new(65536), sink_new(1024));
-    nxf_crc_tables(crc);
     // A build identifier derived from the loaded contents, as nxfpack does.
-    let contents: Any = nxf_crc(crc, image + fileOffsets[0], cursor - fileOffsets[0]);
+    let contents: Int = int(nxf_crc(image + fileOffsets[0], cursor - fileOffsets[0]));
     store32(image + 92, contents); store32(image + 96, imageSize % 4294967296);
-    store32(image + 100, cursor); store32(image + 104, nxf_crc(crc, image, NXF_HEADER_SIZE));
-    store32(image + NXF_CHECKSUM_OFFSET, nxf_crc(crc, image, cursor));
-    sink_release(crc.xor); sink_release(crc.table);
+    store32(image + 100, cursor); store32(image + 104, int(nxf_crc(image, NXF_HEADER_SIZE)));
+    store32(image + NXF_CHECKSUM_OFFSET, int(nxf_crc(image, cursor)));
     return 0;
 }
 
-// CRC-32 (IEEE, reflected, as nodeos_abi::nxf::crc32). Maylang has no bitwise
-// operators, so XOR comes from a 256x256 byte table and the polynomial
-// division from a 256-entry word table built with it.
-struct NxfCrc { xor: Any, table: Any }
-
-// Loops here are `while` loops: a range allocates, and these run once per
-// byte of the image.
-fun nxf_xor32(crc: Any, a: Any, b: Any) -> Any {
-    let table: Any = crc.xor.data;
-    mut result: Any = 0;
-    mut scale: Any = 1;
-    mut x: Any = a; mut y: Any = b;
-    while (scale < 4294967296) {
-        result += load8(table + (x % 256) * 256 + y % 256) * scale;
-        x = x / 256; y = y / 256; scale = scale * 256;
-    }
-    return result;
-}
-
-fun nxf_crc_tables(crc: Any) -> Any {
-    mut pair: Any = 0;
-    while (pair < 65536) {
-        mut x: Any = pair / 256; mut y: Any = pair % 256; mut bit: Any = 1; mut value: Any = 0;
-        while (bit < 256) {
-            if (x % 2 != y % 2) { value += bit; }
-            x = x / 2; y = y / 2; bit = bit * 2;
-        }
-        store8(crc.xor.data + pair, value);
-        pair += 1;
-    }
-    mut n: Any = 0;
-    while (n < 256) {
-        mut value: Any = n;
-        mut k: Any = 0;
-        while (k < 8) {
-            if (value % 2 == 1) { value = nxf_xor32(crc, value / 2, 3988292384); }
-            else { value = value / 2; }
-            k += 1;
-        }
-        store32(crc.table.data + n * 4, value);
-        n += 1;
-    }
-    return 0;
-}
-
-fun nxf_crc(crc: Any, data: Any, count: Any) -> Any {
-    let xor: Any = crc.xor.data;
-    let table: Any = crc.table.data;
-    mut state: Any = 4294967295;
-    mut i: Any = 0;
+// CRC-32 (IEEE, reflected, as nodeos_abi::nxf::crc32).
+fun nxf_crc(data: Any, count: Any) -> Int {
+    mut state: Int = 4294967295;
+    mut i: Int = 0;
     while (i < count) {
-        let index: Any = load8(xor + (state % 256) * 256 + load8(data + i));
-        // (table[index] ^ (state >> 8)), a byte at a time.
-        let entry: Any = load32(table + index * 4);
-        let high: Any = state / 256;
-        state = load8(xor + (entry % 256) * 256 + high % 256)
-            + load8(xor + ((entry / 256) % 256) * 256 + (high / 256) % 256) * 256
-            + load8(xor + ((entry / 65536) % 256) * 256 + (high / 65536) % 256) * 65536
-            + load8(xor + (entry / 16777216) * 256 + high / 16777216) * 16777216;
+        state = state ^ int(load8(data + i));
+        mut bit: Int = 0;
+        while (bit < 8) {
+            if ((state & 1) == 1) { state = (state >> 1) ^ 3988292384; }
+            else { state = state >> 1; }
+            bit += 1;
+        }
         i += 1;
     }
-    return 4294967295 - state;
+    return state ^ 4294967295;
 }

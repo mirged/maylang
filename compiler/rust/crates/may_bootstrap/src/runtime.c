@@ -169,6 +169,13 @@ static V checked(__int128 n) {
     return integer(n);
 }
 static V negate(V v) { return v.tag==6?floating(-real(v)):checked(-(__int128)number(v)); }
+static int64_t wrap61(uint64_t bits) {
+    const uint64_t mask=(UINT64_C(1)<<61)-1;
+    int64_t value=(int64_t)(bits&mask);
+    if(value&(INT64_C(1)<<60)) value-=(INT64_C(1)<<61);
+    return value;
+}
+static V unary_bit_not(V a) { return integer(wrap61(~(uint64_t)number(a))); }
 static V binary_add(V a,V b) {
     if(a.tag==1 || b.tag==1 || (a.tag==5 && b.tag==5)) return concat(a,b);
     if(a.tag==6 || b.tag==6) return floating(real(a)+real(b));
@@ -190,6 +197,30 @@ static V binary_pow(V a,V b) {
         while(n) { if(n&1) out=binary_mul(out,a); n>>=1; if(n) a=binary_mul(a,a); } return out;
     }
     return floating(pow(real(a),real(b)));
+}
+static int64_t shift_count(V v) {
+    int64_t count=number(v);
+    if(count<0 || count>60) fault("shift count must be between 0 and 60");
+    return count;
+}
+static V binary_bit_and(V a,V b) {
+    return integer(wrap61((uint64_t)number(a)&(uint64_t)number(b)));
+}
+static V binary_bit_or(V a,V b) {
+    return integer(wrap61((uint64_t)number(a)|(uint64_t)number(b)));
+}
+static V binary_bit_xor(V a,V b) {
+    return integer(wrap61((uint64_t)number(a)^(uint64_t)number(b)));
+}
+static V binary_shl(V a,V b) {
+    return integer(wrap61((uint64_t)number(a)<<shift_count(b)));
+}
+static V binary_shr(V a,V b) {
+    int64_t value=number(a),count=shift_count(b);
+    if(!count) return integer(value);
+    uint64_t shifted=(uint64_t)value>>count;
+    if(value<0) shifted|=UINT64_MAX<<(64-count);
+    return integer(wrap61(shifted));
 }
 static V binary_eq(V a,V b) { return boolean(equal(a,b)); }
 static V binary_ne(V a,V b) { return boolean(!equal(a,b)); }

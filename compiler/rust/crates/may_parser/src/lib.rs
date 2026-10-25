@@ -861,7 +861,7 @@ impl Parser {
     }
 
     fn comparison(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.range_expr()?;
+        let mut left = self.bitwise_or()?;
         loop {
             let op = if self.matches(&TokenKind::Lt) {
                 BinaryOp::Lt
@@ -874,7 +874,67 @@ impl Parser {
             } else {
                 break;
             };
+            let right = self.bitwise_or()?;
+            left = Expr::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn bitwise_or(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.bitwise_xor()?;
+        while self.matches(&TokenKind::Bar) {
+            let right = self.bitwise_xor()?;
+            left = Expr::Binary {
+                op: BinaryOp::BitOr,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn bitwise_xor(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.bitwise_and()?;
+        while self.matches(&TokenKind::Caret) {
+            let right = self.bitwise_and()?;
+            left = Expr::Binary {
+                op: BinaryOp::BitXor,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn bitwise_and(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.range_expr()?;
+        while self.matches(&TokenKind::BitAnd) {
             let right = self.range_expr()?;
+            left = Expr::Binary {
+                op: BinaryOp::BitAnd,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn shift(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.term()?;
+        loop {
+            let op = if self.matches(&TokenKind::ShiftLeft) {
+                Some(BinaryOp::Shl)
+            } else if self.matches_shift_right() {
+                Some(BinaryOp::Shr)
+            } else {
+                None
+            };
+            let Some(op) = op else { break };
+            let right = self.term()?;
             left = Expr::Binary {
                 op,
                 left: Box::new(left),
@@ -885,7 +945,7 @@ impl Parser {
     }
 
     fn range_expr(&mut self) -> Result<Expr, ParseError> {
-        let start = self.term()?;
+        let start = self.shift()?;
         let inclusive = if self.matches(&TokenKind::DotDotEq) {
             true
         } else if self.matches(&TokenKind::DotDot) {
@@ -893,7 +953,7 @@ impl Parser {
         } else {
             return Ok(start);
         };
-        let end = self.term()?;
+        let end = self.shift()?;
         Ok(Expr::Range {
             start: Box::new(start),
             end: Box::new(end),
@@ -958,7 +1018,36 @@ impl Parser {
                 right: Box::new(right),
             });
         }
+        if self.matches(&TokenKind::Tilde) {
+            let right = self.unary()?;
+            return Ok(Expr::Unary {
+                op: UnaryOp::BitNot,
+                right: Box::new(right),
+            });
+        }
         self.power()
+    }
+
+    fn matches_shift_right(&mut self) -> bool {
+        let (current_is_gt, line, col) = {
+            let current = self.peek();
+            (
+                matches!(&current.kind, TokenKind::Gt),
+                current.line,
+                current.col,
+            )
+        };
+        let next_is_adjacent_gt = {
+            let next = self.peek_next();
+            matches!(&next.kind, TokenKind::Gt) && next.line == line && next.col == col + 1
+        };
+        if current_is_gt && next_is_adjacent_gt {
+            self.advance();
+            self.advance();
+            true
+        } else {
+            false
+        }
     }
 
     /// `**` binds tighter than unary and is right-associative.
@@ -1648,6 +1737,56 @@ mod tests {
              mut c = 1; c += 1;\n",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn bitwise_operators_have_expected_precedence() {
+        parse("let nested: List<List<Int>> = [];").unwrap();
+        parse("fun f(xs: List<List<Int>>, index: Int) -> Int { return index; }").unwrap();
+
+        let expr = parse_expression("1 & 2 == 0").unwrap();
+        let Expr::Binary {
+            op: BinaryOp::Eq,
+            left,
+            ..
+        } = expr
+        else {
+            panic!("expected equality expression");
+        };
+        assert!(matches!(
+            left.as_ref(),
+            Expr::Binary {
+                op: BinaryOp::BitAnd,
+                ..
+            }
+        ));
+
+        let expr = parse_expression("1 << 2 >> 3").unwrap();
+        let Expr::Binary {
+            op: BinaryOp::Shr,
+            left,
+            ..
+        } = expr
+        else {
+            panic!("expected right shift expression");
+        };
+        assert!(matches!(
+            left.as_ref(),
+            Expr::Binary {
+                op: BinaryOp::Shl,
+                ..
+            }
+        ));
+
+        let expr = parse_expression("1..2 & 3").unwrap();
+        assert!(matches!(
+            expr,
+            Expr::Binary {
+                op: BinaryOp::BitAnd,
+                left,
+                ..
+            } if matches!(left.as_ref(), Expr::Range { .. })
+        ));
     }
 
     #[test]

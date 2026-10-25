@@ -59,6 +59,10 @@ pub enum TokenKind {
     Ge,
     Lt,
     Le,
+    BitAnd,
+    Caret,
+    Tilde,
+    ShiftLeft,
     AndAnd,
     OrOr,
     Question,
@@ -128,6 +132,10 @@ impl fmt::Display for TokenKind {
             TokenKind::Ge => write!(f, "`>=`"),
             TokenKind::Lt => write!(f, "`<`"),
             TokenKind::Le => write!(f, "`<=`"),
+            TokenKind::BitAnd => write!(f, "`&`"),
+            TokenKind::Caret => write!(f, "`^`"),
+            TokenKind::Tilde => write!(f, "`~`"),
+            TokenKind::ShiftLeft => write!(f, "`<<`"),
             TokenKind::AndAnd => write!(f, "`&&`"),
             TokenKind::OrOr => write!(f, "`||`"),
             TokenKind::Question => write!(f, "`?`"),
@@ -413,7 +421,9 @@ impl Lexer {
                 }
             }
             '<' => {
-                if self.matches('=') {
+                if self.matches('<') {
+                    TokenKind::ShiftLeft
+                } else if self.matches('=') {
                     TokenKind::Le
                 } else {
                     TokenKind::Lt
@@ -430,9 +440,11 @@ impl Lexer {
                 if self.matches('&') {
                     TokenKind::AndAnd
                 } else {
-                    return self.err("unexpected character `&` (did you mean `&&`?)");
+                    TokenKind::BitAnd
                 }
             }
+            '^' => TokenKind::Caret,
+            '~' => TokenKind::Tilde,
             '|' => {
                 if self.matches('>') {
                     TokenKind::Pipe
@@ -779,6 +791,20 @@ mod tests {
         assert!(ts.contains(&TokenKind::Ellipsis));
         assert!(ts.contains(&TokenKind::Bar));
         assert!(ts.contains(&TokenKind::FatArrow));
+
+        let bitwise = kinds("a & b | c ^ d ~e << f >> g");
+        assert!(bitwise.contains(&TokenKind::BitAnd));
+        assert!(bitwise.contains(&TokenKind::Bar));
+        assert!(bitwise.contains(&TokenKind::Caret));
+        assert!(bitwise.contains(&TokenKind::Tilde));
+        assert!(bitwise.contains(&TokenKind::ShiftLeft));
+        assert_eq!(
+            bitwise
+                .iter()
+                .filter(|token| **token == TokenKind::Gt)
+                .count(),
+            2
+        );
     }
 
     #[test]

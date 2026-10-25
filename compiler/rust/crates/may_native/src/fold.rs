@@ -156,6 +156,9 @@ fn try_fold(expr: &Expr) -> Option<Expr> {
                     (UnaryOp::Neg, Literal::Float(v)) => {
                         Some(Expr::Literal(Literal::Float(-v)))
                     }
+                    (UnaryOp::BitNot, Literal::Int(v)) => {
+                        Some(Expr::Literal(Literal::Int(wrap61(!(*v as u64)))))
+                    }
                     (UnaryOp::Not, Literal::Bool(b)) => Some(Expr::Literal(Literal::Bool(!b))),
                     (UnaryOp::Not, Literal::Nil) => Some(Expr::Literal(Literal::Bool(true))),
                     _ => None,
@@ -205,6 +208,12 @@ fn fold_binary(op: BinaryOp, a: &Literal, b: &Literal) -> Option<Expr> {
                 Div => x.checked_div(*y)?,
                 Mod => x.checked_rem(*y)?,
                 Pow => return None,
+                BitAnd => wrap61((*x as u64) & (*y as u64)),
+                BitOr => wrap61((*x as u64) | (*y as u64)),
+                BitXor => wrap61((*x as u64) ^ (*y as u64)),
+                Shl if (0..=60).contains(y) => wrap61((*x as u64).wrapping_shl(*y as u32)),
+                Shr if (0..=60).contains(y) => *x >> *y,
+                Shl | Shr => return None,
                 Eq => return bool_lit(x == y),
                 Ne => return bool_lit(x != y),
                 Lt => return bool_lit(x < y),
@@ -264,4 +273,16 @@ fn bool_lit(b: bool) -> Option<Expr> {
 fn in_range(v: i64) -> bool {
     const LIMIT: i64 = 1 << 60;
     (-LIMIT..LIMIT).contains(&v)
+}
+
+fn wrap61(bits: u64) -> i64 {
+    const MASK: u64 = (1 << 61) - 1;
+    const SIGN: u64 = 1 << 60;
+    const MODULUS: i64 = 1 << 61;
+    let value = (bits & MASK) as i64;
+    if bits & SIGN != 0 {
+        value - MODULUS
+    } else {
+        value
+    }
 }

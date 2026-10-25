@@ -351,6 +351,10 @@ fun st_number(t: Any, span: Any) -> Any {
     if (not has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float", "Float32", "Float64", "Any"], t.name)) { diagnostic(span, "expected a number, found " + st_show(t)); }
     return 0;
 }
+fun st_integer(t: Any, span: Any) -> Any {
+    if (not has(["Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"], t.name)) { diagnostic(span, "expected an integer, found " + st_show(t)); }
+    return 0;
+}
 fun st_builtin(name: Any, args: Any, span: Any) -> Any {
     if (name == "Ok" or name == "Err" or name == "Some") {
         st_arity(name, args, 1, 1, span);
@@ -587,6 +591,10 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
         let left: Any = st_expr(ctx, node.left); let right: Any = st_expr(ctx, node.right);
         if (k == E_COALESCE) { return st_join(if (left.name == "Optional") { left.arguments[0] } else if (left.name == "Nil") { st_type("Never", []) } else { left }, right, node.span); }
         if (k == E_AND or k == E_OR) { st_dynamic_require(st_type("Bool", []), left, node.span); st_dynamic_require(st_type("Bool", []), right, node.span); return if (left.name == "Any" or right.name == "Any") { st_any() } else { st_type("Bool", []) }; }
+        if (k == E_BIN and has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], node.op)) {
+            st_integer(left, node.span); st_integer(right, node.span);
+            return if (left.name == "Any" or right.name == "Any") { st_any() } else { st_type("Int", []) };
+        }
         if (k == E_BIN and node.op >= TK_EQ and node.op <= TK_GE) {
             // Values of different types cannot be compared; integer widths and
             // Ptr share one integer representation, while Floats stand apart.
@@ -609,6 +617,7 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
     if (k == E_UN) {
         let value: Any = st_expr(ctx, node.operand);
         if (node.op == TK_NOT) { st_dynamic_require(st_type("Bool", []), value, node.span); return st_type("Bool", []); }
+        if (node.op == TK_BITNOT) { st_integer(value, node.span); return if (value.name == "Any") { st_any() } else { st_type("Int", []) }; }
         st_number(value, node.span); return value;
     }
     if (k == E_LIST) {

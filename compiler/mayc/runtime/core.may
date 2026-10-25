@@ -891,6 +891,18 @@ fun rt_mod(a: Any, b: Any) -> Any {
     if (b == 0) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
     return ((a / 8) % (b / 8)) * 8;
 }
+fun rt_bit_and(a: Int, b: Int) -> Any { return a & b; }
+fun rt_bit_or(a: Int, b: Int) -> Any { return a | b; }
+fun rt_bit_xor(a: Int, b: Int) -> Any { return a ^ b; }
+fun rt_bit_not(a: Int) -> Any { return ~a; }
+fun rt_bit_shl(a: Int, b: Int) -> Any {
+    if (b < 0 or b > 60) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
+    return a << b;
+}
+fun rt_bit_shr(a: Int, b: Int) -> Any {
+    if (b < 0 or b > 60) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
+    return a >> b;
+}
 fun rt_neg(a: Any) -> Any {
     if (a % 8 == 6) { return __fbin(2, a, rt_const_hi_lo(3220176896, 0)); }
     return rt_sub(0, a);

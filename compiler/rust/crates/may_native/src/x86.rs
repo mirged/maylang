@@ -360,6 +360,12 @@ impl Asm {
         self.byte(0xD3);
         self.modrm_reg(5, reg);
     }
+    /// `sar r64, cl`.
+    pub fn sar_cl(&mut self, reg: Reg) {
+        self.rex(true, 0, 0, reg);
+        self.byte(0xD3);
+        self.modrm_reg(7, reg);
+    }
     fn shift_imm(&mut self, group: u8, reg: Reg, imm: u8) {
         self.rex(true, 0, 0, reg);
         self.byte(0xC1);

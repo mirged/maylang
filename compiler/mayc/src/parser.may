@@ -20,6 +20,7 @@ mut DECLARATIONS: Any = [];
 mut PROGRAM_AST: Any = 0;
 mut MODULE_PUBLIC: Any = {};
 mut MODULE_EXPLICIT: Any = {};
+mut TYPE_GT_PENDING: Any = 0;
 
 fun ptok() -> Any { return TOKS[POS].kind; }
 fun pstart() -> Any { return TOKS[POS].start; }
@@ -46,6 +47,21 @@ fun skip_semi() -> Any {
     return 0;
 }
 
+fun type_gt_ahead() -> Any {
+    return TYPE_GT_PENDING > 0 or ptok() == TK_GT or ptok() == TK_SHR;
+}
+
+fun expect_type_gt() -> Any {
+    if (TYPE_GT_PENDING > 0) { TYPE_GT_PENDING -= 1; return 0; }
+    if (ptok() == TK_SHR) {
+        adv();
+        TYPE_GT_PENDING = 1;
+        return 0;
+    }
+    expect(TK_GT);
+    return 0;
+}
+
 // Resynchronize after a failed declaration, with balanced block delimiters
 // and guaranteed progress. Only top-level boundaries start another attempt.
 fun parser_recover(start: Any) -> Any {
@@ -69,6 +85,7 @@ fun parser_recover(start: Any) -> Any {
 
 fun parse_program(ctx: Any) -> Any {
     POS = 0;
+    TYPE_GT_PENDING = 0;
     DECLARATIONS = [];
     STRUCT_DECLS = [];
     ENUM_DECLS = [];
@@ -191,17 +208,18 @@ fun parse_type() -> Any {
         adv();
         if (name == "Array") {
             push(arguments, parse_type()); expect(TK_COMMA);
-            let fixedLength: Any = parse_integer_type_length(); expect(TK_GT);
+            let fixedLength: Any = parse_integer_type_length(); expect_type_gt();
             let arrayType: Any = TypeRef(name, arguments, 0, span);
             arrayType.arrayLength = fixedLength; return arrayType;
         } else {
-            while (ptok() != TK_GT) {
+            while (not type_gt_ahead()) {
                 push(arguments, parse_type());
+                if (TYPE_GT_PENDING > 0) { break; }
                 if (ptok() != TK_COMMA) { break; }
                 adv();
             }
         }
-        expect(TK_GT);
+        expect_type_gt();
     }
     return TypeRef(name, arguments, 0, span);
 }
@@ -243,7 +261,7 @@ fun parse_generic_params() -> Any {
         if (ptok() != TK_COMMA) { break; }
         adv();
     }
-    expect(TK_GT);
+    expect_type_gt();
     return parameters;
 }
 
@@ -889,7 +907,8 @@ fun pipe_into(x: Any, rhs: Any) -> Any {
     return 0;
 }
 
-// Binding powers preserve Maylang's range, pipe and unary precedence.
+// Binding powers follow Rust-style bitwise precedence while preserving
+// Maylang's range, pipe, logical and unary operators.
 fun binding_power(kind: Any) -> Any {
     if (kind == TK_QUEST and peek(1) == TK_QUEST) { return 10; }
     if (kind == TK_PIPEOP) { return 20; }
@@ -897,6 +916,10 @@ fun binding_power(kind: Any) -> Any {
     if (kind == TK_AND) { return 40; }
     if (kind == TK_EQ or kind == TK_NE) { return 50; }
     if (kind == TK_LT or kind == TK_LE or kind == TK_GT or kind == TK_GE) { return 60; }
+    if (kind == TK_PIPE) { return 62; }
+    if (kind == TK_XOR) { return 63; }
+    if (kind == TK_BITAND) { return 64; }
+    if (kind == TK_SHL or kind == TK_SHR) { return 72; }
     if (kind == TK_DOTDOT or kind == TK_DOTDOTEQ) { return 70; }
     if (kind == TK_PLUS or kind == TK_MINUS) { return 80; }
     if (kind == TK_STAR or kind == TK_SLASH or kind == TK_PCT) { return 90; }
@@ -907,7 +930,7 @@ fun binding_power(kind: Any) -> Any {
 fun parse_pratt(ctx: Any, minimum: Any) -> Any {
     let span: Any = parser_span();
     mut left: Any = 0;
-    if (ptok() == TK_MINUS or ptok() == TK_NOT) {
+    if (ptok() == TK_MINUS or ptok() == TK_NOT or ptok() == TK_BITNOT) {
         let op: Any = ptok();
         adv();
         if (op == TK_MINUS and ptok() == TK_INT and pval() < 0) {

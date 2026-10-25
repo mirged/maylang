@@ -192,13 +192,50 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
         else if (op == S_CASSIGN) { raw_capture(ctx, emitter, payload.index, 2); raw_get(ctx, emitter, payload.value, 0); (emitter.store)(ctx, 0, 2, 0, 8); }
         else if (op == E_BIN) {
             if (ctx.mode == 1) {
-                raw_get(ctx, emitter, payload.left, 10); raw_get(ctx, emitter, payload.right, 11);
-                let names: Any = {20: "rt_add", 21: "rt_sub", 22: "rt_mul", 23: "rt_div", 24: "rt_mod", 25: "rt_op_eq", 26: "rt_op_ne", 27: "rt_op_lt", 28: "rt_op_le", 29: "rt_op_gt", 30: "rt_op_ge"};
-                raw_invoke(ctx, emitter, names[payload.op]);
-            } else { raw_get(ctx, emitter, payload.left, 0); raw_get(ctx, emitter, payload.right, 1); (emitter.binary)(ctx, payload.op); }
+                if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], payload.op)) {
+                    raw_get(ctx, emitter, payload.left, 0);
+                    (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_SLASH);
+                    (emitter.move)(ctx, 2, 0);
+                    raw_get(ctx, emitter, payload.right, 0);
+                    (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_SLASH);
+                    (emitter.move)(ctx, 1, 0); (emitter.move)(ctx, 0, 2);
+                    (emitter.binary)(ctx, payload.op);
+                    if (payload.op == TK_SHL) {
+                        (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
+                        (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
+                    }
+                    (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR);
+                } else {
+                    raw_get(ctx, emitter, payload.left, 10); raw_get(ctx, emitter, payload.right, 11);
+                    let names: Any = {20: "rt_add", 21: "rt_sub", 22: "rt_mul", 23: "rt_div", 24: "rt_mod", 25: "rt_op_eq", 26: "rt_op_ne", 27: "rt_op_lt", 28: "rt_op_le", 29: "rt_op_gt", 30: "rt_op_ge"};
+                    raw_invoke(ctx, emitter, names[payload.op]);
+                }
+            } else {
+                raw_get(ctx, emitter, payload.left, 0); raw_get(ctx, emitter, payload.right, 1);
+                (emitter.binary)(ctx, payload.op);
+                if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], payload.op)) {
+                    (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
+                    (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
+                }
+            }
         } else if (op == E_UN) {
-            if (ctx.mode == 1) { raw_get(ctx, emitter, payload.operand, 10); raw_invoke(ctx, emitter, if (payload.op == TK_MINUS) { "rt_neg" } else { "rt_not" }); }
-            else { raw_get(ctx, emitter, payload.operand, 0); (emitter.unary)(ctx, payload.op); }
+            if (ctx.mode == 1) {
+                raw_get(ctx, emitter, payload.operand, 10);
+                if (payload.op == TK_BITNOT) {
+                    raw_get(ctx, emitter, payload.operand, 0);
+                    (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_SLASH);
+                    (emitter.unary)(ctx, TK_BITNOT);
+                    (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
+                    (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
+                    (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR);
+                } else { raw_invoke(ctx, emitter, if (payload.op == TK_MINUS) { "rt_neg" } else { "rt_not" }); }
+            } else {
+                raw_get(ctx, emitter, payload.operand, 0); (emitter.unary)(ctx, payload.op);
+                if (payload.op == TK_BITNOT) {
+                    (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
+                    (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
+                }
+            }
         }
         else if (op == IR_RUNTIME) { raw_arguments(ctx, emitter, instruction.arg1); raw_invoke(ctx, emitter, payload); }
         else if (op == E_INDEX or op == S_SETIDX) {

@@ -53,6 +53,11 @@ fun arm64_binary(ctx: Any, op: Any) -> Any {
     else if (op == TK_STAR) { e32(ctx, 2600565760); }
     else if (op == TK_SLASH) { e32(ctx, 2596342784); }
     else if (op == TK_PCT) { e32(ctx, 2596342793); e32(ctx, 2600567072); }
+    else if (op == TK_BITAND) { e32(ctx, 2315329536); }
+    else if (op == TK_PIPE) { e32(ctx, 2852194304); }
+    else if (op == TK_XOR) { e32(ctx, 3389063168); }
+    else if (op == TK_SHL) { e32(ctx, 2596341760); }
+    else if (op == TK_SHR) { e32(ctx, 2596343808); }
     else {
         let conditions: Any = [1, 0, 10, 12, 13, 11];
         if (op < TK_EQ or op > TK_GE) { die_str("mayc: unsupported ARM64 binary operator\n"); }
@@ -64,6 +69,7 @@ fun arm64_binary(ctx: Any, op: Any) -> Any {
 
 fun arm64_unary(ctx: Any, op: Any) -> Any {
     if (op == TK_MINUS) { e32(ctx, 3405775840); }
+    else if (op == TK_BITNOT) { e32(ctx, 2854220768); }
     else { e32(ctx, 4043309087); e32(ctx, 2594117600); }
     return 0;
 }

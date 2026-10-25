@@ -1889,6 +1889,19 @@ fun cg_bin(ctx: Any, n: Any) -> Any {
         }
     }
     cg_expr(ctx, n.left);
+    if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], op)) {
+        x86_get_temp(ctx, n.right, 1);
+        if (op == TK_BITAND) { e8(ctx, 72); e8(ctx, 33); e8(ctx, 200); }
+        else if (op == TK_PIPE) { e8(ctx, 72); e8(ctx, 9); e8(ctx, 200); }
+        else if (op == TK_XOR) { e8(ctx, 72); e8(ctx, 49); e8(ctx, 200); }
+        else if (op == TK_SHL) { e8(ctx, 72); e8(ctx, 211); e8(ctx, 224); }
+        else { e8(ctx, 72); e8(ctx, 211); e8(ctx, 248); }
+        if (op == TK_SHL) {
+            e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+            e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
+        }
+        return 0;
+    }
     if (op == TK_PLUS) { x86_rax_operand(ctx, n.right, 3, false); }
     else if (op == TK_MINUS) { x86_rax_operand(ctx, n.right, 43, false); }
     else if (op == TK_STAR) {
@@ -1920,6 +1933,10 @@ fun cg_un(ctx: Any, n: Any) -> Any {
     cg_expr(ctx, n.operand);
     if (op == TK_MINUS) {
         e8(ctx, 72); e8(ctx, 247); e8(ctx, 216);  // neg rax
+    } else if (op == TK_BITNOT) {
+        e8(ctx, 72); e8(ctx, 247); e8(ctx, 208);
+        e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+        e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
     } else {
         test_rax(ctx);
         setcc(ctx, 148);               // setz al; movzx
@@ -2497,6 +2514,36 @@ fun cg_bin_dyn(ctx: Any, n: Any) -> Any {
     // runtime fallback. Only integers use the inline path.
     for byte: Any in [72,139,68,36,8,72,139,12,36,72,137,194,72,9,202,246,194,7] { e8(ctx, byte); }
     jcc(ctx, 133, fallback);
+    if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], op)) {
+        untag_rax(ctx);
+        for byte: Any in [72,193,249,3] { e8(ctx, byte); }
+        if (op == TK_SHL or op == TK_SHR) {
+            for byte: Any in [72,131,249,0] { e8(ctx, byte); }
+            jcc(ctx, 140, fallback);
+            for byte: Any in [72,131,249,60] { e8(ctx, byte); }
+            jcc(ctx, 143, fallback);
+        }
+        if (op == TK_BITAND) { e8(ctx, 72); e8(ctx, 33); e8(ctx, 200); }
+        else if (op == TK_PIPE) { e8(ctx, 72); e8(ctx, 9); e8(ctx, 200); }
+        else if (op == TK_XOR) { e8(ctx, 72); e8(ctx, 49); e8(ctx, 200); }
+        else if (op == TK_SHL) { e8(ctx, 72); e8(ctx, 211); e8(ctx, 224); }
+        else { e8(ctx, 72); e8(ctx, 211); e8(ctx, 248); }
+        if (op == TK_SHL) {
+            e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+            e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
+        }
+        tag_rax(ctx);
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 16);
+        jmp(ctx, done);
+        placelab(ctx, fallback);
+        if (op == TK_BITAND) { call_rt2(ctx, addr("rt_bit_and"), len("rt_bit_and")); }
+        else if (op == TK_PIPE) { call_rt2(ctx, addr("rt_bit_or"), len("rt_bit_or")); }
+        else if (op == TK_XOR) { call_rt2(ctx, addr("rt_bit_xor"), len("rt_bit_xor")); }
+        else if (op == TK_SHL) { call_rt2(ctx, addr("rt_bit_shl"), len("rt_bit_shl")); }
+        else { call_rt2(ctx, addr("rt_bit_shr"), len("rt_bit_shr")); }
+        placelab(ctx, done);
+        return 0;
+    }
     if (op == TK_PLUS or op == TK_MINUS or op == TK_STAR) {
         if (op == TK_PLUS) { e8(ctx, 72); e8(ctx, 1); e8(ctx, 200); }
         else if (op == TK_MINUS) { e8(ctx, 72); e8(ctx, 41); e8(ctx, 200); }
@@ -2550,6 +2597,19 @@ fun cg_bin_dyn(ctx: Any, n: Any) -> Any {
 fun cg_un_dyn(ctx: Any, n: Any) -> Any {
     let op: Any = n.op;
     cg_expr(ctx, n.operand);
+    if (op == TK_BITNOT) {
+        let fallback: Any = newlab(ctx); let done: Any = newlab(ctx);
+        for byte: Any in [72,247,192,7,0,0,0] { e8(ctx, byte); }
+        jcc(ctx, 133, fallback);
+        untag_rax(ctx);
+        e8(ctx, 72); e8(ctx, 247); e8(ctx, 208);
+        tag_rax(ctx);
+        jmp(ctx, done);
+        placelab(ctx, fallback);
+        call_rt1(ctx, addr("rt_bit_not"), len("rt_bit_not"));
+        placelab(ctx, done);
+        return 0;
+    }
     if (op == TK_MINUS) {
         call_rt1(ctx, addr("rt_neg"), len("rt_neg"));
     } else {
