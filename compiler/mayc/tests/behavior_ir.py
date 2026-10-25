@@ -20,10 +20,30 @@ INSPECT = '''let originals: Any = [];
             if (original.behaviorContract == true) { push(original.behaviorEffects, "poison"); }
         }
         let summaries: Any = [];
+        let signatures: Any = {};
+        let typed_ir: Any = {};
         let unknown: Any = [];
         let parameter_rows: Any = {};
         for emitted: Any in ctx.functions {
             if (emitted.behaviorSummary != nil) { push(summaries, emitted.behaviorSummary); }
+            if (emitted.strictSignature != nil) {
+                let parameters: Any = [];
+                for parameter: Any in emitted.strictSignature.arguments { push(parameters, parameter.name); }
+                signatures[symbol_name(emitted.p, emitted.l)] = {
+                    "parameters": parameters, "result": emitted.strictSignature.result.name
+                };
+            }
+            let operations: Any = [];
+            for instruction: Any in emitted.ir.code {
+                if (instruction.op == E_BIN) {
+                    push(operations, [
+                        instruction.extra.left.valueType.name,
+                        instruction.extra.right.valueType.name,
+                        instruction.result.valueType.name
+                    ]);
+                }
+            }
+            if (len(operations) != 0) { typed_ir[symbol_name(emitted.p, emitted.l)] = operations; }
             let rows: Any = [];
             for parameter: Any in emitted.parr {
                 if (parameter.annotation.name == "Function" and parameter.annotation.behaviorEffects != nil) {
@@ -35,7 +55,8 @@ INSPECT = '''let originals: Any = [];
                 push(unknown, emitted.behaviorSummary ?? nil);
             }
         }
-        print(json_stringify({"summaries": summaries, "unknown": unknown, "parameter_rows": parameter_rows,
+        print(json_stringify({"summaries": summaries, "signatures": signatures, "unknown": unknown,
+            "typed_ir": typed_ir, "parameter_rows": parameter_rows,
             "frontend_released": len(FUNC_HEAD) == 0 and MAINBODY == 0 and RUNTIME_BODY == 0}));
         syscall(60, 0);'''
 
@@ -99,6 +120,13 @@ root(); hidden();
         first = inspect(program)
         assert first == inspect(program), 'IR metadata must be reproducible'
         assert set(first) == {'leaf', 'log', 'root'}, first
+        result = run([driver, source, '-o', artifact])
+        snapshot = json.loads(result.stdout)
+        signatures = snapshot['signatures']
+        assert signatures[f'{source}::leaf'] == {'parameters': ['Int'], 'result': 'Int'}, signatures
+        assert signatures[f'{source}::log'] == {'parameters': [], 'result': 'Int'}, signatures
+        assert signatures[f'{source}::root'] == {'parameters': [], 'result': 'Int'}, signatures
+        assert snapshot['typed_ir'][f'{source}::leaf'] == [['Int', 'Int', 'Int']], snapshot
         assert first['root']['declared_effects'] == ['clock', 'output'], first
         assert first['log']['inferred_effects'] == first['root']['inferred_effects'] == ['clock', 'output'], first
         assert first['leaf']['inferred_effects'] == [], first

@@ -213,7 +213,7 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
             } else {
                 raw_get(ctx, emitter, payload.left, 0); raw_get(ctx, emitter, payload.right, 1);
                 (emitter.binary)(ctx, payload.op);
-                if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], payload.op)) {
+                if (ctx.dynamic != 0 and has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], payload.op)) {
                     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
                     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
                 }
@@ -231,7 +231,7 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
                 } else { raw_invoke(ctx, emitter, if (payload.op == TK_MINUS) { "rt_neg" } else { "rt_not" }); }
             } else {
                 raw_get(ctx, emitter, payload.operand, 0); (emitter.unary)(ctx, payload.op);
-                if (payload.op == TK_BITNOT) {
+                if (ctx.dynamic != 0 and payload.op == TK_BITNOT) {
                     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
                     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
                 }

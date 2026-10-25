@@ -29,7 +29,7 @@ let IR_TRY_BEGIN: Any = 312;
 let IR_TRY_END: Any = 313;
 let IR_TAILCALL: Any = 314;
 
-struct IRValue { kind: Any, slot: Any, value: Any, start: Any, length: Any, span: Any, next: Any }
+struct IRValue { kind: Any, slot: Any, value: Any, start: Any, length: Any, span: Any, next: Any, valueType: Any }
 struct Quad { op: Any, result: Any, arg1: Any, arg2: Any, extra: Any, span: Any }
 struct IRBlock { code: Any, temporaries: Any }
 mut IR_CODE: Any = [];
@@ -48,7 +48,7 @@ fun ir_trace_leave() -> Any {
 }
 
 fun ir_temp(span: Any) -> Any {
-    let result: Any = IRValue(IR_TEMP, IR_TEMPS, 0, 0, 0, span, 0);
+    let result: Any = IRValue(IR_TEMP, IR_TEMPS, 0, 0, 0, span, 0, 0);
     IR_TEMPS = IR_TEMPS + 1;
     return result;
 }
@@ -59,7 +59,7 @@ fun ir_emit(op: Any, result: Any, a: Any, b: Any, extra: Any, span: Any) -> Any 
 }
 
 fun ir_use(value: Any) -> Any {
-    return IRValue(value.kind, value.slot, value.value, value.start, value.length, value.span, 0);
+    return IRValue(value.kind, value.slot, value.value, value.start, value.length, value.span, 0, value.valueType);
 }
 
 fun ir_operation(kind: Any, payload: Any, span: Any) -> Any {
@@ -237,7 +237,9 @@ fun ir_branch(ctx: Any, node: Any, label: Any, sense: Any, span: Any) -> Any {
 
 fun ir_node(ctx: Any, node: Any) -> Any {
     let value: Any = ir_node_value(ctx, node);
-    return ir_contract(ctx, value, if (node == 0) { nil } else { node.contract }, if (node == 0) { 0 } else { node.span });
+    let result: Any = ir_contract(ctx, value, if (node == 0) { nil } else { node.contract }, if (node == 0) { 0 } else { node.span });
+    if (node != 0) { result.valueType = node.contract ?? node.strictType; }
+    return result;
 }
 fun ir_node_value(ctx: Any, node: Any) -> Any {
     if (node == 0) { return ir_nil(0); }
@@ -587,6 +589,7 @@ fun ir_program(ctx: Any) -> Any {
             "cc": rec.cc, "boxed": rec.boxed, "caparr": rec.caparr,
             "foreign": rec.foreign, "ffiArgs": rec.ffiArgs, "ffiResult": rec.ffiResult,
             "ffiSlot": rec.ffiSlot, "library": rec.library, "symbol": rec.symbol};
+        if (rec.strictSignature != nil) { emitted.strictSignature = rec.strictSignature; }
         if (rec.behaviorSummary != nil) { emitted.behaviorSummary = behavior_ir_summary(rec); }
         push(ctx.functions, emitted);
         ctx.functionIndex[symbol_name(rec.p, rec.l)] = emitted;

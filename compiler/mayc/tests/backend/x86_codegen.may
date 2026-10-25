@@ -7,7 +7,7 @@ import "../../src/regalloc.may";
 import "../../src/sema.may";
 
 fun require(ok: Bool) -> Nil { if not ok { fail("x86 codegen invariant failed"); } return; }
-fun value(slot: Any) -> Any { return IRValue(IR_TEMP, slot, 0, 0, 0, 0, 0); }
+fun value(slot: Any) -> Any { return IRValue(IR_TEMP, slot, 0, 0, 0, 0, 0, 0); }
 
 let ctx: Any = emitter_new({"alignment": 4096, "format": "elf"});
 // Dedicated local homes include low RBX and extended registers. Moves preserve
@@ -108,7 +108,7 @@ let a: Any = value(0); let b: Any = value(1); let result: Any = value(2); let un
 // Metadata-only literal intrinsics have no runtime string operand. A local
 // declaration or parameter with the same name must preserve ordinary calls.
 let text: Any = "xyz";
-let literal: Any = IRValue(E_STR, 0, 0, 0, 3, SourceSpan(addr(text), 0, 3, 1, 1), 0);
+let literal: Any = IRValue(E_STR, 0, 0, 0, 3, SourceSpan(addr(text), 0, 3, 1, 1), 0, 0);
 let intrinsic: Any = Quad(E_CALL, b, 0, 0, {"name": addr("len"), "length": 3, "args": literal}, 0);
 let literalBlock: Any = IRBlock([intrinsic], 2);
 let folded: Any = x86_raw_allocation_block(ctx, literalBlock);
@@ -214,7 +214,7 @@ ctx.locals = [];
 // Inductive local ranges require a literal nonnegative initializer and every
 // write to preserve x = x*c%d without overflow. No register homes are changed.
 let stateName: Any = "state";
-let initial: Any = IRValue(E_INT, 5, 1, 0, 0, 0, 0);
+let initial: Any = IRValue(E_INT, 5, 1, 0, 0, 0, 0, 0);
 let declare: Any = Quad(S_LET, 0, initial, 0,
     {"name": addr(stateName), "length": len(stateName), "initializer": initial, "global": 0}, 0);
 let stateRead: Any = Quad(E_VAR, a, 0, 0, {"name": addr(stateName), "length": len(stateName)}, 0);
@@ -322,8 +322,8 @@ ctx.allocation = lsra_plan(recurrence, [12, 13], true);
 require(not x86_local_recurrences(ctx, recurrence)[stateName].valid);
 // Divisibility is a branch predicate, not a replacement for observable signed
 // remainder. Check both branch polarities and either comparison operand order.
-let power: Any = IRValue(E_INT, 1, 8, 0, 0, 0, 0);
-let zero: Any = IRValue(E_INT, 4, 0, 0, 0, 0, 0);
+let power: Any = IRValue(E_INT, 1, 8, 0, 0, 0, 0, 0);
+let zero: Any = IRValue(E_INT, 4, 0, 0, 0, 0, 0, 0);
 for direction: Any in [IR_FALSE, IR_TRUE] {
     for op: Any in [TK_EQ, TK_NE] {
         for reversed: Any in [false, true] {
@@ -453,7 +453,7 @@ ctx.locals = [];
 // Branch-free diamonds (#78): `if d == 2 { x = x + k } else { x = x - 1 }`
 // over dedicated registers selects with cmov; rejected shapes emit nothing.
 fun select_var(slot: Any, name: Any) -> Any { return Quad(E_VAR, value(slot), 0, 0, {"name": addr(name), "length": len(name)}, 0); }
-fun select_int(slot: Any, literal: Any) -> Any { return Quad(E_INT, IRValue(E_INT, slot, literal, 0, 0, 0, 0), 0, 0, {"value": literal}, 0); }
+fun select_int(slot: Any, literal: Any) -> Any { return Quad(E_INT, IRValue(E_INT, slot, literal, 0, 0, 0, 0, 0), 0, 0, {"value": literal}, 0); }
 fun select_bin(slot: Any, op: Any, left: Any, right: Any) -> Any {
     return Quad(E_BIN, value(slot), left, right, {"op": op, "left": left, "right": right}, 0);
 }
@@ -462,10 +462,10 @@ fun select_assign(name: Any, slot: Any) -> Any {
 }
 fun select_arm(base: Any, name: Any, op: Any, literal: Any) -> Any {
     return [select_var(base, name), select_int(base + 1, literal),
-        select_bin(base + 2, op, value(base), IRValue(E_INT, base + 1, literal, 0, 0, 0, 0)), select_assign(name, base + 2)];
+        select_bin(base + 2, op, value(base), IRValue(E_INT, base + 1, literal, 0, 0, 0, 0, 0)), select_assign(name, base + 2)];
 }
 fun select_block(thenArm: Any, elseArm: Any, elseLabel: Any, doneLabel: Any) -> Any {
-    let code: Any = [select_var(0, "sd"), select_int(1, 2), select_bin(2, TK_EQ, value(0), IRValue(E_INT, 1, 2, 0, 0, 0, 0)),
+    let code: Any = [select_var(0, "sd"), select_int(1, 2), select_bin(2, TK_EQ, value(0), IRValue(E_INT, 1, 2, 0, 0, 0, 0, 0)),
         Quad(IR_FALSE, 0, value(2), 0, elseLabel, 0)];
     for instruction: Any in thenArm { push(code, instruction); }
     push(code, Quad(IR_JUMP, 0, 0, 0, doneLabel, 0)); push(code, Quad(IR_LABEL, 0, 0, 0, elseLabel, 0));

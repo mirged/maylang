@@ -142,6 +142,68 @@ def raw_integer(n):
     return f'({high} * 4294967296 + {low})'
 
 
+def signed64(value):
+    value &= (1 << 64) - 1
+    return value - (1 << 64) if value >= (1 << 63) else value
+
+
+def raw_ccall6_words(compiler, work):
+    source, binary = work / 'ccall6-words.may', work / 'ccall6-words'
+    minimum = raw_integer(-(1 << 63))
+    maximum = raw_integer((1 << 63) - 1)
+    source.write_text(f'''
+let code: Any = syscall(9, 0, 4096, 7, 34, -1, 0);
+if code < 0 {{ exit(90); }}
+store8(code, 72); store8(code + 1, 137); store8(code + 2, 248); store8(code + 3, 195);
+if __ccall6(code, {minimum}, 0, 0, 0, 0, 0) != {minimum} {{ exit(91); }}
+if __ccall6(code, {maximum}, 0, 0, 0, 0, 0) != {maximum} {{ exit(92); }}
+store64(code + 9, {maximum});
+if load64(code + 9) != {maximum} {{ exit(93); }}
+exit(0);
+''')
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    print('PASS raw __ccall6 preserves full-width words and unaligned load64 pointers', flush=True)
+
+
+def raw_full_width_bitwise(compiler, work):
+    source, binary = work / 'full-width-bitwise.may', work / 'full-width-bitwise'
+    declarations = [
+        'fun bit_and(a: Int, b: Int) -> Int { return a & b; }',
+        'fun bit_or(a: Int, b: Int) -> Int { return a | b; }',
+        'fun bit_xor(a: Int, b: Int) -> Int { return a ^ b; }',
+        'fun bit_not(a: Int) -> Int { return ~a; }',
+        'fun shift_left(a: Int, b: Int) -> Int { return a << b; }',
+        'fun shift_right(a: Int, b: Int) -> Int { return a >> b; }',
+    ]
+    rng = random.Random(92)
+    values = [-(1 << 63), -(1 << 62), -1, 0, 1, 1 << 62, (1 << 63) - 1]
+    values += [rng.randrange(-(1 << 63), 1 << 63) for _ in range(32)]
+    checks = []
+    case = 0
+
+    def check(expression, expected):
+        nonlocal case
+        checks.append(f'if {expression} != {raw_integer(expected)} {{ exit({100 + case}); }}')
+        case += 1
+
+    for value in values:
+        check(f'bit_not({raw_integer(value)})', signed64(~value))
+        for shift in sorted({0, 1, 31, 32, 61, 62, 63, rng.randrange(64)}):
+            check(f'shift_left({raw_integer(value)}, {shift})',
+                  signed64(value << shift))
+            check(f'shift_right({raw_integer(value)}, {shift})', value >> shift)
+        other = rng.randrange(-(1 << 63), 1 << 63)
+        check(f'bit_and({raw_integer(value)}, {raw_integer(other)})', value & other)
+        check(f'bit_or({raw_integer(value)}, {raw_integer(other)})', value | other)
+        check(f'bit_xor({raw_integer(value)}, {raw_integer(other)})', value ^ other)
+
+    source.write_text('\n'.join(declarations + checks + ['exit(0);']) + '\n')
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    print(f'PASS {case} raw bitwise oracle cases preserve native 64-bit values through typed calls', flush=True)
+
+
 def remainder_branches(compiler, work):
     source, binary = work / 'remainder-branches.may', work / 'remainder-branches'
     declarations, checks, names = [], [], []
@@ -1141,6 +1203,8 @@ def main():
     reciprocal_oracle()
     with tempfile.TemporaryDirectory(prefix='mayc-raw-codegen-') as directory:
         work = Path(directory)
+        raw_ccall6_words(compiler, work)
+        raw_full_width_bitwise(compiler, work)
         source, binary = work / 'test.may', work / 'test'
         source.write_text('''
 mut sequence: Any = 0;

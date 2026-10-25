@@ -518,6 +518,7 @@ let chosen = Yes(1);
 let imported = model.number();
 let remote = model.Record(3);
 let copied = imported;
+let ffiResult = __ccall6(0, 0, 0, 0, 0, 0, 0);
 let forward = later();
 let explicit: Int = 3;
 let combined = model.number() + 1;
@@ -550,7 +551,7 @@ remote.value;
         client.result("initialize", {"rootUri": folder.as_uri(), "initializationOptions": {"stdlibPath": str(ROOT / "stdlib")}})
         client.send("textDocument/didOpen", {"textDocument": {"uri": path.as_uri(), "text": text, "version": 1, "languageId": "maylang"}})
         expected = {"text": ": Str", "count": ": Int", "point": ": Point", "chosen": ": Choice",
-                    "imported": ": Int", "remote": ": model.Record", "copied": ": Int",
+                    "imported": ": Int", "remote": ": model.Record", "copied": ": Int", "ffiResult": ": Int",
                     "forward": ": Int", "label": ": Str"}
         assert hints_by_name() == expected, hints_by_name()
         # Cached inference must follow changes in a dirty imported buffer.

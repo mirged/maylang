@@ -16,6 +16,7 @@ PASS = {
     'result_error_widening': ('fun source() -> Result<Int, Str> { return Err("bad"); } fun use() -> Result<Str, Str> { let n: Int = source()?; return Ok(str(n)); } print(use().error ?? "missing");', 'bad\n'),
     'basics': ('fun add(a: Int, b: Int) { return a + b; }\nlet n = add(2,3);\nprint(n);', '5\n'),
     'inferred_builtin_return': ('fun size() { return len("hello"); }\nlet n: Int = size();\nprint(n);', '5\n'),
+    'ccall6_returns_int': ('fun unused() -> Int { return __ccall6(0, 0, 0, 0, 0, 0, 0); } print(1);', '1\n'),
     'inferred_handler_builtin': ('fun test_may() {\nlet result = may {\nlet bad = 10 / 0\nbad\n} otherwise {\nprint("Caught an error: ${err}");\n}\nprint(result)\nreturn nil;\n}\ntest_may()', 'Caught an error: division by zero\n0\n'),
     'branches': ('fun f(flag: Bool) -> Int { if(flag) { return 1; } else { return 2; } }\nprint(f(false));', '2\n'),
     'generics': ('fun identity<T>(x: T) -> T { return x; }\nlet n: Int = identity(7);\nprint(n);', '7\n'),

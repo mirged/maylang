@@ -193,7 +193,14 @@ def main():
             assert readelf.returncode == 0 and not readelf.stderr, readelf.stderr
             if have_emulation:
                 emulate(image, arch)
-            print(f'PASS {target} ELF and integer/pointer/call/branch execution' if have_emulation else f'PASS {target} ELF (execution skipped: install Unicorn)', flush=True)
+            qemu = shutil.which('qemu-aarch64' if arch == 'arm64' else 'qemu-riscv64')
+            if qemu:
+                result = subprocess.run([qemu, str(work / target)], capture_output=True, timeout=30)
+                assert result.returncode == 42 and result.stdout == b'target-ok\n' and not result.stderr, result
+            if have_emulation or qemu:
+                print(f'PASS {target} ELF and integer/pointer/call/branch execution', flush=True)
+            else:
+                print(f'PASS {target} ELF (execution skipped: install Unicorn or QEMU user emulator)', flush=True)
         # Mach-O exercises Darwin syscall conventions without Linux mmap flags.
         source = work / 'darwin.may'
         source.write_text(raw[:raw.index('let memory:')] + 'syscall(4, 1, addr("target-ok\\n"), 10);\nexit(42);\n')

@@ -356,6 +356,10 @@ fun st_integer(t: Any, span: Any) -> Any {
     return 0;
 }
 fun st_builtin(name: Any, args: Any, span: Any) -> Any {
+    if (name == "__ccall6") {
+        st_arity(name, args, 7, 7, span);
+        return st_type("Int", []);
+    }
     if (name == "Ok" or name == "Err" or name == "Some") {
         st_arity(name, args, 1, 1, span);
         return st_type("Result", if (name != "Err") { [args[0], st_type("Never", [])] } else { [st_type("Never", []), args[0]] });
@@ -551,7 +555,10 @@ fun st_variant_pattern(ctx: Any, arm: Any, subject: Any) -> Any {
     return tag;
 }
 fun st_expr(ctx: Any, node: Any) -> Any {
-    let result: Any = st_expr_type(ctx, node); st_contract(node, result); return result;
+    let result: Any = st_expr_type(ctx, node);
+    st_contract(node, result);
+    if (node != 0) { node.strictType = result; }
+    return result;
 }
 fun st_expr_type(ctx: Any, node: Any) -> Any {
     if (node == 0) { return st_type("Nil", []); }
@@ -865,7 +872,11 @@ fun strict_program(ctx: Any) -> Any {
             // Native/prelude internals have explicit Any contracts; only user
             // modules are checked here. Synthetic constructors own nominal types.
             if (module != "" or not has(builtins, name)) {
-                if (not st_attempt(fun() -> Any { ST_GLOBALS[key] = rec.strictSignature ?? st_complete_signature(ctx, rec); return 0; })) { ST_GLOBALS[key] = st_any(); }
+                if (not st_attempt(fun() -> Any {
+                    rec.strictSignature = rec.strictSignature ?? st_complete_signature(ctx, rec);
+                    ST_GLOBALS[key] = rec.strictSignature;
+                    return 0;
+                })) { ST_GLOBALS[key] = st_any(); }
             }
         }
     }

@@ -2,7 +2,7 @@ import "../../src/regalloc.may";
 import "../../src/ir.may";
 import "../../src/ast.may";
 
-fun value(slot: Any) -> Any { return IRValue(IR_TEMP, slot, 0, 0, 0, 0, 0); }
+fun value(slot: Any) -> Any { return IRValue(IR_TEMP, slot, 0, 0, 0, 0, 0, 0); }
 fun define(slot: Any) -> Any { return Quad(E_INT, value(slot), 0, 0, {"value": slot}, 0); }
 fun use(slot: Any) -> Any { return Quad(S_ASSIGN, 0, value(slot), 0, {"value": value(slot)}, 0); }
 fun require(ok: Bool) -> Nil { if not ok { fail("register allocation invariant failed"); } return; }

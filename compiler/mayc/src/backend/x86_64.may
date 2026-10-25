@@ -1896,7 +1896,7 @@ fun cg_bin(ctx: Any, n: Any) -> Any {
         else if (op == TK_XOR) { e8(ctx, 72); e8(ctx, 49); e8(ctx, 200); }
         else if (op == TK_SHL) { e8(ctx, 72); e8(ctx, 211); e8(ctx, 224); }
         else { e8(ctx, 72); e8(ctx, 211); e8(ctx, 248); }
-        if (op == TK_SHL) {
+        if (op == TK_SHL and ctx.dynamic != 0) {
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
         }
@@ -1935,8 +1935,10 @@ fun cg_un(ctx: Any, n: Any) -> Any {
         e8(ctx, 72); e8(ctx, 247); e8(ctx, 216);  // neg rax
     } else if (op == TK_BITNOT) {
         e8(ctx, 72); e8(ctx, 247); e8(ctx, 208);
-        e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
-        e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
+        if (ctx.dynamic != 0) {
+            e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
+            e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
+        }
     } else {
         test_rax(ctx);
         setcc(ctx, 148);               // setz al; movzx
@@ -2684,14 +2686,14 @@ fun mov_argreg(ctx: Any, i: Any) -> Any {
 
 fun cg_ccall6(ctx: Any, args: Any) -> Any {
     cg_expr(ctx, args);
-    untag_rax(ctx);
+    if (ctx.mode != 0) { untag_rax(ctx); }
     let fs: Any = loc_add(ctx, addr("0cc"), 3);
     st_local(ctx, 8 * (fs + 1));
     mut cur: Any = args.next;
     mut i: Any = 0;
     while (cur != 0) {
         cg_expr(ctx, cur);
-        untag_rax(ctx);
+        if (ctx.mode != 0) { untag_rax(ctx); }
         let si: Any = loc_add(ctx, addr("0cr"), 3);
         st_local(ctx, 8 * (si + 1));
         ld_local(ctx, 8 * (si + 1));
@@ -2704,7 +2706,7 @@ fun cg_ccall6(ctx: Any, args: Any) -> Any {
     xor_eax(ctx);
     x86_root_registers(ctx);
     e8(ctx, 65); e8(ctx, 255); e8(ctx, 211);
-    tag_rax(ctx);
+    if (ctx.mode != 0) { tag_rax(ctx); }
     return 0;
 }
 

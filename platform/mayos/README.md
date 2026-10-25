@@ -180,13 +180,12 @@ it uses. The kernel sleeps with `hlt` when neither serial nor keyboard input is
 ready and wakes on the next timer interrupt. CPU faults halt with a distinct
 failure exit status in the configured QEMU environment.
 
-`hardware.may` wraps a few assembly primitives through `__ccall6`. The current
-compiler's intrinsic still shifts arguments/results as tagged values even in
-raw mode; the wrapper compensates for that at this one ABI boundary. Raw mode
-also does not recognise `true`/`false` as literal values, so flags use integers
-and boolean results use comparisons. Raw strings are NUL-terminated pointers;
-the kernel uses explicit byte loads rather than hosted strings, collections,
-garbage collection, syscalls or stdlib routines.
+`hardware.may` wraps a few assembly primitives through `__ccall6`. Raw mode
+passes native machine words across this boundary without tagged-value shifts.
+It also does not recognise `true`/`false` as literal values, so flags use
+integers and boolean results use comparisons. Raw strings are NUL-terminated
+pointers; the kernel uses explicit byte loads rather than hosted strings,
+collections, garbage collection, syscalls or stdlib routines.
 
 The compiler emits a Linux exit fallback after its top-level entry function.
 MayOS never returns from its shell or shutdown loop, so that instruction is

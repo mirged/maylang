@@ -6,6 +6,9 @@
   Rust-style precedence and signed 61-bit behavior. Replace the NodeOS NXF
   CRC-32 lookup tables with a portable bitwise implementation
   ([#91](https://github.com/mirged/maylang/issues/91)).
+- Preserve native 64-bit values, including bit 63, in raw-mode bitwise
+  operations as the first step toward the native-word ABI
+  ([#92](https://github.com/mirged/maylang/issues/92)).
 
 ## Browser
 
