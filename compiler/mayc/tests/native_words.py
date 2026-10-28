@@ -6,7 +6,7 @@ code untag arguments and retag the result, so values beyond the tagged range
 fault only when they leave native code. A seeded oracle compares random
 expressions with Python's signed 64-bit semantics on the full and core
 runtimes, with and without --debug, and on ARM64/RISC-V core targets when
-QEMU user emulators are installed.
+QEMU user emulators are installed, and on clang-llvm when clang is.
 """
 import argparse
 import random
@@ -77,6 +77,8 @@ print(may { mul(mul(1073741824, 1073741824), mul(1073741824, 8)) } otherwise { "
 print(may { big() } otherwise { "${err.kind}: ${err.message}" });
 print(may { neg(-1152921504606846975 - 1) } otherwise { "${err.kind}: ${err.message}" });
 print(may { tagged_top() } otherwise { "${err.kind}: ${err.message}" });
+let t: Int = 6;
+print(t & 3, t | 1, t ^ 5, ~t, t << 2, -t >> 1, t << 59, -1 << 60);
 '''
 
 EXPECTED = '''6765 21
@@ -94,6 +96,7 @@ arithmetic: integer overflow
 arithmetic: integer overflow
 tagged
 arithmetic: shift count out of range
+2 7 3 -7 24 -3 -1152921504606846976 -1152921504606846976
 '''
 
 
@@ -221,6 +224,10 @@ def main():
     compiler = args.compiler.resolve()
     configurations = [([], None), (['--runtime', 'core'], None), (['--debug'], None)]
     skipped = []
+    if shutil.which('clang'):
+        configurations.append((['--target', 'clang-llvm'], None))
+    else:
+        skipped.append('clang-llvm')
     for target, emulator in (('arm64-linux', 'qemu-aarch64'), ('riscv64-linux', 'qemu-riscv64')):
         runner = shutil.which(emulator)
         if runner:
@@ -246,7 +253,7 @@ def main():
                 raise AssertionError((flags, mismatch, lines[mismatch], program.splitlines()[mismatch // 3]))
         print(f'PASS {args.cases * 3} seeded native-word oracle calls match signed 64-bit semantics', flush=True)
         if skipped:
-            print('SKIP ' + ', '.join(skipped) + ' execution: install QEMU user emulators', flush=True)
+            print('SKIP ' + ', '.join(skipped) + ': install clang or QEMU user emulators', flush=True)
 
 
 if __name__ == '__main__':

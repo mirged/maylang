@@ -138,7 +138,7 @@ fun word_candidate(rec: Any, names: Any) -> Any {
 // while every function it calls is native, so iterate to a fixpoint.
 fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
     // --debug keeps the same arithmetic; native frames add no trace entries.
-    if (DYNMODE == 0 or not has(["x86_64", "arm64", "riscv64"], ctx.target.arch)) { return 0; }
+    if (DYNMODE == 0 or not has(["x86_64", "arm64", "riscv64", "llvm"], ctx.target.arch)) { return 0; }
     let scans: Any = [];
     for rec: Any in functions {
         rec.native = false;

@@ -71,7 +71,42 @@ fun llvm_call(s: Any, name: Any, values: Any) -> Any {
         mut p: Any = llvm_ssa(s, "getelementptr i64, ptr %argv, i64 ${i}", "ptr");
         llvm_store(s, p, value);
     }
-    return llvm_ssa(s, "call i64 @f${rec.lab}(i64 0, ptr %argv)", "i64");
+    let prefix: Any = if (s.native and rec.native == true) { "n" } else { "f" };
+    return llvm_ssa(s, "call i64 @${prefix}${rec.lab}(i64 0, ptr %argv)", "i64");
+}
+// Branch to a native-word fault (#92): 0 overflow, 1 division by zero, 2 shift count.
+fun llvm_guard(s: Any, bad: Any, kind: Any) -> Any {
+    let fail: Any = "w${s.serial}"; let pass: Any = "w${s.serial + 1}"; s.serial += 2;
+    llvm_line(s, "  br i1 ${bad}, label %${fail}, label %${pass}");
+    llvm_line(s, "${fail}:"); llvm_call(s, "rt_native_fault", [str(kind)]); llvm_line(s, "  unreachable");
+    llvm_line(s, "${pass}:");
+    return 0;
+}
+fun llvm_checked(s: Any, op: Any, a: Any, b: Any) -> Any {
+    let pair: Any = llvm_ssa(s, "call {i64, i1} @llvm.${op}.with.overflow.i64(i64 ${a}, i64 ${b})", "{i64, i1}");
+    llvm_guard(s, llvm_ssa(s, "extractvalue {i64, i1} ${pair}, 1", "i1"), 0);
+    return llvm_ssa(s, "extractvalue {i64, i1} ${pair}, 0", "i64");
+}
+fun llvm_minimum() -> Any { return "-9223372036854775808"; }
+fun llvm_bitwise(s: Any, op: Any, a: Any, b: Any) -> Any {
+    if (op == TK_BITAND) { return llvm_op(s, "and", a, b); }
+    if (op == TK_PIPE) { return llvm_op(s, "or", a, b); }
+    if (op == TK_XOR) { return llvm_op(s, "xor", a, b); }
+    if (not s.raw) {
+        // Tagged words: untag only the count, keep the three tag bits clear.
+        let count: Any = llvm_op(s, "ashr", b, "3");
+        llvm_guard(s, llvm_cmp(s, "ugt", count, "60"), 2);
+        if (op == TK_SHL) { return llvm_op(s, "shl", a, count); }
+        return llvm_op(s, "and", llvm_op(s, "ashr", a, count), "-8");
+    }
+    mut count: Any = b;
+    if (s.native) { llvm_guard(s, llvm_cmp(s, "ugt", b, "63"), 2); }
+    else { count = llvm_op(s, "and", b, "63"); }
+    if (op == TK_SHR) { return llvm_op(s, "ashr", a, count); }
+    let shifted: Any = llvm_op(s, "shl", a, count);
+    // Raw runtime code keeps tagged 61-bit wrapping, as on x86-64.
+    if (s.native) { return shifted; }
+    return llvm_op(s, "ashr", llvm_op(s, "shl", shifted, "3"), "3");
 }
 fun llvm_apply(s: Any, closure: Any, values: Any) -> Any {
     mut fn: Any = llvm_call(s, "rt_require_callable", [closure]);
@@ -258,16 +293,39 @@ fun llvm_operation(s: Any, op: Any, n: Any) -> Any {
         mut a: Any = llvm_value(s, n.left); mut b: Any = llvm_value(s, n.right);
         mut operators: Any = ["add", "sub", "mul", "sdiv", "srem", "eq", "ne", "slt", "sle", "sgt", "sge"];
         mut runtimes: Any = ["add", "sub", "mul", "div", "mod", "op_eq", "op_ne", "op_lt", "op_le", "op_gt", "op_ge"];
+        if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], n.op)) { return llvm_bitwise(s, n.op, a, b); }
         mut index: Any = n.op - TK_PLUS;
         if (index < 0 or index >= len(operators)) { die_str("mayc: LLVM unsupported binary operation\n"); }
         if (not s.raw) { return llvm_call(s, "rt_" + runtimes[index], [a,b]); }
+        if (s.native and index < 3) { return llvm_checked(s, ["sadd", "ssub", "smul"][index], a, b); }
+        if (s.native and index < 5) {
+            // sdiv/srem trap on zero and MIN / -1; select a safe divisor instead.
+            llvm_guard(s, llvm_cmp(s, "eq", b, "0"), 1);
+            let negative: Any = llvm_cmp(s, "eq", b, "-1");
+            if (index == 3) {
+                let minimum: Any = llvm_cmp(s, "eq", a, llvm_minimum());
+                llvm_guard(s, llvm_ssa(s, "and i1 ${negative}, ${minimum}", "i1"), 0);
+            }
+            let divisor: Any = llvm_select(s, negative, "1", b);
+            let quotient: Any = llvm_op(s, operators[index], a, divisor);
+            return llvm_select(s, negative, if (index == 3) { llvm_op(s, "sub", "0", a) } else { "0" }, quotient);
+        }
         if (index < 5) { return llvm_op(s, operators[index], a,b); }
         mut cmp: Any = llvm_cmp(s, operators[index], a,b); return llvm_ssa(s, "zext i1 ${cmp} to i64", "i64");
     }
     if (op == E_UN) {
         mut a: Any = llvm_value(s, n.operand);
+        if (n.op == TK_BITNOT) {
+            if (not s.raw) { return llvm_op(s, "xor", a, "-8"); }
+            let complement: Any = llvm_op(s, "xor", a, "-1");
+            if (s.native) { return complement; }
+            return llvm_op(s, "ashr", llvm_op(s, "shl", complement, "3"), "3");
+        }
         if (not s.raw) { if (n.op == TK_MINUS) { return llvm_call(s,"rt_neg",[a]); } return llvm_call(s,"rt_not",[a]); }
-        if (n.op == TK_MINUS) { return llvm_op(s,"sub","0",a); }
+        if (n.op == TK_MINUS) {
+            if (s.native) { return llvm_checked(s, "ssub", "0", a); }
+            return llvm_op(s,"sub","0",a);
+        }
         mut cmp: Any = llvm_cmp(s,"eq",a,"0"); return llvm_ssa(s,"zext i1 ${cmp} to i64","i64");
     }
     if (op == E_CALL) {
@@ -379,7 +437,8 @@ fun llvm_foreign(s: Any) -> Any {
 
 fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
     mut block: Any = rec.ir;
-    mut s: Any = {"unit":unit,"rec":rec,"raw":rec.mode == 1,"locals":{},"boxed":{},"lines":[],"serial":0,"roots":0};
+    let native: Any = rec.native == true;
+    mut s: Any = {"unit":unit,"rec":rec,"raw":rec.mode == 1 or native,"native":native,"locals":{},"boxed":{},"lines":[],"serial":0,"roots":0};
     for b: Any in rec.boxed { s.boxed[symbol_name(b[0],b[1])] = true; }
     for p: Any in rec.parr { llvm_local(s,symbol_name(p.name,p.length)); }
     mut labels: Any = {};
@@ -476,13 +535,32 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
         let parts: Any = split(symbol_name(rec.p, rec.l), "::");
         let name: Any = parts[len(parts) - 1];
         push(out,"; may-function @f${rec.lab} ${name}");
-        push(out,"define i64 @f${rec.lab}(i64 %env, ptr %incoming) noinline {\nentry:");
+        let prefix: Any = if (native) { "n" } else { "f" };
+        push(out,"define i64 @${prefix}${rec.lab}(i64 %env, ptr %incoming) noinline {\nentry:");
     }
     push(out,"  %argv = alloca [${unit.argCount} x i64], align 8");
     for p: Any in values(s.locals) { push(out,"  ${p} = alloca i64, align 8\n  store volatile i64 0, ptr ${p}, align 8"); }
     for j: Any in 0..block.temporaries { push(out,"  %t${j} = alloca i64, align 8\n  store volatile i64 0, ptr %t${j}, align 8"); }
     for j: Any in 0..s.roots { push(out,"  %r${j} = alloca i64, align 8\n  store volatile i64 0, ptr %r${j}, align 8"); }
-    push(out,join(s.lines,"\n")); push(out,"}\n"); return join(out,"\n");
+    push(out,join(s.lines,"\n")); push(out,"}\n");
+    if (native) { push(out, llvm_native_entry(unit, rec)); }
+    return join(out,"\n");
+}
+// Tagged entry for a native-word function: untag arguments, call the native
+// body, then retag the result, faulting when it leaves the 61-bit range.
+fun llvm_native_entry(unit: Any, rec: Any) -> Any {
+    let fault: Any = unit.ctx.functionIndex["rt_native_fault"];
+    emission_reference(unit.ctx, fault.lab);
+    let lines: Any = ["define i64 @f${rec.lab}(i64 %env, ptr %incoming) noinline {\nentry:",
+        "  %argv = alloca [${unit.argCount} x i64], align 8"];
+    for i: Any in 0..rec.pc {
+        push(lines, "  %p${i} = getelementptr i64, ptr %incoming, i64 ${i}\n  %v${i} = load volatile i64, ptr %p${i}, align 8");
+        push(lines, "  %u${i} = ashr i64 %v${i}, 3\n  %q${i} = getelementptr i64, ptr %argv, i64 ${i}\n  store volatile i64 %u${i}, ptr %q${i}, align 8");
+    }
+    push(lines, "  %r = call i64 @n${rec.lab}(i64 %env, ptr %argv)\n  %t = shl i64 %r, 3\n  %b = ashr i64 %t, 3\n  %ok = icmp eq i64 %b, %r");
+    push(lines, "  br i1 %ok, label %done, label %overflow\ndone:\n  ret i64 %t\noverflow:");
+    push(lines, "  store volatile i64 0, ptr %argv, align 8\n  %x = call i64 @f${fault.lab}(i64 0, ptr %argv)\n  unreachable\n}\n");
+    return join(lines, "\n");
 }
 fun llvm_emit(ctx: Any) -> Any {
     emission_begin(ctx);
@@ -509,7 +587,7 @@ fun llvm_emit(ctx: Any) -> Any {
         push(bodies,llvm_function(unit,rec,false));
     }
     emission_finish(ctx);
-    mut header: Any = ["; Maylang direct LLVM backend\ntarget triple = \"x86_64-unknown-linux-gnu\"\ndeclare ptr @llvm.stacksave.p0()\ndeclare ptr @llvm.frameaddress.p0(i32 immarg)\ndeclare void @llvm.trap() cold noreturn nounwind\ndeclare i32 @_setjmp(ptr) returns_twice\ndeclare void @longjmp(ptr, i32) noreturn\ndeclare ptr @dlopen(ptr, i32)\ndeclare ptr @dlsym(ptr, ptr)"];
+    mut header: Any = ["; Maylang direct LLVM backend\ntarget triple = \"x86_64-unknown-linux-gnu\"\ndeclare ptr @llvm.stacksave.p0()\ndeclare ptr @llvm.frameaddress.p0(i32 immarg)\ndeclare void @llvm.trap() cold noreturn nounwind\ndeclare {i64, i1} @llvm.sadd.with.overflow.i64(i64, i64)\ndeclare {i64, i1} @llvm.ssub.with.overflow.i64(i64, i64)\ndeclare {i64, i1} @llvm.smul.with.overflow.i64(i64, i64)\ndeclare i32 @_setjmp(ptr) returns_twice\ndeclare void @longjmp(ptr, i32) noreturn\ndeclare ptr @dlopen(ptr, i32)\ndeclare ptr @dlsym(ptr, ptr)"];
     for fn: Any in ["sqrt","floor","ceil","nearbyint","trunc","sin","cos","tan","log","log2","log10","exp","fabs"] { push(header,"declare double @${fn}(double)"); }
     push(header,"declare double @pow(double, double)");
     for p: Any in values(unit.globals) { push(header,"${p} = internal global i64 0, align 8"); }
