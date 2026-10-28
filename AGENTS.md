@@ -217,7 +217,7 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   types is `false`, `!=` is `true`, and ordering raises a `type` fault, so
   `Any`-typed numeric code must normalize with `to_float` before comparing.
 - Full/core runtime integers are 61-bit tagged values (±2^60). Raw mode uses
-  native 64-bit words for bitwise operations. On x86-64, all-`Int` functions
+  native 64-bit words for bitwise operations. On native targets, all-`Int` functions
   (`compiler/mayc/src/words.may`) compute with native 64-bit words and retag
   results at the boundary, so `1 << 63` behaves differently there than in
   tagged code. Overflow and division by zero
