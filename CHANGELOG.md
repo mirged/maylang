@@ -11,13 +11,15 @@
   ([#92](https://github.com/mirged/maylang/issues/92)).
 - Compile functions whose parameters, result, locals and operations are all
   `Int` with untagged 64-bit machine words in the full and core runtimes on
-  x86-64, ARM64 and RISC-V. Arithmetic faults on 64-bit overflow, division by zero and shift
-  counts outside 0 through 63; results are retagged, with an overflow fault,
+  every target. Arithmetic faults on 64-bit overflow, division by zero and
+  shift counts outside 0 through 63; results are retagged, with an overflow fault,
   when they return to tagged code. Calls between such functions pass machine
   words directly ([#92](https://github.com/mirged/maylang/issues/92)).
 - Fault on tagged shift counts outside 0 through 60 on the ARM64 and RISC-V
   core targets, as x86-64 already did; they previously shifted silently
   ([#91](https://github.com/mirged/maylang/issues/91)).
+- Support bitwise operators on the experimental `clang-llvm` target, which
+  previously rejected them ([#91](https://github.com/mirged/maylang/issues/91)).
 
 ## MayOS
 
