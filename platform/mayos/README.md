@@ -193,11 +193,13 @@ unreachable. All hardware interaction uses port I/O and physical memory.
 
 ## Build management
 
-`maypkg` generates the build script and locks the seven Maylang modules. Make
-runs that script with the project-local `tools/mayc` adapter, which adds `--raw`,
-then builds the assembly loader and packages both ELF files into the ISO. This
-also preserves the compiler environment: the current hosted `system` primitive
-used by ordinary `maypkg build` drops environment variables in its child shell.
+`maypkg` generates the build script and locks the seven Maylang modules. The
+manifest's `"runtime": "none"` makes every build raw. Make passes its `MAYC`
+(the checkout compiler by default) to `maypkg`, runs the generated script, then
+builds the assembly loader and packages both ELF files into the ISO. Running the
+script from Make also preserves the compiler environment: the current hosted
+`system` primitive used by ordinary `maypkg build` drops environment variables
+in its child shell.
 Use **Make** for the complete boot image. To inspect the project from this directory:
 
 ```sh
@@ -206,7 +208,7 @@ Use **Make** for the complete boot image. To inspect the project from this direc
 make check
 ```
 
-The manifest's `linux` target denotes the current compiler's ELF output format;
+The manifest's `x86_64-linux` target denotes the current compiler's ELF output format;
 the resulting kernel is freestanding. Do not invoke ordinary `maypkg run` for
 this project: it launches a host executable rather than booting QEMU. The
 Makefile's `run` and `gui` targets boot the ISO.

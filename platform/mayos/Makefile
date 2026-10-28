@@ -9,11 +9,10 @@ QEMU_FLAGS = -machine pc,accel=tcg -m 64M -cdrom build/mayos.iso -drive file=$(D
 .PHONY: build run gui test check clean
 build: build/mayos.iso
 
-build/kernel.elf: main.may $(wildcard src/*.may) $(MAYC) tools/mayc Makefile mayproj.json $(MAYPKG)
+build/kernel.elf: main.may $(wildcard src/*.may) $(MAYC) Makefile mayproj.json $(MAYPKG)
 	mkdir -p build
-	chmod +x tools/mayc
-	PWD="$(CURDIR)" $(MAYPKG) build --force --script
-	MAYOS_COMPILER="$(abspath $(MAYC))" PATH="$(CURDIR)/tools:$$PATH" sh build/maypkg.build.sh
+	PWD="$(CURDIR)" MAYC="$(abspath $(MAYC))" $(MAYPKG) build --force --script
+	sh build/maypkg.build.sh
 	PWD="$(CURDIR)" $(MAYPKG) lock
 
 build/maypkg: ../../tools/maypkg/main.may ../../tools/maypkg/src/*.may

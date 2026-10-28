@@ -1,1 +1,1 @@
-{"modules":{"main.may":"f4cea63c","src/console.may":"44351a1f","src/disk.may":"d4ee3719","src/filesystem.may":"bfedcaa5","src/hardware.may":"169f0e20","src/memory.may":"197eaf1e","src/shell.may":"486de269"},"name":"mayos","version":"0.1.0"}
+{"modules":{"main.may":"f4cea63c","src/console.may":"44351a1f","src/disk.may":"d4ee3719","src/filesystem.may":"bfedcaa5","src/hardware.may":"740bb03c","src/memory.may":"197eaf1e","src/shell.may":"486de269"},"name":"mayos","version":"0.1.0"}
