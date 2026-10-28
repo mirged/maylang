@@ -7,7 +7,7 @@ struct ByteSink { data: Any, length: Any, capacity: Any }
 // heap during large compiler builds, without rooting per-relocation maps.
 struct FixupTable { chunks: Any, count: Any }
 struct ImageLayout { base: Any, codeOffset: Any, codeAddress: Any, dataOffset: Any, dataAddress: Any, alignment: Any }
-struct EmissionContext { code: Any, data: Any, image: Any, labels: Any, fixups: Any, maxLocals: Any, locals: Any, globals: Any, returnLabel: Any, mode: Any, envSlot: Any, envCaptures: Any, envCount: Any, fiberLabel: Any, globalBytes: Any, rodataOffset: Any, ffiStartSlot: Any, tempBase: Any, restartLabel: Any, boxed: Any, target: Any, layout: Any, functions: Any, foreign: Any, mainIR: Any, dynamic: Any, mainBoxed: Any, allocation: Any, runtime: Any, platform: Any, functionIndex: Any, reachability: Any, native: Any, nativeFaults: Any }
+struct EmissionContext { code: Any, data: Any, image: Any, labels: Any, fixups: Any, maxLocals: Any, locals: Any, globals: Any, returnLabel: Any, mode: Any, envSlot: Any, envCaptures: Any, envCount: Any, fiberLabel: Any, globalBytes: Any, rodataOffset: Any, ffiStartSlot: Any, tempBase: Any, restartLabel: Any, boxed: Any, target: Any, layout: Any, functions: Any, foreign: Any, mainIR: Any, dynamic: Any, mainBoxed: Any, allocation: Any, runtime: Any, platform: Any, functionIndex: Any, reachability: Any, native: Any, nativeFaults: Any, nativeSlots: Any }
 
 fun sink_new(capacity: Any) -> Any {
     let pointer: Any = syscall(9, 0, capacity, 3, 34, 0 - 1, 0);
@@ -27,7 +27,7 @@ fun sink_release(sink: Any) -> Any {
 }
 
 fun emitter_new(target: Any) -> Any {
-    return EmissionContext(sink_new(16777216), sink_new(4194304), sink_new(33554432), [0, 0], fixups_new(), 0, [], [], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], target, 0, [], [], 0, 0, [], 0, "none", [], {}, 0, false, [0, 0, 0]);
+    return EmissionContext(sink_new(16777216), sink_new(4194304), sink_new(33554432), [0, 0], fixups_new(), 0, [], [], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], target, 0, [], [], 0, 0, [], 0, "none", [], {}, 0, false, [0, 0, 0], []);
 }
 
 fun fixups_new() -> Any { return FixupTable([], 0); }

@@ -5,10 +5,12 @@ Qualifying functions compute with untagged 64-bit words. Calls from tagged
 code untag arguments and retag the result, so values beyond the tagged range
 fault only when they leave native code. A seeded oracle compares random
 expressions with Python's signed 64-bit semantics on the full and core
-runtimes, with and without --debug.
+runtimes, with and without --debug, and on ARM64/RISC-V core targets when
+QEMU user emulators are installed.
 """
 import argparse
 import random
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -194,13 +196,18 @@ def oracle_program(seed, count):
                 expected.append(str(value) if -TAGGED <= value < TAGGED else 'integer overflow')
             except Fault as fault:
                 expected.append(str(fault))
-    return '\n'.join(functions + calls) + '\n', ''.join(line + '\n' for line in expected)
+    # Portable backends cap frames at 2000 bytes, so batch the tagged callers.
+    batches = []
+    for start in range(0, len(calls), 10):
+        batches.append(f'fun batch{start}() -> Nil {{ ' + ' '.join(calls[start:start + 10]) + ' return; }')
+        batches.append(f'batch{start}();')
+    return '\n'.join(functions + batches) + '\n', ''.join(line + '\n' for line in expected)
 
 
-def compile_run(compiler, source, binary, *flags):
+def compile_run(compiler, source, binary, *flags, runner=None):
     result = subprocess.run([str(compiler), *flags, str(source), '-o', str(binary)], capture_output=True, timeout=180)
     assert result.returncode == 0, result.stderr.decode()
-    result = subprocess.run([str(binary)], capture_output=True, timeout=60)
+    result = subprocess.run(([runner] if runner else []) + [str(binary)], capture_output=True, timeout=120)
     assert result.returncode == 0 and not result.stderr, result
     return result.stdout.decode()
 
@@ -212,25 +219,34 @@ def main():
     parser.add_argument('--cases', type=int, default=120)
     args = parser.parse_args()
     compiler = args.compiler.resolve()
-    configurations = [[], ['--runtime', 'core'], ['--debug']]
+    configurations = [([], None), (['--runtime', 'core'], None), (['--debug'], None)]
+    skipped = []
+    for target, emulator in (('arm64-linux', 'qemu-aarch64'), ('riscv64-linux', 'qemu-riscv64')):
+        runner = shutil.which(emulator)
+        if runner:
+            configurations.append((['--target', target], runner))
+        else:
+            skipped.append(target)
     with tempfile.TemporaryDirectory(prefix='mayc-native-words-') as directory:
         work = Path(directory)
         source = work / 'semantics.may'
         source.write_text(SEMANTICS)
-        for flags in configurations:
-            output = compile_run(compiler, source, work / 'semantics', *flags)
+        for flags, runner in configurations:
+            output = compile_run(compiler, source, work / 'semantics', *flags, runner=runner)
             assert output == EXPECTED, (flags, output)
         print('PASS native-word results, faults, recursion and tagged boundaries', flush=True)
         program, expected = oracle_program(args.seed, args.cases)
         source = work / 'oracle.may'
         source.write_text(program)
-        for flags in configurations:
-            output = compile_run(compiler, source, work / 'oracle', *flags)
+        for flags, runner in configurations:
+            output = compile_run(compiler, source, work / 'oracle', *flags, runner=runner)
             if output != expected:
                 lines = list(zip(output.splitlines(), expected.splitlines()))
                 mismatch = next(i for i, (got, want) in enumerate(lines) if got != want)
                 raise AssertionError((flags, mismatch, lines[mismatch], program.splitlines()[mismatch // 3]))
         print(f'PASS {args.cases * 3} seeded native-word oracle calls match signed 64-bit semantics', flush=True)
+        if skipped:
+            print('SKIP ' + ', '.join(skipped) + ' execution: install QEMU user emulators', flush=True)
 
 
 if __name__ == '__main__':
