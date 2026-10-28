@@ -71,6 +71,10 @@ snapshots show at most 64. This is error tracing, not a DWARF debugger interface
 5. `ir.may` lowers syntax into linear `Quad` records with virtual values,
    branches, labels, calls, and handler operations. It also folds safe integer
    constants and removes unreachable statements after unconditional exits.
+   Before lowering, `words.may` marks x86-64 functions whose parameters,
+   result, locals and operations are all `Int`; they are lowered like raw code
+   and emitted with untagged 64-bit words, checked arithmetic and a tagged
+   entry that untags arguments and retags the result.
 6. `backend.may` selects a `TargetBackend` with IR emission and relocation
    entry points. `backend/x86_64.may` implements the full dynamic runtime;
    `backend/arm64.may` and `backend/riscv.may` implement raw and core programs

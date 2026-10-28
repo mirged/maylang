@@ -101,6 +101,18 @@ narrower type is checked rather than rejected solely for having a wider type.
 part. These names do not provide a complete 64-bit payload or machine-width
 storage.
 
+On x86-64 targets, a function whose parameters and result are all `Int`, and
+whose body uses only `Int` locals, integer operators, comparisons, `if`,
+`while`, `break`, `continue` and calls to other such functions, compiles as
+a native-word function. Inside it, and across calls between such functions,
+`Int` values are untagged signed 64-bit machine words: bitwise operators reach
+bit 63, shift counts may be 0 through 63, and `+`, `-`, `*`, `/` and negation
+fault on 64-bit overflow. A call from other code untags the arguments and
+retags the result, which raises an `integer overflow` fault if it does not
+fit the 61-bit range. Debug traces omit native-word frames. Other targets and
+other functions keep the tagged semantics until the remaining backends adopt
+native words ([#92](https://github.com/mirged/maylang/issues/92)).
+
 `Float32` rounds through IEEE binary32 at typed boundaries and keeps the
 existing boxed binary64 storage. `Float` and `Float64` use binary64. Float32
 requires the full runtime. Lists and results recursively check their numeric

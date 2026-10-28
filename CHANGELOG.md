@@ -9,6 +9,12 @@
 - Preserve native 64-bit values, including bit 63, in raw-mode bitwise
   operations as the first step toward the native-word ABI
   ([#92](https://github.com/mirged/maylang/issues/92)).
+- Compile x86-64 functions whose parameters, result, locals and operations
+  are all `Int` with untagged 64-bit machine words in the full and core
+  runtimes. Arithmetic faults on 64-bit overflow, division by zero and shift
+  counts outside 0 through 63; results are retagged, with an overflow fault,
+  when they return to tagged code. Calls between such functions pass machine
+  words directly ([#92](https://github.com/mirged/maylang/issues/92)).
 
 ## MayOS
 
