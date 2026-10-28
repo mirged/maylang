@@ -10,6 +10,13 @@
   operations as the first step toward the native-word ABI
   ([#92](https://github.com/mirged/maylang/issues/92)).
 
+## MayOS
+
+- Pass native words through `__ccall6` without tag compensation, and always
+  build the kernel raw with the checkout compiler. A `MAYC` in the environment
+  previously produced a full-runtime kernel that halted with a boot fault
+  ([#92](https://github.com/mirged/maylang/issues/92)).
+
 ## Browser
 
 - Stop HTTP(S) responses above 16 MiB of decoded data, including chunked and
