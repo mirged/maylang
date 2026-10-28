@@ -1,0 +1,161 @@
+import "state.may";
+import "ast.may";
+import "lexer.may";
+import "symbols.may";
+import "sema.may";
+import "diagnostics.may";
+// words.may — native-word lowering for strictly typed integer functions (#92).
+//
+// A user function whose parameters and result are all `Int`, and whose body
+// only computes with integer locals, compiles as native 64-bit machine words.
+// Its tagged-ABI entry untags arguments and retags the result, raising the
+// ordinary `integer overflow` fault when the result leaves the tagged range.
+// Calls between native-word functions pass machine words directly.
+
+let WORD_ARITHMETIC: Any = [TK_PLUS, TK_MINUS, TK_STAR, TK_SLASH, TK_PCT, TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR];
+let WORD_ORDERING: Any = [TK_EQ, TK_NE, TK_LT, TK_LE, TK_GT, TK_GE];
+
+struct WordScan { rec: Any, names: Any, scopes: Any, calls: Any, valid: Any }
+
+fun word_type(t: Any, name: Any) -> Any {
+    return t != nil and t != 0 and t.name == name and len(t.arguments ?? []) == 0;
+}
+
+fun word_plain(node: Any) -> Any { return node.contract == nil or node.contract == 0; }
+
+fun word_local(scan: Any, name: Any) -> Any {
+    for scope: Any in scan.scopes { if (has(scope, name)) { return true; } }
+    return false;
+}
+
+fun word_reject(scan: Any) -> Any { scan.valid = false; return false; }
+
+// Every value must be an uncontracted Int (or Bool, for control flow only).
+fun word_value(scan: Any, node: Any, expected: Any) -> Any {
+    if (not scan.valid) { return false; }
+    // Name resolution folds small literal arithmetic into untyped literals.
+    if (node != 0 and node.kind == E_INT and expected == "Int" and word_plain(node) and node.strictType == nil) { return true; }
+    if (node == 0 or not word_plain(node) or not word_type(node.strictType, expected)) { return word_reject(scan); }
+    let kind: Any = node.kind;
+    if (kind == E_INT) { return true; }
+    if (kind == E_VAR) {
+        if (not word_local(scan, symbol_name(node.name, node.length))) { return word_reject(scan); }
+        return true;
+    }
+    if (kind == E_BIN) {
+        if (has(WORD_ARITHMETIC, node.op)) {
+            return expected == "Int" and word_value(scan, node.left, "Int") and word_value(scan, node.right, "Int");
+        }
+        if (has(WORD_ORDERING, node.op) and expected == "Bool") {
+            let operand: Any = if (word_type(node.left.strictType, "Bool") and (node.op == TK_EQ or node.op == TK_NE)) { "Bool" } else { "Int" };
+            return word_value(scan, node.left, operand) and word_value(scan, node.right, operand);
+        }
+        return word_reject(scan);
+    }
+    if (kind == E_UN) {
+        if (node.op == TK_MINUS or node.op == TK_BITNOT) { return expected == "Int" and word_value(scan, node.operand, "Int"); }
+        if (node.op == TK_NOT) { return expected == "Bool" and word_value(scan, node.operand, "Bool"); }
+        return word_reject(scan);
+    }
+    if (kind == E_AND or kind == E_OR) {
+        return expected == "Bool" and word_value(scan, node.left, "Bool") and word_value(scan, node.right, "Bool");
+    }
+    if (kind == E_CALL and expected == "Int") {
+        let name: Any = symbol_name(node.name, node.length);
+        if (word_local(scan, name) or not has(scan.names, name)) { return word_reject(scan); }
+        let callee: Any = scan.names[name];
+        mut count: Any = 0;
+        mut arg: Any = node.args;
+        while (arg != 0) {
+            if (not word_value(scan, arg, "Int")) { return false; }
+            count += 1; arg = arg.next;
+        }
+        if (count != callee.pc) { return word_reject(scan); }
+        push(scan.calls, callee);
+        return true;
+    }
+    return word_reject(scan);
+}
+
+fun word_block(scan: Any, node: Any) -> Any {
+    if (node.kind != S_BLOCK) { return word_statement(scan, node); }
+    if (node.tail != 0 or not word_plain(node)) { return word_reject(scan); }
+    push(scan.scopes, {});
+    mut statement: Any = node.statements;
+    while (statement != 0 and scan.valid) { word_statement(scan, statement); statement = statement.next; }
+    pop(scan.scopes);
+    return scan.valid;
+}
+
+fun word_statement(scan: Any, node: Any) -> Any {
+    if (not scan.valid) { return false; }
+    if (node == 0 or not word_plain(node)) { return word_reject(scan); }
+    let kind: Any = node.kind;
+    if (kind == S_BLOCK) { return word_block(scan, node); }
+    if (kind == S_LET) {
+        if (node.global != 0 or not word_value(scan, node.initializer, "Int")) { return word_reject(scan); }
+        scan.scopes[len(scan.scopes) - 1][symbol_name(node.name, node.length)] = true;
+        return true;
+    }
+    if (kind == S_ASSIGN) {
+        if (not word_local(scan, symbol_name(node.name, node.length))) { return word_reject(scan); }
+        return word_value(scan, node.value, "Int");
+    }
+    if (kind == S_EXPR) {
+        let expression: Any = node.expression;
+        if (expression != 0 and expression.kind == S_IF) { return word_statement(scan, expression); }
+        return word_value(scan, expression, if (word_type(expression.strictType, "Bool")) { "Bool" } else { "Int" });
+    }
+    if (kind == S_IF) {
+        if (not word_value(scan, node.condition, "Bool") or not word_block(scan, node.thenBranch)) { return false; }
+        if (node.elseBranch != 0) { return word_block(scan, node.elseBranch); }
+        return true;
+    }
+    if (kind == S_WHILE) { return word_value(scan, node.condition, "Bool") and word_block(scan, node.body); }
+    if (kind == S_RETURN) { return word_value(scan, node.value, "Int"); }
+    if (kind == S_BREAK or kind == S_CONT) { return true; }
+    return word_reject(scan);
+}
+
+fun word_candidate(rec: Any, names: Any) -> Any {
+    if (rec.mode != 0 or rec.nested != 0 or rec.foreign == true or rec.strictChecked != true) { return 0; }
+    if (rec.cc != 0 or len(rec.boxed) != 0 or rec.pc > 6) { return 0; }
+    if (source_module(rec.moduleSpan ?? rec.body.span) == "") { return 0; }
+    let signature: Any = rec.strictSignature;
+    if (signature == nil or signature == 0 or len(signature.variables ?? []) > 0) { return 0; }
+    if (not word_type(signature.result, "Int") or len(signature.arguments) != rec.pc) { return 0; }
+    let parameters: Any = {};
+    for index: Any in 0..rec.pc {
+        if (not word_type(signature.arguments[index], "Int")) { return 0; }
+        parameters[symbol_name(rec.parr[index].name, rec.parr[index].length)] = true;
+    }
+    let scan: Any = WordScan(rec, names, [parameters], [], true);
+    word_block(scan, rec.body);
+    return if (scan.valid) { scan } else { 0 };
+}
+
+// Mark `rec.native` on qualifying functions. A function stays native only
+// while every function it calls is native, so iterate to a fixpoint.
+fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
+    // --debug keeps the same arithmetic; native frames add no trace entries.
+    if (DYNMODE == 0 or ctx.target.arch != "x86_64") { return 0; }
+    let scans: Any = [];
+    for rec: Any in functions {
+        rec.native = false;
+        // A global of the same name shadows the function in every backend lookup.
+        if (glob_find(ctx, rec.p, rec.l) >= 0) { continue; }
+        let scan: Any = word_candidate(rec, names);
+        if (scan != 0) { rec.native = true; push(scans, scan); }
+    }
+    mut changed: Any = true;
+    while (changed) {
+        changed = false;
+        for scan: Any in scans {
+            if (not scan.rec.native) { continue; }
+            for callee: Any in scan.calls {
+                if (callee.native != true) { scan.rec.native = false; changed = true; break; }
+            }
+        }
+    }
+    return 0;
+}

@@ -1891,23 +1891,32 @@ fun cg_bin(ctx: Any, n: Any) -> Any {
     cg_expr(ctx, n.left);
     if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], op)) {
         x86_get_temp(ctx, n.right, 1);
+        if (ctx.native and (op == TK_SHL or op == TK_SHR)) {
+            let count: Any = ctx.allocation.locations[n.right.slot].literal;
+            if (count == nil or count < 0 or count > 63) {
+                e8(ctx, 72); e8(ctx, 131); e8(ctx, 249); e8(ctx, 63); // cmp rcx, 63
+                jcc(ctx, 135, x86_native_fault(ctx, 2));              // ja: also negative counts
+            }
+        }
         if (op == TK_BITAND) { e8(ctx, 72); e8(ctx, 33); e8(ctx, 200); }
         else if (op == TK_PIPE) { e8(ctx, 72); e8(ctx, 9); e8(ctx, 200); }
         else if (op == TK_XOR) { e8(ctx, 72); e8(ctx, 49); e8(ctx, 200); }
         else if (op == TK_SHL) { e8(ctx, 72); e8(ctx, 211); e8(ctx, 224); }
         else { e8(ctx, 72); e8(ctx, 211); e8(ctx, 248); }
-        if (op == TK_SHL and ctx.dynamic != 0) {
+        // Runtime raw code keeps tagged 61-bit wrapping; native words do not.
+        if (op == TK_SHL and ctx.dynamic != 0 and not ctx.native) {
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
         }
         return 0;
     }
-    if (op == TK_PLUS) { x86_rax_operand(ctx, n.right, 3, false); }
-    else if (op == TK_MINUS) { x86_rax_operand(ctx, n.right, 43, false); }
+    if (op == TK_PLUS) { x86_rax_operand(ctx, n.right, 3, false); x86_native_overflow(ctx); }
+    else if (op == TK_MINUS) { x86_rax_operand(ctx, n.right, 43, false); x86_native_overflow(ctx); }
     else if (op == TK_STAR) {
         let literal: Any = ctx.allocation.locations[n.right.slot].literal;
         if (literal == 0) { mov_imm(ctx, 0); }
         else if (literal == 1) { return 0; }
+        else if (ctx.native) { x86_rax_operand(ctx, n.right, 175, true); x86_native_overflow(ctx); }
         else if (literal == 3 or literal == 5 or literal == 9) {
             e8(ctx, 72); e8(ctx, 141); e8(ctx, 4);
             e8(ctx, if (literal == 3) { 64 } else if (literal == 5) { 128 } else { 192 });
@@ -1919,8 +1928,22 @@ fun cg_bin(ctx: Any, n: Any) -> Any {
     }
     else if (op == TK_SLASH or op == TK_PCT) {
         x86_get_temp(ctx, n.right, 1);
+        let done: Any = newlab(ctx);
+        if (ctx.native) {
+            // Fault on zero; MIN / -1 overflows and MIN % -1 is zero, but idiv traps on both.
+            let divide: Any = newlab(ctx);
+            e8(ctx, 72); e8(ctx, 133); e8(ctx, 201);                      // test rcx, rcx
+            jcc(ctx, 132, x86_native_fault(ctx, 1));
+            e8(ctx, 72); e8(ctx, 131); e8(ctx, 249); e8(ctx, 255);        // cmp rcx, -1
+            jcc(ctx, 133, divide);
+            if (op == TK_SLASH) { e8(ctx, 72); e8(ctx, 247); e8(ctx, 216); x86_native_overflow(ctx); }
+            else { xor_eax(ctx); }
+            jmp(ctx, done);
+            placelab(ctx, divide);
+        }
         e8(ctx, 72); e8(ctx, 153); e8(ctx, 72); e8(ctx, 247); e8(ctx, 249);
         if (op == TK_PCT) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 208); }
+        placelab(ctx, done);
     } else {
         x86_rax_operand(ctx, n.right, 59, false);
         setcc(ctx, x86_comparison_condition(op) + 16);
@@ -1933,9 +1956,10 @@ fun cg_un(ctx: Any, n: Any) -> Any {
     cg_expr(ctx, n.operand);
     if (op == TK_MINUS) {
         e8(ctx, 72); e8(ctx, 247); e8(ctx, 216);  // neg rax
+        x86_native_overflow(ctx);
     } else if (op == TK_BITNOT) {
         e8(ctx, 72); e8(ctx, 247); e8(ctx, 208);
-        if (ctx.dynamic != 0) {
+        if (ctx.dynamic != 0 and not ctx.native) {
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
         }
@@ -2339,7 +2363,10 @@ fun x86_call_direct(ctx: Any, rec: Any, args: Any) -> Any {
     if (rec.abiLab == 0) { rec.abiLab = newlab(ctx); }
     // The body label is internal; retain the owning source function too.
     emission_reference(ctx, rec.lab);
-    call(ctx, rec.abiLab);
+    if (ctx.native and rec.native == true) {
+        if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
+        call(ctx, rec.nativeLab);
+    } else { call(ctx, rec.abiLab); }
     if (total > 0) {
         e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, total);
     }
@@ -3143,11 +3170,61 @@ fun cg_setidx(ctx: Any, s: Any) -> Any {
 }
 
 
+// --------------------------------------------------------- native words
+
+// Native-word functions (#92) keep Int values as untagged 64-bit words.
+// Their tagged register entry untags arguments, calls the native body and
+// retags the result, faulting when it leaves the tagged integer range.
+fun x86_native_entry(ctx: Any, rec: Any) -> Any {
+    if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
+    let overflow: Any = newlab(ctx);
+    placelab(ctx, rec.abiLab);
+    x86_encode(ctx, X86Instruction([85, 72, 137, 229], 0, 0));          // push rbp; mov rbp, rsp
+    let registers: Any = [7, 6, 2, 1, 8, 9];
+    for index: Any in 0..rec.pc {
+        let register: Any = registers[index];
+        x86_encode(ctx, X86Instruction([if (register >= 8) { 73 } else { 72 }, 193, 248 + register % 8], 3, 1)); // sar reg, 3
+    }
+    e8(ctx, 232); let offset: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, offset, rec.nativeLab);
+    x86_encode(ctx, X86Instruction([72, 137, 193], 0, 0));              // mov rcx, rax
+    tag_rax(ctx);
+    x86_encode(ctx, X86Instruction([72, 137, 194, 72, 193, 250, 3, 72, 57, 202], 0, 0)); // mov rdx, rax; sar rdx, 3; cmp rdx, rcx
+    jcc(ctx, 133, overflow);
+    x86_encode(ctx, X86Instruction([93, 195], 0, 0));                   // pop rbp; ret
+    placelab(ctx, overflow);
+    x86_native_raise(ctx, 0);
+    return 0;
+}
+
+// Out-of-line fault targets: 0 integer overflow, 1 division by zero,
+// 2 shift count out of range. Native frames keep RSP 16-byte aligned.
+fun x86_native_fault(ctx: Any, kind: Any) -> Any {
+    if (ctx.nativeFaults[kind] == 0) { ctx.nativeFaults[kind] = newlab(ctx); }
+    return ctx.nativeFaults[kind];
+}
+
+fun x86_native_overflow(ctx: Any) -> Any {
+    if (ctx.native) { jcc(ctx, 128, x86_native_fault(ctx, 0)); }
+    return 0;
+}
+
+fun x86_native_raise(ctx: Any, kind: Any) -> Any {
+    let fault: Any = backend_find_func(ctx, addr("rt_native_fault"), 15);
+    if (fault == 0) { die_str("mayc: missing runtime fn\n"); }
+    if (fault.abiLab == 0) { fault.abiLab = newlab(ctx); }
+    emission_reference(ctx, fault.lab);
+    e8(ctx, 191); e32(ctx, kind);                                         // mov edi, kind
+    e8(ctx, 232); let offset: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, offset, fault.abiLab);
+    return 0;
+}
+
 // ------------------------------------------------------------------ driver
 
 fun cg_func(ctx: Any, rec: Any) -> Any {
+    ctx.native = ctx.dynamic == 1 and rec.native == true;
+    ctx.nativeFaults = [0, 0, 0];
     if (ctx.dynamic == 0) { ctx.mode = 0; }
-    else if (rec.mode == 1) { ctx.mode = 0; }
+    else if (rec.mode == 1 or ctx.native) { ctx.mode = 0; }
     else { ctx.mode = 1; }
     loc_reset(ctx);
     bx_use_list(ctx, rec.boxed);
@@ -3167,9 +3244,10 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     x86_allocate_temps(ctx, rec.ir);
     align8(ctx);
     x86_call_trampoline(ctx, rec);
+    if (ctx.native) { x86_native_entry(ctx, rec); }
     // The trampoline ends in `ret`, so this padding is never executed.
     if (ctx.mode == 0 and ctx.dynamic == 0) { x86_align_code(ctx, X86_FUNCTION_ALIGN, X86_FUNCTION_ALIGN); }
-    placelab(ctx, rec.abiLab);
+    placelab(ctx, if (ctx.native) { rec.nativeLab } else { rec.abiLab });
     e8(ctx, 85);
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);
     e8(ctx, 72); e8(ctx, 129); e8(ctx, 236);
@@ -3210,6 +3288,10 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 236);
     e8(ctx, 93);
     e8(ctx, 195);
+    for kind: Any in 0..3 {
+        if (ctx.nativeFaults[kind] != 0) { placelab(ctx, ctx.nativeFaults[kind]); x86_native_raise(ctx, kind); }
+    }
+    ctx.native = false;
     mut frame: Any = ctx.maxLocals * 8;
     let fr: Any = frame % 16;
     if (fr != 0) { frame = frame + (16 - fr); }
@@ -3251,6 +3333,7 @@ fun cg_program(ctx: Any) -> Any {
 
     // main (top-level statements)
     ctx.mode = ctx.dynamic;
+    ctx.native = false;
     loc_reset(ctx);
     bx_use_list(ctx, ctx.mainBoxed);
     x86_allocate_temps(ctx, ctx.mainIR);

@@ -131,6 +131,14 @@ fun rt_failarith(s: Any) -> Any {
     return 2;
 }
 
+// Native-word functions (#92) report checked arithmetic faults here:
+// 0 integer overflow, 1 division by zero, 2 shift count out of range.
+fun rt_native_fault(kind: Any) -> Any {
+    if (kind == 1) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
+    if (kind == 2) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
+    return rt_failarith(rt_from(addr("integer overflow"), 16));
+}
+
 // Tag a truncated Float. NaN, infinities and magnitudes beyond the signed
 // 64-bit range arrive as the indefinite value -2^63 and fault here too.
 fun rt_float_int(n: Any) -> Any {

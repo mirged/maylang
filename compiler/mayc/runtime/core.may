@@ -96,6 +96,12 @@ fun __core_raise(kind: Any, length: Any, message: Any) -> Any {
 fun rt_fail(s: Any) -> Any { return __core_raise(addr("fail"), 4, s); }
 fun rt_failtype(s: Any) -> Any { return __core_raise(addr("type"), 4, s); }
 fun rt_failarith(s: Any) -> Any { return __core_raise(addr("arithmetic"), 10, s); }
+// Native-word functions (#92): 0 overflow, 1 division by zero, 2 shift count.
+fun rt_native_fault(kind: Any) -> Any {
+    if (kind == 1) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
+    if (kind == 2) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
+    return rt_failarith(rt_from(addr("integer overflow"), 16));
+}
 fun rt_failstr(s: Any) -> Any { return __core_raise(addr("runtime"), 7, s); }
 // Tag a truncated Float; invalid conversions arrive as -2^63 and fault too.
 fun rt_float_int(n: Any) -> Any {

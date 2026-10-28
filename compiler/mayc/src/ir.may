@@ -9,6 +9,7 @@ import "parser.may";
 import "symbols.may";
 import "platform.may";
 import "behavior.may";
+import "words.may";
 // ir.may — linear three-address instructions with explicit control flow.
 // Every evaluated value has a virtual temporary. Branches name labels; no
 // syntax subtree survives in an instruction's operands.
@@ -546,6 +547,7 @@ fun ir_program(ctx: Any) -> Any {
     let live: Any = []; let queue: Any = [];
     for index: Any in 0..len(ctx.labels) { push(labels, 0); push(live, false); }
     for rec: Any in FUNC_HEAD { names[symbol_name(rec.p, rec.l)] = rec; labels[rec.lab] = rec; }
+    words_mark(ctx, FUNC_HEAD, names);
     for rec: Any in FUNC_HEAD {
         if (rec.mode == 1 or symbol_name(rec.p, rec.l) == "str") { ir_reachable(rec, live, queue); }
     }
@@ -554,10 +556,10 @@ fun ir_program(ctx: Any) -> Any {
     while (next < len(queue)) {
         let rec: Any = queue[next]; next += 1;
         mut raw: Any = rec.mode;
-        if (DYNMODE == 0) { raw = 1; }
+        if (DYNMODE == 0 or rec.native == true) { raw = 1; }
         ir_begin(raw);
         IR_FUNCTION = rec;
-        IR_TRACE_ACTIVE = DEBUG_TRACES and ctx.runtime != "none" and rec.mode == 0 and source_module(rec.moduleSpan ?? rec.body.span) != "";
+        IR_TRACE_ACTIVE = DEBUG_TRACES and ctx.runtime != "none" and rec.mode == 0 and rec.native != true and source_module(rec.moduleSpan ?? rec.body.span) != "";
         if (IR_TRACE_ACTIVE) {
             let location: Any = diagnostic_record(rec.moduleSpan ?? rec.body.span, "");
             let parts: Any = split(symbol_name(rec.p, rec.l), "::");
@@ -588,7 +590,8 @@ fun ir_program(ctx: Any) -> Any {
             "ir": rec.ir, "mode": rec.mode, "lab": rec.lab, "abiLab": 0,
             "cc": rec.cc, "boxed": rec.boxed, "caparr": rec.caparr,
             "foreign": rec.foreign, "ffiArgs": rec.ffiArgs, "ffiResult": rec.ffiResult,
-            "ffiSlot": rec.ffiSlot, "library": rec.library, "symbol": rec.symbol};
+            "ffiSlot": rec.ffiSlot, "library": rec.library, "symbol": rec.symbol,
+            "native": rec.native == true, "nativeLab": 0};
         if (rec.strictSignature != nil) { emitted.strictSignature = rec.strictSignature; }
         if (rec.behaviorSummary != nil) { emitted.behaviorSummary = behavior_ir_summary(rec); }
         push(ctx.functions, emitted);
