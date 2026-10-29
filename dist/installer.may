@@ -107,7 +107,7 @@ fun run(command: List<Str>, root: Str) -> Int {
     if (int(status) < 0) { fail("Cannot monitor compiler verification."); }
     mut frame: Int = 0;
     while (true) {
-        let waited: Int = syscall(61, child, status, 1);
+        let waited: Int = syscall(61, child, status, 1, 0);
         if (waited == child) { break; }
         if (waited < 0 and waited != -4) { syscall(11, status, 4096); fail("Cannot wait for compiler verification."); }
         ui.spin(frame); frame += 1; sleep(80);

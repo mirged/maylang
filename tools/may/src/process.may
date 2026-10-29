@@ -98,7 +98,7 @@ pub fun capture(argv: List<Str>, directory: Str, variables: List<Str>, output: S
 }
 pub fun observe(pid: Int) -> Any {
     let buffer: Ptr = ptr(syscall(9, 0, 4096, 3, 34, -1, 0));
-    let waited: Int = syscall(61, pid, buffer, 1);
+    let waited: Int = syscall(61, pid, buffer, 1, 0);
     let status: Int = load32(buffer); syscall(11, buffer, 4096);
     return {"running": waited == 0, "exit": if (status % 128 != 0) { 128 + status % 128 } else { status / 256 % 256 }};
 }
