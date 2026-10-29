@@ -37,6 +37,11 @@
   converting at each access; a value outside the 61-bit range faults on
   assignment and leaves the global unchanged
   ([#92](https://github.com/mirged/maylang/issues/92)).
+- Call `extern` functions whose parameters and result are `Int`, `UInt`,
+  `Ptr` or `Bool` (or a `Void` result) from native-word functions with machine
+  words on x86-64 Linux and `clang-llvm`, without the tagged FFI conversions.
+  `Int` and `Ptr` results keep all 64 bits; UInt arguments and results are
+  still range-checked ([#92](https://github.com/mirged/maylang/issues/92)).
 - Lower `for` loops over `a..b` and `a..=b` in raw code and native-word
   functions as counted loops, with the bounds evaluated once and no range
   list. Raw programs previously rejected ranges
