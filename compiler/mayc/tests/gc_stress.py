@@ -204,7 +204,8 @@ def main():
         shutil.copy2(ROOT / 'compiler/mayc/native.may', work / 'native.may')
         shutil.copy2(ROOT / 'stdlib/prelude.may', work / 'prelude.may')
         shutil.copytree(ROOT / 'compiler/mayc/runtime', work / 'runtime')
-        compiled = subprocess.run([str(copied), str(ROOT / 'compiler/mayc/tests/library/gc_objects.may'), '-o', str(binary)],
+        # The checker reads the tagged runtime's heap layout (runtime.may).
+        compiled = subprocess.run([str(copied), '--values', 'tagged', str(ROOT / 'compiler/mayc/tests/library/gc_objects.may'), '-o', str(binary)],
                                   env=env, capture_output=True, timeout=120)
         assert compiled.returncode == 0, compiled.stderr
         result = subprocess.run([str(binary)], capture_output=True, timeout=60)

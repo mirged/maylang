@@ -18,8 +18,9 @@ from backends import compile_source
 from core_runtime import emulate
 
 TARGETS = ['arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']
-PRELUDE = ('fun bits(low: Int, high: Int) -> Float { let v: Float = to_float(high); let p: Any = addr(v); '
-           'store32(p, low); store32(p + 4, high); return v; }\n')
+# __math_bits (runtime/math.may) builds a Float from its 32-bit halves with
+# either value representation.
+PRELUDE = 'fun bits(low: Int, high: Int) -> Float { return float(__math_bits(low, high)); }\n'
 FIXED = (
     'let z: Float = 0.0;\n'
     'print(0.1, 1.0 / 3.0, 100.0, 1e16, 1e15, 0.0001, 0.00001, 5e-324, 1.7976931348623157e308, z * -1.0, -2.5);\n'

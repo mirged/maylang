@@ -137,7 +137,10 @@ print(may {{ high(4); "bad" }} otherwise {{ err.message }});
             result = run([args.compiler.resolve(), '--target', target, source, '-o', binary])
             assert result.returncode == 0, result.stderr.decode()
             result = run([binary])
-            assert (result.returncode, result.stdout, result.stderr) == (0, expected, b''), (target, result)
+            # With fat values (x86_64-linux) Int holds the 2^63 result of high(4).
+            want = expected if target == 'clang-llvm' else (b'3 5 true 1 1231 3\nunsigned argument out of range\n'
+                                                              b'C result exceeds Int range\nbad\n')
+            assert (result.returncode, result.stdout, result.stderr) == (0, want, b''), (target, result)
             print(f'PASS {target}: native-word functions call integer externs with machine words', flush=True)
         # Missing unused dependencies must not enter the executable's live graph.
         source.write_text('extern "lib-not-installed-externs.so" { fun unused() -> Int; } print(42);')

@@ -856,6 +856,28 @@ fun rt_map_get(mt: Any, m: Any, kt: Any, k: Any) -> Any {
     return rt_map_lookup(m, kt, k);
 }
 
+// Remove a key in place, keeping insertion order.
+fun rt_remove(mt: Any, m: Any, kt: Any, k: Any) -> Any {
+    RTAG = mt;
+    if (mt != 6) { return m; }
+    let n: Any = load64(m);
+    let d: Any = load64(m + 16);
+    mut i: Any = 0;
+    mut w: Any = 0;
+    while (i < n) {
+        let e: Any = d + i * 32;
+        if (rt_same(load64(e), load64(e + 8), kt, k) == 0) {
+            if (w != i) { rt_copy(d + w * 32, e, 32); }
+            w = w + 1;
+        }
+        i = i + 1;
+    }
+    while (i > w) { i = i - 1; rt_zero(d + i * 32, 32); }
+    store64(m, w);
+    if (load64(m + 32) != 0) { rt_map_rehash(m); }
+    return m;
+}
+
 fun rt_merge_into(dt: Any, d: Any, st: Any, s: Any) -> Any {
     if (dt == 6 and st == 6) {
         let n: Any = load64(s);

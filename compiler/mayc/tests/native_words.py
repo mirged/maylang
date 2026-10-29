@@ -357,6 +357,27 @@ arithmetic: integer overflow
 '''
 
 
+# Fat values (the full x86_64-linux runtime) return results beyond +/-2^60
+# that the tagged runtimes report as integer overflow.
+FAT_EXPECTED = {
+    'SEMANTICS': '6765 21\n1 0 1 -1\n-3 -1 -7 0\ntagged 4\n0 1 3367 10\n55\narithmetic: division by zero\narithmetic: division by zero\narithmetic: shift count out of range\narithmetic: shift count out of range\narithmetic: integer overflow\n2305843009213693952\n1152921504606846976\ntagged\n-9223372036854775808\n2 7 3 -7 24 -3 864691128455135232 -1152921504606846976\n',
+    'MEMORY': '1701077858 1701077858\n77097 77097\ntrue\n7 5 0\n1 128 128\n-9223372036854775808\n-9223372036854775808\n',
+    'GLOBALS': '3 7 7\nfalse true true\nfalse 1000 44\n40 40\n1001 42 1\n0 2305843009213693952\n',
+    'TAGGED_LOAD': '576460752303423488\n-1\n1152921504606846975\n-1152921504606846976\n1152921504606846976\n-1152921504606846977\n-9223372036854775808\n32\n',
+    'OUTLINED': 'true\ntrue -3 -1\n-1 1 -1 11\n4611686018427387904\narithmetic: shift count out of range\n4 1\ntrue false\n-1\n11 11 31\n',
+    'ADAPTERS': 'even 0\neven 1\neven 2\neven 3\n1 5 7 [7, 0, 2, -1]\n5\n[7, 0, 2, -1, 2305843009213693952]\n',
+}
+
+
+def uses_fat_values(flags):
+    # Fat values are the default for the full runtime on x86_64-linux only.
+    return '--runtime' not in flags and '--target' not in flags
+
+
+def expected_for(name, flags, tagged):
+    return FAT_EXPECTED.get(name, tagged) if uses_fat_values(flags) else tagged
+
+
 class Fault(Exception):
     pass
 
@@ -442,7 +463,7 @@ def generate(rng, depth):
     return (op, generate(rng, depth - 1), right)
 
 
-def oracle_program(seed, count):
+def oracle_program(seed, count, fat=False):
     rng = random.Random(seed)
     functions, calls, expected = [], [], []
     for index in range(count):
@@ -453,7 +474,7 @@ def oracle_program(seed, count):
             calls.append(f'print(may {{ case{index}({", ".join(map(literal, args))}) }} otherwise {{ err.message }});')
             try:
                 value = evaluate(body, dict(zip('abc', args)))
-                expected.append(str(value) if -TAGGED <= value < TAGGED else 'integer overflow')
+                expected.append(str(value) if fat or -TAGGED <= value < TAGGED else 'integer overflow')
             except Fault as fault:
                 expected.append(str(fault))
     # Portable backends cap frames at 2000 bytes, so batch the tagged callers.
@@ -497,43 +518,43 @@ def main():
         source.write_text(SEMANTICS)
         for flags, runner in configurations:
             output = compile_run(compiler, source, work / 'semantics', *flags, runner=runner)
-            assert output == EXPECTED, (flags, output)
+            assert output == expected_for('SEMANTICS', flags, EXPECTED), (flags, output)
         print('PASS native-word results, faults, recursion and tagged boundaries', flush=True)
         source = work / 'memory.may'
         source.write_text(MEMORY)
         for flags, runner in configurations:
             output = compile_run(compiler, source, work / 'memory', *flags, runner=runner)
-            assert output == MEMORY_EXPECTED, (flags, output)
+            assert output == expected_for('MEMORY', flags, MEMORY_EXPECTED), (flags, output)
         print('PASS native-word Ptr parameters and full-width loads and stores', flush=True)
         source = work / 'bools.may'
         source.write_text(BOOLS)
         for flags, runner in configurations:
             output = compile_run(compiler, source, work / 'bools', *flags, runner=runner)
-            assert output == BOOLS_EXPECTED, (flags, output)
+            assert output == expected_for('BOOLS', flags, BOOLS_EXPECTED), (flags, output)
         print('PASS native-word Bool parameters, results and locals', flush=True)
         source = work / 'loops.may'
         source.write_text(LOOPS)
         for flags, runner in configurations:
             output = compile_run(compiler, source, work / 'loops', *flags, runner=runner)
-            assert output == LOOPS_EXPECTED, (flags, output)
+            assert output == expected_for('LOOPS', flags, LOOPS_EXPECTED), (flags, output)
         print('PASS native-word range loops', flush=True)
         source = work / 'globals.may'
         source.write_text(GLOBALS)
         for flags, runner in configurations:
             output = compile_run(compiler, source, work / 'globals', *flags, runner=runner)
-            assert output == GLOBALS_EXPECTED, (flags, output)
+            assert output == expected_for('GLOBALS', flags, GLOBALS_EXPECTED), (flags, output)
         print('PASS native-word reads and writes of tagged globals', flush=True)
         source = work / 'tagged_load.may'
         source.write_text(TAGGED_LOAD)
         for flags, runner in configurations:
             output = compile_run(compiler, source, work / 'tagged_load', *flags, runner=runner)
-            assert output == TAGGED_LOAD_EXPECTED, (flags, output)
+            assert output == expected_for('TAGGED_LOAD', flags, TAGGED_LOAD_EXPECTED), (flags, output)
         print('PASS tagged load64 faults outside the 61-bit range', flush=True)
         source = work / 'outlined.may'
         source.write_text(OUTLINED)
         for flags, runner in configurations:
             output = compile_run(compiler, source, work / 'outlined', *flags, runner=runner)
-            assert output == OUTLINED_EXPECTED, (flags, output)
+            assert output == expected_for('OUTLINED', flags, OUTLINED_EXPECTED), (flags, output)
         print('PASS tagged bitwise expressions compute with native words', flush=True)
         source = work / 'adapters.may'
         source.write_text(ADAPTERS)
@@ -542,7 +563,7 @@ def main():
             if '--debug' in flags:
                 continue
             output = compile_run(compiler, source, work / 'adapters', *flags, runner=runner)
-            assert output == ADAPTERS_EXPECTED, (flags, output)
+            assert output == expected_for('ADAPTERS', flags, ADAPTERS_EXPECTED), (flags, output)
         print('PASS native-word calls to tagged functions through word adapters', flush=True)
         source = work / 'syscalls.may'
         source.write_text(SYSCALLS)
@@ -550,13 +571,15 @@ def main():
             if runner or '--runtime' in flags:
                 continue
             output = compile_run(compiler, source, work / 'syscalls', *flags, runner=runner)
-            assert output == SYSCALLS_EXPECTED, (flags, output)
+            assert output == expected_for('SYSCALLS', flags, SYSCALLS_EXPECTED), (flags, output)
         print('PASS native-word syscall on the full runtime', flush=True)
-        program, expected = oracle_program(args.seed, args.cases)
+        program, tagged_oracle = oracle_program(args.seed, args.cases)
+        fat_oracle = oracle_program(args.seed, args.cases, fat=True)[1]
         source = work / 'oracle.may'
         source.write_text(program)
         for flags, runner in configurations:
             output = compile_run(compiler, source, work / 'oracle', *flags, runner=runner)
+            expected = fat_oracle if uses_fat_values(flags) else tagged_oracle
             if output != expected:
                 lines = list(zip(output.splitlines(), expected.splitlines()))
                 mismatch = next(i for i, (got, want) in enumerate(lines) if got != want)

@@ -62,6 +62,8 @@ fun gc_regression() -> Any {
 '''
     with tempfile.TemporaryDirectory(prefix='mayc-gc-') as directory:
         work = Path(directory)
+        # The probes use the tagged runtime's internals (runtime.may), which
+        # x86_64-nodeos still uses; fat values have runtime/fat.may.
         # Load probes as raw runtime sidecar functions. Concatenating runtime
         # code into a user --raw module qualifies its names and cannot resolve
         # backend-generated exception helpers reached by checked list access.
@@ -73,7 +75,7 @@ fun gc_regression() -> Any {
         sidecar = work/'runtime.may'; sidecar.write_text(runtime + harness)
         source = work/'gc.may'; source.write_text('gc_regression();\n')
         binary = work/'gc'
-        result = subprocess.run([str(probe), '--legacy', str(source), '-o', str(binary)], capture_output=True, timeout=60)
+        result = subprocess.run([str(probe), '--legacy', '--values', 'tagged', str(source), '-o', str(binary)], capture_output=True, timeout=60)
         assert result.returncode == 0, result.stderr.decode()
         result = subprocess.run([str(binary)], capture_output=True, timeout=30)
         assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
@@ -97,7 +99,7 @@ fun root_capacity_regression() -> Any {
 }
 ''')
         source.write_text('root_capacity_regression();\n')
-        result = subprocess.run([str(probe), '--legacy', str(source), '-o', str(binary)], capture_output=True, timeout=60)
+        result = subprocess.run([str(probe), '--legacy', '--values', 'tagged', str(source), '-o', str(binary)], capture_output=True, timeout=60)
         assert result.returncode == 0, result.stderr.decode()
         result = subprocess.run([str(binary)], capture_output=True, timeout=30)
         assert result.returncode == 70 and result.stdout == b'GC global root table exhausted\n' and not result.stderr, result

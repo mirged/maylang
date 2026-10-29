@@ -44,8 +44,8 @@ def main():
             assert result.returncode==0 and result.stdout==expected,result
             print('PASS bounds, collection mutation/aliases, binary32 precision and arrays on '+target,flush=True)
         for code, message in [('let n: UInt8 = 256;','outside UInt8 bounds'),('let n: Int8 = -129;','outside Int8 bounds'),('let n: UInt64 = -1;','outside UInt64 bounds'),('let a: [Int; 2] = [1];','fixed array length mismatch'),
-                ('fun f(xs: [Int; 1152921504606846976]) -> Int { return 0; }', 'array length out of range'),
-                ('fun f(xs: Array<Int, 1152921504606846976>) -> Int { return 0; }', 'array length out of range')]:
+                ('fun f(xs: [Int; 9223372036854775808]) -> Int { return 0; }', 'array length out of range'),
+                ('fun f(xs: Array<Int, 9223372036854775808>) -> Int { return 0; }', 'array length out of range')]:
             source.write_text(code)
             result=subprocess.run([str(args.compiler.resolve()),'--check',str(source)],capture_output=True,timeout=60)
             assert result.returncode!=0 and message.encode() in result.stderr,result

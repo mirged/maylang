@@ -32,7 +32,7 @@ fun raw_float_truncate(ctx: Any, emitter: Any, rounding: Any) -> Any {
     } else { e32(ctx, 3256878419 + [1, 2, 3][rounding] * 4096); }
     (emitter.jump)(ctx, done, false);
     placelab(ctx, invalid);
-    (emitter.immediate)(ctx, -1152921504606846976, 0);
+    (emitter.immediate)(ctx, 0 - 1152921504606846975 - 1, 0);
     (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR);
     placelab(ctx, done); return 0;
 }

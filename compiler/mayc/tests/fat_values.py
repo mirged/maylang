@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Fat values (#92): feature fixtures and 64-bit dynamic integers under --values fat.
+"""Fat values (#92): 64-bit dynamic integers, the --values tagged opt-out and self-hosting.
 
-Each fixture listed in PASSING must reproduce its recorded tagged behavior
-(legacy_behavior.json) byte for byte. The others are reported, not failed,
-while the fat runtime is incomplete (docs/design/FAT_VALUES.md).
+Fat values are the default on x86_64-linux with the full runtime, so
+verify.py checks the feature fixtures against legacy_behavior.json with
+them. This harness checks that the --values tagged opt-out still
+reproduces every record, except where the tagged 61-bit Int differs
+(TAGGED), and that compilers built either way emit identical programs.
 """
 import argparse
 import base64
@@ -15,22 +17,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[3]
 TESTS = ROOT / 'compiler/mayc/tests'
 
-PASSING = {
-    'arith.may', 'arith_overflow.may', 'closures_adv.may', 'cond.may', 'deep_recursion.may',
-    'destructure.may', 'div_zero.may', 'edge.may', 'enums.may', 'env_args.may', 'fibers1.may',
-    'files.may', 'floats.may', 'funcs.may', 'interp.may', 'intkeys.may', 'json.may', 'lists1.may',
-    'lists_hof.may', 'lists_nested.may', 'logical.may', 'loops.may', 'map_ops.may', 'maps1.may',
-    'match.may', 'math.may', 'may1.may', 'modules_app.may', 'nested_may.may', 'parse_num.may',
-    'pipe.may', 'pointers.may', 'results.may', 'shared_capture.may', 'spread_comp.may',
-    'stdlib_collections.may', 'stdlib_math.may', 'stress.may', 'strings1.may', 'strings2.may',
-    'strings_esc.may', 'structs.may', 'typehints.may', 'values.may',
-}
-
-# Fixtures whose fat output intentionally differs from the tagged record:
-# Int no longer overflows between 2^60 and 2^63.
-INTENDED = {
+# Tagged output where Int still overflows between 2^60 and 2^63.
+TAGGED = {
     'bitwise.may': b'2 7 5 -1\n1 12 -2 -1152921504606846976\ntrue 2 true\n'
-                   b'1152921504606846976 shift count out of range\n3 true\n2305843009213693952\n1\n9\n',
+                   b'integer overflow shift count out of range\n3 true\narithmetic\n1\n9\n',
 }
 
 SEMANTICS = '''
@@ -40,23 +30,42 @@ print(may { big + big } otherwise { "${err.kind}: ${err.message}" });
 let words: List<Int> = [big, -1, 0];
 print(words, words[0] >> 61, (1 << 63) < 0);
 let m: Map<Str, Int> = {"wide": big * -2};
-print(m["wide"], len(m));
+print(m["wide"], len(m), 9223372036854775807, -9223372036854775808);
 '''
 
 SEMANTICS_EXPECTED = '''4611686018427387904 9223372036854775807 -9223372036854775808
 arithmetic: integer overflow
 [4611686018427387904, -1, 0] 2 true
--9223372036854775808 1
+-9223372036854775808 1 9223372036854775807 -9223372036854775808
 '''
 
 
-def compile_run(compiler, source, binary, stdin=b''):
-    result = subprocess.run([str(compiler), '--values', 'fat', str(source), '-o', str(binary)],
+def compile_run(compiler, source, binary, *flags):
+    result = subprocess.run([str(compiler), *flags, str(source), '-o', str(binary)],
                             capture_output=True, timeout=180)
     if result.returncode != 0:
         return None, result.stderr.decode(errors='replace').strip().splitlines()[:1]
-    run = subprocess.run([str(binary)], input=stdin, capture_output=True, timeout=60, cwd=TESTS)
+    run = subprocess.run([str(binary)], capture_output=True, timeout=60, cwd=TESTS)
     return (run.returncode, run.stdout, run.stderr), None
+
+
+def self_host(compiler, work):
+    # A compiler built on tagged values must emit exactly what the fat
+    # compiler emits, for the compiler itself.
+    host = work / 'host'
+    host.mkdir()
+    for name in ['runtime.may', 'native.may', 'runtime']:
+        (host / name).symlink_to(ROOT / 'compiler/mayc' / name)
+    (host / 'prelude.may').symlink_to(ROOT / 'stdlib/prelude.may')
+    tagged = host / 'mayc'
+    main = ROOT / 'compiler/mayc/main.may'
+    for argv in ([compiler, '--values', 'tagged', main, '-o', tagged],
+                 [tagged, main, '-o', work / 'by-tagged'],
+                 [compiler, main, '-o', work / 'by-fat']):
+        result = subprocess.run([str(a) for a in argv], capture_output=True, timeout=600)
+        assert result.returncode == 0, (argv, result.stderr.decode(errors='replace'))
+    assert (work / 'by-tagged').read_bytes() == (work / 'by-fat').read_bytes()
+    print('PASS a compiler built on tagged values emits the fat compiler\'s output', flush=True)
 
 
 def main():
@@ -71,48 +80,20 @@ def main():
         source.write_text(SEMANTICS)
         got, error = compile_run(compiler, source, work / 'semantics')
         assert got == (0, SEMANTICS_EXPECTED.encode(), b''), (got, error)
-        print('PASS 64-bit integers in dynamic values', flush=True)
-        passed, pending = [], []
+        print('PASS 64-bit integers in dynamic values and literals', flush=True)
+        count = 0
         for name in sorted(expected):
             if not (TESTS / name).exists():
                 continue
             record = expected[name]
             want = (record['exit'], base64.b64decode(record['stdout']), base64.b64decode(record['stderr']))
-            if name in INTENDED:
-                want = (0, INTENDED[name], b'')
-            got, error = compile_run(compiler, TESTS / name, work / name.replace('.may', ''))
-            if got == want:
-                passed.append(name)
-            else:
-                assert name not in PASSING and name not in INTENDED, (name, error or got)
-                pending.append(name)
-        missing = (PASSING | set(INTENDED)) - set(passed)
-        assert not missing, missing
-        print(f'PASS {len(passed)} of {len(passed) + len(pending)} feature fixtures match tagged behavior or its intended 64-bit difference', flush=True)
-        if pending:
-            print('PENDING ' + ' '.join(pending), flush=True)
+            if name in TAGGED:
+                want = (0, TAGGED[name], b'')
+            got, error = compile_run(compiler, TESTS / name, work / name.replace('.may', ''), '--values', 'tagged')
+            assert got == want, (name, error or got)
+            count += 1
+        print(f'PASS {count} feature fixtures with --values tagged', flush=True)
         self_host(compiler, work)
-
-
-def self_host(compiler, work):
-    # The compiler built on fat values must emit exactly what the tagged
-    # compiler emits, and rebuild itself unchanged (a fat-value fixpoint).
-    host = work / 'host'
-    host.mkdir()
-    for name in ['runtime.may', 'native.may', 'runtime']:
-        (host / name).symlink_to(ROOT / 'compiler/mayc' / name)
-    (host / 'prelude.may').symlink_to(ROOT / 'stdlib/prelude.may')
-    fat = host / 'mayc'
-    main = ROOT / 'compiler/mayc/main.may'
-    for argv in ([compiler, '--values', 'fat', main, '-o', fat],
-                 [fat, main, '-o', work / 'tagged-by-fat'],
-                 [compiler, main, '-o', work / 'tagged-by-tagged'],
-                 [fat, '--values', 'fat', main, '-o', work / 'fat-by-fat']):
-        result = subprocess.run([str(a) for a in argv], capture_output=True, timeout=600)
-        assert result.returncode == 0, (argv, result.stderr.decode(errors='replace'))
-    assert (work / 'tagged-by-fat').read_bytes() == (work / 'tagged-by-tagged').read_bytes()
-    assert (work / 'fat-by-fat').read_bytes() == fat.read_bytes()
-    print('PASS fat-value compiler matches the tagged compiler and rebuilds itself identically', flush=True)
 
 
 if __name__ == '__main__':

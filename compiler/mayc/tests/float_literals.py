@@ -45,7 +45,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='mayc-float-literals-') as directory:
         work = Path(directory)
         source = work / 'bits.may'
-        source.write_text('fun bits(v: Any) -> Nil { let p: Any = addr(v); print(load32(p), load32(p+4)); return; }\n' +
+        source.write_text('fun bits(v: Any) -> Nil { print(__math_low(v), __math_high(v)); return; }\n' +
                           '\n'.join(f'bits({text});' for text in values))
         for name, flags in modes:
             result = subprocess.run([str(args.compiler.resolve()), *flags, str(source), '-o', str(work / name)],

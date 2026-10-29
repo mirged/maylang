@@ -290,7 +290,14 @@ fun lex_run(a: Any, e: Any) -> Any {
                 v = may { int("-" + symbol_name(SRC + s, i - s)) } otherwise {
                     lex_error(s, i - s, "integer literal out of range"); 0
                 };
-                let minimum: Any = 0 - int("1152921504606846975") - 1;
+                // Fat values (#92) hold signed 64-bit Ints; tagged targets keep
+                // 61 bits. A compiler running on tagged values cannot parse
+                // wider literals at all, so they stay out of range there.
+                let tagged: Any = 0 - int("1152921504606846975") - 1;
+                let wide: Any = may { int("-9223372036854775808") } otherwise { 0 };
+                let minimum: Any = if (FAT_VALUES and wide != 0) { wide } else { tagged };
+                // 2^60 is an ordinary fat literal, which a tagged compiler cannot hold.
+                if (v < minimum or (FAT_VALUES and wide == 0 and v == tagged)) { lex_error(s, i - s, "integer literal out of range"); }
                 if (v != minimum) { v = 0 - v; }
                 tok(TK_INT, s, i - s, v);
             }

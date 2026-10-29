@@ -4,11 +4,11 @@ from common import REJECT
 
 CASES = {
 'json_confirm':('let s=chr(34)+chr(92)+"u00e9"+chr(34); print(s); print(json_parse(s));','"\\u00e9"\né\n'),
-'valid_max_literal':('print(1152921504606846975);','1152921504606846975\n'),
+'valid_max_literal':('print(9223372036854775807);','9223372036854775807\n'),
 'valid_large_literal':('print(144115188075855872);','144115188075855872\n'),
-'max_runtime':('let x=int("1152921504606846975"); print(x); print(may { x+1 } otherwise { err.kind });','1152921504606846975\narithmetic\n'),
-'min_runtime_neg':('let x=int("-1152921504606846976"); print(x); print(may { -x } otherwise { err.kind });','-1152921504606846976\narithmetic\n'),
-'min_runtime_div':('let x=int("-1152921504606846976"); print(may { x / -1 } otherwise { err.kind });','arithmetic\n'),
+'max_runtime':('let x=int("9223372036854775807"); print(x); print(may { x+1 } otherwise { err.kind });','9223372036854775807\narithmetic\n'),
+'min_runtime_neg':('let x=int("-9223372036854775808"); print(x); print(may { -x } otherwise { err.kind });','-9223372036854775808\narithmetic\n'),
+'min_runtime_div':('let x=int("-9223372036854775808"); print(may { x / -1 } otherwise { err.kind });','arithmetic\n'),
 'json_trailing':('print(may { json_parse("{\\\"a\\\":1} garbage") } otherwise { "caught" });','caught\n'),
 'missing_expr':('let x = ;',REJECT),
 'missing_brace':('fun f() { print(1);',REJECT),

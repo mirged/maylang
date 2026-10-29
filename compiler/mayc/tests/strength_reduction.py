@@ -53,7 +53,9 @@ def main():
         source.write_text('\n'.join(functions + body))
         for target in (['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']):
             binary = directory / target
-            subprocess.run([compiler, '--target', target, source, '-o', binary], check=True, capture_output=True, timeout=180)
+            # This checks the tagged backend's division lowering; fat values
+            # (the x86_64-linux default) divide in the runtime for now.
+            subprocess.run([compiler, '--target', target, '--values', 'tagged', source, '-o', binary], check=True, capture_output=True, timeout=180)
             result = subprocess.run([binary], capture_output=True, timeout=30)
             assert (result.returncode, result.stdout, result.stderr) == (0, expected, b''), result
             if target == 'x86_64-linux':

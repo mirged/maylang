@@ -136,7 +136,8 @@ def main():
             fixture = work / f'{name}.may'
             fixture.write_text(text)
             native, binary = work / f'{name}-native', work / f'{name}-llvm'
-            result = run([compiler, fixture, '-o', native], env=environment)
+            # LLVM still uses tagged values; compare it with the tagged native runtime.
+            result = run([compiler, '--values', 'tagged', fixture, '-o', native], env=environment)
             assert result.returncode == 0, (name, result.stderr)
             result = run(target + [fixture, '-o', binary], env=environment)
             assert result.returncode == 0, (name, result.stderr)

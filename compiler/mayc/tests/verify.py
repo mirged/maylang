@@ -165,7 +165,7 @@ HARNESSES = [
     (["float_text.py"], "shortest round-trip display and correctly rounded parsing"),
     (["strength_reduction.py"], "signed power-of-two codegen and runtime fallbacks"),
     (["native_words.py"], "native-word Int functions and tagged boundaries"),
-    (["fat_values.py"], "fat values: 64-bit dynamic integers and feature fixtures"),
+    (["fat_values.py"], "fat values: 64-bit integers, tagged opt-out and self-hosting"),
     (["diagnostics.py"], "structured diagnostics and recovery"),
     (["debug_traces.py"], "debug traces and fiber isolation"),
     (["fibers.py"], "suspended fiber handlers and caught errors"),

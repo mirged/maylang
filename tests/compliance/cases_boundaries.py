@@ -7,9 +7,9 @@ CASES = {
 }
 # Neighboring cases ensure the fixes cover more than the original examples.
 CASES.update({
- 'minimum_literal': ('print(-1152921504606846976);', '-1152921504606846976\n'),
- 'minimum_abs': ('print(may { abs(-1152921504606846976) } otherwise { err.kind });', 'arithmetic\n'),
- 'integer_parse_limits': ('print(may { int("1152921504606846976") } otherwise { err.kind }); print(may { int("-1152921504606846977") } otherwise { err.kind });', 'arithmetic\narithmetic\n'),
+ 'minimum_literal': ('print(-9223372036854775808);', '-9223372036854775808\n'),
+ 'minimum_abs': ('print(may { abs(-9223372036854775808) } otherwise { err.kind });', 'arithmetic\n'),
+ 'integer_parse_limits': ('print(may { int("9223372036854775808") } otherwise { err.kind }); print(may { int("-9223372036854775809") } otherwise { err.kind });', 'arithmetic\narithmetic\n'),
  'shared_collection': ('let a=[1]; print([a,a]);', '[[1], [1]]\n'),
  'mutual_cycle': ('let a=[]; let b={}; push(a,b); b.back=a; print(a); print([1]);', '[{"back": <cycle>}]\n[1]\n'),
  'invalid_calls': ('for x in [nil, true, "x", [], {}, 3.0, -1] { print(may { x() } otherwise { err.kind }); }', 'type\n'*7),
@@ -19,8 +19,8 @@ CASES.update({
  'compound_order': ('let a=[10]; mut order=""; fun obj() { order+="o"; a } fun idx() { order+="i"; 0 } fun rhs() { order+="r"; a[0]=100; 5 } obj()[idx()]+=rhs(); print(a,order);', '[15] oir\n'),
  'json_invalid_surrogates': ('let q=chr(34); let b=chr(92); for s in ["uD800", "uDC00", "uD800"+b+"u0041", "uZZZZ", "u12"] { print(may { json_parse(q+b+s+q) } otherwise { err.kind }); }', 'parse\n'*5),
  'json_surrogate_roundtrip': ('let x="🙂é中"; print(json_parse(json_stringify(x)) == x);', 'true\n'),
- 'float_int_range': ('for x in [1.0e300, -1.0e300, 1.0e19, sqrt(-1.0), 1152921504606846976.0, 1.0e308 * 10.0] { print(may { trunc(x) } otherwise { err.kind }, may { int(x) } otherwise { err.kind }); }', 'arithmetic arithmetic\n'*6),
- 'float_int_limits': ('print(trunc(-1152921504606846976.0), int(1152921504606846848.0), int(-2.9), trunc(1.0e18));', '-1152921504606846976 1152921504606846848 -2 1000000000000000000\n'),
+ 'float_int_range': ('for x in [1.0e300, -1.0e300, 1.0e19, sqrt(-1.0), 9223372036854775808.0, 1.0e308 * 10.0] { print(may { trunc(x) } otherwise { err.kind }, may { int(x) } otherwise { err.kind }); }', 'arithmetic arithmetic\n'*6),
+ 'float_int_limits': ('print(trunc(-9223372036854775808.0), int(9223372036854774784.0), int(-2.9), trunc(1.0e18));', '-9223372036854775808 9223372036854774784 -2 1000000000000000000\n'),
  'float_rounding_floats': ('print(floor(1.0e300) == 1.0e300, floor(2.5), ceil(-2.5), round(-2.5), round(2.5), type(floor(3)), int(floor(-2.5)));', 'true 2.0 -2.0 -2.0 3.0 Float -3\n'),
  'float_large_mantissa': ('print(100000000000000000000.0 > 1.0);', 'true\n'),
 })
@@ -29,7 +29,7 @@ CASES['module_selective'] = ('from "module_select.may" import value;\nprint(valu
 CASES['module_string_preserved'] = ('import "module_a.may" as a;\nprint("a.value", a.value());', 'a.value 11\n')
 CASES['module_shared_name'] = ('import "module_a.may";\nimport "module_b.may";\nprint(value());', REJECT)
 CASES['module_selective_hidden'] = ('from "module_select.may" import value;\nprint(other);', REJECT)
-CASES['integer_positive_overflow'] = ('print(1152921504606846976);', REJECT)
-CASES['integer_negative_overflow'] = ('print(-1152921504606846977);', REJECT)
+CASES['integer_positive_overflow'] = ('print(9223372036854775808);', REJECT)
+CASES['integer_negative_overflow'] = ('print(-9223372036854775809);', REJECT)
 
 CASES['module_alias_shadow'] = ('import "module_a.may" as a;\nfun local(a) { a.value } print(local({value:8}),a.value());', '8 11\n')

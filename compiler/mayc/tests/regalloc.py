@@ -100,6 +100,12 @@ print(eight(compute(1), compute(2), compute(3), compute(4), compute(5), compute(
         runtime = runtime.replace('mut sz: Any = 268435456;', 'mut sz: Any = 16777216;', 1)
         runtime = runtime.replace('    GCCOUNT = GCCOUNT + 1;', '    GCCOUNT = GCCOUNT + 1;\n    rt_write(addr("gc\\n"), 3);', 1)
         (small / 'runtime.may').write_text(runtime)
+        # Fat values (the x86_64-linux default) load runtime/fat.may instead.
+        shutil.copytree(ROOT / 'compiler/mayc/runtime', small / 'runtime')
+        fat = (ROOT / 'compiler/mayc/runtime/fat.may').read_text()
+        fat = fat.replace('mut sz: Any = 268435456;', 'mut sz: Any = 16777216;', 1)
+        fat = fat.replace('    GCCOUNT = GCCOUNT + 1;', '    GCCOUNT = GCCOUNT + 1;\n    rt_write(addr("gc\\n"), 3);', 1)
+        (small / 'runtime' / 'fat.may').write_text(fat)
         shutil.copy2(ROOT / 'stdlib/prelude.may', small / 'prelude.may')
         shutil.copy2(ROOT / 'compiler/mayc/native.may', small / 'native.may')
         source = work / 'gc.may'

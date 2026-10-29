@@ -23,7 +23,7 @@ PRELUDE = '''let z: Float = 0.0;
 let inf: Float = 1e308 * 10.0;
 let nan: Float = inf - inf;
 let nz: Float = z * -1.0;
-fun high(v: Any) -> Int { return load32(addr(v) + 4); }
+fun high(v: Any) -> Int { return int(__math_high(v)); }
 '''
 # Each line runs as its own program so emulation stays within its budget.
 SPECIAL = [
@@ -61,7 +61,7 @@ def run_binary(binary):
 
 
 def bits_program(calls):
-    return ('fun bits(value: Any) -> Nil { let p: Any = addr(value); print(load32(p), load32(p + 4)); return; }\n'
+    return ('fun bits(value: Any) -> Nil { print(__math_low(value), __math_high(value)); return; }\n'
             + '\n'.join(f'bits({call});' for call in calls) + '\nexit(0);\n')
 
 

@@ -64,7 +64,9 @@ def main():
             source = HERE / 'backend' / (name + '.may')
             flags = ['--debug'] if name in ('portable_debug', 'portable_fibers') else []
             oracle = work / 'full'
-            compile_source(options.compiler, source, oracle, *flags)
+            # The core runtime still uses tagged values, so compare it with
+            # the tagged full runtime (fat values: docs/design/FAT_VALUES.md).
+            compile_source(options.compiler, source, oracle, '--values', 'tagged', *flags)
             result = subprocess.run([str(oracle)], capture_output=True, timeout=20)
             assert (result.returncode, result.stdout, result.stderr) == (0, expected, b''), result
             for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
@@ -82,13 +84,13 @@ def main():
         source = work / 'float-bits.may'
         rng = random.Random(20917)
         body = [
-            'fun bits(value: Any) -> Nil { let p: Any = addr(value); print(load32(p), load32(p + 4)); return; }',
-            'fun number(low: Int, high: Int) -> Float { let value: Float = 0.0; let p: Any = addr(value); store32(p, low); store32(p + 4, high); return value; }',
+            'fun bits(value: Any) -> Nil { print(__math_low(value), __math_high(value)); return; }',
+            'fun number(low: Int, high: Int) -> Float { return float(__math_bits(low, high)); }',
             'fun narrow(value: Float32) -> Float32 { return value; }',
             # Out-of-range and non-finite Int conversions fault identically on every target.
             # floor/ceil results print as bit patterns: exact, and cheap enough for the
             # emulator's instruction budget, unlike shortest decimals near 2^63.
-            'fun word(value: Float) -> Str { let p: Any = addr(value); return "${load32(p)}:${load32(p + 4)}"; }',
+            'fun word(value: Float) -> Str { return "${__math_low(value)}:${__math_high(value)}"; }',
             'fun convert(value: Float) -> Nil { print(may { str(int(value)) } otherwise { err.kind }, word(floor(value)),'
             ' word(ceil(value)), may { str(trunc(value)) } otherwise { err.kind }); return; }',
         ]
@@ -106,7 +108,7 @@ def main():
         body.append('print(str(number(0, 2146435072)), str(number(0, 4293918720))); exit(0);')
         source.write_text('\n'.join(body))
         binary = work / 'float-oracle'
-        compile_source(options.compiler, source, binary)
+        compile_source(options.compiler, source, binary, '--values', 'tagged')
         oracle = subprocess.run([str(binary)], capture_output=True, timeout=20)
         assert oracle.returncode == 0 and not oracle.stderr, oracle
         for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
