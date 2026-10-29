@@ -105,8 +105,9 @@ On every target, a function whose parameters and result are all `Int`, `Ptr`
 or `Bool`, and whose body uses only such locals and globals, `true`, `false`,
 integer operators, comparisons, `if`, `while`, `for` over `a..b` or `a..=b`,
 `break`, `continue`, `load8` through `load64`, `store8` through `store64`,
-`syscall` (full runtime on Linux and NodeOS), calls to other such functions
-and calls to `extern` functions whose parameters are `Int`, `UInt`, `Ptr` or
+`syscall` (full runtime on Linux and NodeOS), calls to top-level functions
+whose parameters (at most six) and result are `Int`, `Ptr` or `Bool`, and
+calls to `extern` functions whose parameters are `Int`, `UInt`, `Ptr` or
 `Bool` and whose result is one of those or `Void` (x86-64 Linux and
 `clang-llvm`), compiles as a native-word function. Inside it, and across calls
 between such functions, `Int` values are untagged signed 64-bit machine words:
@@ -114,18 +115,24 @@ bitwise operators reach bit 63, `load64` keeps all 64 bits (in tagged code a
 word outside the 61-bit range raises `integer overflow`), shift counts may be
 0 through 63, and `+`, `-`, `*`, `/` and negation fault on 64-bit overflow. A
 call from other code untags the arguments and retags the result, which raises
-an `integer overflow` fault if it does not fit the 61-bit range. Globals keep
+an `integer overflow` fault if it does not fit the 61-bit range. A call from a
+native-word function to a function that stays tagged (because its body uses
+lists, strings, `print` and so on) does the reverse: an argument outside the
+61-bit range raises `integer overflow` before the callee runs. Globals keep
 tagged values: a native-word function untags them on read and retags them on
 write, where a value outside the 61-bit range raises `integer overflow` and
 leaves the global unchanged. Extern calls pass machine words straight to C,
 so an `Int` or `Ptr` result keeps all 64 bits; a negative `UInt` argument or a
 `UInt` result above the `Int` range raises an `arithmetic` fault. `Int32` and
-`UInt32` values carry range contracts and keep their users tagged. In other code, an `Int` or `Bool` expression that
-contains a bitwise operator and uses only integer variables, literals,
-operators and native-word calls is compiled the same way, with its variables
-(at most six) passed as arguments, so `(1 << 63) & (1 << 63) != 0` is `true`;
-an expression that calls a function and also reads a global stays tagged.
-Debug traces omit native-word frames. Other functions keep the tagged
+`UInt32` values carry range contracts and keep their users tagged. In other
+code, an `Int` or `Bool` expression that contains a bitwise operator and uses
+only integer variables, literals, operators and such calls is compiled the
+same way, with its variables (at most six) passed as arguments, so
+`(1 << 63) & (1 << 63) != 0` is `true`; an expression that calls a function
+and also reads a global stays tagged. Debug traces omit native-word frames,
+so under `--debug` a native-word function may only call other native-word
+functions.
+Other functions keep the tagged
 semantics ([#92](https://github.com/mirged/maylang/issues/92)).
 
 `Float32` rounds through IEEE binary32 at typed boundaries and keeps the

@@ -41,6 +41,12 @@
   converting at each access; a value outside the 61-bit range faults on
   assignment and leaves the global unchanged
   ([#92](https://github.com/mirged/maylang/issues/92)).
+- Let native-word functions call any top-level function whose parameters
+  and result are `Int`, `Ptr` or `Bool`, even one that stays tagged. The call
+  goes through a word adapter that tags the arguments, raising
+  `integer overflow` before the callee runs if one does not fit 61 bits, and
+  untags the result. A single such call previously kept the whole caller
+  tagged ([#92](https://github.com/mirged/maylang/issues/92)).
 - Call `extern` functions whose parameters and result are `Int`, `UInt`,
   `Ptr` or `Bool` (or a `Void` result) from native-word functions with machine
   words on x86-64 Linux and `clang-llvm`, without the tagged FFI conversions.
