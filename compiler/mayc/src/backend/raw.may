@@ -705,7 +705,9 @@ fun raw_core_call(ctx: Any, emitter: Any, payload: Any) -> Any {
             raw_get(ctx, emitter, payload.args, 0); (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_SLASH);
             (emitter.move)(ctx, 2, 0);
             if (starts_with(name, "load")) {
-                (emitter.load)(ctx, 0, 2, 0, widths[name]); (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR);
+                (emitter.load)(ctx, 0, 2, 0, widths[name]);
+                if (name == "load64") { (emitter.move)(ctx, 10, 0); return raw_invoke(ctx, emitter, "rt_tag_word"); }
+                (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_STAR);
             } else {
                 raw_get(ctx, emitter, payload.args.next, 0); (emitter.immediate)(ctx, 8, 1); (emitter.binary)(ctx, TK_SLASH);
                 (emitter.store)(ctx, 0, 2, 0, widths[name]); (emitter.immediate)(ctx, 2, 0);

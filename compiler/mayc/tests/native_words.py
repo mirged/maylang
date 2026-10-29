@@ -102,7 +102,7 @@ arithmetic: shift count out of range
 2 7 3 -7 24 -3 -1152921504606846976 -1152921504606846976
 '''
 
-# Native loads keep bit 63; the tagged load64 at top level wraps to 61 bits.
+# Native loads keep bit 63; tagged load64 faults on such a word.
 MEMORY = '''
 fun low_at(p: Ptr, offset: Int) -> Int { return load64(p + offset) & 4294967295; }
 fun word_at(p: Ptr) -> Int { return load64(p); }
@@ -125,7 +125,8 @@ let w: Str = repeat("x", 32);
 let q: Ptr = addr(w);
 print(put(q, 5), load64(q), top_set(q));
 fill(q);
-print(top_set(q), top_byte(q), load8(q + 7), load64(q));
+print(top_set(q), top_byte(q), load8(q + 7));
+print(may { load64(q) } otherwise { err.message });
 print(may { word_at(q) } otherwise { "${err.kind}: ${err.message}" });
 '''
 
@@ -133,7 +134,8 @@ MEMORY_EXPECTED = '''1701077858 1701077858
 77097 77097
 true
 7 5 0
-1 128 128 0
+1 128 128
+integer overflow
 arithmetic: integer overflow
 '''
 
@@ -226,6 +228,43 @@ false 1000 44
 40 40
 1001 42 1
 arithmetic: integer overflow 1
+'''
+
+# Tagged load64 accepts exactly the 61-bit range and faults outside it.
+TAGGED_LOAD = '''
+let w: Str = repeat("x", 32);
+let q: Ptr = addr(w);
+fun put(p: Ptr, v: Int) -> Int { store64(p, v); return 0; }
+fun put_max(p: Ptr) -> Int { store64(p, (1 << 60) - 1); return 0; }
+fun put_min(p: Ptr) -> Int { store64(p, 0 - (1 << 60)); return 0; }
+fun put_over(p: Ptr) -> Int { store64(p, 1 << 60); return 0; }
+fun put_under(p: Ptr) -> Int { store64(p, -1 - (1 << 60)); return 0; }
+fun put_top(p: Ptr) -> Int { store64(p, 1 << 63); return 0; }
+put(q, 1 << 59);
+print(load64(q));
+put(q, -1);
+print(load64(q));
+put_max(q);
+print(load64(q));
+put_min(q);
+print(load64(q));
+put_over(q);
+print(may { load64(q) } otherwise { "${err.kind}: ${err.message}" });
+put_under(q);
+print(may { load64(q) } otherwise { "${err.kind}: ${err.message}" });
+put_top(q);
+print(may { load64(q) } otherwise { "${err.kind}: ${err.message}" });
+print(load64(addr(w) - 8));
+'''
+
+TAGGED_LOAD_EXPECTED = '''576460752303423488
+-1
+1152921504606846975
+-1152921504606846976
+arithmetic: integer overflow
+arithmetic: integer overflow
+arithmetic: integer overflow
+32
 '''
 
 
@@ -395,6 +434,12 @@ def main():
             output = compile_run(compiler, source, work / 'globals', *flags, runner=runner)
             assert output == GLOBALS_EXPECTED, (flags, output)
         print('PASS native-word reads and writes of tagged globals', flush=True)
+        source = work / 'tagged_load.may'
+        source.write_text(TAGGED_LOAD)
+        for flags, runner in configurations:
+            output = compile_run(compiler, source, work / 'tagged_load', *flags, runner=runner)
+            assert output == TAGGED_LOAD_EXPECTED, (flags, output)
+        print('PASS tagged load64 faults outside the 61-bit range', flush=True)
         program, expected = oracle_program(args.seed, args.cases)
         source = work / 'oracle.may'
         source.write_text(program)

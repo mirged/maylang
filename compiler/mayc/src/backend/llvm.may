@@ -213,7 +213,11 @@ fun llvm_builtin(s: Any, name: Any, values: Any, nodes: Any) -> Any {
         }
         mut value: Any = llvm_ssa(s, "load volatile i${width}, ptr ${pointer}, align 1", "small");
         if (width != 64) { value = llvm_ssa(s, "zext i${width} ${value} to i64", "i64"); }
-        if (not s.raw) { value = llvm_op(s, "shl", value, "3"); } return value;
+        if (s.raw) { return value; }
+        let tagged: Any = llvm_op(s, "shl", value, "3");
+        // A loaded word outside the 61-bit range raises `integer overflow` (#92).
+        if (width == 64) { llvm_guard(s, llvm_cmp(s, "ne", llvm_op(s, "ashr", tagged, "3"), value), 0); }
+        return tagged;
     }
     if (s.raw and (name == "addr" or name == "cstr" or name == "len")) {
         if (nodes == 0 or nodes.kind != E_STR) { die_str("mayc: raw LLVM string intrinsic requires a literal\n"); }

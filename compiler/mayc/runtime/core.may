@@ -102,6 +102,12 @@ fun rt_native_fault(kind: Any) -> Any {
     if (kind == 2) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
     return rt_failarith(rt_from(addr("integer overflow"), 16));
 }
+// Tag a word read by load64, faulting outside the 61-bit range (#92). Raw
+// runtime shifts wrap to 61 bits here, so compare instead.
+fun rt_tag_word(v: Any) -> Any {
+    if (v > 1152921504606846975 or v < -1152921504606846975 - 1) { return rt_native_fault(0); }
+    return v * 8;
+}
 fun rt_failstr(s: Any) -> Any { return __core_raise(addr("runtime"), 7, s); }
 // Tag a truncated Float; invalid conversions arrive as -2^63 and fault too.
 fun rt_float_int(n: Any) -> Any {

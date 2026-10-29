@@ -2090,6 +2090,20 @@ fun cg_store(ctx: Any, args: Any, width: Any) -> Any {
     return 0;
 }
 
+// Tag a loaded 64-bit word, raising `integer overflow` when it does not fit
+// the 61-bit range (#92). Only rax, flags and the stack are touched.
+fun x86_tag_checked(ctx: Any) -> Any {
+    let ok: Any = newlab(ctx);
+    e8(ctx, 80); tag_rax(ctx); untag_rax(ctx);                            // push rax; shl/sar rax, 3
+    x86_encode(ctx, X86Instruction([72, 59, 4, 36, 88], 0, 0));          // cmp rax, [rsp]; pop rax
+    jcc(ctx, 132, ok);
+    x86_encode(ctx, X86Instruction([49, 192], 0, 0));                    // xor eax, eax (kind 0)
+    call_rt1(ctx, addr("rt_native_fault"), len("rt_native_fault"));
+    placelab(ctx, ok);
+    tag_rax(ctx);
+    return 0;
+}
+
 fun untag_rax(ctx: Any) -> Any { e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3); return 0; }
 fun tag_rax(ctx: Any) -> Any { e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3); return 0; }
 
@@ -2220,7 +2234,11 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (name_eq(np, nl, addr("load8"), len("load8")) == 1) { cg_expr(ctx, args); untag_rax(ctx); e8(ctx, 15); e8(ctx, 182); e8(ctx, 0); tag_rax(ctx); return 1; }
     if (name_eq(np, nl, addr("load16"), len("load16")) == 1) { cg_expr(ctx, args); untag_rax(ctx); e8(ctx, 15); e8(ctx, 183); e8(ctx, 0); tag_rax(ctx); return 1; }
     if (name_eq(np, nl, addr("load32"), len("load32")) == 1) { cg_expr(ctx, args); untag_rax(ctx); e8(ctx, 139); e8(ctx, 0); tag_rax(ctx); return 1; }
-    if (name_eq(np, nl, addr("load64"), len("load64")) == 1) { cg_expr(ctx, args); untag_rax(ctx); e8(ctx, 72); e8(ctx, 139); e8(ctx, 0); tag_rax(ctx); return 1; }
+    if (name_eq(np, nl, addr("load64"), len("load64")) == 1) {
+        cg_expr(ctx, args); untag_rax(ctx); e8(ctx, 72); e8(ctx, 139); e8(ctx, 0);
+        x86_tag_checked(ctx);
+        return 1;
+    }
     if (name_eq(np, nl, addr("store8"), len("store8")) == 1) { cg_store_dyn(ctx, args, 1); return 1; }
     if (name_eq(np, nl, addr("store16"), len("store16")) == 1) { cg_store_dyn(ctx, args, 2); return 1; }
     if (name_eq(np, nl, addr("store32"), len("store32")) == 1) { cg_store_dyn(ctx, args, 4); return 1; }
