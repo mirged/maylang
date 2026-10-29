@@ -7,9 +7,10 @@ import "diagnostics.may";
 // words.may — native-word lowering for strictly typed integer functions (#92).
 //
 // A user function whose parameters and result are all `Int`, `Ptr` or `Bool`,
-// and whose body only computes with such locals and raw memory access
-// (`load8`..`load64`, `store8`..`store64`), compiles as native 64-bit machine
-// words, so loads keep all 64 bits until the result returns to tagged code.
+// and whose body only computes with such locals and globals, raw memory access
+// (`load8`..`load64`, `store8`..`store64`) and `syscall`, compiles as native
+// 64-bit machine words, so loads and syscall results keep all 64 bits until
+// the result returns to tagged code.
 // Its tagged-ABI entry untags arguments and retags the result, raising the
 // ordinary `integer overflow` fault when the result leaves the tagged range.
 // Bool is 0/1 in native code (tagged 3/4). Calls between native-word
@@ -18,7 +19,15 @@ import "diagnostics.may";
 
 let WORD_ARITHMETIC: Any = [TK_PLUS, TK_MINUS, TK_STAR, TK_SLASH, TK_PCT, TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR];
 let WORD_ORDERING: Any = [TK_EQ, TK_NE, TK_LT, TK_LE, TK_GT, TK_GE];
-let WORD_MEMORY: Any = {"load8": 1, "load16": 1, "load32": 1, "load64": 1, "store8": 2, "store16": 2, "store32": 2, "store64": 2};
+// Builtins lowered natively, with their minimum and maximum argument counts.
+// `syscall` takes the raw path, which x86-64 supports on Linux and NodeOS only.
+let WORD_BUILTINS: Any = {"load8": [1, 1], "load16": [1, 1], "load32": [1, 1], "load64": [1, 1],
+    "store8": [2, 2], "store16": [2, 2], "store32": [2, 2], "store64": [2, 2], "syscall": [1, 7]};
+
+fun word_builtin(scan: Any, node: Any, name: Any) -> Any {
+    if (not has(WORD_BUILTINS, name) or has(scan.names, name) or glob_find(scan.ctx, node.name, node.length) >= 0) { return false; }
+    return name != "syscall" or has(["linux", "nodeos"], scan.ctx.target.os);
+}
 
 struct WordScan { ctx: Any, rec: Any, result: Any, names: Any, scopes: Any, calls: Any, valid: Any }
 
@@ -89,14 +98,15 @@ fun word_value(scan: Any, node: Any, expected: Any) -> Any {
     if (kind == E_CALL) {
         let name: Any = symbol_name(node.name, node.length);
         if (word_local(scan, name)) { return word_reject(scan); }
-        if (has(WORD_MEMORY, name) and not has(scan.names, name) and glob_find(scan.ctx, node.name, node.length) < 0) {
+        if (word_builtin(scan, node, name)) {
             mut operands: Any = 0;
             mut operand: Any = node.args;
             while (operand != 0) {
                 if (not word_value(scan, operand, "Int")) { return false; }
                 operands += 1; operand = operand.next;
             }
-            return (expected == "Int" and operands == WORD_MEMORY[name]) or word_reject(scan);
+            let arity: Any = WORD_BUILTINS[name];
+            return (expected == "Int" and operands >= arity[0] and operands <= arity[1]) or word_reject(scan);
         }
         if (not has(scan.names, name)) { return word_reject(scan); }
         let callee: Any = scan.names[name];

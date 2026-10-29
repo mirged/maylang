@@ -267,6 +267,29 @@ arithmetic: integer overflow
 32
 '''
 
+# syscall needs the full runtime. clock_ns() shifts by 62, so it only passes
+# natively.
+SYSCALLS = '''
+fun write_bytes(p: Ptr, n: Int) -> Int { return syscall(1, 1, p, n); }
+fun pid_ok() -> Bool { return syscall(39) > 0; }
+fun bad_fd() -> Int { return syscall(3, -1); }
+fun clock_ns(buf: Ptr) -> Int {
+    if (syscall(228, 1, buf) != 0) { return -1; }
+    return (load64(buf) << 62) >> 62;
+}
+let msg: Str = "native write\n";
+print(write_bytes(addr(msg), 13));
+print(pid_ok(), bad_fd());
+let buf: Str = repeat("x", 16);
+print(clock_ns(addr(buf)) >= -2);
+'''
+
+SYSCALLS_EXPECTED = '''native write
+13
+true -9
+true
+'''
+
 
 class Fault(Exception):
     pass
@@ -440,6 +463,14 @@ def main():
             output = compile_run(compiler, source, work / 'tagged_load', *flags, runner=runner)
             assert output == TAGGED_LOAD_EXPECTED, (flags, output)
         print('PASS tagged load64 faults outside the 61-bit range', flush=True)
+        source = work / 'syscalls.may'
+        source.write_text(SYSCALLS)
+        for flags, runner in configurations:
+            if runner or '--runtime' in flags:
+                continue
+            output = compile_run(compiler, source, work / 'syscalls', *flags, runner=runner)
+            assert output == SYSCALLS_EXPECTED, (flags, output)
+        print('PASS native-word syscall on the full runtime', flush=True)
         program, expected = oracle_program(args.seed, args.cases)
         source = work / 'oracle.may'
         source.write_text(program)
