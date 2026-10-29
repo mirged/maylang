@@ -145,6 +145,19 @@ fun word_statement(scan: Any, node: Any) -> Any {
         return true;
     }
     if (kind == S_WHILE) { return word_value(scan, node.condition, "Bool") and word_block(scan, node.body); }
+    if (kind == S_FOR) {
+        // Only `a..b` / `a..=b` with an Int binding; raw lowering counts directly.
+        let range: Any = node.iterable;
+        let contract: Any = node.bindingContract;
+        if (range == 0 or range.kind != E_RANGE or not word_plain(range) or (contract != nil and contract != 0 and not word_type(contract, "Int"))) { return word_reject(scan); }
+        if (not word_value(scan, range.start, "Int") or not word_value(scan, range.end, "Int")) { return false; }
+        let binding: Any = {};
+        binding[symbol_name(node.name, node.length)] = true;
+        push(scan.scopes, binding);
+        word_block(scan, node.body);
+        pop(scan.scopes);
+        return scan.valid;
+    }
     if (kind == S_RETURN) { return word_value(scan, node.value, scan.result); }
     if (kind == S_BREAK or kind == S_CONT) { return true; }
     return word_reject(scan);

@@ -134,8 +134,31 @@ fun ir_unwind(depth: Any) -> Any {
     return 0;
 }
 
+// Raw and native-word code count through `a..b` / `a..=b` without building a
+// range list. Bounds are evaluated once, in order, as the range value would be.
+// An inclusive loop leaves before stepping past `b`, so it never overflows.
+fun ir_range_loop(ctx: Any, node: Any) -> Any {
+    let span: Any = node.span;
+    let range: Any = node.iterable;
+    let index: Any = ir_copy(ir_temp(span), ir_node(ctx, range.start));
+    let end: Any = ir_copy(ir_temp(span), ir_node(ctx, range.end));
+    let top: Any = newlab(ctx); let done: Any = newlab(ctx); let step: Any = newlab(ctx);
+    push(IR_BREAKS, [done, IR_HANDLERS]); push(IR_CONTINUES, [step, IR_HANDLERS]);
+    ir_label(top);
+    ir_emit(IR_FALSE, 0, ir_binary(if (range.inclusive == 1) { TK_LE } else { TK_LT }, index, end, span), 0, done, span);
+    ir_declare(node.name, node.length, ir_copy(ir_temp(span), index), 0, span);
+    ir_node(ctx, node.body);
+    ir_label(step);
+    if (range.inclusive == 1) { ir_emit(IR_TRUE, 0, ir_binary(TK_EQ, index, end, span), 0, done, span); }
+    ir_copy(index, ir_binary(TK_PLUS, index, ir_integer(1, span), span));
+    ir_jump(top); ir_label(done);
+    pop(IR_BREAKS); pop(IR_CONTINUES);
+    return ir_nil(span);
+}
+
 fun ir_loop(ctx: Any, node: Any) -> Any {
     let span: Any = node.span;
+    if (node.kind == S_FOR and IR_RAW_MODE == 1 and node.iterable.kind == E_RANGE) { return ir_range_loop(ctx, node); }
     let iterable: Any = ir_node(ctx, node.iterable);
     let count: Any = ir_runtime("rt_len", [iterable], span);
     let index: Any = ir_integer(0, span);

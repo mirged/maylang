@@ -1195,6 +1195,37 @@ def reciprocal_oracle():
     print('PASS exhaustive signed reciprocal model for widths 3 through 10', flush=True)
 
 
+def raw_range_loops(compiler, work):
+    source, binary = work / 'range-loops.may', work / 'range-loops'
+    maximum = raw_integer((1 << 63) - 1)
+    source.write_text(f'''
+mut calls: Any = 0;
+fun bound(n: Any) -> Any {{ calls = calls + 1; return n; }}
+fun sum(n: Any) -> Any {{ mut t: Any = 0; for i in 0..n {{ if i == 5 {{ continue; }} t = t + i; }} return t; }}
+fun nested(n: Any) -> Any {{
+    mut t: Any = 0;
+    for i in 0..n {{ for j in i..n {{ if j == 7 {{ break; }} t = t + 1; }} }}
+    return t;
+}}
+if sum(10) != 40 {{ exit(1); }}
+if nested(10) != 31 {{ exit(2); }}
+mut empty: Any = 0;
+for i in 5..5 {{ empty = empty + 1; }}
+for i in 5..=4 {{ empty = empty + 1; }}
+if empty != 0 {{ exit(3); }}
+mut last: Any = 0;
+for i in {maximum} - 2..={maximum} {{ last = i; }}
+if last != {maximum} {{ exit(4); }}
+mut k: Any = 3; mut n: Any = 0;
+for i in 0..bound(k) {{ k = k + 1; n = n + 1; }}
+if n != 3 or calls != 1 {{ exit(5); }}
+exit(0);
+''')
+    compile_source(compiler, source, binary, '--raw')
+    run(binary)
+    print('PASS raw range loops count without a list, evaluate bounds once and stop at the maximum', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', type=Path, required=True)
@@ -1205,6 +1236,7 @@ def main():
         work = Path(directory)
         raw_ccall6_words(compiler, work)
         raw_full_width_bitwise(compiler, work)
+        raw_range_loops(compiler, work)
         source, binary = work / 'test.may', work / 'test'
         source.write_text('''
 mut sequence: Any = 0;

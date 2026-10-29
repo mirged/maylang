@@ -5,8 +5,8 @@ Qualifying functions compute with untagged 64-bit words. Calls from tagged
 code untag arguments and retag the result, so values beyond the tagged range
 fault only when they leave native code. A seeded oracle compares random
 expressions with Python's signed 64-bit semantics. Further programs check
-that Ptr parameters and load/store keep all 64 bits and that Bool parameters,
-results and locals cross the tagged boundary. All run on the full and core
+that Ptr parameters and load/store keep all 64 bits, that Bool parameters,
+results and locals cross the tagged boundary, and that range loops count natively. All run on the full and core
 runtimes, with and without --debug, and on ARM64/RISC-V core targets when
 QEMU user emulators are installed, and on clang-llvm when clang is.
 """
@@ -161,6 +161,36 @@ BOOLS_EXPECTED = '''true false true false
 true false false true
 true false false true 2 1
 5 neg
+'''
+
+# edge() counts up to 2^63 - 1, which only native code can represent.
+LOOPS = '''
+fun sum(n: Int) -> Int { mut t: Int = 0; for i: Int in 0..n { if (i == 5) { continue; } t = t + i; } return t; }
+fun upto(a: Int, b: Int) -> Int { mut t: Int = 0; for i in a..=b { t = t + i; } return t; }
+fun first_over(n: Int, limit: Int) -> Int { for i in 0..n { if (i * i > limit) { return i; } } return -1; }
+fun nested(n: Int) -> Int {
+    mut t: Int = 0;
+    for i in 0..n { for j in i..n { if (j == 7) { break; } t = t + 1; } }
+    return t;
+}
+fun edge() -> Int {
+    let top: Int = (1 << 62) - 1 + (1 << 62);
+    mut t: Int = 0;
+    for i in top - 2..=top { t = t + 1; }
+    return t;
+}
+fun shadow(n: Int) -> Int { mut t: Int = 0; for i in 0..n { let i2: Int = i * 2; t = t + i2; } return t; }
+fun bump(n: Int) -> Int { mut k: Int = n; mut t: Int = 0; for i in 0..k { k = k + 1; t = t + 1; } return t; }
+fun deep() -> Int { mut t: Int = 0; for i in 0..3 { t = t + upto(1, i); } return t; }
+fun tagged_for(n: Int) -> Int { mut t: Int = 0; for i in [1, 2, 3] { t = t + i * n; } return t; }
+print(sum(10), upto(1, 10), upto(5, 4), first_over(100, 50), first_over(3, 50));
+print(nested(10), edge(), shadow(4), bump(3), deep(), tagged_for(2));
+print(sum(0), upto(-3, -1), may { edge() + 0 } otherwise { err.message });
+'''
+
+LOOPS_EXPECTED = '''40 55 0 8 -1
+31 3 12 3 4 12
+0 -6 3
 '''
 
 
@@ -318,6 +348,12 @@ def main():
             output = compile_run(compiler, source, work / 'bools', *flags, runner=runner)
             assert output == BOOLS_EXPECTED, (flags, output)
         print('PASS native-word Bool parameters, results and locals', flush=True)
+        source = work / 'loops.may'
+        source.write_text(LOOPS)
+        for flags, runner in configurations:
+            output = compile_run(compiler, source, work / 'loops', *flags, runner=runner)
+            assert output == LOOPS_EXPECTED, (flags, output)
+        print('PASS native-word range loops', flush=True)
         program, expected = oracle_program(args.seed, args.cases)
         source = work / 'oracle.may'
         source.write_text(program)
