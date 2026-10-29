@@ -12,7 +12,13 @@
   `type` fault) and a `List<Any>` uses 16 bytes per element. The compiler
   itself runs on fat values and reaches the bootstrap fixpoint.
   `--values tagged` or `MAYC_VALUES=tagged` selects the old representation,
-  which the core runtime, LLVM and NodeOS still use
+  which the core runtime and LLVM still use
+  ([#92](https://github.com/mirged/maylang/issues/92)).
+- Use fat values with the full runtime on x86_64-nodeos as well; `exec` and
+  `system` start programs through the personality's spawn extension there.
+  Fat code is about 20% smaller and `stress.may` runs 1.6x faster: short-lived
+  temporaries share frame slots reached with 8-bit displacements, and a value
+  consumed by the next instruction is no longer stored and reloaded
   ([#92](https://github.com/mirged/maylang/issues/92)).
 - Add integer bitwise operators `&`, `|`, `^`, `~`, `<<` and `>>` with
   Rust-style precedence and signed 61-bit behavior. Replace the NodeOS NXF
@@ -188,6 +194,14 @@ are stricter.
 
 ## Tools
 
+- maylsp no longer reports every error twice in editors that pull diagnostics
+  (VS Code): a client that announces pull support now gets diagnostics only
+  from `textDocument/diagnostic`, and others still get them pushed.
+- `scripts/install_nightly.sh` builds the checkout and installs it as a
+  nightly generation of `~/.maylang`.
+- Pass all four `wait4` arguments in the installer and `may`, which could
+  fail with `Cannot wait for compiler verification` when the unused
+  `rusage` register held a stale value.
 - `mayfmt --help` and `mayfmt -h` print usage and exit 0 without reading or
   writing files, and unknown options are rejected before any file is
   formatted ([#64](https://github.com/mirged/maylang/issues/64)).

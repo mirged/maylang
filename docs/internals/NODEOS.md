@@ -5,6 +5,11 @@ a capability-based microkernel for x86-64. The full, core and raw runtimes are
 all supported, and the compiler itself runs on NodeOS: a `mayc` built for
 NodeOS compiles programs there, including its own source. The compiler that
 `mayc` builds on NodeOS is byte-identical to the one cross-built on Linux.
+As on x86_64-linux, the full runtime uses fat values
+([FAT_VALUES.md](../design/FAT_VALUES.md)); `--values tagged` selects the
+61-bit tagged runtime. NodeOS's loader copies an image into one contiguous
+kernel block of at most 4 MiB, so larger images fail with "Not enough
+memory"; `tests/nodeos.py` checks that the compiler's own image fits.
 
 ```sh
 compiler/mayc/mayc_new --target x86_64-nodeos examples/hello.may -o hello.nxf

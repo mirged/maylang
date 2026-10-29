@@ -1,7 +1,8 @@
 # Fat values
 
-Status: fat values are the default with the full runtime on x86_64-linux;
-the core runtime, LLVM and NodeOS still use the 3-bit tagged encoding in
+Status: fat values are the default with the full runtime on x86_64-linux
+and x86_64-nodeos; the core runtime and LLVM still use the 3-bit tagged
+encoding in
 [`runtime.may`](../../compiler/mayc/runtime.may), which `--values tagged`
 also selects ([#92](https://github.com/mirged/maylang/issues/92)). The
 ledger at the end records what works.
@@ -98,5 +99,7 @@ itself runs on fat values, source integer literals stay within ±2^60.
 | Typed externs and native-word entries | working; native code calls externs through their fat entry |
 | Self-hosting on fat values | the compiler built with `--values fat` emits byte-identical output and rebuilds itself identically (`fat_values.py`) |
 | Default on x86_64-linux, bootstrap fixpoint | done; integer literals follow the target (±2^63 fat, ±2^60 tagged) |
-| Core runtime, ARM64, RISC-V, LLVM, NodeOS on fat values; tagged runtime removed | not started |
-| Fat performance (inline Float, division strength reduction, register allocation) | not started; about 2x tagged on `stress.may`, 1.2x on the compiler |
+| NodeOS | done: the full runtime is fat by default; `exec` and `system` fall back to the personality's spawn extension; the compiler runs and rebuilds itself on NodeOS |
+| Core runtime, ARM64, RISC-V, LLVM on fat values; tagged runtime removed | not started |
+| Fat code size | temporaries defined once and read before the next boundary share reused frame slots, hot slots first with 8-bit displacements; a temporary read only by the next instruction is never stored; direct calls zero their argument area only when arguments are missing. The compiler's code shrank from 5.0 MB to 3.9 MB (tagged: 2.4 MB), which fits NodeOS's 4 MiB image copy |
+| Fat performance (inline Float, division strength reduction, register allocation) | in progress; `stress.may` 7.1 s against 11.4 s before the code-size work and 5.3 s tagged |
