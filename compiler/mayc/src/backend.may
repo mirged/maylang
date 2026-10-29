@@ -32,6 +32,9 @@ fun backend_validate(ctx: Any, raw: Any) -> Any {
     if (ctx.target.arch == "llvm" and ctx.runtime != "full") {
         die_str("mayc: experimental clang-llvm supports only the full Maylang runtime; --raw and --runtime core/none are unsupported\n");
     }
+    if (FAT_VALUES and (raw == 1 or ctx.runtime != "full" or ctx.target.name != "x86_64-linux")) {
+        die_str("mayc: --values fat requires the full runtime on x86_64-linux\n");
+    }
     if (raw == 0 and ctx.runtime == "full" and not ctx.target.runtime) {
         die_str("mayc: `${ctx.target.name}` supports the core runtime; --runtime full requires x86_64-linux or x86_64-nodeos\n");
     }

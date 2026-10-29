@@ -1,0 +1,519 @@
+import "../emitter.may";
+import "../symbols.may";
+import "../state.may";
+import "../ast.may";
+import "../lexer.may";
+import "../ir.may";
+import "../literals.may";
+import "../sema.may";
+import "x86_64.may";
+// backend/x86_64_fat.may — x86-64 code for `--values fat` (#92).
+//
+// See docs/design/FAT_VALUES.md. Every IR temporary and local has a 16-byte
+// frame slot: the type word at the lower address and the payload 8 bytes
+// above it. An expression leaves its value in RDX (type) and RAX (payload).
+// Compiled functions find their arguments as 16-byte values above the return
+// address, receive a closure environment in R10 and return RAX/RDX. Runtime
+// functions are raw: each value is pushed as two words, type first, and the
+// result's type word comes back in the RTAG global. Temporaries occupy slots
+// 0 to `fatBase - 1`, locals the slots after them.
+
+fun fat_disp(k: Any) -> Any { return 16 * (k + 1); }
+
+fun fat_load_slot(ctx: Any, k: Any) -> Any {
+    x86_load_register(ctx, 2, fat_disp(k)); x86_load_register(ctx, 0, fat_disp(k) - 8);
+    return 0;
+}
+
+fun fat_store_slot(ctx: Any, k: Any) -> Any {
+    x86_store_register(ctx, 2, fat_disp(k)); x86_store_register(ctx, 0, fat_disp(k) - 8);
+    return 0;
+}
+
+fun fat_local_slot(ctx: Any, index: Any) -> Any { return ctx.fatBase + index; }
+fun fat_get(ctx: Any, value: Any) -> Any { return fat_load_slot(ctx, value.slot); }
+fun fat_put(ctx: Any, value: Any) -> Any { return fat_store_slot(ctx, value.slot); }
+
+fun fat_set(ctx: Any, tag: Any, payload: Any) -> Any {
+    x86_mov_immediate(ctx, 2, tag); x86_mov_immediate(ctx, 0, payload);
+    return 0;
+}
+
+// mov reg, [disp32] / mov [disp32], reg for data offsets (rax 4, rdx 20).
+fun fat_abs(ctx: Any, opcode: Any, modrm: Any, off: Any) -> Any {
+    e8(ctx, 72); e8(ctx, opcode); e8(ctx, modrm); e8(ctx, 37);
+    let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 2, o, off);
+    return 0;
+}
+fun fat_abs_load(ctx: Any, off: Any) -> Any { fat_abs(ctx, 139, 20, off); fat_abs(ctx, 139, 4, off + 8); return 0; }
+fun fat_abs_store(ctx: Any, off: Any) -> Any { fat_abs(ctx, 137, 20, off); fat_abs(ctx, 137, 4, off + 8); return 0; }
+
+fun fat_push(ctx: Any) -> Any { e8(ctx, 82); e8(ctx, 80); return 0; }   // push rdx; push rax
+
+fun fat_global(ctx: Any, name: Any) -> Any {
+    let index: Any = glob_find(ctx, addr(name), len(name));
+    if (index < 0) { die_str("mayc: runtime/fat.may lacks ${name}\n"); }
+    return glob_off(ctx, index);
+}
+
+fun fat_release(ctx: Any, bytes: Any) -> Any {
+    if (bytes > 0) { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, bytes); } // add rsp, imm32
+    return 0;
+}
+
+// Call a raw runtime function whose `words` arguments are already pushed.
+fun fat_rt_call(ctx: Any, name: Any, words: Any) -> Any {
+    let rec: Any = backend_find_func(ctx, addr(name), len(name));
+    if (rec == 0) { die_str("mayc: --values fat runtime lacks `${name}`\n"); }
+    call(ctx, rec.lab);
+    fat_release(ctx, words * 8);
+    fat_abs(ctx, 139, 20, fat_global(ctx, "RTAG"));
+    return 0;
+}
+
+// Call a runtime function on a linked list of IR values.
+fun fat_rt(ctx: Any, name: Any, args: Any) -> Any {
+    mut count: Any = 0;
+    mut arg: Any = args;
+    while (arg != 0) { fat_get(ctx, arg); fat_push(ctx); count += 1; arg = arg.next; }
+    return fat_rt_call(ctx, name, count * 2);
+}
+
+// The literal string `text` as a value in RDX/RAX.
+fun fat_literal(ctx: Any, off: Any) -> Any {
+    x86_mov_immediate(ctx, 2, 4); x86_relocated_immediate(ctx, 0, 1, off);
+    return 0;
+}
+
+// Jump to `label` when RDX/RAX is falsy (nil or false), or truthy.
+fun fat_branch(ctx: Any, label: Any, truthy: Any) -> Any {
+    let skip: Any = newlab(ctx);
+    e8(ctx, 72); e8(ctx, 133); e8(ctx, 210);                        // test rdx, rdx
+    jcc(ctx, 132, if (truthy) { skip } else { label });
+    e8(ctx, 72); e8(ctx, 131); e8(ctx, 250); e8(ctx, 1);            // cmp rdx, 1
+    jcc(ctx, 133, if (truthy) { label } else { skip });
+    e8(ctx, 72); e8(ctx, 133); e8(ctx, 192);                        // test rax, rax
+    jcc(ctx, if (truthy) { 133 } else { 132 }, label);
+    placelab(ctx, skip);
+    return 0;
+}
+
+// Cell pointer in RCX: load or store its value.
+fun fat_cell_load(ctx: Any) -> Any {
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 17);                         // mov rdx, [rcx]
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 65); e8(ctx, 8);             // mov rax, [rcx + 8]
+    return 0;
+}
+fun fat_cell_store(ctx: Any) -> Any {
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 17);                         // mov [rcx], rdx
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 65); e8(ctx, 8);             // mov [rcx + 8], rax
+    return 0;
+}
+
+// RCX = the closure environment (payload of the environment slot).
+fun fat_env(ctx: Any) -> Any { x86_load_register(ctx, 1, fat_disp(fat_local_slot(ctx, ctx.envSlot)) - 8); return 0; }
+
+// RCX = environment entry `index`, a cell pointer.
+fun fat_env_cell(ctx: Any, index: Any) -> Any {
+    fat_env(ctx);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 137); e32(ctx, 8 * index);   // mov rcx, [rcx + disp32]
+    return 0;
+}
+
+fun fat_var(ctx: Any, n: Any) -> Any {
+    let p: Any = n.name; let l: Any = n.length;
+    if (name_eq(p, l, addr("nil"), 3) == 1) { return fat_set(ctx, 0, 0); }
+    if (name_eq(p, l, addr("true"), 4) == 1) { return fat_set(ctx, 1, 1); }
+    if (name_eq(p, l, addr("false"), 5) == 1) { return fat_set(ctx, 1, 0); }
+    if (name_eq(p, l, addr("err"), 3) == 1) {
+        ld_abs(ctx, fat_global(ctx, "ERRVAL")); x86_mov_immediate(ctx, 2, 6);
+        return 0;
+    }
+    let li: Any = loc_find(ctx, p, l);
+    if (li >= 0) {
+        fat_load_slot(ctx, fat_local_slot(ctx, li));
+        if (is_boxed(ctx, p, l) == 1) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 193); fat_cell_load(ctx); } // mov rcx, rax
+        return 0;
+    }
+    let gi: Any = glob_find(ctx, p, l);
+    if (gi >= 0) { return fat_abs_load(ctx, glob_off(ctx, gi)); }
+    let fr: Any = backend_find_func(ctx, p, l);
+    if (fr != 0 and fr.mode != 1) { return fat_function_value(ctx, fr.lab, 0, fr.pc); }
+    die_str("mayc: unknown variable `${symbol_name(p, l)}`\n");
+    return 0;
+}
+
+// A closure over code `label`; RCX holds the environment when `env` is true.
+fun fat_function_value(ctx: Any, label: Any, env: Any, arity: Any) -> Any {
+    x86_relocated_immediate(ctx, 0, 6, label); e8(ctx, 80);         // push code
+    if (env) { e8(ctx, 81); } else { xor_eax(ctx); e8(ctx, 80); }  // push rcx / push 0
+    mov_imm(ctx, arity); e8(ctx, 80);
+    call_rt0(ctx, addr("rt_closure3"), len("rt_closure3"));
+    fat_release(ctx, 24);
+    x86_mov_immediate(ctx, 2, 7);
+    return 0;
+}
+
+fun fat_closure(ctx: Any, n: Any) -> Any {
+    mut count: Any = 0;
+    mut capture: Any = n.captures;
+    while (capture != 0) { count += 1; capture = capture.next; }
+    if (count == 0) { return fat_function_value(ctx, n.label, false, n.arity); }
+    mov_imm(ctx, count); call_rt1(ctx, addr("rt_env_new"), len("rt_env_new"));
+    e8(ctx, 80);                                                     // push env
+    capture = n.captures;
+    mut index: Any = 0;
+    while (capture != 0) {
+        mut found: Any = -1;
+        for i: Any in 0..ctx.envCount {
+            let c: Any = ctx.envCaptures[i];
+            if (found < 0 and name_eq(capture.name, capture.length, c[0], c[1]) == 1) { found = i; }
+        }
+        if (found >= 0) { fat_env_cell(ctx, found); e8(ctx, 72); e8(ctx, 137); e8(ctx, 200); } // mov rax, rcx
+        else {
+            let li: Any = loc_find(ctx, capture.name, capture.length);
+            if (li < 0) { die_str("mayc: unknown capture `${symbol_name(capture.name, capture.length)}`\n"); }
+            x86_load_register(ctx, 0, fat_disp(fat_local_slot(ctx, li)) - 8);
+        }
+        e8(ctx, 72); e8(ctx, 139); e8(ctx, 12); e8(ctx, 36);          // mov rcx, [rsp]
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 129); e32(ctx, 8 * index); // mov [rcx + disp32], rax
+        capture = capture.next; index += 1;
+    }
+    e8(ctx, 89);                                                     // pop rcx
+    return fat_function_value(ctx, n.label, true, n.arity);
+}
+
+// Store argument values at [rsp + 16 i], padding to `size` with nil.
+fun fat_store_arguments(ctx: Any, args: Any) -> Any {
+    mut index: Any = 0;
+    mut arg: Any = args;
+    while (arg != 0) {
+        fat_get(ctx, arg);
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 148); e8(ctx, 36); e32(ctx, 16 * index);     // mov [rsp + d], rdx
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 132); e8(ctx, 36); e32(ctx, 16 * index + 8); // mov [rsp + d], rax
+        index += 1; arg = arg.next;
+    }
+    return index;
+}
+
+fun fat_count(args: Any) -> Any {
+    mut count: Any = 0;
+    mut arg: Any = args;
+    while (arg != 0) { count += 1; arg = arg.next; }
+    return count;
+}
+
+fun fat_direct(ctx: Any, rec: Any, args: Any) -> Any {
+    let count: Any = fat_count(args);
+    let size: Any = if (count > rec.pc) { count } else { rec.pc };
+    if (size > 0) {
+        e8(ctx, 72); e8(ctx, 129); e8(ctx, 236); e32(ctx, 16 * size);           // sub rsp, imm32
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 231);                                 // mov rdi, rsp
+        mov_imm(ctx, 0); x86_mov_immediate(ctx, 1, 2 * size);
+        e8(ctx, 243); e8(ctx, 72); e8(ctx, 171);                                 // rep stosq
+    }
+    fat_store_arguments(ctx, args);
+    call(ctx, rec.lab);
+    fat_release(ctx, 16 * size);
+    return 0;
+}
+
+// Apply the closure value in RDX/RAX to `args`, padding to its arity.
+fun fat_apply(ctx: Any, args: Any) -> Any {
+    fat_push(ctx); fat_rt_call(ctx, "rt_require_callable", 2);
+    let closure: Any = fat_local_slot(ctx, loc_add(ctx, addr("0cl"), 3));
+    let size: Any = fat_local_slot(ctx, loc_add(ctx, addr("0sz"), 3));
+    x86_store_register(ctx, 0, fat_disp(closure) - 8);
+    let count: Any = fat_count(args);
+    let enough: Any = newlab(ctx);
+    e8(ctx, 72); e8(ctx, 139); e8(ctx, 72); e8(ctx, 16);                     // mov rcx, [rax + 16]
+    e8(ctx, 72); e8(ctx, 129); e8(ctx, 249); e32(ctx, count);                // cmp rcx, count
+    jcc(ctx, 141, enough);                                                    // jge
+    x86_mov_immediate(ctx, 1, count);
+    placelab(ctx, enough);
+    x86_store_register(ctx, 1, fat_disp(size) - 8);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 225); e8(ctx, 4);                     // shl rcx, 4
+    e8(ctx, 72); e8(ctx, 41); e8(ctx, 204);                                  // sub rsp, rcx
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 231);                                 // mov rdi, rsp
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 233); e8(ctx, 3);                     // shr rcx, 3
+    xor_eax(ctx); e8(ctx, 243); e8(ctx, 72); e8(ctx, 171);                   // rep stosq
+    fat_store_arguments(ctx, args);
+    x86_load_register(ctx, 0, fat_disp(closure) - 8);
+    e8(ctx, 76); e8(ctx, 139); e8(ctx, 80); e8(ctx, 8);                      // mov r10, [rax + 8]
+    e8(ctx, 255); e8(ctx, 16);                                               // call [rax]
+    x86_load_register(ctx, 1, fat_disp(size) - 8);
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 225); e8(ctx, 4);                     // shl rcx, 4
+    e8(ctx, 72); e8(ctx, 1); e8(ctx, 204);                                   // add rsp, rcx
+    return 0;
+}
+
+// Builtins implemented by a runtime function of the same arity.
+let FAT_BUILTINS: Any = {"str": "rt_to_str", "str_of": "rt_to_str", "len": "rt_len", "push": "rt_push",
+    "pop": "rt_pop", "fail": "rt_fail", "rt_raise": "rt_raise", "map_get": "rt_map_get", "map_set": "rt_map_set",
+    "map_has": "rt_has", "has": "rt_has", "map_keys": "rt_keys", "keys": "rt_keys", "map_values": "rt_values",
+    "values": "rt_values", "to_map": "rt_to_map", "value_eq": "rt_eq", "value_tag": "rt_value_tag",
+    "cmp": "rt_cmp", "char_at": "rt_char_at", "char_from": "rt_char_from", "to_float": "rt_to_f",
+    "read_file": "rt_read_file", "write_file": "rt_write_file", "addr": "rt_addr", "cstr": "rt_cstr",
+    "sqrt": "rt_sqrt", "floor": "rt_floor", "ceil": "rt_ceil", "trunc": "rt_trunc"};
+
+// Transcendentals use the portable binary64 kernels, as the core runtime does.
+let FAT_MATH: Any = {"ln": "__math_ln", "log2": "__math_log2", "log10": "__math_log10", "exp": "__math_exp"};
+
+// Raw memory access on Int addresses; loads return full machine words.
+let FAT_LOADS: Any = {"load8": [15, 182, 0], "load16": [15, 183, 0], "load32": [139, 0], "load64": [72, 139, 0]};
+let FAT_STORES: Any = {"store8": [136, 8], "store16": [102, 137, 8], "store32": [137, 8], "store64": [72, 137, 8]};
+
+// runtime/math.may reads and builds Floats through `addr`, which unboxed
+// Floats do not have; these read the payload instead.
+fun fat_math_bits(ctx: Any, name: Any, args: Any) -> Any {
+    if (name == "__math_bits") {
+        fat_get(ctx, args.next);
+        e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 32);               // shl rax, 32
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);                            // mov rcx, rax
+        fat_get(ctx, args);
+        e8(ctx, 137); e8(ctx, 192);                                         // mov eax, eax
+        e8(ctx, 72); e8(ctx, 9); e8(ctx, 200);                              // or rax, rcx
+        x86_mov_immediate(ctx, 2, 3);
+        return 0;
+    }
+    fat_get(ctx, args);
+    if (name == "__math_high") { e8(ctx, 72); e8(ctx, 193); e8(ctx, 232); e8(ctx, 32); } // shr rax, 32
+    else { e8(ctx, 137); e8(ctx, 192); }                                    // mov eax, eax
+    x86_mov_immediate(ctx, 2, 2);
+    return 0;
+}
+
+fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
+    if (name == "print") {
+        mut arg: Any = args;
+        mut first: Any = true;
+        while (arg != 0) {
+            if (not first) { fat_rt_call(ctx, "rt_space", 0); }
+            fat_get(ctx, arg); fat_push(ctx); fat_rt_call(ctx, "rt_print1", 2);
+            first = false; arg = arg.next;
+        }
+        fat_rt_call(ctx, "rt_newline", 0);
+        return fat_set(ctx, 0, 0);
+    }
+    if (name == "exit") {
+        fat_get(ctx, args);
+        e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);                             // mov rdi, rax
+        mov_imm(ctx, 60); x86_syscall_instruction(ctx);
+        return 0;
+    }
+    if (has(FAT_LOADS, name)) {
+        fat_get(ctx, args);
+        for byte: Any in FAT_LOADS[name] { e8(ctx, byte); }
+        x86_mov_immediate(ctx, 2, 2);
+        return 0;
+    }
+    if (has(FAT_STORES, name)) {
+        fat_get(ctx, args.next); e8(ctx, 72); e8(ctx, 137); e8(ctx, 193);  // mov rcx, rax
+        fat_get(ctx, args);
+        for byte: Any in FAT_STORES[name] { e8(ctx, byte); }                  // mov [rax], cl/cx/ecx/rcx
+        return fat_set(ctx, 0, 0);
+    }
+    if (has(FAT_BUILTINS, name)) { return fat_rt(ctx, FAT_BUILTINS[name], args); }
+    if (has(FAT_MATH, name)) {
+        let kernel: Any = FAT_MATH[name];
+        let rec: Any = backend_find_func(ctx, addr(kernel), len(kernel));
+        if (rec != 0) { return fat_direct(ctx, rec, args); }
+    }
+    die_str("mayc: --values fat does not support `${name}` yet\n");
+    return 0;
+}
+
+fun fat_call(ctx: Any, n: Any) -> Any {
+    let p: Any = n.name; let l: Any = n.length;
+    if (loc_find(ctx, p, l) < 0 and glob_find(ctx, p, l) < 0) {
+        let name: Any = symbol_name(p, l);
+        if (name == "__math_high" or name == "__math_low" or name == "__math_bits") { return fat_math_bits(ctx, name, n.args); }
+        let rec: Any = backend_find_func(ctx, p, l);
+        if (rec != 0 and rec.mode != 1) { return fat_direct(ctx, rec, n.args); }
+        return fat_builtin(ctx, symbol_name(p, l), n.args);
+    }
+    fat_var(ctx, n);
+    return fat_apply(ctx, n.args);
+}
+
+fun fat_operation(ctx: Any, n: Any) -> Any {
+    let k: Any = n.kind;
+    if (k == E_INT) { return fat_set(ctx, 2, n.value); }
+    if (k == E_STR) { return fat_literal(ctx, intern_obj(ctx, n.span.source, n.start, n.length)); }
+    if (k == E_STRB) { return fat_literal(ctx, intern_obj2(ctx, n.address, n.length)); }
+    if (k == E_FLOAT) {
+        let bits: Any = float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)));
+        e8(ctx, 72); e8(ctx, 184); e32(ctx, bits[0]); e32(ctx, bits[1]);   // movabs rax, bits
+        x86_mov_immediate(ctx, 2, 3);
+        return 0;
+    }
+    if (k == E_VAR) { return fat_var(ctx, n); }
+    if (k == E_CAPVAR) { fat_env_cell(ctx, n.index); return fat_cell_load(ctx); }
+    if (k == E_CLOSURE) { return fat_closure(ctx, n); }
+    if (k == E_INDEX) {
+        fat_get(ctx, n.object); fat_push(ctx); fat_get(ctx, n.index); fat_push(ctx);
+        return fat_rt_call(ctx, "rt_index_get", 4);
+    }
+    if (k == E_GET) {
+        fat_get(ctx, n.object); fat_push(ctx);
+        fat_literal(ctx, intern_obj(ctx, n.span.source, n.start, n.length)); fat_push(ctx);
+        return fat_rt_call(ctx, "rt_map_get", 4);
+    }
+    if (k == E_ICALL) { fat_get(ctx, n.callee); return fat_apply(ctx, n.args); }
+    if (k == E_RANGE) {
+        fat_get(ctx, n.start); fat_push(ctx); fat_get(ctx, n.end); fat_push(ctx);
+        fat_set(ctx, 1, if (n.inclusive == 1) { 1 } else { 0 }); fat_push(ctx);
+        return fat_rt_call(ctx, "rt_range", 6);
+    }
+    if (k == E_POW) {
+        fat_get(ctx, n.left); fat_push(ctx); fat_get(ctx, n.right); fat_push(ctx);
+        return fat_rt_call(ctx, "rt_pow", 4);
+    }
+    if (k == E_BIN) {
+        fat_set(ctx, 2, n.op); fat_push(ctx);
+        fat_get(ctx, n.left); fat_push(ctx); fat_get(ctx, n.right); fat_push(ctx);
+        return fat_rt_call(ctx, "rt_binary", 6);
+    }
+    if (k == E_UN) {
+        fat_set(ctx, 2, n.op); fat_push(ctx); fat_get(ctx, n.operand); fat_push(ctx);
+        return fat_rt_call(ctx, "rt_unary", 4);
+    }
+    if (k == E_CALL) { return fat_call(ctx, n); }
+    die_str("mayc: --values fat does not support IR operation ${k}\n");
+    return 0;
+}
+
+fun fat_let(ctx: Any, s: Any) -> Any {
+    fat_get(ctx, s.initializer);
+    if (s.global == 1) { return fat_abs_store(ctx, glob_off(ctx, glob_find(ctx, s.name, s.length))); }
+    if (is_boxed(ctx, s.name, s.length) == 1) { fat_push(ctx); fat_rt_call(ctx, "rt_cell", 2); }
+    return fat_store_slot(ctx, fat_local_slot(ctx, loc_add(ctx, s.name, s.length)));
+}
+
+fun fat_assign(ctx: Any, s: Any) -> Any {
+    fat_get(ctx, s.value);
+    let li: Any = loc_find(ctx, s.name, s.length);
+    if (li >= 0) {
+        let slot: Any = fat_local_slot(ctx, li);
+        if (is_boxed(ctx, s.name, s.length) == 1) {
+            x86_load_register(ctx, 1, fat_disp(slot) - 8);
+            return fat_cell_store(ctx);
+        }
+        return fat_store_slot(ctx, slot);
+    }
+    let gi: Any = glob_find(ctx, s.name, s.length);
+    if (gi < 0) { die_str("mayc: assign to unknown\n"); }
+    return fat_abs_store(ctx, glob_off(ctx, gi));
+}
+
+fun fat_ir(ctx: Any, block: Any) -> Any {
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        let payload: Any = instruction.extra;
+        if (op == IR_LABEL) { placelab(ctx, payload); }
+        else if (op == IR_JUMP) { jmp(ctx, payload); }
+        else if (op == IR_COPY) { fat_get(ctx, instruction.arg1); }
+        else if (op == IR_NIL) { fat_set(ctx, 0, 0); }
+        else if (op == IR_BOOL) {
+            let falsy: Any = newlab(ctx); let done: Any = newlab(ctx);
+            fat_get(ctx, instruction.arg1); fat_branch(ctx, falsy, false);
+            fat_set(ctx, 1, 1); jmp(ctx, done);
+            placelab(ctx, falsy); fat_set(ctx, 1, 0); placelab(ctx, done);
+        }
+        else if (op == IR_FALSE or op == IR_TRUE) { fat_get(ctx, instruction.arg1); fat_branch(ctx, payload, op == IR_TRUE); }
+        else if (op == IR_ISNIL or op == IR_NONNULL) {
+            fat_get(ctx, instruction.arg1);
+            e8(ctx, 72); e8(ctx, 133); e8(ctx, 210);                        // test rdx, rdx
+            jcc(ctx, if (op == IR_ISNIL) { 132 } else { 133 }, payload);
+        }
+        else if (op == IR_RUNTIME) { fat_rt(ctx, payload, instruction.arg1); }
+        else if (op == IR_RETURN) { fat_get(ctx, instruction.arg1); jmp(ctx, ctx.returnLabel); }
+        else if (op == IR_TAILCALL) {
+            mut arg: Any = instruction.arg1;
+            mut i: Any = 0;
+            while (arg != 0) { fat_get(ctx, arg); fat_store_slot(ctx, fat_local_slot(ctx, i)); i += 1; arg = arg.next; }
+            jmp(ctx, ctx.restartLabel);
+        }
+        else if (op == IR_TRY_BEGIN) { x86_handler_begin(ctx, payload); }
+        else if (op == IR_TRY_END) { x86_handler_end(ctx); }
+        else if (op == S_LET) { fat_let(ctx, payload); }
+        else if (op == S_ASSIGN) { fat_assign(ctx, payload); }
+        else if (op == S_CASSIGN) { fat_get(ctx, payload.value); fat_env_cell(ctx, payload.index); fat_cell_store(ctx); }
+        else if (op == S_SETIDX) {
+            fat_get(ctx, payload.object); fat_push(ctx); fat_get(ctx, payload.index); fat_push(ctx);
+            fat_get(ctx, payload.value); fat_push(ctx);
+            fat_rt_call(ctx, "rt_index_set", 6);
+        } else if (op == S_SETPROP) {
+            fat_get(ctx, payload.object); fat_push(ctx);
+            fat_literal(ctx, intern_obj(ctx, payload.span.source, payload.start, payload.length)); fat_push(ctx);
+            fat_get(ctx, payload.value); fat_push(ctx);
+            fat_rt_call(ctx, "rt_map_set", 6);
+        } else { fat_operation(ctx, payload); }
+        if (instruction.result != 0) { fat_put(ctx, instruction.result); }
+    }
+    return 0;
+}
+
+// push rbp; mov rbp, rsp; sub rsp, imm32. Returns the immediate's offset.
+fun fat_prologue(ctx: Any) -> Any {
+    e8(ctx, 85); e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);
+    e8(ctx, 72); e8(ctx, 129); e8(ctx, 236);
+    let fp: Any = ctx.code.length; e32(ctx, 0);
+    return fp;
+}
+
+// Nil falls off the end; IR_RETURN jumps to the return label with a value.
+fun fat_epilogue(ctx: Any, fp: Any) -> Any {
+    fat_set(ctx, 0, 0);
+    placelab(ctx, ctx.returnLabel);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 236); e8(ctx, 93); e8(ctx, 195);     // mov rsp, rbp; pop rbp; ret
+    store32(ctx.code.data + fp, 16 * (ctx.fatBase + ctx.maxLocals));
+    return 0;
+}
+
+fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
+    ctx.mode = 1; ctx.native = false; ctx.allocation = 0;
+    loc_reset(ctx);
+    bx_use_list(ctx, boxed);
+    ctx.fatBase = block.temporaries;
+    ctx.envCount = 0; ctx.envCaptures = [];
+    return 0;
+}
+
+fun fat_func(ctx: Any, rec: Any) -> Any {
+    fat_begin(ctx, rec.ir, rec.boxed);
+    for i: Any in 0..rec.pc { loc_add(ctx, rec.parr[i].name, rec.parr[i].length); }
+    ctx.envCaptures = rec.caparr; ctx.envCount = rec.cc;
+    if (rec.cc > 0) { ctx.envSlot = loc_add(ctx, addr("0env"), 4); }
+    placelab(ctx, rec.lab);
+    let fp: Any = fat_prologue(ctx);
+    if (rec.cc > 0) { x86_store_register(ctx, 10, fat_disp(fat_local_slot(ctx, ctx.envSlot)) - 8); }
+    for i: Any in 0..rec.pc {
+        x86_load_register(ctx, 2, 0 - (16 + 16 * i)); x86_load_register(ctx, 0, 0 - (24 + 16 * i));
+        if (is_boxed(ctx, rec.parr[i].name, rec.parr[i].length) == 1) { fat_push(ctx); fat_rt_call(ctx, "rt_cell", 2); }
+        fat_store_slot(ctx, fat_local_slot(ctx, i));
+    }
+    ctx.returnLabel = newlab(ctx); ctx.restartLabel = newlab(ctx);
+    placelab(ctx, ctx.restartLabel);
+    fat_ir(ctx, rec.ir);
+    fat_epilogue(ctx, fp);
+    ctx.allocation = 0;
+    return 0;
+}
+
+// Top-level statements (label 1), called from _start.
+fun fat_main(ctx: Any) -> Any {
+    fat_begin(ctx, ctx.mainIR, ctx.mainBoxed);
+    placelab(ctx, 1);
+    let fp: Any = fat_prologue(ctx);
+    call_rt0(ctx, addr("rt_init"), len("rt_init"));
+    for gi: Any in 0..len(ctx.globals) {
+        addr_of(ctx, glob_off(ctx, gi));
+        call_rt1(ctx, addr("rt_gc_root"), len("rt_gc_root"));
+    }
+    ctx.returnLabel = newlab(ctx);
+    fat_ir(ctx, ctx.mainIR);
+    fat_epilogue(ctx, fp);
+    ctx.allocation = 0;
+    return 0;
+}

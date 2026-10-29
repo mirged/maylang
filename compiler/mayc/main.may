@@ -279,6 +279,12 @@ fun main2() -> Any {
             if (k >= len(argv)) { die_str("mayc: --runtime requires full, core, or none\n"); }
             runtimeName = symbol_name(argv[k][0], argv[k][1]);
             if (runtimeName != "full" and runtimeName != "core" and runtimeName != "none") { die_str("mayc: unknown runtime `${runtimeName}`\n"); }
+        } else if (name_eq(ap, al, addr("--values"), 8) == 1) {
+            k += 1;
+            if (k >= len(argv)) { die_str("mayc: --values requires tagged or fat\n"); }
+            let values: Any = symbol_name(argv[k][0], argv[k][1]);
+            if (values != "tagged" and values != "fat") { die_str("mayc: unknown value representation `${values}`\n"); }
+            FAT_VALUES = values == "fat";
         } else if (name_eq(ap, al, addr("--emit-llvm"), 11) == 1) {
             llvmflag = 1;
         } else if (name_eq(ap, al, addr("--time"), 6) == 1) {
@@ -370,6 +376,10 @@ fun main2() -> Any {
     } else {
         DYNMODE = 1;
         if (ctx.runtime == "core") { load_core(a0, a0l, "core.may"); }
+        else if (FAT_VALUES) {
+            SRC = load_core(a0, a0l, "fat.may"); SRCLEN = LASTLEN;
+            SOURCE_FILES[SRC] = SourceFile("runtime/fat.may", []);
+        }
         else { load_runtime(a0, a0l); }
         if (nodeos) { append_nodeos(a0, a0l, if (ctx.runtime == "core") { "runtime/core.may" } else { RUNTIME_FILE_NAME }); }
         PARSE_RAW = 1;

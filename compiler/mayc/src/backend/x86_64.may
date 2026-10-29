@@ -1,5 +1,6 @@
 import "../regalloc.may";
 import "x86_64_ffi.may";
+import "x86_64_fat.may";
 import "platform_x86.may";
 import "../emitter.may";
 import "../symbols.may";
@@ -1904,8 +1905,9 @@ fun cg_bin(ctx: Any, n: Any) -> Any {
         else if (op == TK_XOR) { e8(ctx, 72); e8(ctx, 49); e8(ctx, 200); }
         else if (op == TK_SHL) { e8(ctx, 72); e8(ctx, 211); e8(ctx, 224); }
         else { e8(ctx, 72); e8(ctx, 211); e8(ctx, 248); }
-        // Runtime raw code keeps tagged 61-bit wrapping; native words do not.
-        if (op == TK_SHL and ctx.dynamic != 0 and not ctx.native) {
+        // Runtime raw code keeps tagged 61-bit wrapping; native words and the
+        // fat runtime do not.
+        if (op == TK_SHL and ctx.dynamic != 0 and not ctx.native and not FAT_VALUES) {
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
         }
@@ -1960,7 +1962,7 @@ fun cg_un(ctx: Any, n: Any) -> Any {
         x86_native_overflow(ctx);
     } else if (op == TK_BITNOT) {
         e8(ctx, 72); e8(ctx, 247); e8(ctx, 208);
-        if (ctx.dynamic != 0 and not ctx.native) {
+        if (ctx.dynamic != 0 and not ctx.native and not FAT_VALUES) {
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 3);
             e8(ctx, 72); e8(ctx, 193); e8(ctx, 248); e8(ctx, 3);
         }
@@ -2138,6 +2140,8 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
         return 1;
     }
     if (name_eq(np, nl, addr("__fbin"), len("__fbin")) == 1) { cg_fbin(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("__fbits"), len("__fbits")) == 1) { cg_fbits(ctx, args); return 1; }
+    if (name_eq(np, nl, addr("__fat_apply"), len("__fat_apply")) == 1) { cg_fat_apply(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__fcmp"), len("__fcmp")) == 1) { cg_fcmp(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__ftrunc"), len("__ftrunc")) == 1) { cg_ftrunc(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__ffrac"), len("__ffrac")) == 1) { cg_ffrac(ctx, args); return 1; }
@@ -2944,6 +2948,76 @@ fun cg_fbin(ctx: Any, args: Any) -> Any {
     return 0;
 }
 
+// `__fat_apply(closure, argv, argc)` in the fat runtime (#92): call a fat
+// closure on `argc` 16-byte values at `argv`, padded with nil to its arity.
+// Returns the payload and stores the type word in RTAG. Operands are loaded
+// before R12, saved and restored around the call, anchors the stack.
+fun cg_fat_apply(ctx: Any, args: Any) -> Any {
+    x86_root_registers(ctx);
+    cg_expr(ctx, args); e8(ctx, 80);
+    cg_expr(ctx, args.next); e8(ctx, 80);
+    cg_expr(ctx, args.next.next); e8(ctx, 80);
+    let ok: Any = newlab(ctx);
+    for byte: Any in [90, 94, 89,                       // pop rdx (argc); pop rsi (argv); pop rcx (closure)
+        73, 137, 227, 72, 131, 228, 240, 65, 83, 65, 84,  // mov r11, rsp; and rsp, -16; push r11; push r12
+        73, 137, 228, 81, 81,                             // mov r12, rsp; push rcx; push rcx
+        72, 139, 65, 16, 72, 57, 208] { e8(ctx, byte); }  // mov rax, [rcx + 16]; cmp rax, rdx
+    jcc(ctx, 141, ok);                                    // jge
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 208);              // mov rax, rdx
+    placelab(ctx, ok);
+    for byte: Any in [72, 193, 224, 4, 72, 41, 196,       // shl rax, 4; sub rsp, rax
+        72, 137, 231, 72, 137, 193, 72, 193, 233, 3,      // mov rdi, rsp; mov rcx, rax; shr rcx, 3
+        49, 192, 243, 72, 171,                            // xor eax, eax; rep stosq
+        72, 137, 231, 72, 137, 209, 72, 209, 225, 243, 72, 165, // mov rdi, rsp; mov rcx, rdx; shl rcx, 1; rep movsq
+        73, 139, 68, 36, 248, 76, 139, 80, 8, 255, 16,    // mov rax, [r12 - 8]; mov r10, [rax + 8]; call [rax]
+        76, 137, 228, 65, 92, 92] { e8(ctx, byte); }      // mov rsp, r12; pop r12; pop rsp
+    let rtag: Any = glob_find(ctx, addr("RTAG"), 4);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 20); e8(ctx, 37);  // mov [RTAG], rdx
+    let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 2, o, glob_off(ctx, rtag));
+    return 0;
+}
+
+// Raw binary64 operations on IEEE bits, for the fat runtime (#92):
+// `__fbits(op, a, b)` with op 0-3 add/sub/mul/div, 4 sqrt, 5 floor, 6 ceil,
+// 7 trunc, 8 round half to even, 10 Int to Float, 11 Float to Int (truncating;
+// out of range yields -2^63), and 20-25 ==, !=, <, <=, >, >= returning 0 or 1
+// (false for NaN, except !=).
+fun cg_fbits(ctx: Any, args: Any) -> Any {
+    if (args.kind != E_INT) { die_str("mayc: __fbits needs a literal operation\n"); }
+    let op: Any = args.value;
+    let a: Any = args.next;
+    let b: Any = if (a == 0) { 0 } else { a.next };
+    cg_expr(ctx, a);
+    if (op == 10) {
+        e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 42); e8(ctx, 192);          // cvtsi2sd xmm0, rax
+        e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 126); e8(ctx, 192);         // movq rax, xmm0
+        return 0;
+    }
+    fxmm0_from_rax(ctx);
+    if (op == 11) { e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 44); e8(ctx, 192); return 0; } // cvttsd2si
+    if (op == 4) { e8(ctx, 242); e8(ctx, 15); e8(ctx, 81); e8(ctx, 192); }        // sqrtsd
+    else if (op >= 5 and op <= 8) {
+        e8(ctx, 102); e8(ctx, 15); e8(ctx, 58); e8(ctx, 11); e8(ctx, 192);         // roundsd xmm0, xmm0, mode
+        e8(ctx, [1, 2, 3, 0][op - 5]);
+    } else {
+        cg_expr(ctx, b); fxmm1_from_rax(ctx);
+        if (op <= 3) { e8(ctx, 242); e8(ctx, 15); e8(ctx, [88, 92, 89, 94][op]); e8(ctx, 193); }
+        else {
+            // ucomisd orders the operands so that only `seta`/`setae` are needed.
+            let swapped: Any = op == 22 or op == 23;
+            e8(ctx, 102); e8(ctx, 15); e8(ctx, 46); e8(ctx, if (swapped) { 200 } else { 193 });
+            if (op == 20) { for byte: Any in [15, 148, 192, 15, 155, 193, 32, 200] { e8(ctx, byte); } }      // sete; setnp; and
+            else if (op == 21) { for byte: Any in [15, 149, 192, 15, 154, 193, 8, 200] { e8(ctx, byte); } } // setne; setp; or
+            else if (op == 22 or op == 24) { e8(ctx, 15); e8(ctx, 151); e8(ctx, 192); }                  // seta
+            else { e8(ctx, 15); e8(ctx, 147); e8(ctx, 192); }                                             // setae
+            e8(ctx, 15); e8(ctx, 182); e8(ctx, 192);                                                     // movzx eax, al
+            return 0;
+        }
+    }
+    e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 126); e8(ctx, 192);             // movq rax, xmm0
+    return 0;
+}
+
 fun cg_fcmp(ctx: Any, args: Any) -> Any {
     let op: Any = args.value;
     let a: Any = args.next;
@@ -3310,6 +3384,7 @@ fun x86_native_raise(ctx: Any, kind: Any) -> Any {
 // ------------------------------------------------------------------ driver
 
 fun cg_func(ctx: Any, rec: Any) -> Any {
+    if (FAT_VALUES and rec.mode != 1) { return fat_func(ctx, rec); }
     ctx.native = ctx.dynamic == 1 and rec.native == true;
     ctx.nativeFaults = [0, 0, 0, 0, 0];
     if (ctx.dynamic == 0) { ctx.mode = 0; }
@@ -3421,6 +3496,8 @@ fun cg_program(ctx: Any) -> Any {
         e8(ctx, 49); e8(ctx, 255); // xor edi, edi
         mov_imm(ctx, 60); x86_syscall_instruction(ctx);
     }
+
+    if (FAT_VALUES) { return fat_main(ctx); }
 
     // main (top-level statements)
     ctx.mode = ctx.dynamic;
