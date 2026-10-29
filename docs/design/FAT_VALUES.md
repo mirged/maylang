@@ -91,10 +91,10 @@ itself runs on fat values, source integer literals stay within ±2^60.
 | Step | State |
 | --- | --- |
 | Design and ABI | this document |
-| `--values fat` flag, fat runtime and x86-64 backend | working (`runtime/fat.may`, `backend/x86_64_fat.may`); unoptimized, every operator is a runtime call |
-| Feature fixtures passing with `--values fat` | 33 of 45 (`compiler/mayc/tests/fat_values.py`) |
+| `--values fat` flag, fat runtime and x86-64 backend | working (`runtime/fat.may`, `backend/x86_64_fat.may`); Int arithmetic, comparisons and list indexing inline, other operators call the runtime |
+| Feature fixtures passing with `--values fat` | 45 of 45 (`compiler/mayc/tests/fat_values.py`); `bitwise.may` differs only where Int no longer overflows |
 | Prelude, native library, math and stdlib | loaded; floats are unboxed, `math.may` bit helpers are intrinsics |
-| Fibers, handlers, debug traces | not started |
+| Fibers, handlers, debug traces | fibers and handlers work; `--debug` traces not started |
 | Typed externs and native-word entries | not started |
 | Core runtime, ARM64, RISC-V, LLVM | not started |
 | Default switch, bootstrap fixpoint, tagged runtime removed | not started |
