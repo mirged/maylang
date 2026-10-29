@@ -19,6 +19,10 @@
   `load8`..`load64`/`store8`..`store64`, in native-word functions, so memory reads keep bit 63
   instead of wrapping to the tagged range
   ([#92](https://github.com/mirged/maylang/issues/92)).
+- Raise an `arithmetic` fault (`integer overflow`) when tagged `load64` reads
+  a word outside the signed 61-bit range, on every target. It previously
+  dropped the top three bits silently. Raw code and native-word functions
+  still return the full word ([#92](https://github.com/mirged/maylang/issues/92)).
 - Let native-word functions read and assign `Int`, `Ptr` and `Bool` globals,
   converting at each access; a value outside the 61-bit range faults on
   assignment and leaves the global unchanged

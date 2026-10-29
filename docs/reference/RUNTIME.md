@@ -236,8 +236,8 @@
 - `store32` example: `store32(p, 0);`.
 - **load64** — `load64(p)` — Read 64 bits from a raw memory address. This operation performs no bounds or lifetime checks.
 - `load64` parameter `p`: A valid readable address with enough remaining bytes.
-- `load64` returns: The loaded integer value.
-- `load64` example: `let s: Any = "abcdefgh"; let value: Any = load64(addr(s));`.
+- `load64` returns: The loaded integer value. Outside raw mode and native-word functions, a word outside the signed 61-bit range raises an `arithmetic` fault (`integer overflow`).
+- `load64` example: `let s: Any = "abcdefgh"; let bytes: Any = load64(addr(s) - 8);`.
 - **store64** — `store64(p, value)` — Write 64 bits to a raw memory address. This operation performs no bounds or lifetime checks.
 - `store64` parameter `p`: A valid writable address with enough remaining bytes.
 - `store64` parameter `value`: The integer bits to write.

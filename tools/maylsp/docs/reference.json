@@ -1040,8 +1040,8 @@
     "load64": {
       "signature": "load64(p)",
       "summary": "Read 64 bits from a raw memory address. This operation performs no bounds or lifetime checks.",
-      "example": "let s: Any = \"abcdefgh\";\nlet value: Any = load64(addr(s));",
-      "returns": "The loaded integer value.",
+      "example": "let s: Any = \"abcdefgh\";\nlet bytes: Any = load64(addr(s) - 8);",
+      "returns": "The loaded integer value. Outside raw mode and native-word functions, a word outside the signed 61-bit range raises an `arithmetic` fault (`integer overflow`).",
       "parameters": [
         {
           "name": "p",

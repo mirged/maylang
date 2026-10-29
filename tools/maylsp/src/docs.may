@@ -958,7 +958,7 @@ let LS_REFERENCE: Any = {
     },
     "load64": {
         "signature": "load64(p)",
-        "docs": "Read 64 bits from a raw memory address. This operation performs no bounds or lifetime checks.\n\n**Parameters**\n- `p`: A valid readable address with enough remaining bytes.\n\n**Returns:** The loaded integer value.\n\n**Example**\n```may\nlet s: Any = \"abcdefgh\";\nlet value: Any = load64(addr(s));\n```",
+        "docs": "Read 64 bits from a raw memory address. This operation performs no bounds or lifetime checks.\n\n**Parameters**\n- `p`: A valid readable address with enough remaining bytes.\n\n**Returns:** The loaded integer value. Outside raw mode and native-word functions, a word outside the signed 61-bit range raises an `arithmetic` fault (`integer overflow`).\n\n**Example**\n```may\nlet s: Any = \"abcdefgh\";\nlet bytes: Any = load64(addr(s) - 8);\n```",
         "params": [
             "p"
         ],

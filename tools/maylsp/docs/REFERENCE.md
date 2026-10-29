@@ -1895,12 +1895,12 @@ Read 64 bits from a raw memory address. This operation performs no bounds or lif
 **Parameters**
 - `p`: A valid readable address with enough remaining bytes.
 
-**Returns:** The loaded integer value.
+**Returns:** The loaded integer value. Outside raw mode and native-word functions, a word outside the signed 61-bit range raises an `arithmetic` fault (`integer overflow`).
 
 **Example**
 ```may
 let s: Any = "abcdefgh";
-let value: Any = load64(addr(s));
+let bytes: Any = load64(addr(s) - 8);
 ```
 
 ### `store64`
