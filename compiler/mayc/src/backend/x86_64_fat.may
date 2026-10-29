@@ -257,7 +257,10 @@ let FAT_BUILTINS: Any = {"str": "rt_to_str", "str_of": "rt_to_str", "len": "rt_l
     "sqrt": "rt_sqrt", "floor": "rt_floor", "ceil": "rt_ceil", "trunc": "rt_trunc", "pow": "rt_powf",
     "map": "rt_mapf", "filter": "rt_filter", "reduce": "rt_reduce", "any": "rt_any", "all": "rt_all",
     "args": "rt_args", "env": "rt_env", "file_exists": "rt_file_exists",
-    "spawn": "rt_spawn", "yield": "rt_yield", "run": "rt_run"};
+    "spawn": "rt_spawn", "yield": "rt_yield", "run": "rt_run", "time": "rt_time", "clock": "rt_clock",
+    "sleep": "rt_sleep", "mkdir": "rt_mkdir", "read_dir": "rt_read_dir", "read_stdin": "rt_read_stdin",
+    "input": "rt_input", "int_to_str": "rt_int_str", "str_cmp": "rt_str_cmp", "wait": "rt_wait",
+    "exec": "rt_exec", "system": "rt_system"};
 
 // Transcendentals use the portable binary64 kernels, as the core runtime does.
 let FAT_MATH: Any = {"ln": "__math_ln", "log2": "__math_log2", "log10": "__math_log10", "exp": "__math_exp"};

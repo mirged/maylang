@@ -91,6 +91,28 @@ def main():
         print(f'PASS {len(passed)} of {len(passed) + len(pending)} feature fixtures match tagged behavior or its intended 64-bit difference', flush=True)
         if pending:
             print('PENDING ' + ' '.join(pending), flush=True)
+        self_host(compiler, work)
+
+
+def self_host(compiler, work):
+    # The compiler built on fat values must emit exactly what the tagged
+    # compiler emits, and rebuild itself unchanged (a fat-value fixpoint).
+    host = work / 'host'
+    host.mkdir()
+    for name in ['runtime.may', 'native.may', 'runtime']:
+        (host / name).symlink_to(ROOT / 'compiler/mayc' / name)
+    (host / 'prelude.may').symlink_to(ROOT / 'stdlib/prelude.may')
+    fat = host / 'mayc'
+    main = ROOT / 'compiler/mayc/main.may'
+    for argv in ([compiler, '--values', 'fat', main, '-o', fat],
+                 [fat, main, '-o', work / 'tagged-by-fat'],
+                 [compiler, main, '-o', work / 'tagged-by-tagged'],
+                 [fat, '--values', 'fat', main, '-o', work / 'fat-by-fat']):
+        result = subprocess.run([str(a) for a in argv], capture_output=True, timeout=600)
+        assert result.returncode == 0, (argv, result.stderr.decode(errors='replace'))
+    assert (work / 'tagged-by-fat').read_bytes() == (work / 'tagged-by-tagged').read_bytes()
+    assert (work / 'fat-by-fat').read_bytes() == fat.read_bytes()
+    print('PASS fat-value compiler matches the tagged compiler and rebuilds itself identically', flush=True)
 
 
 if __name__ == '__main__':
