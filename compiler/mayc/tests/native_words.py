@@ -4,8 +4,9 @@
 Qualifying functions compute with untagged 64-bit words. Calls from tagged
 code untag arguments and retag the result, so values beyond the tagged range
 fault only when they leave native code. A seeded oracle compares random
-expressions with Python's signed 64-bit semantics, and a memory program checks
-that Ptr parameters and load/store keep all 64 bits, on the full and core
+expressions with Python's signed 64-bit semantics. Further programs check
+that Ptr parameters and load/store keep all 64 bits and that Bool parameters,
+results and locals cross the tagged boundary. All run on the full and core
 runtimes, with and without --debug, and on ARM64/RISC-V core targets when
 QEMU user emulators are installed, and on clang-llvm when clang is.
 """
@@ -133,6 +134,33 @@ true
 7 5 0
 1 128 128 0
 arithmetic: integer overflow
+'''
+
+# `x << 62` faults in tagged code, so wide() only passes if the Bool callers
+# it depends on stay native.
+BOOLS = '''
+fun bit_set(x: Int, n: Int) -> Bool { return ((x >> n) & 1) != 0; }
+fun top(x: Int) -> Bool { return bit_set(x, 63); }
+fun pick(flag: Bool, a: Int, b: Int) -> Int { if (flag) { return a; } return b; }
+fun both(a: Bool, b: Bool) -> Bool { return a and b; }
+fun either(a: Bool, b: Bool) -> Bool { return a or not b; }
+fun always() -> Bool { return true; }
+fun never() -> Bool { let f: Bool = false; return f; }
+fun flip(x: Bool) -> Bool { mut v: Bool = x; v = not v; return v; }
+fun wide(x: Int) -> Int { if (top(x << 62)) { return pick(true, 1, 2); } return pick(false, 1, 2); }
+print(bit_set(5, 0), bit_set(5, 1), top(-1), top(1));
+print(pick(true, 7, 8), pick(false, 7, 8), pick(bit_set(2, 1), 3, 4));
+print(both(true, true), both(true, false), either(false, true), either(false, false));
+print(always(), never(), flip(true), flip(false), wide(1), wide(2));
+let g: (Bool, Int, Int) -> Int = pick;
+print(g(true, 5, 6), if (top(-5)) { "neg" } else { "pos" });
+'''
+
+BOOLS_EXPECTED = '''true false true false
+7 8 3
+true false false true
+true false false true 2 1
+5 neg
 '''
 
 
@@ -284,6 +312,12 @@ def main():
             output = compile_run(compiler, source, work / 'memory', *flags, runner=runner)
             assert output == MEMORY_EXPECTED, (flags, output)
         print('PASS native-word Ptr parameters and full-width loads and stores', flush=True)
+        source = work / 'bools.may'
+        source.write_text(BOOLS)
+        for flags, runner in configurations:
+            output = compile_run(compiler, source, work / 'bools', *flags, runner=runner)
+            assert output == BOOLS_EXPECTED, (flags, output)
+        print('PASS native-word Bool parameters, results and locals', flush=True)
         program, expected = oracle_program(args.seed, args.cases)
         source = work / 'oracle.may'
         source.write_text(program)

@@ -555,7 +555,15 @@ fun llvm_native_entry(unit: Any, rec: Any) -> Any {
         "  %argv = alloca [${unit.argCount} x i64], align 8"];
     for i: Any in 0..rec.pc {
         push(lines, "  %p${i} = getelementptr i64, ptr %incoming, i64 ${i}\n  %v${i} = load volatile i64, ptr %p${i}, align 8");
-        push(lines, "  %u${i} = ashr i64 %v${i}, 3\n  %q${i} = getelementptr i64, ptr %argv, i64 ${i}\n  store volatile i64 %u${i}, ptr %q${i}, align 8");
+        // Bool parameters become 0/1 (tagged true is 4); others untag.
+        if (rec.nativeKinds[i] == "Bool") { push(lines, "  %c${i} = icmp eq i64 %v${i}, 4\n  %u${i} = zext i1 %c${i} to i64"); }
+        else { push(lines, "  %u${i} = ashr i64 %v${i}, 3"); }
+        push(lines, "  %q${i} = getelementptr i64, ptr %argv, i64 ${i}\n  store volatile i64 %u${i}, ptr %q${i}, align 8");
+    }
+    if (rec.nativeResult == "Bool") {
+        push(lines, "  %r = call i64 @n${rec.lab}(i64 %env, ptr %argv)\n  %c = icmp ne i64 %r, 0\n  %z = zext i1 %c to i64");
+        push(lines, "  %t = add i64 %z, 3\n  ret i64 %t\n}\n");
+        return join(lines, "\n");
     }
     push(lines, "  %r = call i64 @n${rec.lab}(i64 %env, ptr %argv)\n  %t = shl i64 %r, 3\n  %b = ashr i64 %t, 3\n  %ok = icmp eq i64 %b, %r");
     push(lines, "  br i1 %ok, label %done, label %overflow\ndone:\n  ret i64 %t\noverflow:");

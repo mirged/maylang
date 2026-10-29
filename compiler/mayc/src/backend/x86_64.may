@@ -3175,15 +3175,26 @@ fun cg_setidx(ctx: Any, s: Any) -> Any {
 // retags the result, faulting when it leaves the tagged integer range.
 fun x86_native_entry(ctx: Any, rec: Any) -> Any {
     if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
-    let overflow: Any = newlab(ctx);
     placelab(ctx, rec.abiLab);
     x86_encode(ctx, X86Instruction([85, 72, 137, 229], 0, 0));          // push rbp; mov rbp, rsp
     let registers: Any = [7, 6, 2, 1, 8, 9];
     for index: Any in 0..rec.pc {
         let register: Any = registers[index];
-        x86_encode(ctx, X86Instruction([if (register >= 8) { 73 } else { 72 }, 193, 248 + register % 8], 3, 1)); // sar reg, 3
+        let rex: Any = if (register >= 8) { 73 } else { 72 };
+        if (rec.nativeKinds[index] == "Bool") {
+            x86_encode(ctx, X86Instruction([rex, 131, 248 + register % 8, 4, 15, 148, 192], 0, 0)); // cmp reg, 4 (true); sete al
+            x86_encode(ctx, X86Instruction([if (register >= 8) { 76 } else { 72 }, 15, 182, 192 + register % 8 * 8], 0, 0)); // movzx reg, al
+        } else {
+            x86_encode(ctx, X86Instruction([rex, 193, 248 + register % 8], 3, 1)); // sar reg, 3
+        }
     }
     e8(ctx, 232); let offset: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, offset, rec.nativeLab);
+    if (rec.nativeResult == "Bool") {
+        // test rax, rax; setne al; movzx rax, al; add rax, 3 (false = 3, true = 4); pop rbp; ret
+        x86_encode(ctx, X86Instruction([72, 133, 192, 15, 149, 192, 72, 15, 182, 192, 72, 131, 192, 3, 93, 195], 0, 0));
+        return 0;
+    }
+    let overflow: Any = newlab(ctx);
     x86_encode(ctx, X86Instruction([72, 137, 193], 0, 0));              // mov rcx, rax
     tag_rax(ctx);
     x86_encode(ctx, X86Instruction([72, 137, 194, 72, 193, 250, 3, 72, 57, 202], 0, 0)); // mov rdx, rax; sar rdx, 3; cmp rdx, rcx

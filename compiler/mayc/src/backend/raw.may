@@ -455,16 +455,25 @@ fun raw_native_entry(ctx: Any, emitter: Any, rec: Any) -> Any {
     if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
     let frame: Any = (rec.pc * 8 + 8 + 15) / 16 * 16;
     let result: Any = rec.pc * 8;
-    let overflow: Any = newlab(ctx);
     placelab(ctx, rec.lab);
     (emitter.prologue)(ctx, frame);
     for index: Any in 0..rec.pc { (emitter.store)(ctx, 10 + index, -1, index * 8, 8); }
     for index: Any in 0..rec.pc {
-        (emitter.load)(ctx, 0, -1, index * 8, 8); (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
+        // Bool parameters become 0/1 (tagged true is 4); others untag.
+        let bool: Any = rec.nativeKinds[index] == "Bool";
+        (emitter.load)(ctx, 0, -1, index * 8, 8); (emitter.immediate)(ctx, if (bool) { 4 } else { 3 }, 1);
+        (emitter.binary)(ctx, if (bool) { TK_EQ } else { TK_SHR });
         (emitter.store)(ctx, 0, -1, index * 8, 8);
     }
     for index: Any in 0..rec.pc { (emitter.load)(ctx, 10 + index, -1, index * 8, 8); }
     (emitter.jump)(ctx, rec.nativeLab, true);
+    if (rec.nativeResult == "Bool") {
+        (emitter.immediate)(ctx, 0, 1); (emitter.binary)(ctx, TK_NE);
+        (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_PLUS);
+        (emitter.epilogue)(ctx, frame);
+        return 0;
+    }
+    let overflow: Any = newlab(ctx);
     (emitter.store)(ctx, 0, -1, result, 8);
     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
