@@ -6,6 +6,7 @@ import "../lexer.may";
 import "../ir.may";
 import "../literals.may";
 import "../sema.may";
+import "../regalloc.may";
 import "x86_64.may";
 // backend/x86_64_fat.may — x86-64 code for `--values fat` (#92).
 //
@@ -20,19 +21,90 @@ import "x86_64.may";
 
 fun fat_disp(k: Any) -> Any { return 16 * (k + 1); }
 
+// The slot whose value RDX/RAX still hold, and the code length before and
+// after its store. A load of that slot with no code emitted in between (so
+// no label either: fat_forget runs where one is placed) is skipped, and a
+// temporary with one definition and that one reader loses the store too.
+mut FAT_HELD_SLOT: Any = -1;
+mut FAT_HELD_START: Any = -1;
+mut FAT_HELD_AT: Any = -1;
+// Live intervals per temporary (regalloc.may): definition and reader
+// counts (readers conservatively, never too few) and a frame home. FAT_SLOTS
+// maps each temporary to its slot.
+mut FAT_INTERVALS: Any = [];
+mut FAT_SLOTS: Any = [];
+
+fun fat_forget() -> Any { FAT_HELD_SLOT = -1; FAT_HELD_AT = -1; return 0; }
+
+// Give the temporaries of `block` frame slots and return how many there
+// are. A temporary defined once and read before the next label, branch or
+// handler boundary shares a slot with others whose intervals do not overlap;
+// those few hot slots come first, where an 8-bit displacement reaches them.
+// The others keep private slots, as liveness across loops is not tracked.
+fun fat_plan_slots(block: Any) -> Any {
+    let intervals: Any = lsra_plan(block, [], false).locations;
+    mut shared: Any = 0; mut pinned: Any = 0;
+    for interval: Any in intervals {
+        if (interval.home >= 0 and interval.pinned) { pinned += 1; }
+        else if (interval.home >= 0 and interval.home + 1 > shared) { shared = interval.home + 1; }
+    }
+    // lsra_plan numbers pinned homes from 0 and shared homes after them.
+    shared = shared - pinned;
+    if (shared < 0) { shared = 0; }
+    let slots: Any = [];
+    mut extra: Any = shared + pinned;
+    for interval: Any in intervals {
+        if (interval.home < 0) { push(slots, extra); extra += 1; }
+        else if (interval.pinned) { push(slots, shared + interval.home); }
+        else { push(slots, interval.home - pinned); }
+    }
+    FAT_INTERVALS = intervals; FAT_SLOTS = slots;
+    return extra;
+}
+
+// mov reg, [rbp - d] or mov [rbp - d], reg (opcode 139 or 137), with an
+// 8-bit displacement when it fits.
+fun fat_frame(ctx: Any, opcode: Any, register: Any, displacement: Any) -> Any {
+    e8(ctx, if (register >= 8) { 76 } else { 72 }); e8(ctx, opcode);
+    if (displacement <= 128) { e8(ctx, 69 + (register % 8) * 8); e8(ctx, 256 - displacement); }
+    else { e8(ctx, 133 + (register % 8) * 8); e32(ctx, 0 - displacement); }
+    return 0;
+}
+
+// mov [rsp + d], reg, with an 8-bit displacement when it fits.
+fun fat_outgoing(ctx: Any, register: Any, displacement: Any) -> Any {
+    e8(ctx, if (register >= 8) { 76 } else { 72 }); e8(ctx, 137);
+    if (displacement < 128) { e8(ctx, 68 + (register % 8) * 8); e8(ctx, 36); e8(ctx, displacement); }
+    else { e8(ctx, 132 + (register % 8) * 8); e8(ctx, 36); e32(ctx, displacement); }
+    return 0;
+}
+
 fun fat_load_slot(ctx: Any, k: Any) -> Any {
-    x86_load_register(ctx, 2, fat_disp(k)); x86_load_register(ctx, 0, fat_disp(k) - 8);
+    if (k == FAT_HELD_SLOT and ctx.code.length == FAT_HELD_AT) { return 0; }
+    fat_frame(ctx, 139, 2, fat_disp(k)); fat_frame(ctx, 139, 0, fat_disp(k) - 8);
     return 0;
 }
 
 fun fat_store_slot(ctx: Any, k: Any) -> Any {
-    x86_store_register(ctx, 2, fat_disp(k)); x86_store_register(ctx, 0, fat_disp(k) - 8);
+    FAT_HELD_START = ctx.code.length;
+    fat_frame(ctx, 137, 2, fat_disp(k)); fat_frame(ctx, 137, 0, fat_disp(k) - 8);
+    FAT_HELD_SLOT = k; FAT_HELD_AT = ctx.code.length;
     return 0;
 }
 
 fun fat_local_slot(ctx: Any, index: Any) -> Any { return ctx.fatBase + index; }
-fun fat_get(ctx: Any, value: Any) -> Any { return fat_load_slot(ctx, value.slot); }
-fun fat_put(ctx: Any, value: Any) -> Any { return fat_store_slot(ctx, value.slot); }
+// A temporary read only here, right after its one definition, needs no store.
+fun fat_get(ctx: Any, value: Any) -> Any {
+    let k: Any = FAT_SLOTS[value.slot];
+    let interval: Any = FAT_INTERVALS[value.slot];
+    if (k == FAT_HELD_SLOT and ctx.code.length == FAT_HELD_AT and interval.uses == 1 and interval.definitions == 1) {
+        ctx.code.length = FAT_HELD_START;
+        fat_forget();
+        return 0;
+    }
+    return fat_load_slot(ctx, k);
+}
+fun fat_put(ctx: Any, value: Any) -> Any { return fat_store_slot(ctx, FAT_SLOTS[value.slot]); }
 
 fun fat_set(ctx: Any, tag: Any, payload: Any) -> Any {
     x86_mov_immediate(ctx, 2, tag); x86_mov_immediate(ctx, 0, payload);
@@ -56,10 +128,15 @@ fun fat_global(ctx: Any, name: Any) -> Any {
     return glob_off(ctx, index);
 }
 
-fun fat_release(ctx: Any, bytes: Any) -> Any {
-    if (bytes > 0) { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, bytes); } // add rsp, imm32
+// add rsp, bytes (modrm 196) or sub rsp, bytes (modrm 236).
+fun fat_rsp(ctx: Any, modrm: Any, bytes: Any) -> Any {
+    if (bytes <= 0) { return 0; }
+    if (bytes < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, modrm); e8(ctx, bytes); }
+    else { e8(ctx, 72); e8(ctx, 129); e8(ctx, modrm); e32(ctx, bytes); }
     return 0;
 }
+
+fun fat_release(ctx: Any, bytes: Any) -> Any { return fat_rsp(ctx, 196, bytes); }
 
 // Call a raw runtime function whose `words` arguments are already pushed.
 fun fat_rt_call(ctx: Any, name: Any, words: Any) -> Any {
@@ -189,8 +266,7 @@ fun fat_store_arguments(ctx: Any, args: Any) -> Any {
     mut arg: Any = args;
     while (arg != 0) {
         fat_get(ctx, arg);
-        e8(ctx, 72); e8(ctx, 137); e8(ctx, 148); e8(ctx, 36); e32(ctx, 16 * index);     // mov [rsp + d], rdx
-        e8(ctx, 72); e8(ctx, 137); e8(ctx, 132); e8(ctx, 36); e32(ctx, 16 * index + 8); // mov [rsp + d], rax
+        fat_outgoing(ctx, 2, 16 * index); fat_outgoing(ctx, 0, 16 * index + 8);
         index += 1; arg = arg.next;
     }
     return index;
@@ -206,8 +282,9 @@ fun fat_count(args: Any) -> Any {
 fun fat_direct(ctx: Any, rec: Any, args: Any) -> Any {
     let count: Any = fat_count(args);
     let size: Any = if (count > rec.pc) { count } else { rec.pc };
-    if (size > 0) {
-        e8(ctx, 72); e8(ctx, 129); e8(ctx, 236); e32(ctx, 16 * size);           // sub rsp, imm32
+    fat_rsp(ctx, 236, 16 * size);
+    if (count < size) {
+        // Missing arguments are nil.
         e8(ctx, 72); e8(ctx, 137); e8(ctx, 231);                                 // mov rdi, rsp
         mov_imm(ctx, 0); x86_mov_immediate(ctx, 1, 2 * size);
         e8(ctx, 243); e8(ctx, 72); e8(ctx, 171);                                 // rep stosq
@@ -508,7 +585,7 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
     for instruction: Any in block.code {
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
-        if (op == IR_LABEL) { placelab(ctx, payload); }
+        if (op == IR_LABEL) { placelab(ctx, payload); fat_forget(); }
         else if (op == IR_JUMP) { jmp(ctx, payload); }
         else if (op == IR_COPY) { fat_get(ctx, instruction.arg1); }
         else if (op == IR_NIL) { fat_set(ctx, 0, 0); }
@@ -573,7 +650,7 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
     ctx.mode = 1; ctx.native = false; ctx.allocation = 0;
     loc_reset(ctx);
     bx_use_list(ctx, boxed);
-    ctx.fatBase = block.temporaries;
+    ctx.fatBase = fat_plan_slots(block); fat_forget();
     ctx.envCount = 0; ctx.envCaptures = [];
     return 0;
 }
@@ -609,7 +686,7 @@ fun fat_word_adapter(ctx: Any, rec: Any) -> Any {
     placelab(ctx, rec.wordLab);
     e8(ctx, 85); e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);                    // push rbp; mov rbp, rsp
     let size: Any = (rec.pc + rec.pc % 2) * 16;
-    if (size > 0) { e8(ctx, 72); e8(ctx, 129); e8(ctx, 236); e32(ctx, size); } // sub rsp, size
+    fat_rsp(ctx, 236, size);
     let registers: Any = [7, 6, 2, 1, 8, 9];
     for index: Any in 0..rec.pc {
         let register: Any = registers[index];
@@ -693,7 +770,7 @@ fun fat_func(ctx: Any, rec: Any) -> Any {
         fat_store_slot(ctx, fat_local_slot(ctx, i));
     }
     ctx.returnLabel = newlab(ctx); ctx.restartLabel = newlab(ctx);
-    placelab(ctx, ctx.restartLabel);
+    placelab(ctx, ctx.restartLabel); fat_forget();
     fat_ir(ctx, rec.ir);
     fat_epilogue(ctx, fp);
     if (rec.wordCalled == true) { fat_word_adapter(ctx, rec); }
