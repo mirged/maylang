@@ -97,4 +97,5 @@ itself runs on fat values, source integer literals stay within ±2^60.
 | Fibers, handlers, debug traces | fibers and handlers work; `--debug` traces not started |
 | Typed externs and native-word entries | not started |
 | Core runtime, ARM64, RISC-V, LLVM | not started |
+| Self-hosting on fat values | the compiler built with `--values fat` emits byte-identical output and rebuilds itself identically (`fat_values.py`) |
 | Default switch, bootstrap fixpoint, tagged runtime removed | not started |
