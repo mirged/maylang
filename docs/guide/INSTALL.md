@@ -91,6 +91,11 @@ older generations remain available. The active tools and standard library
 resolve entirely inside that prefix. Moving, cleaning or deleting a source
 checkout does not affect them.
 
+To install the current state of a source checkout instead, run
+`sh scripts/install_nightly.sh` there. It builds everything from source and
+installs a generation named `<release>-nightly.<date>.<commit>`; add `--pull`
+to update the checkout first and `--keep 3` to delete older nightlies.
+
 ### Automatic stable-release updates (Linux with systemd)
 
 The optional Python updater checks GitHub for a newer stable release, verifies
