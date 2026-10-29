@@ -23,6 +23,9 @@
   a word outside the signed 61-bit range, on every target. It previously
   dropped the top three bits silently. Raw code and native-word functions
   still return the full word ([#92](https://github.com/mirged/maylang/issues/92)).
+- Allow `syscall` in native-word functions on the full runtime for Linux and
+  NodeOS targets, passing and returning machine words without tagging
+  ([#92](https://github.com/mirged/maylang/issues/92)).
 - Let native-word functions read and assign `Int`, `Ptr` and `Bool` globals,
   converting at each access; a value outside the 61-bit range faults on
   assignment and leaves the global unchanged
