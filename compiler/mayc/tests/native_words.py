@@ -4,7 +4,8 @@
 Qualifying functions compute with untagged 64-bit words. Calls from tagged
 code untag arguments and retag the result, so values beyond the tagged range
 fault only when they leave native code. A seeded oracle compares random
-expressions with Python's signed 64-bit semantics on the full and core
+expressions with Python's signed 64-bit semantics, and a memory program checks
+that Ptr parameters and load/store keep all 64 bits, on the full and core
 runtimes, with and without --debug, and on ARM64/RISC-V core targets when
 QEMU user emulators are installed, and on clang-llvm when clang is.
 """
@@ -97,6 +98,41 @@ arithmetic: integer overflow
 tagged
 arithmetic: shift count out of range
 2 7 3 -7 24 -3 -1152921504606846976 -1152921504606846976
+'''
+
+# Native loads keep bit 63; the tagged load64 at top level wraps to 61 bits.
+MEMORY = '''
+fun low_at(p: Ptr, offset: Int) -> Int { return load64(p + offset) & 4294967295; }
+fun word_at(p: Ptr) -> Int { return load64(p); }
+fun top_byte(p: Ptr) -> Int { return (load64(p) >> 56) & 255; }
+fun top_set(p: Ptr) -> Int { if (load64(p) < 0) { return 1; } return 0; }
+fun put(p: Ptr, v: Int) -> Int { store64(p, v); store8(p + 9, 7); return load8(p + 9); }
+fun fill(p: Ptr) -> Int { store64(p, 1 << 63); return 0; }
+fun next(p: Ptr) -> Ptr { return p + 8; }
+fun sum16(p: Ptr, n: Int) -> Int {
+    mut i: Int = 0;
+    mut total: Int = 0;
+    while (i < n) { total = total + load16(p + i * 2); i = i + 1; }
+    return total;
+}
+let buf: Ptr = addr("abcdefghijklmnopqrstuvwxyz012345");
+print(low_at(buf, 1), load32(buf + 1));
+print(sum16(buf, 3), load16(buf) + load16(buf + 2) + load16(buf + 4));
+print(next(buf) == buf + 8);
+let w: Str = repeat("x", 32);
+let q: Ptr = addr(w);
+print(put(q, 5), load64(q), top_set(q));
+fill(q);
+print(top_set(q), top_byte(q), load8(q + 7), load64(q));
+print(may { word_at(q) } otherwise { "${err.kind}: ${err.message}" });
+'''
+
+MEMORY_EXPECTED = '''1701077858 1701077858
+77097 77097
+true
+7 5 0
+1 128 128 0
+arithmetic: integer overflow
 '''
 
 
@@ -242,6 +278,12 @@ def main():
             output = compile_run(compiler, source, work / 'semantics', *flags, runner=runner)
             assert output == EXPECTED, (flags, output)
         print('PASS native-word results, faults, recursion and tagged boundaries', flush=True)
+        source = work / 'memory.may'
+        source.write_text(MEMORY)
+        for flags, runner in configurations:
+            output = compile_run(compiler, source, work / 'memory', *flags, runner=runner)
+            assert output == MEMORY_EXPECTED, (flags, output)
+        print('PASS native-word Ptr parameters and full-width loads and stores', flush=True)
         program, expected = oracle_program(args.seed, args.cases)
         source = work / 'oracle.may'
         source.write_text(program)
