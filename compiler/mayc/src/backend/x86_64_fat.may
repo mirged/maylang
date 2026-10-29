@@ -139,13 +139,43 @@ fun fat_rsp(ctx: Any, modrm: Any, bytes: Any) -> Any {
 fun fat_release(ctx: Any, bytes: Any) -> Any { return fat_rsp(ctx, 196, bytes); }
 
 // Call a raw runtime function whose `words` arguments are already pushed.
+// Its trampoline returns the RTAG global in RDX (x86_call_trampoline).
 fun fat_rt_call(ctx: Any, name: Any, words: Any) -> Any {
     let rec: Any = backend_find_func(ctx, addr(name), len(name));
     if (rec == 0) { die_str("mayc: --values fat runtime lacks `${name}`\n"); }
+    if (rec.native == true) { die_str("mayc: --values fat runtime function `${name}` must not be native\n"); }
     call(ctx, rec.lab);
     fat_release(ctx, words * 8);
-    fat_abs(ctx, 139, 20, fat_global(ctx, "RTAG"));
     return 0;
+}
+
+// Slow paths shared by every site: [runtime name, operator or -1, label].
+// A site calls the stub with its operands in R9/R8 (left) and RDX/RAX.
+mut FAT_STUBS: Any = [];
+
+fun fat_stub_call(ctx: Any, name: Any, op: Any) -> Any {
+    mut label: Any = 0;
+    for stub: Any in FAT_STUBS { if (stub[0] == name and stub[1] == op) { label = stub[2]; } }
+    if (label == 0) { label = newlab(ctx); push(FAT_STUBS, [name, op, label]); }
+    e8(ctx, 232); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, label);
+    return 0;
+}
+
+// Emit the stubs that sites referenced, after the functions. The runtime
+// functions they call join the reachability queue, so the caller drains it
+// again. Returns how many stubs were emitted.
+mut FAT_STUBS_EMITTED: Any = 0;
+fun fat_emit_stubs(ctx: Any) -> Any {
+    let start: Any = FAT_STUBS_EMITTED;
+    while (FAT_STUBS_EMITTED < len(FAT_STUBS)) {
+        let stub: Any = FAT_STUBS[FAT_STUBS_EMITTED]; FAT_STUBS_EMITTED += 1;
+        placelab(ctx, stub[2]);
+        mut extra: Any = 0;
+        if (stub[1] >= 0) { e8(ctx, 106); e8(ctx, 2); e8(ctx, 106); e8(ctx, stub[1]); extra = 2; } // push 2; push op
+        fat_operands_call(ctx, stub[0], extra);
+        e8(ctx, 195);                                                         // ret
+    }
+    return FAT_STUBS_EMITTED - start;
 }
 
 // Call a runtime function on a linked list of IR values.
@@ -295,30 +325,45 @@ fun fat_direct(ctx: Any, rec: Any, args: Any) -> Any {
     return 0;
 }
 
+// The local holding the callee during fat_apply, followed by the one holding
+// its argument area's size in values; one pair per function. Locals never
+// shrink within a fat function, so no variable reuses them.
+mut FAT_APPLY_LOCAL: Any = -1;
+
 // Apply the closure value in RDX/RAX to `args`, padding to its arity.
 fun fat_apply(ctx: Any, args: Any) -> Any {
-    fat_push(ctx); fat_rt_call(ctx, "rt_require_callable", 2);
-    let closure: Any = fat_local_slot(ctx, loc_add(ctx, addr("0cl"), 3));
-    let size: Any = fat_local_slot(ctx, loc_add(ctx, addr("0sz"), 3));
-    x86_store_register(ctx, 0, fat_disp(closure) - 8);
+    let callable: Any = newlab(ctx);
+    for byte: Any in [72, 131, 250, 7] { e8(ctx, byte); }                    // cmp rdx, 7 (Closure)
+    jcc(ctx, 132, callable);
+    fat_push(ctx); fat_rt_call(ctx, "rt_require_callable", 2);              // raises a type fault
+    placelab(ctx, callable);
+    if (FAT_APPLY_LOCAL < 0) { FAT_APPLY_LOCAL = loc_add(ctx, addr("0cl"), 3); loc_add(ctx, addr("0sz"), 3); }
+    let closure: Any = fat_local_slot(ctx, FAT_APPLY_LOCAL);
+    let size: Any = closure + 1;
+    fat_frame(ctx, 137, 0, fat_disp(closure) - 8);
     let count: Any = fat_count(args);
-    let enough: Any = newlab(ctx);
+    let enough: Any = newlab(ctx); let filled: Any = newlab(ctx);
     e8(ctx, 72); e8(ctx, 139); e8(ctx, 72); e8(ctx, 16);                     // mov rcx, [rax + 16]
     e8(ctx, 72); e8(ctx, 129); e8(ctx, 249); e32(ctx, count);                // cmp rcx, count
     jcc(ctx, 141, enough);                                                    // jge
     x86_mov_immediate(ctx, 1, count);
     placelab(ctx, enough);
-    x86_store_register(ctx, 1, fat_disp(size) - 8);
+    fat_frame(ctx, 137, 1, fat_disp(size) - 8);
     e8(ctx, 72); e8(ctx, 193); e8(ctx, 225); e8(ctx, 4);                     // shl rcx, 4
     e8(ctx, 72); e8(ctx, 41); e8(ctx, 204);                                  // sub rsp, rcx
-    e8(ctx, 72); e8(ctx, 137); e8(ctx, 231);                                 // mov rdi, rsp
-    e8(ctx, 72); e8(ctx, 193); e8(ctx, 233); e8(ctx, 3);                     // shr rcx, 3
+    // Only parameters beyond the arguments need nil.
+    e8(ctx, 72); e8(ctx, 193); e8(ctx, 233); e8(ctx, 4);                     // shr rcx, 4
+    e8(ctx, 72); e8(ctx, 129); e8(ctx, 233); e32(ctx, count);                // sub rcx, count
+    jcc(ctx, 142, filled);                                                    // jle
+    e8(ctx, 72); e8(ctx, 141); e8(ctx, 188); e8(ctx, 36); e32(ctx, 16 * count); // lea rdi, [rsp + 16 count]
+    e8(ctx, 72); e8(ctx, 209); e8(ctx, 225);                                 // shl rcx, 1
     xor_eax(ctx); e8(ctx, 243); e8(ctx, 72); e8(ctx, 171);                   // rep stosq
+    placelab(ctx, filled);
     fat_store_arguments(ctx, args);
-    x86_load_register(ctx, 0, fat_disp(closure) - 8);
+    fat_frame(ctx, 139, 0, fat_disp(closure) - 8);
     e8(ctx, 76); e8(ctx, 139); e8(ctx, 80); e8(ctx, 8);                      // mov r10, [rax + 8]
     e8(ctx, 255); e8(ctx, 16);                                               // call [rax]
-    x86_load_register(ctx, 1, fat_disp(size) - 8);
+    fat_frame(ctx, 139, 1, fat_disp(size) - 8);
     e8(ctx, 72); e8(ctx, 193); e8(ctx, 225); e8(ctx, 4);                     // shl rcx, 4
     e8(ctx, 72); e8(ctx, 1); e8(ctx, 204);                                   // add rsp, rcx
     return 0;
@@ -531,11 +576,23 @@ fun fat_binary(ctx: Any, n: Any) -> Any {
             x86_mov_immediate(ctx, 2, 1);
         }
         jmp(ctx, done);
+    } else if (n.op == TK_SLASH or n.op == TK_PCT) {
+        // idiv truncates toward zero and leaves the dividend's sign on the
+        // remainder, as Maylang's / and % do. Divisors 0 and -1 (division by
+        // zero, and the -2^63 / -1 overflow) take the runtime's path.
+        for byte: Any in [73, 131, 249, 2] { e8(ctx, byte); }                // cmp r9, 2
+        jcc(ctx, 133, slow);
+        for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                // cmp rdx, 2
+        jcc(ctx, 133, slow);
+        for byte: Any in [72, 137, 193, 76, 141, 81, 1, 73, 131, 250, 1] { e8(ctx, byte); } // mov rcx, rax; lea r10, [rcx + 1]; cmp r10, 1
+        jcc(ctx, 134, slow);                                                  // jbe: divisor 0 or -1
+        for byte: Any in [76, 137, 192, 72, 153, 72, 247, 249] { e8(ctx, byte); } // mov rax, r8; cqo; idiv rcx
+        if (n.op == TK_PCT) { for byte: Any in [72, 137, 208] { e8(ctx, byte); } } // mov rax, rdx
+        x86_mov_immediate(ctx, 2, 2);
+        jmp(ctx, done);
     }
     placelab(ctx, slow);
-    x86_mov_immediate(ctx, 1, 2); e8(ctx, 81);                                 // push 2 (Int type)
-    x86_mov_immediate(ctx, 1, n.op); e8(ctx, 81);                              // push op
-    fat_operands_call(ctx, "rt_binary", 2);
+    fat_stub_call(ctx, "rt_binary", n.op);
     placelab(ctx, done);
     return 0;
 }
@@ -554,7 +611,7 @@ fun fat_index(ctx: Any, n: Any) -> Any {
         73, 139, 18, 73, 139, 66, 8] { e8(ctx, byte); }                      // mov rdx, [r10]; mov rax, [r10 + 8]
     jmp(ctx, done);
     placelab(ctx, slow);
-    fat_operands_call(ctx, "rt_index_get", 0);
+    fat_stub_call(ctx, "rt_index_get", -1);
     placelab(ctx, done);
     return 0;
 }
@@ -651,7 +708,7 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
     ctx.mode = 1; ctx.native = false; ctx.allocation = 0;
     loc_reset(ctx);
     bx_use_list(ctx, boxed);
-    ctx.fatBase = fat_plan_slots(block); fat_forget();
+    ctx.fatBase = fat_plan_slots(block); fat_forget(); FAT_APPLY_LOCAL = -1;
     ctx.envCount = 0; ctx.envCaptures = [];
     return 0;
 }

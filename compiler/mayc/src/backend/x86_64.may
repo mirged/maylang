@@ -74,6 +74,8 @@ fun x86_call_trampoline(ctx: Any, rec: Any) -> Any {
         i = i + 1;
     }
     call(ctx, rec.abiLab);
+    // Fat code reads a runtime result's type word in RDX (fat_rt_call).
+    if (FAT_VALUES) { fat_abs(ctx, 139, 20, fat_global(ctx, "RTAG")); }
     x86_encode(ctx, X86Instruction([72, 137, 236, 93, 195], 0, 0));
     return 0;
 }
@@ -3625,9 +3627,14 @@ fun x86_emit(ctx: Any) -> Any {
     }
     cg_program(ctx);
     mut next: Any = 0;
-    while (next < len(ctx.reachability.queue)) {
-        let rec: Any = ctx.reachability.queue[next]; next += 1;
-        cg_func(ctx, rec);
+    mut draining: Any = true;
+    while (draining) {
+        while (next < len(ctx.reachability.queue)) {
+            let rec: Any = ctx.reachability.queue[next]; next += 1;
+            cg_func(ctx, rec);
+        }
+        // Fat slow-path stubs can reach runtime functions not yet emitted.
+        draining = FAT_VALUES and fat_emit_stubs(ctx) > 0;
     }
     if (ctx.reachability.fiber) { x86_emit_fiber(ctx); }
     if (gate != 0) { x86_emit_nodeos_gate(ctx, gate); }

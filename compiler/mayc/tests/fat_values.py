@@ -39,6 +39,61 @@ arithmetic: integer overflow
 -9223372036854775808 1 9223372036854775807 -9223372036854775808
 '''
 
+# Inline Int division and closure calls (#92) against the runtime's rules:
+# truncation, the dividend's sign, faults for 0 and the -2^63 / -1
+# overflow, nil padding and the non-callable fault.
+INLINE = '''let xs: List<Any> = [7, -7, 0, 9223372036854775807, -9223372036854775807 - 1];
+let ys: List<Any> = [2, -2, 1, -1, 0, 3];
+for x: Any in xs { for y: Any in ys {
+    let q: Str = may { str(x / y) } otherwise { str(err.kind) };
+    let r: Str = may { str(x % y) } otherwise { str(err.kind) };
+    print("${x} ${y} ${q} ${r}");
+} }
+let f: Any = 7.5; let g: Any = 2;
+print(f / g, may { f % g } otherwise { str(err.kind) });
+let sa: Any = "a"; print(may { sa / 2 } otherwise { str(err.kind) });
+fun pad(a: Any, b: Any, c: Any) -> Any { return [a, b, c]; }
+let h: Any = pad;
+print(h(1), h(1, 2, 3));
+print(may { let n: Any = 3; n(1) } otherwise { str(err.kind) + ": " + str(err.message) });
+'''
+
+INLINE_EXPECTED = '''7 2 3 1
+7 -2 -3 1
+7 1 7 0
+7 -1 -7 0
+7 0 arithmetic arithmetic
+7 3 2 1
+-7 2 -3 -1
+-7 -2 3 -1
+-7 1 -7 0
+-7 -1 7 0
+-7 0 arithmetic arithmetic
+-7 3 -2 -1
+0 2 0 0
+0 -2 0 0
+0 1 0 0
+0 -1 0 0
+0 0 arithmetic arithmetic
+0 3 0 0
+9223372036854775807 2 4611686018427387903 1
+9223372036854775807 -2 -4611686018427387903 1
+9223372036854775807 1 9223372036854775807 0
+9223372036854775807 -1 -9223372036854775807 0
+9223372036854775807 0 arithmetic arithmetic
+9223372036854775807 3 3074457345618258602 1
+-9223372036854775808 2 -4611686018427387904 0
+-9223372036854775808 -2 4611686018427387904 0
+-9223372036854775808 1 -9223372036854775808 0
+-9223372036854775808 -1 arithmetic 0
+-9223372036854775808 0 arithmetic arithmetic
+-9223372036854775808 3 -3074457345618258602 -2
+3.75 type
+type
+[1, nil, nil] [1, 2, 3]
+type: value is not callable
+'''
+
 
 def compile_run(compiler, source, binary, *flags):
     result = subprocess.run([str(compiler), *flags, str(source), '-o', str(binary)],
@@ -81,6 +136,11 @@ def main():
         got, error = compile_run(compiler, source, work / 'semantics')
         assert got == (0, SEMANTICS_EXPECTED.encode(), b''), (got, error)
         print('PASS 64-bit integers in dynamic values and literals', flush=True)
+        source = work / 'inline.may'
+        source.write_text(INLINE)
+        got, error = compile_run(compiler, source, work / 'inline')
+        assert got == (0, INLINE_EXPECTED.encode(), b''), (got, error)
+        print('PASS inline Int division and closure calls', flush=True)
         count = 0
         for name in sorted(expected):
             if not (TESTS / name).exists():
