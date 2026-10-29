@@ -64,7 +64,9 @@ pointer `addr` returns. The `address * 8` decoding disappears.
 - Runtime functions are written in the raw subset. Each value argument
   becomes two word parameters, type word first; a value result returns its
   payload and leaves its type word in the `RTAG` global, which the caller
-  reads immediately after the call.
+  reads immediately after the call. Raw code calls compiled closures with
+  `__fat_apply(closure, argv, argc)` and computes on Float bits with
+  `__fbits(op, a, b)`.
 - Native-word functions keep their machine-word ABI. Their tagged entry
   becomes a fat entry that checks the type words and needs no shifts.
 
@@ -80,16 +82,18 @@ bootstraps itself on fat values, and the tagged runtime is deleted.
 
 Observable changes once fat values are the default: `Int` is 64-bit
 everywhere, so values between 2^60 and 2^63 no longer fault; `value_tag`
-reports the new type words; a `List<Any>` uses 16 bytes per element.
+keeps reporting the 3-bit tag numbers during the migration, for library
+compatibility; a `List<Any>` uses 16 bytes per element. Until the compiler
+itself runs on fat values, source integer literals stay within ±2^60.
 
 ## Ledger
 
 | Step | State |
 | --- | --- |
 | Design and ABI | this document |
-| `--values fat` flag, fat runtime and x86-64 backend | not started |
-| Feature fixtures passing with `--values fat` | 0 |
-| Prelude, native library, math and stdlib | not started |
+| `--values fat` flag, fat runtime and x86-64 backend | working (`runtime/fat.may`, `backend/x86_64_fat.may`); unoptimized, every operator is a runtime call |
+| Feature fixtures passing with `--values fat` | 33 of 45 (`compiler/mayc/tests/fat_values.py`) |
+| Prelude, native library, math and stdlib | loaded; floats are unboxed, `math.may` bit helpers are intrinsics |
 | Fibers, handlers, debug traces | not started |
 | Typed externs and native-word entries | not started |
 | Core runtime, ARM64, RISC-V, LLVM | not started |
