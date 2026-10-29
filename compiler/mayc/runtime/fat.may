@@ -46,6 +46,43 @@ mut ERRVAL: Any = 0;
 mut HDEPTH: Any = 0;
 mut HSTACK: Any = 0;
 
+mut TRACE_STACK: Any = 0;
+mut TRACE_DEPTH: Any = 0;
+
+// --debug frames: string payloads naming each active function.
+fun rt_trace_push(t: Any, frame: Any) -> Any {
+    if (TRACE_STACK == 0) { TRACE_STACK = rt_alloc(8192); }
+    if (TRACE_DEPTH < 1024) { store64(TRACE_STACK + TRACE_DEPTH * 8, frame); }
+    TRACE_DEPTH += 1;
+    RTAG = 0;
+    return 0;
+}
+fun rt_trace_pop() -> Any {
+    if (TRACE_DEPTH > 0) {
+        TRACE_DEPTH -= 1;
+        if (TRACE_DEPTH < 1024) { store64(TRACE_STACK + TRACE_DEPTH * 8, 0); }
+    }
+    RTAG = 0;
+    return 0;
+}
+fun rt_trace_depth() -> Any { RTAG = 2; return TRACE_DEPTH; }
+fun rt_trace_restore(t: Any, depth: Any) -> Any {
+    while (TRACE_DEPTH > depth) { rt_trace_pop(); }
+    RTAG = 0;
+    return 0;
+}
+fun rt_trace_snapshot() -> Any {
+    mut text: Any = rt_from(addr(""), 0);
+    mut index: Any = TRACE_DEPTH - 1;
+    if (index >= 1024) { index = 1023; text = rt_from(addr("  ... trace truncated\n"), 22); }
+    mut frames: Any = 0;
+    while (index >= 0 and frames < 64) {
+        text = rt_concat(text, rt_concat(rt_from(addr("  at "), 5), rt_concat(load64(TRACE_STACK + index * 8), rt_from(addr("\n"), 1))));
+        index -= 1; frames += 1;
+    }
+    return text;
+}
+
 fun rt_handler_limit() -> Any {
     if (HDEPTH >= 64) { return rt_failstr(rt_from(addr("exception handler limit exceeded"), 32)); }
     return 0;
@@ -123,7 +160,8 @@ fun rt_scan_range(lo: Any, hi: Any) -> Any {
 fun rt_gc() -> Any {
     if (GCFLAG == 0) { return 0; }
     MARKN = 0;
-    rt_mark_word(GROOTS); rt_mark_word(HSTACK); rt_mark_word(ERRVAL);
+    rt_mark_word(GROOTS); rt_mark_word(HSTACK); rt_mark_word(ERRVAL); rt_mark_word(TRACE_STACK);
+    rt_mark_word(FIB_TRACE0);
     mut i: Any = 0;
     while (i < GCOUNT) {
         let root: Any = load64(GROOTS + i * 8);
@@ -304,7 +342,7 @@ fun rt_mkerr(kp: Any, kl: Any, s: Any) -> Any {
     rt_map_put(e, 4, rt_from(addr("__err"), 5), 1, 1);
     rt_map_put(e, 4, rt_from(addr("message"), 7), 4, s);
     rt_map_put(e, 4, rt_from(addr("kind"), 4), 4, rt_from(kp, kl));
-    rt_map_put(e, 4, rt_from(addr("stack"), 5), 4, rt_from(addr(""), 0));
+    rt_map_put(e, 4, rt_from(addr("stack"), 5), 4, rt_trace_snapshot());
     return e;
 }
 
@@ -344,6 +382,8 @@ fun rt_die_uncaught() -> Any {
     let s: Any = rt_concat(rt_concat(k, rt_from(addr(": "), 2)), m);
     rt_write(s + 8, load64(s));
     rt_write(addr("\n"), 1);
+    let trace: Any = rt_map_lookup(ERRVAL, 4, rt_from(addr("stack"), 5));
+    if (RTAG == 4 and load64(trace) > 0) { rt_write(trace + 8, load64(trace)); }
     syscall(60, 70);
     return 0;
 }
@@ -1096,7 +1136,8 @@ fun rt_char_from(t: Any, c: Any) -> Any {
 // ---- collections -----------------------------------------------------------
 
 fun rt_pop(lt: Any, l: Any) -> Any {
-    if (lt != 5 or load64(l) == 0) { RTAG = 0; return 0; }
+    rt_expect_list(lt);
+    if (load64(l) == 0) { RTAG = 0; return 0; }
     let n: Any = load64(l) - 1;
     let d: Any = load64(l + 16);
     store64(l, n);
@@ -1205,6 +1246,7 @@ fun rt_cstr(t: Any, v: Any) -> Any {
 fun rt_addr(t: Any, v: Any) -> Any {
     RTAG = 2;
     if (t == 4) { return v + 8; }
+    if (t != 2) { return rt_failtype(rt_from(addr("addr expects a string or an address"), 35)); }
     return v;
 }
 
@@ -1260,6 +1302,13 @@ fun rt_float_arg(t: Any, v: Any) -> Any {
 fun rt_sqrt(t: Any, v: Any) -> Any { let x: Any = rt_float_arg(t, v); RTAG = 3; return __fbits(4, x, 0); }
 fun rt_floor(t: Any, v: Any) -> Any { let x: Any = rt_float_arg(t, v); RTAG = 3; return __fbits(5, x, 0); }
 fun rt_ceil(t: Any, v: Any) -> Any { let x: Any = rt_float_arg(t, v); RTAG = 3; return __fbits(6, x, 0); }
+
+// Float32 values round through binary32 at typed boundaries.
+fun rt_float32(t: Any, v: Any) -> Any {
+    if (t != 2 and t != 3) { return rt_failtype(rt_from(addr("expected a number"), 17)); }
+    RTAG = 3;
+    return __fbits(9, rt_bits(t, v), 0);
+}
 
 // Truncation toward zero to an Int; NaN, infinities and values beyond the
 // 64-bit range fault.
@@ -1447,7 +1496,7 @@ fun rt_file_exists(t: Any, p: Any) -> Any {
 
 // ---- fibers ----------------------------------------------------------------
 // A fiber record: [saved sp, closure, live, stack top, handler stack,
-// handler depth, error, error flag].
+// handler depth, error, error flag, trace stack, trace depth].
 
 mut FIB_TAB: Any = 0;
 mut FIB_N: Any = 0;
@@ -1457,6 +1506,8 @@ mut FIB_HSTACK0: Any = 0;
 mut FIB_HDEPTH0: Any = 0;
 mut FIB_ERRVAL0: Any = 0;
 mut FIB_ERRFLAG0: Any = 0;
+mut FIB_TRACE0: Any = 0;
+mut FIB_TRACE_DEPTH0: Any = 0;
 
 fun rt_fiber_tables() -> Any {
     if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
@@ -1468,7 +1519,7 @@ fun rt_spawn(t: Any, f: Any) -> Any {
     rt_expect_function(t);
     if (FIB_N >= 128) { return rt_failstr(rt_from(addr("fiber limit exceeded"), 20)); }
     rt_fiber_tables();
-    let rec: Any = rt_alloc(64);
+    let rec: Any = rt_alloc(80);
     store64(rec + 8, f);
     store64(rec + 16, 1);
     store64(rec + 32, rt_alloc(64 * 256));
@@ -1489,12 +1540,14 @@ fun rt_spawn(t: Any, f: Any) -> Any {
 fun rt_fiber_save(rec: Any) -> Any {
     store64(rec + 32, HSTACK); store64(rec + 40, HDEPTH);
     store64(rec + 48, ERRVAL); store64(rec + 56, ERRFLAG);
+    store64(rec + 64, TRACE_STACK); store64(rec + 72, TRACE_DEPTH);
     return 0;
 }
 
 fun rt_fiber_restore(rec: Any) -> Any {
     HSTACK = load64(rec + 32); HDEPTH = load64(rec + 40);
     ERRVAL = load64(rec + 48); ERRFLAG = load64(rec + 56);
+    TRACE_STACK = load64(rec + 64); TRACE_DEPTH = load64(rec + 72);
     CSTOP = load64(rec + 24);
     return 0;
 }
@@ -1502,6 +1555,7 @@ fun rt_fiber_restore(rec: Any) -> Any {
 fun rt_fiber_main() -> Any {
     HSTACK = FIB_HSTACK0; HDEPTH = FIB_HDEPTH0;
     ERRVAL = FIB_ERRVAL0; ERRFLAG = FIB_ERRFLAG0;
+    TRACE_STACK = FIB_TRACE0; TRACE_DEPTH = FIB_TRACE_DEPTH0;
     return 0;
 }
 
@@ -1520,6 +1574,7 @@ fun rt_run() -> Any {
     rt_fiber_tables();
     FIB_HSTACK0 = HSTACK; FIB_HDEPTH0 = HDEPTH;
     FIB_ERRVAL0 = ERRVAL; FIB_ERRFLAG0 = ERRFLAG;
+    FIB_TRACE0 = TRACE_STACK; FIB_TRACE_DEPTH0 = TRACE_DEPTH;
     mut again: Any = 1;
     while (again == 1) {
         again = 0;
@@ -1547,6 +1602,7 @@ fun rt_fiber_entry() -> Any {
     CSTOP = load64(rec + 24);
     __fat_apply(load64(rec + 8), 0, 0);
     store64(rec + 16, 0);
+    store64(rec + 64, TRACE_STACK); store64(rec + 72, TRACE_DEPTH);
     rt_fiber_main();
     __fib_switch(rec, FIB_SAVE0);
     return 0;
@@ -1712,4 +1768,51 @@ fun rt_system(t: Any, cmd: Any) -> Any {
         syscall(60, 127);
     }
     return rt_wait(2, pid);
+}
+
+// ---- typed externs ---------------------------------------------------------
+// Kinds (ffi.may): 0 Int, 1 UInt, 2 Int32, 3 UInt32, 4 Float, 5 Float32,
+// 6 Ptr, 7 Str, 8 Bool, 9 Void. Arguments become C words or binary64 bits.
+
+fun rt_ffi_arg(t: Any, v: Any, kt: Any, kind: Any) -> Any {
+    RTAG = 2;
+    if (kind == 4 or kind == 5) {
+        if (t != 2 and t != 3) { return rt_failtype(rt_from(addr("extern expects Float"), 20)); }
+        return rt_bits(t, v);
+    }
+    if (kind == 7) {
+        if (t != 4) { return rt_failtype(rt_from(addr("extern expects Str"), 18)); }
+        mut i: Any = 0;
+        while (i < load64(v)) {
+            if (load8(v + 8 + i) == 0) { return rt_failtype(rt_from(addr("C string contains NUL"), 21)); }
+            i += 1;
+        }
+        return rt_cstr_raw(v);
+    }
+    if (kind == 8) {
+        if (t != 1) { return rt_failtype(rt_from(addr("extern expects Bool"), 19)); }
+        return v;
+    }
+    if (kind == 6 and t == 0) { return 0; }
+    if (t != 2) { return rt_failtype(rt_from(addr("extern expects Int or Ptr"), 25)); }
+    if (kind == 1 and v < 0) { return rt_failarith(rt_from(addr("unsigned argument out of range"), 30)); }
+    if (kind == 2 and (v < (0 - 2147483648) or v > 2147483647)) { return rt_failarith(rt_from(addr("Int32 argument out of range"), 27)); }
+    if (kind == 3 and (v < 0 or v > 4294967295)) { return rt_failarith(rt_from(addr("UInt32 argument out of range"), 28)); }
+    return v;
+}
+
+fun rt_ffi_result(vt: Any, v: Any, kt: Any, kind: Any) -> Any {
+    if (kind == 9) { RTAG = 0; return 0; }
+    if (kind == 4 or kind == 5) { RTAG = 3; return v; }
+    if (kind == 8) { RTAG = 1; if (v == 0) { return 0; } return 1; }
+    if (kind == 7) {
+        if (v == 0) { RTAG = 0; return 0; }
+        mut size: Any = 0;
+        while (load8(v + size) != 0) { size += 1; }
+        RTAG = 4;
+        return rt_from(v, size);
+    }
+    if (kind == 1 and v < 0) { return rt_failarith(rt_from(addr("C result exceeds Int range"), 26)); }
+    RTAG = 2;
+    return v;
 }

@@ -246,6 +246,7 @@ fun main2() -> Any {
     mut targetName: Any = host_target();
     mut runtimeName: Any = "auto";
     mut rawflag: Any = 0;
+    mut valuesflag: Any = false;
     mut dumpflag: Any = 0;
     mut checkflag: Any = 0;
     mut llvmflag: Any = 0;
@@ -285,6 +286,7 @@ fun main2() -> Any {
             let values: Any = symbol_name(argv[k][0], argv[k][1]);
             if (values != "tagged" and values != "fat") { die_str("mayc: unknown value representation `${values}`\n"); }
             FAT_VALUES = values == "fat";
+            valuesflag = true;
         } else if (name_eq(ap, al, addr("--emit-llvm"), 11) == 1) {
             llvmflag = 1;
         } else if (name_eq(ap, al, addr("--time"), 6) == 1) {
@@ -345,6 +347,11 @@ fun main2() -> Any {
     if (runtimeName == "none") { rawflag = 1; }
     ctx.runtime = if (rawflag == 1) { "none" } else { runtimeName };
     profile_begin();
+    // MAYC_VALUES=fat selects fat values wherever they are supported, so whole
+    // test suites can run against them before they become the default.
+    if (not valuesflag and rawflag == 0 and ctx.runtime == "full" and ctx.target.name == "x86_64-linux") {
+        FAT_VALUES = (env("MAYC_VALUES") ?? "") == "fat";
+    }
     if (checkflag == 0 and dumpflag == 0 and expandedflag == 0) { backend_validate(ctx, rawflag); }
     if (rawflag == 1) {
         PARSE_RAW = 1;

@@ -299,7 +299,8 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
             first = false; arg = arg.next;
         }
         fat_rt_call(ctx, "rt_newline", 0);
-        return fat_set(ctx, 0, 0);
+        // The tagged backend leaves rt_newline's result, so `print` evaluates to 0.
+        return fat_set(ctx, 2, 0);
     }
     if (name == "exit") {
         fat_get(ctx, args);
@@ -318,6 +319,21 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         let pops: Any = [[88], [95], [94], [90], [65, 90], [65, 88], [65, 89]]; // rax rdi rsi rdx r10 r8 r9
         for i: Any in 0..count { for byte: Any in pops[i] { e8(ctx, byte); } }
         x86_syscall_instruction(ctx);
+        x86_mov_immediate(ctx, 2, 2);
+        return 0;
+    }
+    if (name == "__nodeos_syscall") { die_str("mayc: __nodeos_syscall requires --target x86_64-nodeos\n"); }
+    if (name == "__ccall6") {
+        // C call through an address; arguments and result are Int payloads.
+        let values: Any = [];
+        mut arg: Any = args;
+        while (arg != 0) { push(values, arg); arg = arg.next; }
+        mut index: Any = len(values) - 1;
+        while (index >= 0) { fat_get(ctx, values[index]); e8(ctx, 80); index -= 1; }
+        let pops: Any = [[65, 91], [95], [94], [90], [89], [65, 88], [65, 89]]; // r11 rdi rsi rdx rcx r8 r9
+        for i: Any in 0..len(values) { for byte: Any in pops[i] { e8(ctx, byte); } }
+        xor_eax(ctx);
+        e8(ctx, 65); e8(ctx, 255); e8(ctx, 211);                             // call r11
         x86_mov_immediate(ctx, 2, 2);
         return 0;
     }
@@ -562,7 +578,63 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
     return 0;
 }
 
+// A typed extern: convert each argument value (rt_ffi_arg) into a frame
+// word, place integers in the SysV registers and floats in XMM0-7 (the rest
+// on the stack, in order), call the resolved slot and convert the result.
+fun fat_foreign(ctx: Any, rec: Any) -> Any {
+    fat_begin(ctx, rec.ir, rec.boxed);
+    placelab(ctx, rec.lab);
+    let fp: Any = fat_prologue(ctx);
+    for i: Any in 0..rec.pc {
+        x86_load_register(ctx, 2, 0 - (16 + 16 * i)); x86_load_register(ctx, 0, 0 - (24 + 16 * i));
+        fat_push(ctx); fat_set(ctx, 2, rec.ffiArgs[i]); fat_push(ctx);
+        fat_rt_call(ctx, "rt_ffi_arg", 4);
+        // movq xmm0, rax; cvtsd2ss xmm0, xmm0; movd eax, xmm0 for Float32.
+        if (rec.ffiArgs[i] == 5) { for byte: Any in [102, 72, 15, 110, 192, 242, 15, 90, 192, 102, 15, 126, 192] { e8(ctx, byte); } }
+        x86_store_register(ctx, 0, fat_disp(i) - 8);
+    }
+    mut integer: Any = 0; mut floating: Any = 0;
+    let locations: Any = []; let stacked: Any = [];
+    for i: Any in 0..rec.pc {
+        let kind: Any = rec.ffiArgs[i];
+        if (kind == 4 or kind == 5) {
+            if (floating < 8) { push(locations, [1, floating]); floating += 1; } else { push(locations, [2, 0]); push(stacked, i); }
+        } else if (integer < 6) { push(locations, [0, integer]); integer += 1; }
+        else { push(locations, [2, 0]); push(stacked, i); }
+    }
+    if (len(stacked) % 2 == 1) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 236); e8(ctx, 8); }
+    mut i: Any = len(stacked) - 1;
+    while (i >= 0) { x86_load_register(ctx, 0, fat_disp(stacked[i]) - 8); e8(ctx, 80); i -= 1; }
+    for index: Any in 0..rec.pc {
+        let location: Any = locations[index];
+        if (location[0] != 2) {
+            x86_load_register(ctx, 0, fat_disp(index) - 8);
+            if (location[0] == 0) { mov_argreg(ctx, location[1]); }
+            else { e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 110); e8(ctx, 192 + location[1] * 8); }
+        }
+    }
+    ld_abs(ctx, rec.ffiSlot);
+    e8(ctx, 73); e8(ctx, 137); e8(ctx, 195);                                 // mov r11, rax
+    mov_imm(ctx, floating);
+    e8(ctx, 65); e8(ctx, 255); e8(ctx, 211);                                 // call r11
+    fat_release(ctx, ((len(stacked) + 1) / 2) * 16);
+    let result: Any = rec.ffiResult;
+    if (result == 2) { e8(ctx, 72); e8(ctx, 99); e8(ctx, 192); }             // movsxd rax, eax
+    if (result == 3) { e8(ctx, 137); e8(ctx, 192); }                         // mov eax, eax
+    if (result == 8) { e8(ctx, 15); e8(ctx, 182); e8(ctx, 192); }           // movzx eax, al
+    if (result == 5) { e8(ctx, 243); e8(ctx, 15); e8(ctx, 90); e8(ctx, 192); } // cvtss2sd xmm0, xmm0
+    if (result == 4 or result == 5) { e8(ctx, 102); e8(ctx, 72); e8(ctx, 15); e8(ctx, 126); e8(ctx, 192); } // movq rax, xmm0
+    x86_mov_immediate(ctx, 2, 2); fat_push(ctx); fat_set(ctx, 2, result); fat_push(ctx);
+    fat_rt_call(ctx, "rt_ffi_result", 4);
+    ctx.returnLabel = newlab(ctx);
+    jmp(ctx, ctx.returnLabel);
+    ctx.maxLocals = rec.pc;
+    fat_epilogue(ctx, fp);
+    return 0;
+}
+
 fun fat_func(ctx: Any, rec: Any) -> Any {
+    if (rec.foreign == true) { return fat_foreign(ctx, rec); }
     fat_begin(ctx, rec.ir, rec.boxed);
     for i: Any in 0..rec.pc { loc_add(ctx, rec.parr[i].name, rec.parr[i].length); }
     ctx.envCaptures = rec.caparr; ctx.envCount = rec.cc;

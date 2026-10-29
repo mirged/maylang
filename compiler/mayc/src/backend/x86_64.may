@@ -2979,7 +2979,7 @@ fun cg_fat_apply(ctx: Any, args: Any) -> Any {
 
 // Raw binary64 operations on IEEE bits, for the fat runtime (#92):
 // `__fbits(op, a, b)` with op 0-3 add/sub/mul/div, 4 sqrt, 5 floor, 6 ceil,
-// 7 trunc, 8 round half to even, 10 Int to Float, 11 Float to Int (truncating;
+// 7 trunc, 8 round half to even, 9 round to binary32, 10 Int to Float, 11 Float to Int (truncating;
 // out of range yields -2^63), and 20-25 ==, !=, <, <=, >, >= returning 0 or 1
 // (false for NaN, except !=).
 fun cg_fbits(ctx: Any, args: Any) -> Any {
@@ -2996,6 +2996,7 @@ fun cg_fbits(ctx: Any, args: Any) -> Any {
     fxmm0_from_rax(ctx);
     if (op == 11) { e8(ctx, 242); e8(ctx, 72); e8(ctx, 15); e8(ctx, 44); e8(ctx, 192); return 0; } // cvttsd2si
     if (op == 4) { e8(ctx, 242); e8(ctx, 15); e8(ctx, 81); e8(ctx, 192); }        // sqrtsd
+    else if (op == 9) { for byte: Any in [242, 15, 90, 192, 243, 15, 90, 192] { e8(ctx, byte); } } // cvtsd2ss; cvtss2sd
     else if (op >= 5 and op <= 8) {
         e8(ctx, 102); e8(ctx, 15); e8(ctx, 58); e8(ctx, 11); e8(ctx, 192);         // roundsd xmm0, xmm0, mode
         e8(ctx, [1, 2, 3, 0][op - 5]);
