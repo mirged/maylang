@@ -249,6 +249,17 @@ def main():
             result = subprocess.run(command, capture_output=True)
             assert result.returncode != 0 and message in result.stderr and not output.exists(), result
         print('PASS target diagnostics reject unsupported output before writing', flush=True)
+        # Raw string intrinsics need a literal; x86-64 once silently read garbage.
+        for call, message in [('addr(s)', b'raw addr/cstr requires a string literal'),
+                              ('cstr(s)', b'raw addr/cstr requires a string literal'),
+                              ('len(s)', b'raw len requires a string literal')]:
+            source = work / 'raw_literal.may'
+            source.write_text(f'fun main() -> Int {{ let s: Str = "abc"; let v: Any = {call}; return 0; }}\nmain();\n')
+            for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux']:
+                output = work / 'raw_literal'
+                result = subprocess.run([str(compiler), '--raw', '--target', target, str(source), '-o', str(output)], capture_output=True)
+                assert result.returncode != 0 and message in result.stderr and not output.exists(), (target, call, result)
+        print('PASS raw addr, cstr and len reject non-literal strings on every native target', flush=True)
 
 
 if __name__ == '__main__':

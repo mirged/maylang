@@ -6,6 +6,7 @@ import "../symbols.may";
 import "../ffi.may";
 import "../state.may";
 import "../ast.may";
+import "../diagnostics.may";
 import "../lexer.may";
 import "../sema.may";
 import "../ir.may";
@@ -2147,17 +2148,14 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (ctx.mode == 0) {
         if (name_eq(np, nl, addr("syscall"), len("syscall")) == 1) { cg_syscall(ctx, args); return 1; }
         if (name_eq(np, nl, addr("__nodeos_syscall"), len("__nodeos_syscall")) == 1) { cg_nodeos_syscall(ctx, args, false); return 1; }
-        if (name_eq(np, nl, addr("addr"), len("addr")) == 1) {
-            let off: Any = intern(ctx, args.span.source, args.start, args.length);
-            addr_of(ctx, off);
-            return 1;
-        }
-        if (name_eq(np, nl, addr("cstr"), len("cstr")) == 1) {
+        if (name_eq(np, nl, addr("addr"), len("addr")) == 1 or name_eq(np, nl, addr("cstr"), len("cstr")) == 1) {
+            if (args.kind != E_STR) { diagnostic(args.span, "raw addr/cstr requires a string literal"); }
             let off: Any = intern(ctx, args.span.source, args.start, args.length);
             addr_of(ctx, off);
             return 1;
         }
         if (name_eq(np, nl, addr("len"), len("len")) == 1) {
+            if (args.kind != E_STR) { diagnostic(args.span, "raw len requires a string literal"); }
             let ln: Any = declen(args.span.source, args.start, args.length);
             mov_imm(ctx, ln);
             return 1;
