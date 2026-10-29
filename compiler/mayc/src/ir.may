@@ -109,6 +109,11 @@ fun ir_binary(op: Any, left: Any, right: Any, span: Any) -> Any {
     return ir_emit(E_BIN, ir_temp(span), left, right, payload, span);
 }
 
+// Global references that words.may marked, inside a function that stayed native.
+fun ir_word_global(node: Any) -> Any {
+    return IR_FUNCTION != 0 and IR_FUNCTION.native == true and node.wordGlobal != nil and node.wordGlobal != 0;
+}
+
 fun ir_declare(name: Any, length: Any, value: Any, global: Any, span: Any) -> Any {
     ir_emit(S_LET, 0, value, 0, {"name": name, "length": length, "initializer": value, "global": global}, span);
     return value;
@@ -276,7 +281,15 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         return result;
     }
     if (kind == E_STRB) { return ir_operation(kind, {"address": node.address, "length": node.length}, span); }
-    if (kind == E_VAR) { return ir_operation(kind, {"name": node.name, "length": node.length}, span); }
+    if (kind == E_VAR) {
+        let variable: Any = ir_operation(kind, {"name": node.name, "length": node.length}, span);
+        if (ir_word_global(node)) {
+            // Native-word code reads a tagged global: untag an Int, test a Bool.
+            if (node.wordGlobal == "Bool") { return ir_binary(TK_EQ, variable, ir_integer(4, span), span); }
+            return ir_binary(TK_SHR, variable, ir_integer(3, span), span);
+        }
+        return variable;
+    }
     if (kind == E_CAPVAR) { return ir_operation(kind, {"index": node.index}, span); }
     if (kind == E_CLOSURE) { return ir_operation(kind, {"label": node.label, "captures": node.captures, "arity": node.arity}, span); }
     if (kind == E_BIN) { return ir_binary(node.op, ir_node(ctx, node.left), ir_node(ctx, node.right), span); }
@@ -370,7 +383,15 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
     }
     if (kind == S_ASSIGN) {
         let value: Any = ir_node(ctx, node.value);
-        ir_emit(kind, 0, value, 0, {"name": node.name, "length": node.length, "value": value}, span);
+        mut stored: Any = value;
+        if (ir_word_global(node)) {
+            // Retag for the global. Checked native `* 8` overflows 64 bits exactly
+            // when the value leaves the 61-bit tagged range.
+            if (node.wordGlobal == "Bool") {
+                stored = ir_binary(TK_PLUS, ir_binary(TK_NE, value, ir_integer(0, span), span), ir_integer(3, span), span);
+            } else { stored = ir_binary(TK_STAR, value, ir_integer(8, span), span); }
+        }
+        ir_emit(kind, 0, stored, 0, {"name": node.name, "length": node.length, "value": stored}, span);
         return value;
     }
     if (kind == S_CASSIGN) {

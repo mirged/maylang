@@ -6,7 +6,8 @@ code untag arguments and retag the result, so values beyond the tagged range
 fault only when they leave native code. A seeded oracle compares random
 expressions with Python's signed 64-bit semantics. Further programs check
 that Ptr parameters and load/store keep all 64 bits, that Bool parameters,
-results and locals cross the tagged boundary, and that range loops count natively. All run on the full and core
+results and locals cross the tagged boundary, that range loops count natively,
+and that global reads and writes convert to and from tagged values. All run on the full and core
 runtimes, with and without --debug, and on ARM64/RISC-V core targets when
 QEMU user emulators are installed, and on clang-llvm when clang is.
 """
@@ -193,6 +194,40 @@ LOOPS_EXPECTED = '''40 55 0 8 -1
 0 -6 3
 '''
 
+# Globals stay tagged: native reads untag, writes retag and fault (leaving the
+# global unchanged) outside the 61-bit range. wide() shifts by 62, so it
+# only passes natively.
+GLOBALS = '''
+let LIMIT: Int = 1000;
+let MASK: Int = 255;
+mut counter: Int = 0;
+mut seen: Bool = false;
+mut total: Int = -5;
+fun tick(n: Int) -> Int { counter = counter + n; return counter; }
+fun mark() -> Bool { let was: Bool = seen; seen = true; return was; }
+fun clamp(x: Int) -> Int { if (x > LIMIT) { return LIMIT; } return x & MASK; }
+fun run(n: Int) -> Int { for i in 0..n { total = total + i; } return total; }
+fun spill() -> Int { counter = 1 << 61; return 0; }
+fun wide() -> Int { let w: Int = counter << 62; return (w >> 62) + LIMIT; }
+fun local_shadow(counter: Int) -> Int { return counter * 2; }
+print(tick(3), tick(4), counter);
+print(mark(), mark(), seen);
+seen = false;
+print(mark(), clamp(5000), clamp(300));
+print(run(10), total);
+counter = 1;
+print(wide(), local_shadow(21), counter);
+print(may { spill() } otherwise { "${err.kind}: ${err.message}" }, counter);
+'''
+
+GLOBALS_EXPECTED = '''3 7 7
+false true true
+false 1000 44
+40 40
+1001 42 1
+arithmetic: integer overflow 1
+'''
+
 
 class Fault(Exception):
     pass
@@ -354,6 +389,12 @@ def main():
             output = compile_run(compiler, source, work / 'loops', *flags, runner=runner)
             assert output == LOOPS_EXPECTED, (flags, output)
         print('PASS native-word range loops', flush=True)
+        source = work / 'globals.may'
+        source.write_text(GLOBALS)
+        for flags, runner in configurations:
+            output = compile_run(compiler, source, work / 'globals', *flags, runner=runner)
+            assert output == GLOBALS_EXPECTED, (flags, output)
+        print('PASS native-word reads and writes of tagged globals', flush=True)
         program, expected = oracle_program(args.seed, args.cases)
         source = work / 'oracle.may'
         source.write_text(program)

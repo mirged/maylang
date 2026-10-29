@@ -13,7 +13,8 @@ import "diagnostics.may";
 // Its tagged-ABI entry untags arguments and retags the result, raising the
 // ordinary `integer overflow` fault when the result leaves the tagged range.
 // Bool is 0/1 in native code (tagged 3/4). Calls between native-word
-// functions pass machine words directly.
+// functions pass machine words directly. Globals keep tagged values, so the
+// scan marks global reads and writes (`wordGlobal`) for IR to convert.
 
 let WORD_ARITHMETIC: Any = [TK_PLUS, TK_MINUS, TK_STAR, TK_SLASH, TK_PCT, TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR];
 let WORD_ORDERING: Any = [TK_EQ, TK_NE, TK_LT, TK_LE, TK_GT, TK_GE];
@@ -62,7 +63,9 @@ fun word_value(scan: Any, node: Any, expected: Any) -> Any {
     if (kind == E_VAR) {
         let name: Any = symbol_name(node.name, node.length);
         if (expected == "Bool" and (name == "true" or name == "false") and not word_local(scan, name)) { return true; }
-        if (not word_local(scan, symbol_name(node.name, node.length))) { return word_reject(scan); }
+        if (word_local(scan, name)) { return true; }
+        if (glob_find(scan.ctx, node.name, node.length) < 0) { return word_reject(scan); }
+        node.wordGlobal = expected;
         return true;
     }
     if (kind == E_BIN) {
@@ -131,8 +134,11 @@ fun word_statement(scan: Any, node: Any) -> Any {
         return true;
     }
     if (kind == S_ASSIGN) {
-        if (not word_local(scan, symbol_name(node.name, node.length))) { return word_reject(scan); }
-        return word_typed(scan, node.value);
+        if (not word_typed(scan, node.value)) { return false; }
+        if (word_local(scan, symbol_name(node.name, node.length))) { return true; }
+        if (glob_find(scan.ctx, node.name, node.length) < 0) { return word_reject(scan); }
+        node.wordGlobal = word_kind(node.value.strictType) ?? "Int";
+        return true;
     }
     if (kind == S_EXPR) {
         let expression: Any = node.expression;
