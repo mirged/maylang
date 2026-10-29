@@ -115,9 +115,12 @@ call from other code untags the arguments and retags the result, which raises
 an `integer overflow` fault if it does not fit the 61-bit range. Globals keep
 tagged values: a native-word function untags them on read and retags them on
 write, where a value outside the 61-bit range raises `integer overflow` and
-leaves the global unchanged. Debug traces omit native-word frames. Other
-functions keep the tagged semantics
-([#92](https://github.com/mirged/maylang/issues/92)).
+leaves the global unchanged. In other code, an `Int` or `Bool` expression that
+contains a bitwise operator and uses only integer variables, literals,
+operators and native-word calls is compiled the same way, with its variables
+(at most six) passed as arguments, so `(1 << 63) & (1 << 63) != 0` is `true`.
+Debug traces omit native-word frames. Other functions keep the tagged
+semantics ([#92](https://github.com/mirged/maylang/issues/92)).
 
 `Float32` rounds through IEEE binary32 at typed boundaries and keeps the
 existing boxed binary64 storage. `Float` and `Float64` use binary64. Float32

@@ -19,6 +19,13 @@
   `load8`..`load64`/`store8`..`store64`, in native-word functions, so memory reads keep bit 63
   instead of wrapping to the tagged range
   ([#92](https://github.com/mirged/maylang/issues/92)).
+- **Breaking:** evaluate `Int`/`Bool` expressions that contain a bitwise
+  operator with 64-bit words in the full and core runtimes, by outlining them
+  into native-word functions. `(1 << 63) & (1 << 63) != 0` is now `true`, shift
+  counts up to 63 are accepted, and a result that does not fit the signed
+  61-bit range raises `integer overflow` instead of wrapping (`6 << 59` and
+  `1 << 60` used to wrap silently)
+  ([#92](https://github.com/mirged/maylang/issues/92)).
 - Raise an `arithmetic` fault (`integer overflow`) when tagged `load64` reads
   a word outside the signed 61-bit range, on every target. It previously
   dropped the top three bits silently. Raw code and native-word functions

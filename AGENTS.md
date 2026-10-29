@@ -216,13 +216,14 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   `Float` (write `0.0` or convert with `to_float`). On `Any` values `==` across
   types is `false`, `!=` is `true`, and ordering raises a `type` fault, so
   `Any`-typed numeric code must normalize with `to_float` before comparing.
-- Full/core runtime integers are 61-bit tagged values (±2^60). Raw mode uses
-  native 64-bit words for bitwise operations. On every target, all-`Int`/`Ptr`/`Bool` functions
-  (`compiler/mayc/src/words.may`) compute and `load64` with native 64-bit words and retag
-  results at the boundary, so `1 << 63` behaves differently there than in
-  tagged code. Overflow and division by zero
-  raise catchable `arithmetic` faults (uncaught core faults exit 70). `/`
-  truncates toward zero and `%` has the dividend's sign.
+- Full/core runtime integers are stored as 61-bit tagged values (±2^60). Raw
+  mode uses native 64-bit words. On every target, all-`Int`/`Ptr`/`Bool`
+  functions (`compiler/mayc/src/words.may`) compute with native 64-bit words,
+  and tagged code outlines bitwise expressions into such functions, so
+  `1 << 63` is a valid intermediate. Values are retagged at the boundary;
+  one outside ±2^60, a tagged `load64` of such a word, overflow and division
+  by zero raise catchable `arithmetic` faults (uncaught core faults exit 70).
+  `/` truncates toward zero and `%` has the dividend's sign.
 - Strings are UTF-8 and `len`/indexing count code points. For byte length use
   `byte_length` from `import "net";`, or `load64(addr(s) - 8)` as `net.may`
   does. `print` always appends a newline; for raw output use
