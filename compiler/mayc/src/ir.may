@@ -603,6 +603,8 @@ fun ir_program(ctx: Any) -> Any {
     WORD_PENDING = [];
     for rec: Any in FUNC_HEAD {
         if (rec.mode == 1 or symbol_name(rec.p, rec.l) == "str") { ir_reachable(rec, live, queue); }
+        // Fat values lower ln/log2/log10/exp to the portable kernels (x86_64_fat.may).
+        else if (FAT_VALUES and has(["__math_ln", "__math_log2", "__math_log10", "__math_exp"], symbol_name(rec.p, rec.l))) { ir_reachable(rec, live, queue); }
     }
     ir_dependencies(IR_MAIN, names, labels, live, queue);
     mut next: Any = 0;

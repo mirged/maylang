@@ -129,6 +129,19 @@ fun rt_gc() -> Any {
         i = i + 1;
     }
     rt_scan_range(__sp(), CSTOP);
+    rt_mark_word(FIB_TAB); rt_mark_word(FIB_SAVE0); rt_mark_word(FIB_HSTACK0); rt_mark_word(FIB_ERRVAL0);
+    // A fiber running now scans its own stack above; the others and the
+    // suspended main stack are scanned from their saved stack pointers.
+    if (FIB_CUR != 0 and FIB_SAVE0 != 0) {
+        let lo: Any = load64(FIB_SAVE0);
+        if (STACKTOP > lo) { rt_scan_range(lo, STACKTOP); }
+    }
+    i = 0;
+    while (i < FIB_N) {
+        let rec: Any = load64(FIB_TAB + i * 8);
+        if (rec != FIB_CUR and load64(rec + 24) > load64(rec)) { rt_scan_range(load64(rec), load64(rec + 24)); }
+        i = i + 1;
+    }
     while (MARKN > 0) {
         MARKN = MARKN - 1;
         let p: Any = load64(MARKSTK + MARKN * 8);
@@ -902,6 +915,16 @@ fun rt_binary(opt: Any, op: Any, at: Any, a: Any, bt: Any, b: Any) -> Any {
         if (op == 28) { return 1 - rt_less(bt, b, at, a); }
         return 1 - rt_less(at, a, bt, b);
     }
+    if (at == 6 and op >= 20 and op <= 23) {
+        // Records overload + - * / with a function stored under the operator.
+        let key: Any = rt_strnew(1);
+        if (op == 20) { store8(key + 8, 43); }
+        if (op == 21) { store8(key + 8, 45); }
+        if (op == 22) { store8(key + 8, 42); }
+        if (op == 23) { store8(key + 8, 47); }
+        let method: Any = rt_map_lookup(a, 4, key);
+        if (RTAG == 7) { return rt_call2(method, at, a, bt, b); }
+    }
     if (op == 20) {
         if (at == 4) {
             RTAG = 4;
@@ -1247,4 +1270,281 @@ fun rt_trunc(t: Any, v: Any) -> Any {
         return rt_failarith(rt_from(addr("Float outside Int range"), 23));
     }
     return n;
+}
+
+// ---- calling compiled closures ---------------------------------------------
+
+fun rt_call1(f: Any, t: Any, v: Any) -> Any {
+    let argv: Any = rt_alloc_values(1);
+    store64(argv, t); store64(argv + 8, v);
+    return __fat_apply(f, argv, 1);
+}
+
+fun rt_call2(f: Any, at: Any, a: Any, bt: Any, b: Any) -> Any {
+    let argv: Any = rt_alloc_values(2);
+    store64(argv, at); store64(argv + 8, a); store64(argv + 16, bt); store64(argv + 24, b);
+    return __fat_apply(f, argv, 2);
+}
+
+fun rt_expect_function(t: Any) -> Any {
+    if (t != 7) { return rt_failtype(rt_from(addr("value is not callable"), 21)); }
+    return 0;
+}
+
+fun rt_expect_list(t: Any) -> Any {
+    if (t != 5) { return rt_failtype(rt_from(addr("expected List"), 13)); }
+    return 0;
+}
+
+// A callback result counts as true only when it is `true`.
+fun rt_called_true(v: Any) -> Any {
+    if (RTAG == 1 and v == 1) { return 1; }
+    return 0;
+}
+
+fun rt_mapf(lt: Any, l: Any, ft: Any, f: Any) -> Any {
+    rt_expect_list(lt); rt_expect_function(ft);
+    let n: Any = load64(l);
+    let r: Any = rt_list_raw(n);
+    mut i: Any = 0;
+    while (i < n) {
+        let d: Any = load64(l + 16);
+        let v: Any = rt_call1(f, load64(d + i * 16), load64(d + i * 16 + 8));
+        rt_list_add(r, RTAG, v);
+        i = i + 1;
+    }
+    RTAG = 5;
+    return r;
+}
+
+fun rt_filter(lt: Any, l: Any, ft: Any, f: Any) -> Any {
+    rt_expect_list(lt); rt_expect_function(ft);
+    let n: Any = load64(l);
+    let r: Any = rt_list_raw(n);
+    mut i: Any = 0;
+    while (i < n) {
+        let d: Any = load64(l + 16);
+        let t: Any = load64(d + i * 16);
+        let v: Any = load64(d + i * 16 + 8);
+        if (rt_called_true(rt_call1(f, t, v)) == 1) { rt_list_add(r, t, v); }
+        i = i + 1;
+    }
+    RTAG = 5;
+    return r;
+}
+
+fun rt_reduce(lt: Any, l: Any, ft: Any, f: Any, it: Any, init: Any) -> Any {
+    rt_expect_list(lt); rt_expect_function(ft);
+    mut acct: Any = it;
+    mut acc: Any = init;
+    mut i: Any = 0;
+    while (i < load64(l)) {
+        let d: Any = load64(l + 16);
+        acc = rt_call2(f, acct, acc, load64(d + i * 16), load64(d + i * 16 + 8));
+        acct = RTAG;
+        i = i + 1;
+    }
+    RTAG = acct;
+    return acc;
+}
+
+// any (`wanted` 1) or all (0): stop at the first element whose test is `wanted`.
+fun rt_quantify(lt: Any, l: Any, ft: Any, f: Any, wanted: Any) -> Any {
+    rt_expect_list(lt); rt_expect_function(ft);
+    mut i: Any = 0;
+    while (i < load64(l)) {
+        let d: Any = load64(l + 16);
+        if (rt_called_true(rt_call1(f, load64(d + i * 16), load64(d + i * 16 + 8))) == wanted) { RTAG = 1; return wanted; }
+        i = i + 1;
+    }
+    RTAG = 1;
+    return 1 - wanted;
+}
+
+fun rt_any(lt: Any, l: Any, ft: Any, f: Any) -> Any { return rt_quantify(lt, l, ft, f, 1); }
+fun rt_all(lt: Any, l: Any, ft: Any, f: Any) -> Any { return rt_quantify(lt, l, ft, f, 0); }
+
+// ---- powers ----------------------------------------------------------------
+
+fun rt_powf(at: Any, a: Any, bt: Any, b: Any) -> Any {
+    if ((at != 2 and at != 3) or (bt != 2 and bt != 3)) { return rt_failtype(rt_from(addr("pow requires numbers"), 20)); }
+    let f: Any = __math_powf;
+    return rt_call2(f, 3, rt_bits(at, a), 3, rt_bits(bt, b));
+}
+
+fun rt_pow(at: Any, a: Any, bt: Any, b: Any) -> Any {
+    if (at == 2 and bt == 2 and b >= 0) {
+        mut r: Any = 1;
+        mut i: Any = 0;
+        while (i < b) { r = rt_checked_mul(r, a); i = i + 1; }
+        RTAG = 2;
+        return r;
+    }
+    return rt_powf(at, a, bt, b);
+}
+
+// ---- process ---------------------------------------------------------------
+
+// A whole /proc file, or 0.
+fun rt_proc_file(path: Any) -> Any {
+    let fd: Any = syscall(2, path, 0, 0);
+    if (fd < 0) { return 0; }
+    let b: Any = rt_alloc_bytes(1048576);
+    let n: Any = syscall(0, fd, b, 1048576);
+    syscall(3, fd);
+    if (n < 0) { return 0; }
+    return rt_from(b, n);
+}
+
+fun rt_args() -> Any {
+    let l: Any = rt_list_raw(4);
+    let text: Any = rt_proc_file(addr("/proc/self/cmdline"));
+    if (text != 0) {
+        let n: Any = load64(text);
+        mut i: Any = 0;
+        while (i < n) {
+            let start: Any = i;
+            while (i < n and load8(text + 8 + i) != 0) { i = i + 1; }
+            if (i > start) { rt_list_add(l, 4, rt_from(text + 8 + start, i - start)); }
+            i = i + 1;
+        }
+    }
+    RTAG = 5;
+    return l;
+}
+
+fun rt_env(t: Any, name: Any) -> Any {
+    RTAG = 0;
+    if (t != 4) { return 0; }
+    let text: Any = rt_proc_file(addr("/proc/self/environ"));
+    if (text == 0) { return 0; }
+    let n: Any = load64(text);
+    let nl: Any = load64(name);
+    mut i: Any = 0;
+    while (i < n) {
+        let start: Any = i;
+        while (i < n and load8(text + 8 + i) != 0) { i = i + 1; }
+        if (i - start > nl and load8(text + 8 + start + nl) == 61 and rt_sub_eq(text, start, name) == 1) {
+            RTAG = 4;
+            return rt_from(text + 8 + start + nl + 1, i - start - nl - 1);
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fun rt_file_exists(t: Any, p: Any) -> Any {
+    RTAG = 1;
+    if (t != 4) { return 0; }
+    let fd: Any = syscall(2, rt_cstr_raw(p), 0, 0);
+    if (fd < 0) { return 0; }
+    syscall(3, fd);
+    return 1;
+}
+
+// ---- fibers ----------------------------------------------------------------
+// A fiber record: [saved sp, closure, live, stack top, handler stack,
+// handler depth, error, error flag].
+
+mut FIB_TAB: Any = 0;
+mut FIB_N: Any = 0;
+mut FIB_CUR: Any = 0;
+mut FIB_SAVE0: Any = 0;
+mut FIB_HSTACK0: Any = 0;
+mut FIB_HDEPTH0: Any = 0;
+mut FIB_ERRVAL0: Any = 0;
+mut FIB_ERRFLAG0: Any = 0;
+
+fun rt_fiber_tables() -> Any {
+    if (FIB_TAB == 0) { FIB_TAB = rt_alloc(1024); }
+    if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
+    return 0;
+}
+
+fun rt_spawn(t: Any, f: Any) -> Any {
+    rt_expect_function(t);
+    if (FIB_N >= 128) { return rt_failstr(rt_from(addr("fiber limit exceeded"), 20)); }
+    rt_fiber_tables();
+    let rec: Any = rt_alloc(64);
+    store64(rec + 8, f);
+    store64(rec + 16, 1);
+    store64(rec + 32, rt_alloc(64 * 256));
+    let size: Any = 262144;
+    let base: Any = syscall(9, 0, size, 3, 34, 0 - 1, 0);
+    if (base < 0) { return rt_failstr(rt_from(addr("cannot allocate fiber stack"), 27)); }
+    let top: Any = base + size;
+    store64(rec + 24, top);
+    let sp: Any = top - 56;
+    store64(sp + 48, __fiber_entry());
+    store64(rec, sp);
+    store64(FIB_TAB + FIB_N * 8, rec);
+    FIB_N = FIB_N + 1;
+    RTAG = 2;
+    return rec;
+}
+
+fun rt_fiber_save(rec: Any) -> Any {
+    store64(rec + 32, HSTACK); store64(rec + 40, HDEPTH);
+    store64(rec + 48, ERRVAL); store64(rec + 56, ERRFLAG);
+    return 0;
+}
+
+fun rt_fiber_restore(rec: Any) -> Any {
+    HSTACK = load64(rec + 32); HDEPTH = load64(rec + 40);
+    ERRVAL = load64(rec + 48); ERRFLAG = load64(rec + 56);
+    CSTOP = load64(rec + 24);
+    return 0;
+}
+
+fun rt_fiber_main() -> Any {
+    HSTACK = FIB_HSTACK0; HDEPTH = FIB_HDEPTH0;
+    ERRVAL = FIB_ERRVAL0; ERRFLAG = FIB_ERRFLAG0;
+    return 0;
+}
+
+fun rt_yield() -> Any {
+    RTAG = 0;
+    if (FIB_CUR == 0) { return 0; }
+    rt_fiber_save(FIB_CUR);
+    rt_fiber_main();
+    __fib_switch(FIB_CUR, FIB_SAVE0);
+    rt_fiber_restore(FIB_CUR);
+    RTAG = 0;
+    return 0;
+}
+
+fun rt_run() -> Any {
+    rt_fiber_tables();
+    FIB_HSTACK0 = HSTACK; FIB_HDEPTH0 = HDEPTH;
+    FIB_ERRVAL0 = ERRVAL; FIB_ERRFLAG0 = ERRFLAG;
+    mut again: Any = 1;
+    while (again == 1) {
+        again = 0;
+        mut i: Any = 0;
+        while (i < FIB_N) {
+            let rec: Any = load64(FIB_TAB + i * 8);
+            if (load64(rec + 16) == 1) {
+                again = 1;
+                FIB_CUR = rec;
+                rt_fiber_restore(rec);
+                __fib_switch(FIB_SAVE0, rec);
+                rt_fiber_main();
+                CSTOP = STACKTOP;
+                FIB_CUR = 0;
+            }
+            i = i + 1;
+        }
+    }
+    RTAG = 0;
+    return 0;
+}
+
+fun rt_fiber_entry() -> Any {
+    let rec: Any = FIB_CUR;
+    CSTOP = load64(rec + 24);
+    __fat_apply(load64(rec + 8), 0, 0);
+    store64(rec + 16, 0);
+    rt_fiber_main();
+    __fib_switch(rec, FIB_SAVE0);
+    return 0;
 }

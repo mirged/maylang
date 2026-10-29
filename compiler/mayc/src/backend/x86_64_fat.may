@@ -254,7 +254,10 @@ let FAT_BUILTINS: Any = {"str": "rt_to_str", "str_of": "rt_to_str", "len": "rt_l
     "values": "rt_values", "to_map": "rt_to_map", "value_eq": "rt_eq", "value_tag": "rt_value_tag",
     "cmp": "rt_cmp", "char_at": "rt_char_at", "char_from": "rt_char_from", "to_float": "rt_to_f",
     "read_file": "rt_read_file", "write_file": "rt_write_file", "addr": "rt_addr", "cstr": "rt_cstr",
-    "sqrt": "rt_sqrt", "floor": "rt_floor", "ceil": "rt_ceil", "trunc": "rt_trunc"};
+    "sqrt": "rt_sqrt", "floor": "rt_floor", "ceil": "rt_ceil", "trunc": "rt_trunc", "pow": "rt_powf",
+    "map": "rt_mapf", "filter": "rt_filter", "reduce": "rt_reduce", "any": "rt_any", "all": "rt_all",
+    "args": "rt_args", "env": "rt_env", "file_exists": "rt_file_exists",
+    "spawn": "rt_spawn", "yield": "rt_yield", "run": "rt_run"};
 
 // Transcendentals use the portable binary64 kernels, as the core runtime does.
 let FAT_MATH: Any = {"ln": "__math_ln", "log2": "__math_log2", "log10": "__math_log10", "exp": "__math_exp"};
@@ -299,6 +302,20 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         fat_get(ctx, args);
         e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);                             // mov rdi, rax
         mov_imm(ctx, 60); x86_syscall_instruction(ctx);
+        return 0;
+    }
+    if (name == "syscall") {
+        // Number and arguments are Int payloads; the result is an Int.
+        let count: Any = fat_count(args);
+        let values: Any = [];
+        mut arg: Any = args;
+        while (arg != 0) { push(values, arg); arg = arg.next; }
+        mut index: Any = count - 1;
+        while (index >= 0) { fat_get(ctx, values[index]); e8(ctx, 80); index -= 1; }
+        let pops: Any = [[88], [95], [94], [90], [65, 90], [65, 88], [65, 89]]; // rax rdi rsi rdx r10 r8 r9
+        for i: Any in 0..count { for byte: Any in pops[i] { e8(ctx, byte); } }
+        x86_syscall_instruction(ctx);
+        x86_mov_immediate(ctx, 2, 2);
         return 0;
     }
     if (has(FAT_LOADS, name)) {
@@ -350,10 +367,7 @@ fun fat_operation(ctx: Any, n: Any) -> Any {
     if (k == E_VAR) { return fat_var(ctx, n); }
     if (k == E_CAPVAR) { fat_env_cell(ctx, n.index); return fat_cell_load(ctx); }
     if (k == E_CLOSURE) { return fat_closure(ctx, n); }
-    if (k == E_INDEX) {
-        fat_get(ctx, n.object); fat_push(ctx); fat_get(ctx, n.index); fat_push(ctx);
-        return fat_rt_call(ctx, "rt_index_get", 4);
-    }
+    if (k == E_INDEX) { return fat_index(ctx, n); }
     if (k == E_GET) {
         fat_get(ctx, n.object); fat_push(ctx);
         fat_literal(ctx, intern_obj(ctx, n.span.source, n.start, n.length)); fat_push(ctx);
@@ -369,17 +383,82 @@ fun fat_operation(ctx: Any, n: Any) -> Any {
         fat_get(ctx, n.left); fat_push(ctx); fat_get(ctx, n.right); fat_push(ctx);
         return fat_rt_call(ctx, "rt_pow", 4);
     }
-    if (k == E_BIN) {
-        fat_set(ctx, 2, n.op); fat_push(ctx);
-        fat_get(ctx, n.left); fat_push(ctx); fat_get(ctx, n.right); fat_push(ctx);
-        return fat_rt_call(ctx, "rt_binary", 6);
-    }
+    if (k == E_BIN) { return fat_binary(ctx, n); }
     if (k == E_UN) {
         fat_set(ctx, 2, n.op); fat_push(ctx); fat_get(ctx, n.operand); fat_push(ctx);
         return fat_rt_call(ctx, "rt_unary", 4);
     }
     if (k == E_CALL) { return fat_call(ctx, n); }
     die_str("mayc: --values fat does not support IR operation ${k}\n");
+    return 0;
+}
+
+// Load `left` into R9 (type) and R8 (payload) and `right` into RDX/RAX.
+fun fat_operands(ctx: Any, left: Any, right: Any) -> Any {
+    fat_get(ctx, left);
+    for byte: Any in [73, 137, 209, 73, 137, 192] { e8(ctx, byte); }         // mov r9, rdx; mov r8, rax
+    fat_get(ctx, right);
+    return 0;
+}
+
+// Fall back to `name`(left, right) with the operands from fat_operands
+// (after `extra` already pushed words).
+fun fat_operands_call(ctx: Any, name: Any, extra: Any) -> Any {
+    for byte: Any in [65, 81, 65, 80, 82, 80] { e8(ctx, byte); }             // push r9; push r8; push rdx; push rax
+    return fat_rt_call(ctx, name, extra + 4);
+}
+
+// Int arithmetic, bitwise operators and comparisons run inline; other
+// types, overflow (to raise the runtime's fault) and other operators call
+// rt_binary.
+let FAT_INLINE_ARITH: Any = {"20": [73, 1, 194], "21": [73, 41, 194], "22": [76, 15, 175, 208],
+    "64": [73, 33, 194], "45": [73, 9, 194], "63": [73, 49, 194]};
+let FAT_INLINE_COMPARE: Any = {"25": 148, "26": 149, "27": 156, "28": 158, "29": 159, "30": 157};
+
+fun fat_binary(ctx: Any, n: Any) -> Any {
+    let key: Any = str(n.op);
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
+    fat_operands(ctx, n.left, n.right);
+    if (has(FAT_INLINE_ARITH, key) or has(FAT_INLINE_COMPARE, key)) {
+        for byte: Any in [73, 131, 249, 2] { e8(ctx, byte); }                // cmp r9, 2
+        jcc(ctx, 133, slow);
+        for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                // cmp rdx, 2
+        jcc(ctx, 133, slow);
+        if (has(FAT_INLINE_ARITH, key)) {
+            for byte: Any in [77, 137, 194] { e8(ctx, byte); }                // mov r10, r8
+            for byte: Any in FAT_INLINE_ARITH[key] { e8(ctx, byte); }         // op r10, rax
+            if (n.op == TK_PLUS or n.op == TK_MINUS or n.op == TK_STAR) { jcc(ctx, 128, slow); } // jo
+            for byte: Any in [76, 137, 208] { e8(ctx, byte); }                // mov rax, r10
+        } else {
+            for byte: Any in [73, 57, 192, 15, FAT_INLINE_COMPARE[key], 192, 15, 182, 192] { e8(ctx, byte); } // cmp r8, rax; setcc; movzx
+            x86_mov_immediate(ctx, 2, 1);
+        }
+        jmp(ctx, done);
+    }
+    placelab(ctx, slow);
+    x86_mov_immediate(ctx, 1, 2); e8(ctx, 81);                                 // push 2 (Int type)
+    x86_mov_immediate(ctx, 1, n.op); e8(ctx, 81);                              // push op
+    fat_operands_call(ctx, "rt_binary", 2);
+    placelab(ctx, done);
+    return 0;
+}
+
+// List elements in range load inline; everything else calls rt_index_get.
+fun fat_index(ctx: Any, n: Any) -> Any {
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
+    fat_operands(ctx, n.object, n.index);
+    for byte: Any in [73, 131, 249, 5] { e8(ctx, byte); }                    // cmp r9, 5
+    jcc(ctx, 133, slow);
+    for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                    // cmp rdx, 2
+    jcc(ctx, 133, slow);
+    for byte: Any in [77, 139, 16, 76, 57, 208] { e8(ctx, byte); }           // mov r10, [r8]; cmp rax, r10
+    jcc(ctx, 131, slow);                                                      // jae (also negative)
+    for byte: Any in [77, 139, 80, 16, 72, 193, 224, 4, 73, 1, 194,          // mov r10, [r8 + 16]; shl rax, 4; add r10, rax
+        73, 139, 18, 73, 139, 66, 8] { e8(ctx, byte); }                      // mov rdx, [r10]; mov rax, [r10 + 8]
+    jmp(ctx, done);
+    placelab(ctx, slow);
+    fat_operands_call(ctx, "rt_index_get", 0);
+    placelab(ctx, done);
     return 0;
 }
 

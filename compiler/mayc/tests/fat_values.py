@@ -16,12 +16,21 @@ ROOT = Path(__file__).resolve().parents[3]
 TESTS = ROOT / 'compiler/mayc/tests'
 
 PASSING = {
-    'arith_overflow.may', 'closures_adv.may', 'cond.may', 'deep_recursion.may', 'destructure.may',
-    'div_zero.may', 'edge.may', 'enums.may', 'floats.may', 'funcs.may', 'interp.may', 'intkeys.may',
-    'json.may', 'lists1.may', 'lists_nested.may', 'logical.may', 'loops.may', 'map_ops.may',
-    'maps1.may', 'match.may', 'may1.may', 'modules_app.may', 'nested_may.may', 'parse_num.may',
-    'results.may', 'shared_capture.may', 'spread_comp.may', 'stdlib_math.may', 'strings1.may',
-    'strings2.may', 'strings_esc.may', 'typehints.may', 'values.may',
+    'arith.may', 'arith_overflow.may', 'closures_adv.may', 'cond.may', 'deep_recursion.may',
+    'destructure.may', 'div_zero.may', 'edge.may', 'enums.may', 'env_args.may', 'fibers1.may',
+    'files.may', 'floats.may', 'funcs.may', 'interp.may', 'intkeys.may', 'json.may', 'lists1.may',
+    'lists_hof.may', 'lists_nested.may', 'logical.may', 'loops.may', 'map_ops.may', 'maps1.may',
+    'match.may', 'math.may', 'may1.may', 'modules_app.may', 'nested_may.may', 'parse_num.may',
+    'pipe.may', 'pointers.may', 'results.may', 'shared_capture.may', 'spread_comp.may',
+    'stdlib_collections.may', 'stdlib_math.may', 'stress.may', 'strings1.may', 'strings2.may',
+    'strings_esc.may', 'structs.may', 'typehints.may', 'values.may',
+}
+
+# Fixtures whose fat output intentionally differs from the tagged record:
+# Int no longer overflows between 2^60 and 2^63.
+INTENDED = {
+    'bitwise.may': b'2 7 5 -1\n1 12 -2 -1152921504606846976\ntrue 2 true\n'
+                   b'1152921504606846976 shift count out of range\n3 true\n2305843009213693952\n1\n9\n',
 }
 
 SEMANTICS = '''
@@ -69,15 +78,17 @@ def main():
                 continue
             record = expected[name]
             want = (record['exit'], base64.b64decode(record['stdout']), base64.b64decode(record['stderr']))
+            if name in INTENDED:
+                want = (0, INTENDED[name], b'')
             got, error = compile_run(compiler, TESTS / name, work / name.replace('.may', ''))
             if got == want:
                 passed.append(name)
             else:
-                assert name not in PASSING, (name, error or got)
+                assert name not in PASSING and name not in INTENDED, (name, error or got)
                 pending.append(name)
-        missing = PASSING - set(passed)
+        missing = (PASSING | set(INTENDED)) - set(passed)
         assert not missing, missing
-        print(f'PASS {len(passed)} of {len(passed) + len(pending)} feature fixtures match tagged behavior', flush=True)
+        print(f'PASS {len(passed)} of {len(passed) + len(pending)} feature fixtures match tagged behavior or its intended 64-bit difference', flush=True)
         if pending:
             print('PENDING ' + ' '.join(pending), flush=True)
 
