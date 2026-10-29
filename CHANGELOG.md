@@ -15,6 +15,13 @@
   shift counts outside 0 through 63; results are retagged, with an overflow fault,
   when they return to tagged code. Calls between such functions pass machine
   words directly ([#92](https://github.com/mirged/maylang/issues/92)).
+- Accept `Ptr` parameters, results and locals, and `load8`..`load64`/
+  `store8`..`store64`, in native-word functions, so memory reads keep bit 63
+  instead of wrapping to the tagged range
+  ([#92](https://github.com/mirged/maylang/issues/92)).
+- Reject `addr`, `cstr` and `len` on a non-literal string in x86-64 raw mode,
+  as the other raw backends do; they previously compiled to a read of
+  unrelated memory.
 - Fault on tagged shift counts outside 0 through 60 on the ARM64 and RISC-V
   core targets, as x86-64 already did; they previously shifted silently
   ([#91](https://github.com/mirged/maylang/issues/91)).

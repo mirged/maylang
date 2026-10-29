@@ -101,12 +101,14 @@ narrower type is checked rather than rejected solely for having a wider type.
 part. These names do not provide a complete 64-bit payload or machine-width
 storage.
 
-On every target, a function whose parameters and result are all `Int`, and
-whose body uses only `Int` locals, integer operators, comparisons, `if`,
-`while`, `break`, `continue` and calls to other such functions, compiles as
+On every target, a function whose parameters and result are all `Int` or
+`Ptr`, and whose body uses only `Int`/`Ptr` locals, integer operators,
+comparisons, `if`, `while`, `break`, `continue`, `load8` through `load64`,
+`store8` through `store64` and calls to other such functions, compiles as
 a native-word function. Inside it, and across calls between such functions,
 `Int` values are untagged signed 64-bit machine words: bitwise operators reach
-bit 63, shift counts may be 0 through 63, and `+`, `-`, `*`, `/` and negation
+bit 63, `load64` keeps all 64 bits (tagged code wraps it to 61), shift counts
+may be 0 through 63, and `+`, `-`, `*`, `/` and negation
 fault on 64-bit overflow. A call from other code untags the arguments and
 retags the result, which raises an `integer overflow` fault if it does not
 fit the 61-bit range. Debug traces omit native-word frames. Other functions
