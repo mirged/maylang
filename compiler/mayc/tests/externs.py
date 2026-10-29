@@ -124,8 +124,8 @@ fun stored(n: Int) -> Int {{ save(n << 62); return read_saved() >> 62; }}
 fun mixed(n: Int) -> Int {{ return digits(n, 2, 3, true) + high(1) - high(1); }}
 fun passed(n: Int) -> Int {{ return ident(n); }}
 fun widest() -> Int {{ return top_bit(); }}
-let three: Int = 3;
-print(top(3), moved(5), negate(false), stored(1), mixed(1), (high(three) >> 61) & 7);
+fun outlined(n: Any) -> Int {{ let k: Int = int(n); return (high(k) >> 61) & 7; }}
+print(top(3), moved(5), negate(false), stored(1), mixed(1), outlined(3));
 print(may {{ passed(-1); "bad" }} otherwise {{ err.message }});
 print(may {{ widest(); "bad" }} otherwise {{ err.message }});
 print(may {{ high(4); "bad" }} otherwise {{ err.message }});

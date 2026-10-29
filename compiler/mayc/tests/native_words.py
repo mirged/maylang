@@ -311,6 +311,9 @@ fun page(entry: Int) -> Bool { return (entry & (1 << 63)) != 0; }
 print(page(-1), page(1));
 let f: (Int) -> Int = fun(v: Int) -> Int { return (v << 62) >> 62; };
 print(f(3));
+mut seen: Int = 1;
+fun bump() -> Int { seen = seen + 10; return 0; }
+print((bump() | 0) + seen, seen + (bump() | 0), (bump() | 0) + seen);
 '''
 
 OUTLINED_EXPECTED = '''true
@@ -321,6 +324,7 @@ arithmetic: shift count out of range
 4 1
 true false
 -1
+11 11 31
 '''
 
 

@@ -325,6 +325,15 @@ fun word_free(node: Any, names: Any, order: Any) -> Any {
     return true;
 }
 
+fun word_calls(node: Any) -> Any {
+    if (node == 0) { return false; }
+    let kind: Any = node.kind;
+    if (kind == E_CALL) { return true; }
+    if (kind == E_BIN or kind == E_AND or kind == E_OR) { return word_calls(node.left) or word_calls(node.right); }
+    if (kind == E_UN) { return word_calls(node.operand); }
+    return false;
+}
+
 // The call that replaces `node`, or 0 when it stays tagged.
 fun words_outline(ctx: Any, node: Any) -> Any {
     if (DYNMODE == 0 or node == 0 or (node.kind != E_BIN and node.kind != E_UN)) { return 0; }
@@ -333,6 +342,11 @@ fun words_outline(ctx: Any, node: Any) -> Any {
     if (result == nil or not word_bitwise(node) or source_module(node.span) == "") { return 0; }
     let order: Any = [];
     if (not word_free(node, {}, order) or len(order) > 6) { return 0; }
+    // Parameters are read before the body runs, so a call that assigns a
+    // global would otherwise be ordered after that global's read.
+    if (word_calls(node)) {
+        for variable: Any in order { if (glob_find(ctx, variable.name, variable.length) >= 0) { return 0; } }
+    }
     let span: Any = node.span;
     let name: Any = "__word${len(WORD_LABELS)}";
     push(WORD_LABELS, name);
