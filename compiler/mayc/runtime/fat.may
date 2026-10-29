@@ -21,6 +21,8 @@ mut RTAG: Any = 0;
 mut HEAP: Any = 0;
 mut HP: Any = 0;
 mut HEAPEND: Any = 0;
+// Everything at or above HEAPDIRTY is untouched mmap memory, so it is zero.
+mut HEAPDIRTY: Any = 0;
 mut HEAPLIMIT: Any = 0;
 // One byte per heap word: 0 not an allocation start, 1 words (scanned
 // conservatively), 2 bytes (never scanned), 3 values (precise).
@@ -99,6 +101,7 @@ fun rt_init() -> Any {
     HEAPLIMIT = HEAP + reserve;
     HEAPEND = HEAP + sz;
     HP = HEAP;
+    HEAPDIRTY = HEAP;
     FREEBINS = syscall(9, 0, 4096, 3, 34, 0 - 1, 0);
     if (FREEBINS < 0) { syscall(60, 70); }
     MARKMAX = 1048576;
@@ -307,8 +310,12 @@ fun rt_alloc_kind(n: Any, kind: Any) -> Any {
     store64(H, need);
     store64(H + 8, 5124095576638253);
     store8(GCSTARTS + (H - HEAP) / 8, kind);
-    // A sweep can move HP back over freed blocks, so clear the payload.
-    rt_zero(H + 16, need - 16);
+    // A sweep can move HP back over freed blocks, so clear the part of the
+    // payload that was used before; fresh memory is already zero.
+    if (H + 16 < HEAPDIRTY) {
+        if (HP < HEAPDIRTY) { rt_zero(H + 16, need - 16); } else { rt_zero(H + 16, HEAPDIRTY - H - 16); }
+    }
+    if (HP > HEAPDIRTY) { HEAPDIRTY = HP; }
     return H + 16;
 }
 
