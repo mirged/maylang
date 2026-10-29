@@ -14,6 +14,14 @@
   `--values tagged` or `MAYC_VALUES=tagged` selects the old representation,
   which the core runtime and LLVM still use
   ([#92](https://github.com/mirged/maylang/issues/92)).
+- Run Int `/` and `%`, closure calls and their type checks inline in fat
+  code, and share one slow-path stub per operator: Int loops run 3.7x and
+  closure calls 4.7x faster than before, closures now 2.2x faster than
+  tagged values, and the compiler's code shrinks to 3.65 MB
+  ([#92](https://github.com/mirged/maylang/issues/92)).
+- Make `index_of`, `contains`, `replace`, `to_lower` and `to_upper` linear:
+  they scanned or rebuilt strings one code point at a time from the start,
+  so a 17 KB string took seconds. `stress.may` runs 10x faster.
 - Use fat values with the full runtime on x86_64-nodeos as well; `exec` and
   `system` start programs through the personality's spawn extension there.
   Fat code is about 20% smaller and `stress.may` runs 1.6x faster: short-lived
