@@ -2379,7 +2379,7 @@ fun x86_call_direct(ctx: Any, rec: Any, args: Any) -> Any {
     if (rec.abiLab == 0) { rec.abiLab = newlab(ctx); }
     // The body label is internal; retain the owning source function too.
     emission_reference(ctx, rec.lab);
-    if (ctx.native and rec.native == true) {
+    if (ctx.native and (rec.native == true or rec.wordForeign == true)) {
         if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
         call(ctx, rec.nativeLab);
     } else { call(ctx, rec.abiLab); }
@@ -3223,8 +3223,39 @@ fun x86_native_entry(ctx: Any, rec: Any) -> Any {
     return 0;
 }
 
+// Native entry of a word-compatible extern: arguments arrive as machine
+// words in the C argument registers, so only a UInt needs a range check
+// before the call, and a UInt result must fit Int.
+fun x86_foreign_native(ctx: Any, rec: Any) -> Any {
+    if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
+    placelab(ctx, rec.nativeLab);
+    x86_encode(ctx, X86Instruction([85, 72, 137, 229, 72, 131, 228, 240], 0, 0)); // push rbp; mov rbp, rsp; and rsp, -16
+    let registers: Any = [7, 6, 2, 1, 8, 9];
+    for index: Any in 0..rec.pc {
+        if (rec.ffiArgs[index] == 1) {
+            let register: Any = registers[index];
+            let rex: Any = if (register >= 8) { 77 } else { 72 };
+            x86_encode(ctx, X86Instruction([rex, 133, 192 + register % 8 * 9], 0, 0)); // test reg, reg
+            jcc(ctx, 136, x86_native_fault(ctx, 3));                                 // js
+        }
+    }
+    ld_abs(ctx, rec.ffiSlot);
+    x86_encode(ctx, X86Instruction([73, 137, 195, 49, 192, 65, 255, 211], 0, 0)); // mov r11, rax; xor eax, eax; call r11
+    let result: Any = rec.ffiResult;
+    if (result == 1) {
+        x86_encode(ctx, X86Instruction([72, 133, 192], 0, 0));                       // test rax, rax
+        jcc(ctx, 136, x86_native_fault(ctx, 4));
+    }
+    if (result == 8) { x86_encode(ctx, X86Instruction([15, 182, 192], 0, 0)); }     // movzx eax, al
+    if (result == 9) { xor_eax(ctx); }
+    x86_encode(ctx, X86Instruction([72, 137, 236, 93, 195], 0, 0));               // mov rsp, rbp; pop rbp; ret
+    return 0;
+}
+
 // Out-of-line fault targets: 0 integer overflow, 1 division by zero,
-// 2 shift count out of range. Native frames keep RSP 16-byte aligned.
+// 2 shift count out of range, and for native extern calls 3 a negative UInt
+// argument and 4 a UInt result above the Int range. Native frames keep RSP
+// 16-byte aligned.
 fun x86_native_fault(ctx: Any, kind: Any) -> Any {
     if (ctx.nativeFaults[kind] == 0) { ctx.nativeFaults[kind] = newlab(ctx); }
     return ctx.nativeFaults[kind];
@@ -3249,7 +3280,7 @@ fun x86_native_raise(ctx: Any, kind: Any) -> Any {
 
 fun cg_func(ctx: Any, rec: Any) -> Any {
     ctx.native = ctx.dynamic == 1 and rec.native == true;
-    ctx.nativeFaults = [0, 0, 0];
+    ctx.nativeFaults = [0, 0, 0, 0, 0];
     if (ctx.dynamic == 0) { ctx.mode = 0; }
     else if (rec.mode == 1 or ctx.native) { ctx.mode = 0; }
     else { ctx.mode = 1; }
@@ -3315,7 +3346,8 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 236);
     e8(ctx, 93);
     e8(ctx, 195);
-    for kind: Any in 0..3 {
+    if (rec.foreign == true and rec.wordForeign == true and ctx.dynamic == 1) { x86_foreign_native(ctx, rec); }
+    for kind: Any in 0..len(ctx.nativeFaults) {
         if (ctx.nativeFaults[kind] != 0) { placelab(ctx, ctx.nativeFaults[kind]); x86_native_raise(ctx, kind); }
     }
     ctx.native = false;

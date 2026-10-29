@@ -132,10 +132,13 @@ fun rt_failarith(s: Any) -> Any {
 }
 
 // Native-word functions (#92) report checked arithmetic faults here:
-// 0 integer overflow, 1 division by zero, 2 shift count out of range.
+// 0 integer overflow, 1 division by zero, 2 shift count out of range;
+// 3 and 4 are extern UInt argument and result ranges.
 fun rt_native_fault(kind: Any) -> Any {
     if (kind == 1) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
     if (kind == 2) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
+    if (kind == 3) { return rt_failarith(rt_from(addr("unsigned argument out of range"), 30)); }
+    if (kind == 4) { return rt_failarith(rt_from(addr("C result exceeds Int range"), 26)); }
     return rt_failarith(rt_from(addr("integer overflow"), 16));
 }
 

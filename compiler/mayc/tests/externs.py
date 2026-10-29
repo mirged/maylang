@@ -92,6 +92,53 @@ print(may {{ unsigned64(bad); "bad" }} otherwise {{ str(err.kind) }});
             result = run([binary])
             assert (result.returncode, result.stdout, result.stderr) == (0, expected, b''), (target, result)
             print(f'PASS {target}: scalar C ABI, stack arguments, function values and guards', flush=True)
+        # Native-word functions (#92) call integer externs with machine words:
+        # results keep bit 61 and above, and only UInt ranges are checked.
+        c_source.write_text('#include <stdbool.h>\n#include <stdint.h>\n'
+                            'int64_t high(int64_t n) { return n << 61; }\n'
+                            'uint64_t ident(uint64_t n) { return n; }\n'
+                            'uint64_t top_bit(void) { return 1ull << 63; }\n'
+                            'void *offset(void *p, int64_t n) { return (char *)p + n; }\n'
+                            'bool flip(bool b) { return !b; }\n'
+                            'static int64_t saved; void save(int64_t n) { saved = n; }\n'
+                            'int64_t read_saved(void) { return saved; }\n'
+                            'int64_t digits(int64_t a, uint64_t b, void *c, bool d) '
+                            '{ return a * 1000 + (int64_t)b * 100 + (int64_t)(intptr_t)c * 10 + d; }\n')
+        words = work / 'words oracle.so'
+        result = run([cc, '-shared', '-fPIC', c_source, '-o', words])
+        assert result.returncode == 0, result.stderr.decode()
+        source.write_text(f'''extern "{words}" {{
+    fun high(n: Int) -> Int;
+    fun ident(n: UInt) -> UInt;
+    fun top_bit() -> UInt;
+    fun offset(p: Ptr, n: Int) -> Ptr;
+    fun flip(b: Bool) -> Bool;
+    fun save(n: Int) -> Void;
+    fun read_saved() -> Int;
+    fun digits(a: Int, b: UInt, c: Ptr, d: Bool) -> Int;
+}}
+fun top(n: Int) -> Int {{ return high(n) >> 61; }}
+fun moved(n: Int) -> Ptr {{ return offset(high(1), n - high(1)); }}
+fun negate(b: Bool) -> Bool {{ return flip(b) and not flip(not b); }}
+fun stored(n: Int) -> Int {{ save(n << 62); return read_saved() >> 62; }}
+fun mixed(n: Int) -> Int {{ return digits(n, 2, 3, true) + high(1) - high(1); }}
+fun passed(n: Int) -> Int {{ return ident(n); }}
+fun widest() -> Int {{ return top_bit(); }}
+let three: Int = 3;
+print(top(3), moved(5), negate(false), stored(1), mixed(1), (high(three) >> 61) & 7);
+print(may {{ passed(-1); "bad" }} otherwise {{ err.message }});
+print(may {{ widest(); "bad" }} otherwise {{ err.message }});
+print(may {{ high(4); "bad" }} otherwise {{ err.message }});
+''')
+        expected = (b'3 5 true 1 1231 3\nunsigned argument out of range\n'
+                    b'C result exceeds Int range\nC result exceeds Int range\n')
+        for target in targets:
+            binary = work / f'words-{target}'
+            result = run([args.compiler.resolve(), '--target', target, source, '-o', binary])
+            assert result.returncode == 0, result.stderr.decode()
+            result = run([binary])
+            assert (result.returncode, result.stdout, result.stderr) == (0, expected, b''), (target, result)
+            print(f'PASS {target}: native-word functions call integer externs with machine words', flush=True)
         # Missing unused dependencies must not enter the executable's live graph.
         source.write_text('extern "lib-not-installed-externs.so" { fun unused() -> Int; } print(42);')
         for target in targets:

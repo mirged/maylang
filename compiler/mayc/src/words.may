@@ -9,13 +9,15 @@ import "emitter.may";
 //
 // A user function whose parameters and result are all `Int`, `Ptr` or `Bool`,
 // and whose body only computes with such locals and globals, raw memory access
-// (`load8`..`load64`, `store8`..`store64`) and `syscall`, compiles as native
+// (`load8`..`load64`, `store8`..`store64`), `syscall` and integer externs, compiles as native
 // 64-bit machine words, so loads and syscall results keep all 64 bits until
 // the result returns to tagged code.
 // Its tagged-ABI entry untags arguments and retags the result, raising the
 // ordinary `integer overflow` fault when the result leaves the tagged range.
 // Bool is 0/1 in native code (tagged 3/4). Calls between native-word
-// functions pass machine words directly. Globals keep tagged values, so the
+// functions pass machine words directly, as do calls to `extern` functions
+// whose C types are all integers, pointers or Bool (`word_foreign`); their
+// native entry only range-checks UInt. Globals keep tagged values, so the
 // scan marks global reads and writes (`wordGlobal`) for IR to convert.
 
 let WORD_ARITHMETIC: Any = [TK_PLUS, TK_MINUS, TK_STAR, TK_SLASH, TK_PCT, TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR];
@@ -28,6 +30,42 @@ let WORD_BUILTINS: Any = {"load8": [1, 1], "load16": [1, 1], "load32": [1, 1], "
 fun word_builtin(scan: Any, node: Any, name: Any) -> Any {
     if (not has(WORD_BUILTINS, name) or has(scan.names, name) or glob_find(scan.ctx, node.name, node.length) >= 0) { return false; }
     return name != "syscall" or has(["linux", "nodeos"], scan.ctx.target.os);
+}
+
+// FFI kinds (ffi.may) a native-word call passes as words: Int, UInt, Ptr and
+// Bool, and Void results. Int32 and UInt32 values carry strict range
+// contracts, which keep their users tagged. Only targets with a native extern
+// bridge (x86-64 Linux ELF and LLVM), at most six arguments.
+fun word_foreign(ctx: Any, rec: Any) -> Any {
+    if (rec.foreign != true or rec.pc > 6) { return false; }
+    if (not ((ctx.target.arch == "x86_64" and ctx.target.os == "linux") or ctx.target.arch == "llvm")) { return false; }
+    for kind: Any in rec.ffiArgs { if (not has([0, 1, 6, 8], kind)) { return false; } }
+    return has([0, 1, 6, 8, 9], rec.ffiResult);
+}
+
+// A call to a word-compatible extern. `expected` is "Nil" for a statement.
+fun word_foreign_call(scan: Any, node: Any, callee: Any, expected: Any) -> Any {
+    if (callee.wordForeign != true) { return word_reject(scan); }
+    let result: Any = callee.ffiResult;
+    let wanted: Any = if (result == 9) { "Nil" } else if (result == 8) { "Bool" } else { "Int" };
+    if (wanted != expected) { return word_reject(scan); }
+    mut count: Any = 0;
+    mut arg: Any = node.args;
+    while (arg != 0) {
+        if (count >= callee.pc) { return word_reject(scan); }
+        if (not word_value(scan, arg, if (callee.ffiArgs[count] == 8) { "Bool" } else { "Int" })) { return false; }
+        count += 1; arg = arg.next;
+    }
+    return count == callee.pc or word_reject(scan);
+}
+
+// The extern a call node names, or 0.
+fun word_extern(scan: Any, node: Any) -> Any {
+    if (node == 0 or node.kind != E_CALL) { return 0; }
+    let name: Any = symbol_name(node.name, node.length);
+    if (word_local(scan, name) or not has(scan.names, name)) { return 0; }
+    let callee: Any = scan.names[name];
+    return if (callee.foreign == true) { callee } else { 0 };
 }
 
 // Outlined bitwise expressions: the function name table from words_mark,
@@ -73,6 +111,9 @@ fun word_value(scan: Any, node: Any, expected: Any) -> Any {
     // Name resolution folds small literal arithmetic into untyped literals.
     if (node != 0 and node.kind == E_INT and expected == "Int" and word_plain(node) and node.strictType == nil) { return true; }
     if (node == 0 or not word_plain(node)) { return word_reject(scan); }
+    // Extern results carry their C binding type (Int32, Nil, ...).
+    let foreign: Any = word_extern(scan, node);
+    if (foreign != 0) { return word_foreign_call(scan, node, foreign, expected); }
     if (not (if (expected == "Int") { word_int(node.strictType) } else { word_type(node.strictType, expected) })) { return word_reject(scan); }
     let kind: Any = node.kind;
     if (kind == E_INT) { return true; }
@@ -160,6 +201,8 @@ fun word_statement(scan: Any, node: Any) -> Any {
     if (kind == S_EXPR) {
         let expression: Any = node.expression;
         if (expression != 0 and expression.kind == S_IF) { return word_statement(scan, expression); }
+        let foreign: Any = word_extern(scan, expression);
+        if (foreign != 0 and foreign.ffiResult == 9 and word_plain(expression)) { return word_foreign_call(scan, expression, foreign, "Nil"); }
         return word_typed(scan, expression);
     }
     if (kind == S_IF) {
@@ -216,6 +259,7 @@ fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
     if (DYNMODE == 0 or not has(["x86_64", "arm64", "riscv64", "llvm"], ctx.target.arch)) { return 0; }
     WORD_NAMES = names; WORD_PENDING = [];
     let scans: Any = [];
+    for rec: Any in functions { rec.wordForeign = word_foreign(ctx, rec); }
     for rec: Any in functions {
         rec.native = false;
         // A global of the same name shadows the function in every backend lookup.

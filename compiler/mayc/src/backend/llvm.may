@@ -71,7 +71,7 @@ fun llvm_call(s: Any, name: Any, values: Any) -> Any {
         mut p: Any = llvm_ssa(s, "getelementptr i64, ptr %argv, i64 ${i}", "ptr");
         llvm_store(s, p, value);
     }
-    let prefix: Any = if (s.native and rec.native == true) { "n" } else { "f" };
+    let prefix: Any = if (s.native and (rec.native == true or rec.wordForeign == true)) { "n" } else { "f" };
     return llvm_ssa(s, "call i64 @${prefix}${rec.lab}(i64 0, ptr %argv)", "i64");
 }
 // Branch to a native-word fault (#92): 0 overflow, 1 division by zero, 2 shift count.
@@ -548,7 +548,50 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
     for j: Any in 0..s.roots { push(out,"  %r${j} = alloca i64, align 8\n  store volatile i64 0, ptr %r${j}, align 8"); }
     push(out,join(s.lines,"\n")); push(out,"}\n");
     if (native) { push(out, llvm_native_entry(unit, rec)); }
+    if (rec.foreign == true and rec.wordForeign == true) { push(out, llvm_foreign_native(unit, rec)); }
     return join(out,"\n");
+}
+// Native entry of a word-compatible extern (#92): arguments are machine
+// words, so only a UInt argument is range-checked (fault kind 3), and a UInt
+// result must fit Int (kind 4).
+fun llvm_foreign_native(unit: Any, rec: Any) -> Any {
+    let fault: Any = unit.ctx.functionIndex["rt_native_fault"];
+    emission_reference(unit.ctx, fault.lab);
+    let lines: Any = ["define i64 @n${rec.lab}(i64 %env, ptr %incoming) noinline {\nentry:",
+        "  %argv = alloca [${unit.argCount} x i64], align 8", "  %fn = load ptr, ptr @foreign${rec.lab}, align 8"];
+    let faults: Any = [];
+    let args: Any = [];
+    for i: Any in 0..rec.pc {
+        let kind: Any = rec.ffiArgs[i];
+        push(lines, "  %p${i} = getelementptr i64, ptr %incoming, i64 ${i}\n  %v${i} = load volatile i64, ptr %p${i}, align 8");
+        if (kind == 1) {
+            push(lines, "  %bad${i} = icmp slt i64 %v${i}, 0\n  br i1 %bad${i}, label %fault3, label %ok${i}\nok${i}:");
+            if (len(faults) == 0) { push(faults, 3); }
+        }
+        if (kind == 6) { push(lines, "  %a${i} = inttoptr i64 %v${i} to ptr"); push(args, "ptr %a${i}"); }
+        else if (kind == 8) { push(lines, "  %a${i} = trunc i64 %v${i} to i1"); push(args, "i1 zeroext %a${i}"); }
+        else { push(args, "i64 %v${i}"); }
+    }
+    let kind: Any = rec.ffiResult; let ty: Any = llvm_ffi_type(kind);
+    if (kind == 9) { push(lines, "  call void %fn(${join(args, ", ")})\n  ret i64 0"); }
+    else {
+        let attribute: Any = if (kind == 8) { "zeroext " } else { "" };
+        push(lines, "  %c = call ${attribute}${ty} %fn(${join(args, ", ")})");
+        if (kind == 6) { push(lines, "  %r = ptrtoint ptr %c to i64"); }
+        else if (kind == 8) { push(lines, "  %r = zext i1 %c to i64"); }
+        else { push(lines, "  %r = add i64 %c, 0"); }
+        if (kind == 1) {
+            push(lines, "  %negative = icmp slt i64 %r, 0\n  br i1 %negative, label %fault4, label %done\ndone:");
+            push(faults, 4);
+        }
+        push(lines, "  ret i64 %r");
+    }
+    for kindFault: Any in faults {
+        push(lines, "fault${kindFault}:\n  store volatile i64 ${kindFault}, ptr %argv, align 8");
+        push(lines, "  %x${kindFault} = call i64 @f${fault.lab}(i64 0, ptr %argv)\n  unreachable");
+    }
+    push(lines, "}\n");
+    return join(lines, "\n");
 }
 // Tagged entry for a native-word function: untag arguments, call the native
 // body, then retag the result, faulting when it leaves the 61-bit range.
