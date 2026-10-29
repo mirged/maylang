@@ -41,6 +41,7 @@ fun ls_initialize(p: Any) -> Any {
     else if (p.rootPath != nil) { push(LS_ROOTS, ls_normal(p.rootPath)); }
     if (len(LS_ROOTS) == 0) { LS_ROOTS = [ls_cwd()]; }
     LS_STDLIB = ls_find_stdlib(p); LS_INITIALIZED = true;
+    LS_PUSH_DIAGNOSTICS = p.capabilities?.textDocument?.diagnostic == nil;
     STRICT_TYPES = p.initializationOptions?.strict ?? true;
     if (value_tag(STRICT_TYPES) != 3 and value_tag(STRICT_TYPES) != 4) { fail("strict must be a boolean"); }
     let fullTokens: Any = p.capabilities?.textDocument?.semanticTokens?.requests?.full;
@@ -108,7 +109,7 @@ fun ls_dispatch(method: Any, p: Any) -> Any {
     if (method == "textDocument/didClose") {
         LS_INDEX_EPOCH += 1;
         let doc: Any = ls_doc_param(p); LS_DOCS = remove(LS_DOCS, doc.uri);
-        ls_notify("textDocument/publishDiagnostics", {"uri": doc.uri, "diagnostics": []});
+        if (LS_PUSH_DIAGNOSTICS) { ls_notify("textDocument/publishDiagnostics", {"uri": doc.uri, "diagnostics": []}); }
         if (file_exists(doc.path)) { ls_document(doc.uri); }
         ls_recheck(); return nil;
     }

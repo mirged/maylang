@@ -863,6 +863,35 @@ def run_diagnostic_ids(binary, work):
             client.process.kill(); client.process.wait()
 
 
+def run_pull_only_diagnostics(binary, work):
+    # A client that pulls diagnostics must not also receive them pushed:
+    # editors keep the two in separate collections and show each error twice.
+    folder = work / 'pull-only'
+    folder.mkdir()
+    source = folder / 'main.may'
+    text = 'missing;\n'
+    source.write_text(text)
+    client = Client(binary)
+    try:
+        client.result('initialize', {'rootUri': folder.as_uri(), 'capabilities': {
+            'textDocument': {'diagnostic': {'dynamicRegistration': False, 'relatedDocumentSupport': True}}}})
+        client.send('textDocument/didOpen', {'textDocument': {'uri': source.as_uri(), 'languageId': 'maylang', 'version': 1, 'text': text}})
+        params = {'textDocument': {'uri': source.as_uri()}}
+        report = client.result('textDocument/diagnostic', params)
+        assert len(report['items']) == 1 and 'unknown name' in report['items'][0]['message'], report
+        client.send('textDocument/didChange', {'textDocument': {'uri': source.as_uri(), 'version': 2}, 'contentChanges': [{'text': 'print(1);\n'}]})
+        assert client.result('textDocument/diagnostic', params)['items'] == []
+        client.send('textDocument/didClose', params)
+        client.result('textDocument/hover', {**params, 'position': {'line': 0, 'character': 0}})
+        pushed = [m for m in client.notifications if m.get('method') == 'textDocument/publishDiagnostics']
+        assert pushed == [], pushed
+        client.stop()
+        print('PASS a pull-capable client gets each diagnostic once, without pushes', flush=True)
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path)
@@ -876,6 +905,7 @@ def main():
         run_strict_checks(binary, work)
         run_semantic_deltas(binary, work)
         run_diagnostic_ids(binary, work)
+        run_pull_only_diagnostics(binary, work)
         from workspace_diagnostics import run_workspace_diagnostics, run_workspace_batch_errors, run_diagnostic_restart, run_large_diagnostic_frames, run_workspace_memory, run_workspace_cache_directories
         run_workspace_cache_directories(binary, work)
         run_workspace_memory(binary, work)

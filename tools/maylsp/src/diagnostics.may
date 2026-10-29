@@ -19,6 +19,10 @@ mut LS_CHECK_ERRORS: Any = {};
 mut LS_DIAG_CACHE: Any = {};
 mut LS_CHECK_CACHE: Any = {};
 mut LS_DIAGNOSTIC_PUBLISH: Any = true;
+// A client that pulls diagnostics (textDocument/diagnostic) gets them only
+// that way. Pushing as well would show every error twice, because clients
+// keep pulled and pushed diagnostics in separate collections.
+mut LS_PUSH_DIAGNOSTICS: Any = true;
 mut LS_RECHECK_HOOK: Any = nil;
 mut LS_CHECK_PARTS: Any = [];
 mut LS_CHECK_LENGTH: Any = 0;
@@ -136,7 +140,7 @@ fun ls_diagnostics_entries(doc: Any, entries: Any) -> Any {
     for uri: Any in keys(LS_CHECK_SEEN) {
         let checked: Any = LS_DOCS[uri];
         LS_DIAG_CACHE[uri] = LS_CHECK_ERRORS[uri] ?? [];
-        if (LS_DIAGNOSTIC_PUBLISH and checked.open) {
+        if (LS_DIAGNOSTIC_PUBLISH and LS_PUSH_DIAGNOSTICS and checked.open) {
             ls_notify("textDocument/publishDiagnostics", {"uri": uri, "version": checked.version, "diagnostics": LS_CHECK_ERRORS[uri] ?? []});
         }
     }

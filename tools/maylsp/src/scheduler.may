@@ -114,7 +114,7 @@ fun ls_worker_result(snapshot: Any) -> Any {
     for checked: Any in keys(snapshot.seen) {
         let doc: Any = LS_DOCS[checked];
         LS_DIAG_CACHE[checked] = snapshot.errors[checked] ?? [];
-        if (doc != nil and doc.open) { ls_notify("textDocument/publishDiagnostics", {"uri": checked, "version": doc.version, "diagnostics": LS_DIAG_CACHE[checked]}); }
+        if (LS_PUSH_DIAGNOSTICS and doc != nil and doc.open) { ls_notify("textDocument/publishDiagnostics", {"uri": checked, "version": doc.version, "diagnostics": LS_DIAG_CACHE[checked]}); }
     }
     let remaining: Any = [];
     for waiter: Any in LS_CHECK_WAITERS {
