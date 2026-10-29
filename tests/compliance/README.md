@@ -32,7 +32,7 @@ are disabled. Python 3 and Linux are required.
 | Invalid calls | Calling a non-function raises a catchable `type` error instead of crashing. |
 | Cyclic collections | Lists and maps print `<cycle>` at back-references; repeated non-cyclic references print normally. |
 | Modules | Module globals have distinct linkage names; aliases, selective imports, and `pub` visibility are respected. Ambiguous imported references are rejected. |
-| Integer literals | The full signed 61-bit range compiles, including the minimum value. Out-of-range literals produce diagnostics. |
+| Integer literals | The full signed 64-bit range compiles with fat values (the default on x86_64-linux), including the minimum value. Out-of-range literals produce diagnostics. |
 | Integer conversion and arithmetic | Parsing the minimum value succeeds; negating it, taking its absolute value, or dividing it by -1 raises `arithmetic`. |
 | Compound assignment | Indexed and property targets support `+=`, `-=`, `*=`, `/=`; receiver and index are evaluated once, before the right-hand side. |
 | JSON Unicode | Surrogate pairs decode to valid UTF-8; malformed or unpaired surrogate escapes raise `parse`. |

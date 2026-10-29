@@ -15,6 +15,7 @@
 - `--raw` — omit runtime, native library and prelude.
 - `--no-code-align` — emit raw x86-64 code without the NOP padding that aligns function bodies and loop heads; for layout experiments.
 - `--runtime full|core|none` — select runtime; none is equivalent to raw; full defaults on x86_64-linux, x86_64-nodeos and clang-llvm, core on other native targets.
+- `--values fat|tagged` — select the value representation; fat (16-byte values, 64-bit Int) is the default with the full runtime on x86_64-linux; other targets support only tagged values. `MAYC_VALUES=tagged` changes the default.
 - `--time` — report compilation-stage timings to stderr.
 - `--target TARGET` — select one of the supported targets listed below. The default is x86_64-linux, or x86_64-nodeos when the compiler runs on NodeOS.
 - `--emit-llvm` — write textual LLVM IR when selecting clang-llvm; without explicit output, a final .may becomes .ll.

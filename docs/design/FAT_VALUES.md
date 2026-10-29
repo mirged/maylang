@@ -1,10 +1,10 @@
 # Fat values
 
-Status: in progress on branch `refactor/fat-values`
-([#92](https://github.com/mirged/maylang/issues/92)). The ledger at the end
-records what works. Until the default changes, the 3-bit tagged encoding in
-[`runtime.may`](../../compiler/mayc/runtime.may) remains the only supported
-representation.
+Status: fat values are the default with the full runtime on x86_64-linux;
+the core runtime, LLVM and NodeOS still use the 3-bit tagged encoding in
+[`runtime.may`](../../compiler/mayc/runtime.may), which `--values tagged`
+also selects ([#92](https://github.com/mirged/maylang/issues/92)). The
+ledger at the end records what works.
 
 ## Problem
 
@@ -94,8 +94,9 @@ itself runs on fat values, source integer literals stay within ±2^60.
 | `--values fat` flag, fat runtime and x86-64 backend | working (`runtime/fat.may`, `backend/x86_64_fat.may`); Int arithmetic, comparisons and list indexing inline, other operators call the runtime |
 | Feature fixtures passing with `--values fat` | 45 of 45 (`compiler/mayc/tests/fat_values.py`); `bitwise.may` differs only where Int no longer overflows |
 | Prelude, native library, math and stdlib | loaded; floats are unboxed, `math.may` bit helpers are intrinsics |
-| Fibers, handlers, debug traces | fibers and handlers work; `--debug` traces not started |
-| Typed externs and native-word entries | not started |
-| Core runtime, ARM64, RISC-V, LLVM | not started |
+| Fibers, handlers, debug traces | working |
+| Typed externs and native-word entries | working; native code calls externs through their fat entry |
 | Self-hosting on fat values | the compiler built with `--values fat` emits byte-identical output and rebuilds itself identically (`fat_values.py`) |
-| Default switch, bootstrap fixpoint, tagged runtime removed | not started |
+| Default on x86_64-linux, bootstrap fixpoint | done; integer literals follow the target (±2^63 fat, ±2^60 tagged) |
+| Core runtime, ARM64, RISC-V, LLVM, NodeOS on fat values; tagged runtime removed | not started |
+| Fat performance (inline Float, division strength reduction, register allocation) | not started; about 2x tagged on `stress.may`, 1.2x on the compiler |

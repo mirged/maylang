@@ -250,7 +250,7 @@
     },
     "Int": {
       "signature": "Int",
-      "summary": "A signed 61-bit integer used for whole numbers, indexes, and system call arguments.",
+      "summary": "A signed integer used for whole numbers, indexes, and system call arguments: 64-bit on x86_64-linux with the full runtime, 61-bit on tagged targets.",
       "example": "let answer: Int = 42;"
     },
     "Float": {
@@ -1041,7 +1041,7 @@
       "signature": "load64(p)",
       "summary": "Read 64 bits from a raw memory address. This operation performs no bounds or lifetime checks.",
       "example": "let s: Any = \"abcdefgh\";\nlet bytes: Any = load64(addr(s) - 8);",
-      "returns": "The loaded integer value. Outside raw mode and native-word functions, a word outside the signed 61-bit range raises an `arithmetic` fault (`integer overflow`).",
+      "returns": "The loaded integer value. With tagged values, outside raw mode and native-word functions, a word outside the signed 61-bit range raises an `arithmetic` fault (`integer overflow`); fat values keep the full word.",
       "parameters": [
         {
           "name": "p",

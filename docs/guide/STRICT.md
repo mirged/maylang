@@ -96,10 +96,10 @@ integer literals fail checking; dynamic overflow raises an `arithmetic`
 fault in the full runtime, or exits with status 70 in the core runtime.
 Integer families are assignment-compatible, so a dynamic conversion to a
 narrower type is checked rather than rejected solely for having a wider type.
-`Int` and `Int64` retain the signed 61-bit range
-`-1152921504606846976..1152921504606846975`; `UInt64` uses its nonnegative
-part. These names do not provide a complete 64-bit payload or machine-width
-storage.
+With fat values (the full runtime on x86_64-linux) `Int` and `Int64` are
+signed 64-bit; with tagged values (other targets, or `--values tagged`) they
+retain the signed 61-bit range `-1152921504606846976..1152921504606846975`.
+`UInt64` uses the nonnegative part of either range.
 
 On every target, a function whose parameters and result are all `Int`, `Ptr`
 or `Bool`, and whose body uses only such locals and globals, `true`, `false`,
@@ -134,6 +134,12 @@ so under `--debug` a native-word function may only call other native-word
 functions.
 Other functions keep the tagged
 semantics ([#92](https://github.com/mirged/maylang/issues/92)).
+
+The 61-bit boundaries above apply to tagged values. With fat values, Int
+and Bool payloads already are machine words: native-word functions exchange
+them with other code unchanged (an argument of another type raises a `type`
+fault), and dynamic integers are signed 64-bit everywhere, so only 64-bit
+overflow faults.
 
 `Float32` rounds through IEEE binary32 at typed boundaries and keeps the
 existing boxed binary64 storage. `Float` and `Float64` use binary64. Float32

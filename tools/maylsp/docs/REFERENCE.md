@@ -667,7 +667,7 @@ fun finish() -> Void { return; }
 Int
 ```
 
-A signed 61-bit integer used for whole numbers, indexes, and system call arguments.
+A signed integer used for whole numbers, indexes, and system call arguments: 64-bit on x86_64-linux with the full runtime, 61-bit on tagged targets.
 
 **Example**
 ```may
@@ -1895,7 +1895,7 @@ Read 64 bits from a raw memory address. This operation performs no bounds or lif
 **Parameters**
 - `p`: A valid readable address with enough remaining bytes.
 
-**Returns:** The loaded integer value. Outside raw mode and native-word functions, a word outside the signed 61-bit range raises an `arithmetic` fault (`integer overflow`).
+**Returns:** The loaded integer value. With tagged values, outside raw mode and native-word functions, a word outside the signed 61-bit range raises an `arithmetic` fault (`integer overflow`); fat values keep the full word.
 
 **Example**
 ```may

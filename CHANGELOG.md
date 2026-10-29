@@ -2,6 +2,18 @@
 
 ## Compiler
 
+- **Breaking:** compile x86_64-linux programs with the full runtime using fat
+  values, 16 bytes with a separate type word, instead of 3-bit tagged words
+  (design and status: [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md)).
+  `Int` is signed 64-bit there: literals and arithmetic reach ±2^63 and
+  overflow faults only beyond that, values between 2^60 and 2^63 no longer
+  raise `integer overflow`, native-word results and C results cross into
+  dynamic code unchanged, Floats are unboxed (`addr` of a Float is now a
+  `type` fault) and a `List<Any>` uses 16 bytes per element. The compiler
+  itself runs on fat values and reaches the bootstrap fixpoint.
+  `--values tagged` or `MAYC_VALUES=tagged` selects the old representation,
+  which the core runtime, LLVM and NodeOS still use
+  ([#92](https://github.com/mirged/maylang/issues/92)).
 - Add integer bitwise operators `&`, `|`, `^`, `~`, `<<` and `>>` with
   Rust-style precedence and signed 61-bit behavior. Replace the NodeOS NXF
   CRC-32 lookup tables with a portable bitwise implementation

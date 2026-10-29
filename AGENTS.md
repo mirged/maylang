@@ -216,14 +216,23 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   `Float` (write `0.0` or convert with `to_float`). On `Any` values `==` across
   types is `false`, `!=` is `true`, and ordering raises a `type` fault, so
   `Any`-typed numeric code must normalize with `to_float` before comparing.
-- Full/core runtime integers are stored as 61-bit tagged values (±2^60). Raw
-  mode uses native 64-bit words. On every target, all-`Int`/`Ptr`/`Bool`
+- Values are fat (16 bytes: a type word and a payload,
+  `compiler/mayc/runtime/fat.may`, `src/backend/x86_64_fat.may`) with the
+  full runtime on x86_64-linux, so `Int` is signed 64-bit there. Other
+  targets (core runtime, LLVM, NodeOS) and `--values tagged` /
+  `MAYC_VALUES=tagged` keep 61-bit tagged values (±2^60, `runtime.may`).
+  The plan and status are in [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md).
+  Raw mode uses native 64-bit words. On every target, all-`Int`/`Ptr`/`Bool`
   functions (`compiler/mayc/src/words.may`) compute with native 64-bit words,
   and tagged code outlines bitwise expressions into such functions, so
-  `1 << 63` is a valid intermediate. Values are retagged at the boundary;
-  one outside ±2^60, a tagged `load64` of such a word, overflow and division
-  by zero raise catchable `arithmetic` faults (uncaught core faults exit 70).
-  `/` truncates toward zero and `%` has the dividend's sign.
+  `1 << 63` is a valid intermediate. With tagged values results are retagged
+  at the boundary; one outside ±2^60, a tagged `load64` of such a word,
+  overflow and division by zero raise catchable `arithmetic` faults
+  (uncaught core faults exit 70). `/` truncates toward zero and `%` has the
+  dividend's sign.
+- The compiler itself runs on fat values once built, but the Rust/C stage 1
+  and `--values tagged` builds do not, so keep integer literals in compiler
+  sources within ±2^60.
 - Strings are UTF-8 and `len`/indexing count code points. For byte length use
   `byte_length` from `import "net";`, or `load64(addr(s) - 8)` as `net.may`
   does. `print` always appends a newline; for raw output use
@@ -356,9 +365,10 @@ tag, then packages and publishes. CI uses Ubuntu 24.04 and Node 22.
   workload may be this bug rather than your change, so reproduce it before
   blaming the change.
 - **Heap tests rewrite one line:** harnesses shrink the full runtime's heap
-  by replacing `mut sz: Any = 268435456;` in `runtime.may`. Keep that exact
-  line as the only heap-size literal; the reservation (four times `sz`, so the
-  collection threshold can grow) is derived from it.
+  by replacing `mut sz: Any = 268435456;` in `runtime.may` and
+  `runtime/fat.may`. Keep that exact line as the only heap-size literal in
+  each; the reservation (four times `sz`, so the collection threshold can
+  grow) is derived from it.
 - **Source size limits:** each source file is limited to 1 MiB and the
   expanded import closure to 4 MiB; both are rejected with an error, not
   truncated (#37, #38). The 256 MiB source arena is bounded and can be resized
