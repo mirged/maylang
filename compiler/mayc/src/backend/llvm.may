@@ -71,7 +71,8 @@ fun llvm_call(s: Any, name: Any, values: Any) -> Any {
         mut p: Any = llvm_ssa(s, "getelementptr i64, ptr %argv, i64 ${i}", "ptr");
         llvm_store(s, p, value);
     }
-    let prefix: Any = if (s.native and (rec.native == true or rec.wordForeign == true)) { "n" } else { "f" };
+    let prefix: Any = if (s.native and (rec.native == true or rec.wordForeign == true)) { "n" }
+        else if (s.native and rec.wordCalled == true) { "w" } else { "f" };
     return llvm_ssa(s, "call i64 @${prefix}${rec.lab}(i64 0, ptr %argv)", "i64");
 }
 // Branch to a native-word fault (#92): 0 overflow, 1 division by zero, 2 shift count.
@@ -549,7 +550,31 @@ fun llvm_function(unit: Any, rec: Any, main: Any) -> Any {
     push(out,join(s.lines,"\n")); push(out,"}\n");
     if (native) { push(out, llvm_native_entry(unit, rec)); }
     if (rec.foreign == true and rec.wordForeign == true) { push(out, llvm_foreign_native(unit, rec)); }
+    if (rec.wordCalled == true) { push(out, llvm_word_adapter(unit, rec)); }
     return join(out,"\n");
+}
+// Word adapter of a tagged function called from native-word code: tag the
+// argument words, faulting outside the 61-bit range, and untag the result.
+fun llvm_word_adapter(unit: Any, rec: Any) -> Any {
+    let fault: Any = unit.ctx.functionIndex["rt_native_fault"];
+    emission_reference(unit.ctx, fault.lab);
+    let lines: Any = ["define i64 @w${rec.lab}(i64 %env, ptr %incoming) noinline {\nentry:",
+        "  %argv = alloca [${unit.argCount} x i64], align 8"];
+    for i: Any in 0..rec.pc {
+        push(lines, "  %p${i} = getelementptr i64, ptr %incoming, i64 ${i}\n  %v${i} = load volatile i64, ptr %p${i}, align 8");
+        if (rec.nativeKinds[i] == "Bool") { push(lines, "  %t${i} = add i64 %v${i}, 3"); }
+        else {
+            push(lines, "  %m${i} = call {i64, i1} @llvm.smul.with.overflow.i64(i64 %v${i}, i64 8)");
+            push(lines, "  %o${i} = extractvalue {i64, i1} %m${i}, 1\n  %t${i} = extractvalue {i64, i1} %m${i}, 0");
+            push(lines, "  br i1 %o${i}, label %overflow, label %ok${i}\nok${i}:");
+        }
+        push(lines, "  %q${i} = getelementptr i64, ptr %argv, i64 ${i}\n  store volatile i64 %t${i}, ptr %q${i}, align 8");
+    }
+    push(lines, "  %r = call i64 @f${rec.lab}(i64 %env, ptr %argv)");
+    if (rec.nativeResult == "Bool") { push(lines, "  %c = icmp eq i64 %r, 4\n  %u = zext i1 %c to i64\n  ret i64 %u"); }
+    else { push(lines, "  %u = ashr i64 %r, 3\n  ret i64 %u"); }
+    push(lines, "overflow:\n  store volatile i64 0, ptr %argv, align 8\n  %x = call i64 @f${fault.lab}(i64 0, ptr %argv)\n  unreachable\n}\n");
+    return join(lines, "\n");
 }
 // Native entry of a word-compatible extern (#92): arguments are machine
 // words, so only a UInt argument is range-checked (fault kind 3), and a UInt

@@ -126,6 +126,10 @@ fun raw_call(ctx: Any, emitter: Any, payload: Any) -> Any {
             if (function.nativeLab == 0) { function.nativeLab = newlab(ctx); }
             emission_reference(ctx, function.lab);
             (emitter.jump)(ctx, function.nativeLab, true);
+        } else if (ctx.native and function.wordCalled == true) {
+            if (function.wordLab == 0) { function.wordLab = newlab(ctx); }
+            emission_reference(ctx, function.lab);
+            (emitter.jump)(ctx, function.wordLab, true);
         } else { (emitter.jump)(ctx, function.lab, true); }
     }
     return 0;
@@ -363,6 +367,7 @@ fun raw_function(ctx: Any, emitter: Any, block: Any, rec: Any) -> Any {
             (emitter.immediate)(ctx, kind, 10); raw_invoke(ctx, emitter, "rt_native_fault");
         }
     }
+    if (rec != 0 and rec.wordCalled == true and ctx.dynamic == 1) { raw_word_adapter(ctx, emitter, rec); }
     ctx.native = false;
     ctx.allocation = 0;
     return 0;
@@ -480,6 +485,38 @@ fun raw_native_entry(ctx: Any, emitter: Any, rec: Any) -> Any {
     (emitter.load)(ctx, 1, -1, result, 8); (emitter.binary)(ctx, TK_NE);
     (emitter.branch)(ctx, overflow, false);
     (emitter.load)(ctx, 0, -1, result, 8); (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
+    (emitter.epilogue)(ctx, frame);
+    placelab(ctx, overflow);
+    (emitter.immediate)(ctx, 0, 10); raw_invoke(ctx, emitter, "rt_native_fault");
+    return 0;
+}
+
+// Word adapter of a tagged function called from native-word code: tag the
+// argument words, faulting outside the 61-bit range, call the tagged body
+// and untag its result.
+fun raw_word_adapter(ctx: Any, emitter: Any, rec: Any) -> Any {
+    if (rec.wordLab == 0) { rec.wordLab = newlab(ctx); }
+    let frame: Any = (rec.pc * 8 + 15) / 16 * 16;
+    let overflow: Any = newlab(ctx);
+    placelab(ctx, rec.wordLab);
+    (emitter.prologue)(ctx, frame);
+    for index: Any in 0..rec.pc { (emitter.store)(ctx, 10 + index, -1, index * 8, 8); }
+    for index: Any in 0..rec.pc {
+        (emitter.load)(ctx, 0, -1, index * 8, 8);
+        if (rec.nativeKinds[index] == "Bool") { (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_PLUS); }
+        else {
+            (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
+            (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
+            (emitter.load)(ctx, 1, -1, index * 8, 8); (emitter.binary)(ctx, TK_NE);
+            (emitter.branch)(ctx, overflow, false);
+            (emitter.load)(ctx, 0, -1, index * 8, 8); (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
+        }
+        (emitter.store)(ctx, 0, -1, index * 8, 8);
+    }
+    for index: Any in 0..rec.pc { (emitter.load)(ctx, 10 + index, -1, index * 8, 8); }
+    (emitter.jump)(ctx, rec.lab, true);
+    (emitter.immediate)(ctx, if (rec.nativeResult == "Bool") { 4 } else { 3 }, 1);
+    (emitter.binary)(ctx, if (rec.nativeResult == "Bool") { TK_EQ } else { TK_SHR });
     (emitter.epilogue)(ctx, frame);
     placelab(ctx, overflow);
     (emitter.immediate)(ctx, 0, 10); raw_invoke(ctx, emitter, "rt_native_fault");

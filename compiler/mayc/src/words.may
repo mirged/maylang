@@ -15,9 +15,12 @@ import "emitter.may";
 // Its tagged-ABI entry untags arguments and retags the result, raising the
 // ordinary `integer overflow` fault when the result leaves the tagged range.
 // Bool is 0/1 in native code (tagged 3/4). Calls between native-word
-// functions pass machine words directly, as do calls to `extern` functions
-// whose C types are all integers, pointers or Bool (`word_foreign`); their
-// native entry only range-checks UInt. Globals keep tagged values, so the
+// functions pass machine words directly. A call to a tagged function with an
+// Int/Ptr/Bool signature goes through that function's word adapter, which
+// tags the arguments (faulting outside the 61-bit range) and untags the
+// result. Calls to `extern` functions whose C types are all integers,
+// pointers or Bool (`word_foreign`) pass words to C; their native entry only
+// range-checks UInt. Globals keep tagged values, so the
 // scan marks global reads and writes (`wordGlobal`) for IR to convert.
 
 let WORD_ARITHMETIC: Any = [TK_PLUS, TK_MINUS, TK_STAR, TK_SLASH, TK_PCT, TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR];
@@ -158,6 +161,7 @@ fun word_value(scan: Any, node: Any, expected: Any) -> Any {
         }
         if (not has(scan.names, name)) { return word_reject(scan); }
         let callee: Any = scan.names[name];
+        if (callee.wordCallable != true) { return word_reject(scan); }
         mut count: Any = 0;
         mut arg: Any = node.args;
         while (arg != 0) {
@@ -229,45 +233,65 @@ fun word_statement(scan: Any, node: Any) -> Any {
     return word_reject(scan);
 }
 
-fun word_candidate(ctx: Any, rec: Any, names: Any) -> Any {
-    if (rec.mode != 0 or rec.nested != 0 or rec.foreign == true or rec.strictChecked != true) { return 0; }
-    if (rec.cc != 0 or len(rec.boxed) != 0 or rec.pc > 6) { return 0; }
-    if (source_module(rec.moduleSpan ?? rec.body.span) == "") { return 0; }
+// Whether `rec` has a word signature: a strict top-level user function whose
+// parameters (at most six) and result are Int, Ptr or Bool. Native-word
+// code may call any such function; one that stays tagged is reached through
+// its word adapter, which tags the arguments and untags the result.
+fun word_signature(ctx: Any, rec: Any) -> Any {
+    if (rec.mode != 0 or rec.nested != 0 or rec.foreign == true or rec.strictChecked != true) { return false; }
+    if (rec.cc != 0 or rec.pc > 6) { return false; }
+    if (source_module(rec.moduleSpan ?? rec.body.span) == "") { return false; }
     let signature: Any = rec.strictSignature;
-    if (signature == nil or signature == 0 or len(signature.variables ?? []) > 0) { return 0; }
+    if (signature == nil or signature == 0 or len(signature.variables ?? []) > 0) { return false; }
     let result: Any = word_kind(signature.result);
-    if (result == nil or len(signature.arguments) != rec.pc) { return 0; }
-    let parameters: Any = {};
+    if (result == nil or len(signature.arguments) != rec.pc) { return false; }
     let kinds: Any = [];
     for index: Any in 0..rec.pc {
         let parameter: Any = word_kind(signature.arguments[index]);
-        if (parameter == nil) { return 0; }
+        if (parameter == nil) { return false; }
         push(kinds, parameter);
-        parameters[symbol_name(rec.parr[index].name, rec.parr[index].length)] = true;
     }
-    // Entry stubs convert Bool parameters and results at the tagged boundary.
+    // Entry stubs and adapters convert Bool parameters and results.
     rec.nativeKinds = kinds; rec.nativeResult = result;
-    let scan: Any = WordScan(ctx, rec, result, names, [parameters], [], true);
+    return true;
+}
+
+fun word_candidate(ctx: Any, rec: Any, names: Any) -> Any {
+    if (not word_signature(ctx, rec) or len(rec.boxed) != 0) { return 0; }
+    let parameters: Any = {};
+    for index: Any in 0..rec.pc { parameters[symbol_name(rec.parr[index].name, rec.parr[index].length)] = true; }
+    let scan: Any = WordScan(ctx, rec, rec.nativeResult, names, [parameters], [], true);
     word_block(scan, rec.body);
     return if (scan.valid) { scan } else { 0 };
 }
 
-// Mark `rec.native` on qualifying functions. A function stays native only
-// while every function it calls is native, so iterate to a fixpoint.
+// Tagged callees of a native-word function need a word adapter.
+fun word_adapt(scan: Any) -> Any {
+    for callee: Any in scan.calls { if (callee.native != true) { callee.wordCalled = true; } }
+    return 0;
+}
+
+// Mark `rec.native` on qualifying functions, and `rec.wordCallable` on every
+// function native-word code may call.
 fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
     // --debug keeps the same arithmetic; native frames add no trace entries.
     if (DYNMODE == 0 or not has(["x86_64", "arm64", "riscv64", "llvm"], ctx.target.arch)) { return 0; }
     WORD_NAMES = names; WORD_PENDING = [];
-    let scans: Any = [];
-    for rec: Any in functions { rec.wordForeign = word_foreign(ctx, rec); }
     for rec: Any in functions {
-        rec.native = false;
+        rec.wordForeign = word_foreign(ctx, rec);
+        rec.native = false; rec.wordCalled = false;
         // A global of the same name shadows the function in every backend lookup.
-        if (glob_find(ctx, rec.p, rec.l) >= 0) { continue; }
+        rec.wordCallable = glob_find(ctx, rec.p, rec.l) < 0 and word_signature(ctx, rec);
+    }
+    let scans: Any = [];
+    for rec: Any in functions {
+        if (rec.wordCallable != true) { continue; }
         let scan: Any = word_candidate(ctx, rec, names);
         if (scan != 0) { rec.native = true; push(scans, scan); }
     }
-    mut changed: Any = true;
+    // Debug traces omit native frames, so under --debug a function stays
+    // native only while every function it calls is native (a fixpoint).
+    mut changed: Any = DEBUG_TRACES;
     while (changed) {
         changed = false;
         for scan: Any in scans {
@@ -277,6 +301,7 @@ fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
             }
         }
     }
+    for scan: Any in scans { if (scan.rec.native) { word_adapt(scan); } }
     return 0;
 }
 
@@ -364,8 +389,11 @@ fun words_outline(ctx: Any, node: Any) -> Any {
     rec.strictSignature = signature;
     let scan: Any = word_candidate(ctx, rec, WORD_NAMES);
     if (scan == 0) { return 0; }
-    for callee: Any in scan.calls { if (callee.native != true) { return 0; } }
-    rec.native = true;
+    if (DEBUG_TRACES) {
+        for callee: Any in scan.calls { if (callee.native != true) { return 0; } }
+    }
+    rec.native = true; rec.wordCallable = true;
+    word_adapt(scan);
     push(FUNC_HEAD, rec); WORD_NAMES[name] = rec; push(WORD_PENDING, rec);
     mut args: Any = 0; mut last: Any = 0;
     for variable: Any in order {

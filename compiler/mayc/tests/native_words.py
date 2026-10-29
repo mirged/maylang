@@ -327,6 +327,35 @@ true false
 11 11 31
 '''
 
+# Native-word functions call tagged functions with Int/Ptr/Bool signatures
+# through word adapters: arguments are tagged (faulting before the call) and
+# results untagged, so the caller keeps 64-bit intermediates.
+ADAPTERS = '''
+let names: List<Int> = [];
+fun note(n: Int) -> Int { push(names, n); return len(names); }
+fun even(n: Int) -> Bool { print("even ${n}"); return n % 2 == 0; }
+fun big(n: Int) -> Int { let high: Int = 1 << 62; return note(n) + high - high; }
+fun count(n: Int) -> Int {
+    mut total: Int = 0;
+    for i in 0..n { if (even(i)) { total = total + note(i); } }
+    return total;
+}
+fun wide(n: Int) -> Int { return note((1 << 61) + n); }
+fun deep(n: Int) -> Int { if (n == 0) { return note(-1); } return deep(n - 1) + 1; }
+print(big(7), count(4), deep(3), names);
+print(may { wide(0) } otherwise { "${err.kind}: ${err.message}" });
+print(names);
+'''
+
+ADAPTERS_EXPECTED = '''even 0
+even 1
+even 2
+even 3
+1 5 7 [7, 0, 2, -1]
+arithmetic: integer overflow
+[7, 0, 2, -1]
+'''
+
 
 class Fault(Exception):
     pass
@@ -506,6 +535,15 @@ def main():
             output = compile_run(compiler, source, work / 'outlined', *flags, runner=runner)
             assert output == OUTLINED_EXPECTED, (flags, output)
         print('PASS tagged bitwise expressions compute with native words', flush=True)
+        source = work / 'adapters.may'
+        source.write_text(ADAPTERS)
+        for flags, runner in configurations:
+            # --debug keeps callers of tagged functions tagged, for their traces.
+            if '--debug' in flags:
+                continue
+            output = compile_run(compiler, source, work / 'adapters', *flags, runner=runner)
+            assert output == ADAPTERS_EXPECTED, (flags, output)
+        print('PASS native-word calls to tagged functions through word adapters', flush=True)
         source = work / 'syscalls.may'
         source.write_text(SYSCALLS)
         for flags, runner in configurations:

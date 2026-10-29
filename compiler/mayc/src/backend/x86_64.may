@@ -2382,6 +2382,9 @@ fun x86_call_direct(ctx: Any, rec: Any, args: Any) -> Any {
     if (ctx.native and (rec.native == true or rec.wordForeign == true)) {
         if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
         call(ctx, rec.nativeLab);
+    } else if (ctx.native and rec.wordCalled == true) {
+        if (rec.wordLab == 0) { rec.wordLab = newlab(ctx); }
+        call(ctx, rec.wordLab);
     } else { call(ctx, rec.abiLab); }
     if (total > 0) {
         e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, total);
@@ -3252,6 +3255,34 @@ fun x86_foreign_native(ctx: Any, rec: Any) -> Any {
     return 0;
 }
 
+// Word adapter of a tagged function called from native-word code: tag the
+// argument words, faulting outside the 61-bit range, call the tagged body
+// and untag its result.
+fun x86_word_adapter(ctx: Any, rec: Any) -> Any {
+    if (rec.wordLab == 0) { rec.wordLab = newlab(ctx); }
+    if (rec.abiLab == 0) { rec.abiLab = newlab(ctx); }
+    placelab(ctx, rec.wordLab);
+    x86_encode(ctx, X86Instruction([85, 72, 137, 229], 0, 0));          // push rbp; mov rbp, rsp
+    let registers: Any = [7, 6, 2, 1, 8, 9];
+    for index: Any in 0..rec.pc {
+        let register: Any = registers[index]; let low: Any = register % 8;
+        if (rec.nativeKinds[index] == "Bool") {
+            x86_encode(ctx, X86Instruction([if (register >= 8) { 73 } else { 72 }, 131, 192 + low], 3, 1)); // add reg, 3
+        } else {
+            x86_encode(ctx, X86Instruction([if (register >= 8) { 77 } else { 72 }, 107, 192 + low * 9], 8, 1)); // imul reg, reg, 8
+            jcc(ctx, 128, x86_native_fault(ctx, 0));                                 // jo
+        }
+    }
+    e8(ctx, 232); let offset: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, offset, rec.abiLab);
+    if (rec.nativeResult == "Bool") {
+        x86_encode(ctx, X86Instruction([72, 131, 248, 4, 15, 148, 192, 72, 15, 182, 192], 0, 0)); // cmp rax, 4; sete al; movzx rax, al
+    } else {
+        x86_encode(ctx, X86Instruction([72, 193, 248], 3, 1));             // sar rax, 3
+    }
+    x86_encode(ctx, X86Instruction([93, 195], 0, 0));                   // pop rbp; ret
+    return 0;
+}
+
 // Out-of-line fault targets: 0 integer overflow, 1 division by zero,
 // 2 shift count out of range, and for native extern calls 3 a negative UInt
 // argument and 4 a UInt result above the Int range. Native frames keep RSP
@@ -3347,6 +3378,7 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     e8(ctx, 93);
     e8(ctx, 195);
     if (rec.foreign == true and rec.wordForeign == true and ctx.dynamic == 1) { x86_foreign_native(ctx, rec); }
+    if (rec.wordCalled == true and ctx.dynamic == 1) { x86_word_adapter(ctx, rec); }
     for kind: Any in 0..len(ctx.nativeFaults) {
         if (ctx.nativeFaults[kind] != 0) { placelab(ctx, ctx.nativeFaults[kind]); x86_native_raise(ctx, kind); }
     }
