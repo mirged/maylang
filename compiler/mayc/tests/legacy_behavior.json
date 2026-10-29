@@ -11,7 +11,7 @@
   },
   "bitwise.may": {
     "exit": 0,
-    "stdout": "MiA3IDUgLTEKMSAxMiAtMiAtMTE1MjkyMTUwNDYwNjg0Njk3NgozIHRydWUKYXJpdGhtZXRpYwoxCjkK",
+    "stdout": "MiA3IDUgLTEKMSAxMiAtMiAtMTE1MjkyMTUwNDYwNjg0Njk3Ngp0cnVlIDIgdHJ1ZQppbnRlZ2VyIG92ZXJmbG93IHNoaWZ0IGNvdW50IG91dCBvZiByYW5nZQozIHRydWUKYXJpdGhtZXRpYwoxCjkK",
     "stderr": ""
   },
   "closures_adv.may": {

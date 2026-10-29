@@ -272,6 +272,10 @@ fun ir_node(ctx: Any, node: Any) -> Any {
 }
 fun ir_node_value(ctx: Any, node: Any) -> Any {
     if (node == 0) { return ir_nil(0); }
+    if (IR_RAW_MODE == 0) {
+        let outlined: Any = words_outline(ctx, node);
+        if (outlined != 0) { return ir_node_value(ctx, outlined); }
+    }
     let kind: Any = node.kind;
     let span: Any = node.span;
     if (kind == E_INT) { return ir_integer(node.value, span); }
@@ -579,6 +583,11 @@ fun ir_return_node(ctx: Any, node: Any) -> Any {
 
 fun ir_program(ctx: Any) -> Any {
     glob_scan(ctx, RUNTIME_BODY); glob_scan(ctx, MAINBODY);
+    // Mark native-word functions first: lowering may outline tagged bitwise
+    // expressions into new ones, which words_outline adds to `names`.
+    let names: Any = {};
+    for rec: Any in FUNC_HEAD { names[symbol_name(rec.p, rec.l)] = rec; }
+    words_mark(ctx, FUNC_HEAD, names);
     ir_begin(1 - DYNMODE);
     IR_FUNCTION = 0;
     mut statement: Any = MAINBODY;
@@ -587,11 +596,11 @@ fun ir_program(ctx: Any) -> Any {
     // All declarations are checked earlier. Lower only functions reachable
     // through calls or function values. Raw runtime functions and str remain
     // available to backends, which discover their actual generated references.
-    let names: Any = {}; let labels: Any = [];
+    let labels: Any = [];
     let live: Any = []; let queue: Any = [];
     for index: Any in 0..len(ctx.labels) { push(labels, 0); push(live, false); }
-    for rec: Any in FUNC_HEAD { names[symbol_name(rec.p, rec.l)] = rec; labels[rec.lab] = rec; }
-    words_mark(ctx, FUNC_HEAD, names);
+    for rec: Any in FUNC_HEAD { labels[rec.lab] = rec; }
+    WORD_PENDING = [];
     for rec: Any in FUNC_HEAD {
         if (rec.mode == 1 or symbol_name(rec.p, rec.l) == "str") { ir_reachable(rec, live, queue); }
     }
@@ -613,6 +622,12 @@ fun ir_program(ctx: Any) -> Any {
         }
         ir_return_node(ctx, rec.body);
         rec.ir = IRBlock(IR_CODE, IR_TEMPS);
+        // Functions outlined while lowering this one need reachability slots.
+        for outlined: Any in WORD_PENDING {
+            while (len(labels) <= outlined.lab) { push(labels, 0); push(live, false); }
+            labels[outlined.lab] = outlined;
+        }
+        WORD_PENDING = [];
         ir_dependencies(rec.ir, names, labels, live, queue);
     }
     // Unused externs must not add loader dependencies or fail at startup.

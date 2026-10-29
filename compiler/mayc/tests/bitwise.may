@@ -1,5 +1,7 @@
 print(6 & 3, 6 | 3, 6 ^ 3, ~0);
-print(1 << 0, 3 << 2, -8 >> 2, 1 << 60);
+print(1 << 0, 3 << 2, -8 >> 2, -1 << 60);
+print((1 << 63) & (1 << 63) != 0, (1 << 62) >> 61, ~(1 << 63) == -((1 << 63) + 1));
+print(may { 1 << 60 } otherwise { err.message }, may { 1 << 64 } otherwise { err.message });
 print(1 | 2 ^ 3 & 4, 1 & 2 == 0);
 print(may { 1 << 61 } otherwise { err.kind });
 let nested: List<List<Int>> = [[1]];

@@ -4,6 +4,7 @@ import "lexer.may";
 import "symbols.may";
 import "sema.may";
 import "diagnostics.may";
+import "emitter.may";
 // words.may — native-word lowering for strictly typed integer functions (#92).
 //
 // A user function whose parameters and result are all `Int`, `Ptr` or `Bool`,
@@ -28,6 +29,12 @@ fun word_builtin(scan: Any, node: Any, name: Any) -> Any {
     if (not has(WORD_BUILTINS, name) or has(scan.names, name) or glob_find(scan.ctx, node.name, node.length) >= 0) { return false; }
     return name != "syscall" or has(["linux", "nodeos"], scan.ctx.target.os);
 }
+
+// Outlined bitwise expressions: the function name table from words_mark,
+// functions created since ir_program last registered them, and name storage.
+mut WORD_NAMES: Any = {};
+mut WORD_PENDING: Any = [];
+mut WORD_LABELS: Any = [];
 
 struct WordScan { ctx: Any, rec: Any, result: Any, names: Any, scopes: Any, calls: Any, valid: Any }
 
@@ -207,6 +214,7 @@ fun word_candidate(ctx: Any, rec: Any, names: Any) -> Any {
 fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
     // --debug keeps the same arithmetic; native frames add no trace entries.
     if (DYNMODE == 0 or not has(["x86_64", "arm64", "riscv64", "llvm"], ctx.target.arch)) { return 0; }
+    WORD_NAMES = names; WORD_PENDING = [];
     let scans: Any = [];
     for rec: Any in functions {
         rec.native = false;
@@ -226,4 +234,89 @@ fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
         }
     }
     return 0;
+}
+
+// ------------------------------------------------------------- outlining
+//
+// In tagged code, a maximal Int or Bool expression that contains a bitwise
+// operator, and that a native-word function could compute, is outlined into
+// one: its variables (at most six) become parameters, read as ordinary tagged
+// values at the original position. The expression then computes with 64-bit
+// words, so `(1 << 63) & x` works and only the final value has to fit the
+// tagged range.
+
+fun word_bitwise(node: Any) -> Any {
+    if (node == 0) { return false; }
+    let kind: Any = node.kind;
+    if (kind == E_BIN) {
+        if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], node.op)) { return true; }
+        return word_bitwise(node.left) or word_bitwise(node.right);
+    }
+    if (kind == E_AND or kind == E_OR) { return word_bitwise(node.left) or word_bitwise(node.right); }
+    if (kind == E_UN) { return node.op == TK_BITNOT or word_bitwise(node.operand); }
+    if (kind == E_CALL) {
+        mut arg: Any = node.args;
+        while (arg != 0) { if (word_bitwise(arg)) { return true; } arg = arg.next; }
+    }
+    return false;
+}
+
+// Collect free variables in first-use order; false when one is not a word.
+fun word_free(node: Any, names: Any, order: Any) -> Any {
+    if (node == 0) { return true; }
+    let kind: Any = node.kind;
+    if (kind == E_VAR) {
+        let name: Any = symbol_name(node.name, node.length);
+        if (name == "true" or name == "false" or has(names, name)) { return true; }
+        if (word_kind(node.strictType) == nil) { return false; }
+        names[name] = true; push(order, node);
+        return true;
+    }
+    if (kind == E_BIN or kind == E_AND or kind == E_OR) { return word_free(node.left, names, order) and word_free(node.right, names, order); }
+    if (kind == E_UN) { return word_free(node.operand, names, order); }
+    if (kind == E_CALL) {
+        mut arg: Any = node.args;
+        while (arg != 0) { if (not word_free(arg, names, order)) { return false; } arg = arg.next; }
+    }
+    return true;
+}
+
+// The call that replaces `node`, or 0 when it stays tagged.
+fun words_outline(ctx: Any, node: Any) -> Any {
+    if (DYNMODE == 0 or node == 0 or (node.kind != E_BIN and node.kind != E_UN)) { return 0; }
+    if (not has(["x86_64", "arm64", "riscv64", "llvm"], ctx.target.arch) or not word_plain(node)) { return 0; }
+    let result: Any = word_kind(node.strictType);
+    if (result == nil or not word_bitwise(node) or source_module(node.span) == "") { return 0; }
+    let order: Any = [];
+    if (not word_free(node, {}, order) or len(order) > 6) { return 0; }
+    let span: Any = node.span;
+    let name: Any = "__word${len(WORD_LABELS)}";
+    push(WORD_LABELS, name);
+    let parameters: Any = []; let types: Any = [];
+    for variable: Any in order {
+        push(parameters, Parameter(variable.name, variable.length, 0, span));
+        push(types, variable.strictType);
+    }
+    let body: Any = Block(S_BLOCK, span, 0, Return(S_RETURN, span, 0, node), 0);
+    let rec: Any = FuncDecl(addr(name), len(name), len(order), parameters, body, newlab(ctx), 0, 0, 0, []);
+    rec.nested = 0; rec.analyzed = 0; rec.returnType = 0; rec.foreign = false;
+    rec.strictChecked = true; rec.moduleSpan = span;
+    let signature: Any = TypeRef("Function", types, node.strictType, 0);
+    signature.variables = [];
+    rec.strictSignature = signature;
+    let scan: Any = word_candidate(ctx, rec, WORD_NAMES);
+    if (scan == 0) { return 0; }
+    for callee: Any in scan.calls { if (callee.native != true) { return 0; } }
+    rec.native = true;
+    push(FUNC_HEAD, rec); WORD_NAMES[name] = rec; push(WORD_PENDING, rec);
+    mut args: Any = 0; mut last: Any = 0;
+    for variable: Any in order {
+        let argument: Any = NameExpr(E_VAR, variable.span, 0, variable.name, variable.length);
+        argument.strictType = variable.strictType;
+        if (last == 0) { args = argument; } else { last.next = argument; }
+        last = argument;
+    }
+    let call: Any = Call(E_CALL, span, 0, rec.p, rec.l, args);
+    call.strictType = node.strictType;
+    return call;
 }

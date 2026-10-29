@@ -7,7 +7,8 @@ fault only when they leave native code. A seeded oracle compares random
 expressions with Python's signed 64-bit semantics. Further programs check
 that Ptr parameters and load/store keep all 64 bits, that Bool parameters,
 results and locals cross the tagged boundary, that range loops count natively,
-and that global reads and writes convert to and from tagged values. All run on the full and core
+that global reads and writes convert to and from tagged values, and that
+bitwise expressions in tagged code are outlined into native-word functions. All run on the full and core
 runtimes, with and without --debug, and on ARM64/RISC-V core targets when
 QEMU user emulators are installed, and on clang-llvm when clang is.
 """
@@ -81,7 +82,7 @@ print(may { big() } otherwise { "${err.kind}: ${err.message}" });
 print(may { neg(-1152921504606846975 - 1) } otherwise { "${err.kind}: ${err.message}" });
 print(may { tagged_top() } otherwise { "${err.kind}: ${err.message}" });
 let t: Int = 6;
-print(t & 3, t | 1, t ^ 5, ~t, t << 2, -t >> 1, t << 59, -1 << 60);
+print(t & 3, t | 1, t ^ 5, ~t, t << 2, -t >> 1, t << 57, -1 << 60);
 '''
 
 EXPECTED = '''6765 21
@@ -98,8 +99,8 @@ arithmetic: integer overflow
 arithmetic: integer overflow
 arithmetic: integer overflow
 tagged
-arithmetic: shift count out of range
-2 7 3 -7 24 -3 -1152921504606846976 -1152921504606846976
+arithmetic: integer overflow
+2 7 3 -7 24 -3 864691128455135232 -1152921504606846976
 '''
 
 # Native loads keep bit 63; tagged load64 faults on such a word.
@@ -290,6 +291,38 @@ true -9
 true
 '''
 
+# Tagged code outlines bitwise expressions into native-word functions, so
+# intermediate values are 64-bit and only stored results must fit 61 bits.
+OUTLINED = '''
+print((1 << 63) & (1 << 63) != 0);
+let x: Int = 5;
+let top: Bool = ((x << 62) >> 62) == 1;
+print(top, (x << 61) >> 61, (-1 >> 63));
+fun bits(n: Int) -> Int { return n; }
+fun pick(a: Any) -> Int { return int(a) & 255; }
+mut acc: Int = 0;
+for i in 0..4 { acc = acc | (1 << (60 + i)) >> 60; }
+print(acc, pick(4097), ~0, 6 & 3 | 8 ^ 1);
+print(may { 1 << 62 } otherwise { "${err.kind}: ${err.message}" });
+print(may { x << 64 } otherwise { "${err.kind}: ${err.message}" });
+let list: List<Int> = [1, 2, 3];
+print(list[0] << 2, len(list) & 1);
+fun page(entry: Int) -> Bool { return (entry & (1 << 63)) != 0; }
+print(page(-1), page(1));
+let f: (Int) -> Int = fun(v: Int) -> Int { return (v << 62) >> 62; };
+print(f(3));
+'''
+
+OUTLINED_EXPECTED = '''true
+true -3 -1
+-1 1 -1 11
+arithmetic: integer overflow
+arithmetic: shift count out of range
+4 1
+true false
+-1
+'''
+
 
 class Fault(Exception):
     pass
@@ -463,6 +496,12 @@ def main():
             output = compile_run(compiler, source, work / 'tagged_load', *flags, runner=runner)
             assert output == TAGGED_LOAD_EXPECTED, (flags, output)
         print('PASS tagged load64 faults outside the 61-bit range', flush=True)
+        source = work / 'outlined.may'
+        source.write_text(OUTLINED)
+        for flags, runner in configurations:
+            output = compile_run(compiler, source, work / 'outlined', *flags, runner=runner)
+            assert output == OUTLINED_EXPECTED, (flags, output)
+        print('PASS tagged bitwise expressions compute with native words', flush=True)
         source = work / 'syscalls.may'
         source.write_text(SYSCALLS)
         for flags, runner in configurations:
