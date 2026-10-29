@@ -74,36 +74,48 @@ fun trim(s: Any) -> Any {
     return substring(s, a, b - a);
 }
 
-fun to_lower(s: Any) -> Any {
-    mut out: Any = "";
-    for i: Any in 0..len(s) {
-        mut c: Any = char_at(s, i);
-        if (is_upper_code(c)) { c = c + 32; }
-        out = out + char_from(c);
+// ASCII letters change case; every other byte, including all bytes of
+// multi-byte code points, is copied unchanged.
+fun __native_ascii_case(s: Any, low: Any, delta: Any) -> Any {
+    let n: Any = load64(addr(s) - 8);
+    let out: Any = __native_string_bytes(s, 0, n);
+    let bytes: Any = addr(out);
+    for i: Any in 0..n {
+        let c: Any = load8(bytes + i);
+        if (c >= low && c <= low + 25) { store8(bytes + i, c + delta); }
     }
     return out;
 }
 
-fun to_upper(s: Any) -> Any {
-    mut out: Any = "";
-    for i: Any in 0..len(s) {
-        mut c: Any = char_at(s, i);
-        if (is_lower_code(c)) { c = c - 32; }
-        out = out + char_from(c);
+fun to_lower(s: Any) -> Any { return __native_ascii_case(s, 65, 32); }
+fun to_upper(s: Any) -> Any { return __native_ascii_case(s, 97, 0 - 32); }
+
+// Byte offset of the first `sub` in `s` at or after byte `offset`, or -1.
+// Valid UTF-8 needles only match at code point boundaries.
+fun __native_find(s: Any, sub: Any, offset: Any) -> Any {
+    let bytes: Any = addr(s); let needle: Any = addr(sub);
+    let n: Any = load64(bytes - 8); let m: Any = load64(needle - 8);
+    mut i: Any = offset;
+    while (i + m <= n) {
+        mut matched: Any = 0;
+        while (matched < m && load8(bytes + i + matched) == load8(needle + matched)) { matched += 1; }
+        if (matched == m) { return i; }
+        i += 1;
     }
-    return out;
+    return -1;
 }
 
 fun index_of(s: Any, sub: Any) -> Any {
-    let n: Any = len(s);
-    let m: Any = len(sub);
-    if (m == 0) { return 0; }
-    mut i: Any = 0;
-    while (i + m <= n) {
-        if (substring(s, i, m) == sub) { return i; }
-        i = i + 1;
+    let at: Any = __native_find(s, sub, 0);
+    if (at <= 0) { return at; }
+    // Code points before the match: every byte that does not continue one.
+    let bytes: Any = addr(s);
+    mut index: Any = 0;
+    for i: Any in 0..at {
+        let c: Any = load8(bytes + i);
+        if (c < 128 || c >= 192) { index += 1; }
     }
-    return -1;
+    return index;
 }
 
 fun contains(s: Any, sub: Any) -> Any { return index_of(s, sub) >= 0; }
@@ -142,22 +154,10 @@ fun split(s: Any, delim: Any) -> Any {
     return out;
 }
 
+// split finds the same leftmost, non-overlapping matches.
 fun replace(s: Any, needle: Any, replacement: Any) -> Any {
-    let m: Any = len(needle);
-    if (m == 0) { return s; }
-    mut out: Any = "";
-    mut start: Any = 0;
-    mut i: Any = 0;
-    while (i + m <= len(s)) {
-        if (substring(s, i, m) == needle) {
-            out = out + substring(s, start, i - start) + replacement;
-            start = i + m;
-            i = start;
-        } else {
-            i = i + 1;
-        }
-    }
-    return out + substring(s, start, len(s) - start);
+    if (load64(addr(needle) - 8) == 0) { return s; }
+    return join(split(s, needle), replacement);
 }
 
 fun chars(s: Any) -> Any {

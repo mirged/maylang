@@ -18,7 +18,7 @@
 - [ml/nn.may](stdlib/ml/nn.md) — Dense neural layers, inference, backpropagation and snapshots. 17 declarations.
 - [ml/optim.may](stdlib/ml/optim.md) — SGD, momentum and Adam optimizer state and updates. 8 declarations.
 - [ml/tensor.may](stdlib/ml/tensor.md) — Dense row-major tensors, broadcasting, reductions and matrix operations. 47 declarations.
-- [native.may](stdlib/native.md) — Automatically available full-runtime helpers; a byte-identical mirror of the injected sidecar compiler/mayc/native.may. 108 declarations.
+- [native.may](stdlib/native.md) — Automatically available full-runtime helpers; a byte-identical mirror of the injected sidecar compiler/mayc/native.may. 110 declarations.
 - [net.may](stdlib/net.md) — Synchronous IPv4 TCP/UDP sockets for full Linux x86-64 runtimes. 41 declarations.
 - [path.may](stdlib/path.md) — Lexical path operations without filesystem access. 9 declarations.
 - [prelude.may](stdlib/prelude.md) — Automatically loaded small convenience functions in full-runtime builds. 7 declarations.

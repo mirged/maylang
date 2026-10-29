@@ -25,8 +25,10 @@
 - **is_upper_code** — `fun is_upper_code(c: Any) -> Any` — True for ASCII uppercase letter codes 65..90.
 - **is_lower_code** — `fun is_lower_code(c: Any) -> Any` — True for ASCII lowercase letter codes 97..122.
 - **trim** — `fun trim(s: Any) -> Any` — Remove whitespace from the beginning and end of a string.
+- **__native_ascii_case** — `fun __native_ascii_case(s: Any, low: Any, delta: Any) -> Any` — Native prelude helper: copy a string, shifting the 26 ASCII letters starting at `low` by `delta`; other bytes are unchanged.
 - **to_lower** — `fun to_lower(s: Any) -> Any` — Return an ASCII-lowercased string; other character codes pass through.
 - **to_upper** — `fun to_upper(s: Any) -> Any` — Return an ASCII-uppercased string; other character codes pass through.
+- **__native_find** — `fun __native_find(s: Any, sub: Any, offset: Any) -> Any` — Native prelude helper: return the byte offset of the first `sub` in `s` at or after byte `offset`, or -1.
 - **index_of** — `fun index_of(s: Any, sub: Any) -> Any` — Return the first substring index or `-1`; an empty needle returns zero.
 - **contains** — `fun contains(s: Any, sub: Any) -> Any` — True when `index_of` is nonnegative.
 - **starts_with** — `fun starts_with(s: Any, prefix: Any) -> Any` — True when the string begins with the supplied prefix.
