@@ -78,6 +78,7 @@ def main():
 
         sources = {
             'full': ('print("hello");\nlet m: Map<Str, Int> = {"a": 1};\nprint(m);\n', []),
+            'tagged': ('print("hello");\nlet m: Map<Str, Int> = {"a": 1};\nprint(m);\n', ['--values', 'tagged']),
             'core': ('print(map([1, 2], fun(v: Int) -> Int { return v + 1; }));\n', ['--runtime', 'core']),
             'raw': ('syscall(1, 1, addr("raw\\n"), 4);\nsyscall(60, 0);\n', ['--raw']),
         }
@@ -95,7 +96,12 @@ def main():
             # Every syscall site calls the gate; a program reaches NodeOS's own
             # syscall instruction only inside the personality.
             assert image.count(b'\x0f\x05') >= 1
-        print('PASS full, core and raw NXF images pass the loader\'s structural and CRC-32 checks', flush=True)
+        print('PASS full (fat and tagged), core and raw NXF images pass the loader\'s structural and CRC-32 checks', flush=True)
+
+        # NodeOS's kernel copies an image into one buddy block, at most 4 MiB.
+        image = compile_source(compiler, ROOT / 'compiler/mayc/main.may', work / 'mayc.nxf', '--target', 'x86_64-nodeos')
+        assert len(image) < 4 << 20, f'NodeOS mayc image is {len(image)} bytes'
+        print(f'PASS the NodeOS compiler image ({len(image)} bytes) fits the loader\'s 4 MiB copy', flush=True)
 
         source = work / 'default.may'
         source.write_text('print(1);\n')

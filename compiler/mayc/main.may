@@ -348,8 +348,8 @@ fun main2() -> Any {
     ctx.runtime = if (rawflag == 1) { "none" } else { runtimeName };
     profile_begin();
     // Fat values (#92) are the default wherever they are supported: the full
-    // runtime on x86_64-linux. MAYC_VALUES=tagged or --values tagged opts out.
-    if (not valuesflag and rawflag == 0 and ctx.runtime == "full" and ctx.target.name == "x86_64-linux") {
+    // runtime on x86_64-linux and NodeOS. MAYC_VALUES=tagged or --values tagged opts out.
+    if (not valuesflag and rawflag == 0 and ctx.runtime == "full" and (ctx.target.name == "x86_64-linux" or ctx.target.name == "x86_64-nodeos")) {
         FAT_VALUES = (env("MAYC_VALUES") ?? "") != "tagged";
     }
     if (checkflag == 0 and dumpflag == 0 and expandedflag == 0) { backend_validate(ctx, rawflag); }
@@ -388,7 +388,7 @@ fun main2() -> Any {
             SOURCE_FILES[SRC] = SourceFile("runtime/fat.may", []);
         }
         else { load_runtime(a0, a0l); }
-        if (nodeos) { append_nodeos(a0, a0l, if (ctx.runtime == "core") { "runtime/core.may" } else { RUNTIME_FILE_NAME }); }
+        if (nodeos) { append_nodeos(a0, a0l, if (ctx.runtime == "core") { "runtime/core.may" } else if (FAT_VALUES) { "runtime/fat.may" } else { RUNTIME_FILE_NAME }); }
         PARSE_RAW = 1;
         DIAGNOSTIC_STAGE = "lex"; lex_all();
         DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);

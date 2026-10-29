@@ -385,8 +385,10 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         mov_imm(ctx, 60); x86_syscall_instruction(ctx);
         return 0;
     }
-    if (name == "syscall") {
+    if (name == "__nodeos_syscall" and ctx.target.os != "nodeos") { die_str("mayc: __nodeos_syscall requires --target x86_64-nodeos\n"); }
+    if (name == "syscall" or name == "__nodeos_syscall") {
         // Number and arguments are Int payloads; the result is an Int.
+        // __nodeos_syscall bypasses the Linux personality's gate.
         let count: Any = fat_count(args);
         let values: Any = [];
         mut arg: Any = args;
@@ -395,11 +397,10 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         while (index >= 0) { fat_get(ctx, values[index]); e8(ctx, 80); index -= 1; }
         let pops: Any = [[88], [95], [94], [90], [65, 90], [65, 88], [65, 89]]; // rax rdi rsi rdx r10 r8 r9
         for i: Any in 0..count { for byte: Any in pops[i] { e8(ctx, byte); } }
-        x86_syscall_instruction(ctx);
+        if (name == "syscall") { x86_syscall_instruction(ctx); } else { e8(ctx, 15); e8(ctx, 5); }
         x86_mov_immediate(ctx, 2, 2);
         return 0;
     }
-    if (name == "__nodeos_syscall") { die_str("mayc: __nodeos_syscall requires --target x86_64-nodeos\n"); }
     if (name == "__ccall6") {
         // C call through an address; arguments and result are Int payloads.
         let values: Any = [];
