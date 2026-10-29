@@ -286,6 +286,8 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
     }
     if (kind == E_STRB) { return ir_operation(kind, {"address": node.address, "length": node.length}, span); }
     if (kind == E_VAR) {
+        // Fat globals keep the word itself as their payload (x86_64.may cg_var).
+        if (FAT_VALUES and ir_word_global(node)) { return ir_operation(kind, {"name": node.name, "length": node.length, "fatWord": node.wordGlobal}, span); }
         let variable: Any = ir_operation(kind, {"name": node.name, "length": node.length}, span);
         if (ir_word_global(node)) {
             // Native-word code reads a tagged global: untag an Int, test a Bool.
@@ -387,6 +389,10 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
     }
     if (kind == S_ASSIGN) {
         let value: Any = ir_node(ctx, node.value);
+        if (FAT_VALUES and ir_word_global(node)) {
+            ir_emit(kind, 0, value, 0, {"name": node.name, "length": node.length, "value": value, "fatWord": node.wordGlobal}, span);
+            return value;
+        }
         mut stored: Any = value;
         if (ir_word_global(node)) {
             // Retag for the global. Checked native `* 8` overflows 64 bits exactly

@@ -408,6 +408,17 @@ fun rt_badop(os: Any, ol: Any, at: Any, bt: Any) -> Any {
     return rt_failtype(m);
 }
 
+// Native-word functions (#92) report checked arithmetic faults here:
+// 0 integer overflow, 1 division by zero, 2 shift count out of range.
+fun rt_native_fault(kind: Any) -> Any {
+    if (kind == 1) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
+    if (kind == 2) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
+    return rt_overflow();
+}
+
+// A native-word function received a value of another type.
+fun rt_word_type_fault() -> Any { return rt_failtype(rt_from(addr("expected Int or Bool"), 20)); }
+
 fun rt_overflow() -> Any { return rt_failarith(rt_from(addr("integer overflow"), 16)); }
 
 // ---- strings ---------------------------------------------------------------

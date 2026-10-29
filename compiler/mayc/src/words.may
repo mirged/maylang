@@ -40,7 +40,8 @@ fun word_builtin(scan: Any, node: Any, name: Any) -> Any {
 // contracts, which keep their users tagged. Only targets with a native extern
 // bridge (x86-64 Linux ELF and LLVM), at most six arguments.
 fun word_foreign(ctx: Any, rec: Any) -> Any {
-    if (rec.foreign != true or rec.pc > 6) { return false; }
+    // Fat values call externs through their fat entry (x86_64_fat.may) for now.
+    if (rec.foreign != true or rec.pc > 6 or FAT_VALUES) { return false; }
     if (not ((ctx.target.arch == "x86_64" and ctx.target.os == "linux") or ctx.target.arch == "llvm")) { return false; }
     for kind: Any in rec.ffiArgs { if (not has([0, 1, 6, 8], kind)) { return false; } }
     return has([0, 1, 6, 8, 9], rec.ffiResult);
@@ -275,7 +276,7 @@ fun word_adapt(scan: Any) -> Any {
 // function native-word code may call.
 fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
     // --debug keeps the same arithmetic; native frames add no trace entries.
-    if (DYNMODE == 0 or FAT_VALUES or not has(["x86_64", "arm64", "riscv64", "llvm"], ctx.target.arch)) { return 0; }
+    if (DYNMODE == 0 or not has(["x86_64", "arm64", "riscv64", "llvm"], ctx.target.arch)) { return 0; }
     WORD_NAMES = names; WORD_PENDING = [];
     for rec: Any in functions {
         rec.wordForeign = word_foreign(ctx, rec);
@@ -361,7 +362,7 @@ fun word_calls(node: Any) -> Any {
 
 // The call that replaces `node`, or 0 when it stays tagged.
 fun words_outline(ctx: Any, node: Any) -> Any {
-    if (DYNMODE == 0 or FAT_VALUES or node == 0 or (node.kind != E_BIN and node.kind != E_UN)) { return 0; }
+    if (DYNMODE == 0 or node == 0 or (node.kind != E_BIN and node.kind != E_UN)) { return 0; }
     if (not has(["x86_64", "arm64", "riscv64", "llvm"], ctx.target.arch) or not word_plain(node)) { return 0; }
     let result: Any = word_kind(node.strictType);
     if (result == nil or not word_bitwise(node) or source_module(node.span) == "") { return 0; }

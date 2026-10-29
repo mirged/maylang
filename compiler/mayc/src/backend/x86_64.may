@@ -718,6 +718,7 @@ fun cg_closure_named(ctx: Any, fr: Any) -> Any {
 fun cg_var(ctx: Any, n: Any) -> Any {
     let p: Any = n.name;
     let l: Any = n.length;
+    if (n.fatWord != nil) { ld_abs(ctx, glob_off(ctx, glob_find(ctx, p, l)) + 8); return 0; }
     if (ctx.mode == 0) {
         if (name_eq(p, l, addr("true"), len("true")) == 1) { mov_imm(ctx, 1); return 0; }
         if (name_eq(p, l, addr("false"), len("false")) == 1) { mov_imm(ctx, 0); return 0; }
@@ -3186,6 +3187,15 @@ fun cg_assign(ctx: Any, s: Any) -> Any {
     let p: Any = s.name;
     let l: Any = s.length;
     cg_expr(ctx, s.value);
+    if (s.fatWord != nil) {
+        // A native-word store to a fat global: payload, then its type word.
+        let off: Any = glob_off(ctx, glob_find(ctx, p, l));
+        st_abs(ctx, off + 8);
+        e8(ctx, 72); e8(ctx, 199); e8(ctx, 4); e8(ctx, 37);             // mov qword [disp32], imm32
+        let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 2, o, off);
+        e32(ctx, if (s.fatWord == "Bool") { 1 } else { 2 });
+        return 0;
+    }
     let li: Any = loc_find(ctx, p, l);
     if (li >= 0) {
         if (is_boxed(ctx, p, l) == 1) {
@@ -3385,7 +3395,7 @@ fun x86_native_raise(ctx: Any, kind: Any) -> Any {
 // ------------------------------------------------------------------ driver
 
 fun cg_func(ctx: Any, rec: Any) -> Any {
-    if (FAT_VALUES and rec.mode != 1) { return fat_func(ctx, rec); }
+    if (FAT_VALUES and rec.mode != 1 and rec.native != true) { return fat_func(ctx, rec); }
     ctx.native = ctx.dynamic == 1 and rec.native == true;
     ctx.nativeFaults = [0, 0, 0, 0, 0];
     if (ctx.dynamic == 0) { ctx.mode = 0; }
@@ -3408,8 +3418,11 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     ctx.envSlot = es;
     x86_allocate_temps(ctx, rec.ir);
     align8(ctx);
-    x86_call_trampoline(ctx, rec);
-    if (ctx.native) { x86_native_entry(ctx, rec); }
+    if (FAT_VALUES and ctx.native) { fat_native_entry(ctx, rec); }
+    else {
+        x86_call_trampoline(ctx, rec);
+        if (ctx.native) { x86_native_entry(ctx, rec); }
+    }
     // The trampoline ends in `ret`, so this padding is never executed.
     if (ctx.mode == 0 and ctx.dynamic == 0) { x86_align_code(ctx, X86_FUNCTION_ALIGN, X86_FUNCTION_ALIGN); }
     placelab(ctx, if (ctx.native) { rec.nativeLab } else { rec.abiLab });

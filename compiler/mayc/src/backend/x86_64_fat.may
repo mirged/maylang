@@ -578,6 +578,51 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
     return 0;
 }
 
+// The fat entry of a native-word function (#92): check each argument's type
+// word, pass the payloads as machine words and give the result its type.
+// Fat Int and Bool payloads are the native words, so nothing is converted.
+fun fat_native_entry(ctx: Any, rec: Any) -> Any {
+    if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
+    let fault: Any = newlab(ctx);
+    placelab(ctx, rec.lab);
+    e8(ctx, 85); e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);                    // push rbp; mov rbp, rsp
+    let registers: Any = [7, 6, 2, 1, 8, 9];
+    for index: Any in 0..rec.pc {
+        x86_load_register(ctx, 0, 0 - (16 + 16 * index));
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, if (rec.nativeKinds[index] == "Bool") { 1 } else { 2 }); // cmp rax, type
+        jcc(ctx, 133, fault);
+    }
+    for index: Any in 0..rec.pc { x86_load_register(ctx, registers[index], 0 - (24 + 16 * index)); }
+    call(ctx, rec.nativeLab);
+    x86_mov_immediate(ctx, 2, if (rec.nativeResult == "Bool") { 1 } else { 2 });
+    e8(ctx, 93); e8(ctx, 195);                                                // pop rbp; ret
+    placelab(ctx, fault);
+    call_rt0(ctx, addr("rt_word_type_fault"), len("rt_word_type_fault"));
+    return 0;
+}
+
+// Native-word code calls this function's word adapter: the machine-word
+// arguments in the SysV registers become Int or Bool values for its fat
+// entry, and the result's payload is the word.
+fun fat_word_adapter(ctx: Any, rec: Any) -> Any {
+    if (rec.wordLab == 0) { rec.wordLab = newlab(ctx); }
+    placelab(ctx, rec.wordLab);
+    e8(ctx, 85); e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);                    // push rbp; mov rbp, rsp
+    let size: Any = (rec.pc + rec.pc % 2) * 16;
+    if (size > 0) { e8(ctx, 72); e8(ctx, 129); e8(ctx, 236); e32(ctx, size); } // sub rsp, size
+    let registers: Any = [7, 6, 2, 1, 8, 9];
+    for index: Any in 0..rec.pc {
+        let register: Any = registers[index];
+        e8(ctx, 72); e8(ctx, 199); e8(ctx, 132); e8(ctx, 36); e32(ctx, 16 * index); // mov qword [rsp + d], type
+        e32(ctx, if (rec.nativeKinds[index] == "Bool") { 1 } else { 2 });
+        e8(ctx, if (register >= 8) { 76 } else { 72 }); e8(ctx, 137);            // mov [rsp + d], reg
+        e8(ctx, 132 + (register % 8) * 8); e8(ctx, 36); e32(ctx, 16 * index + 8);
+    }
+    call(ctx, rec.lab);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 236); e8(ctx, 93); e8(ctx, 195);      // mov rsp, rbp; pop rbp; ret
+    return 0;
+}
+
 // A typed extern: convert each argument value (rt_ffi_arg) into a frame
 // word, place integers in the SysV registers and floats in XMM0-7 (the rest
 // on the stack, in order), call the resolved slot and convert the result.
@@ -651,6 +696,7 @@ fun fat_func(ctx: Any, rec: Any) -> Any {
     placelab(ctx, ctx.restartLabel);
     fat_ir(ctx, rec.ir);
     fat_epilogue(ctx, fp);
+    if (rec.wordCalled == true) { fat_word_adapter(ctx, rec); }
     ctx.allocation = 0;
     return 0;
 }
