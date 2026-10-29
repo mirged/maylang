@@ -123,7 +123,8 @@ so an `Int` or `Ptr` result keeps all 64 bits; a negative `UInt` argument or a
 `UInt32` values carry range contracts and keep their users tagged. In other code, an `Int` or `Bool` expression that
 contains a bitwise operator and uses only integer variables, literals,
 operators and native-word calls is compiled the same way, with its variables
-(at most six) passed as arguments, so `(1 << 63) & (1 << 63) != 0` is `true`.
+(at most six) passed as arguments, so `(1 << 63) & (1 << 63) != 0` is `true`;
+an expression that calls a function and also reads a global stays tagged.
 Debug traces omit native-word frames. Other functions keep the tagged
 semantics ([#92](https://github.com/mirged/maylang/issues/92)).
 

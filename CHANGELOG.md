@@ -26,6 +26,10 @@
   61-bit range raises `integer overflow` instead of wrapping (`6 << 59` and
   `1 << 60` used to wrap silently)
   ([#92](https://github.com/mirged/maylang/issues/92)).
+- Keep tagged evaluation for a bitwise expression that both calls a function
+  and reads a global, so a global assigned by the call is read afterwards.
+  Outlining previously read it first
+  ([#92](https://github.com/mirged/maylang/issues/92)).
 - Raise an `arithmetic` fault (`integer overflow`) when tagged `load64` reads
   a word outside the signed 61-bit range, on every target. It previously
   dropped the top three bits silently. Raw code and native-word functions
