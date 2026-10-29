@@ -101,8 +101,8 @@ narrower type is checked rather than rejected solely for having a wider type.
 part. These names do not provide a complete 64-bit payload or machine-width
 storage.
 
-On every target, a function whose parameters and result are all `Int` or
-`Ptr`, and whose body uses only `Int`/`Ptr` locals, integer operators,
+On every target, a function whose parameters and result are all `Int`, `Ptr`
+or `Bool`, and whose body uses only such locals, `true`, `false`, integer operators,
 comparisons, `if`, `while`, `break`, `continue`, `load8` through `load64`,
 `store8` through `store64` and calls to other such functions, compiles as
 a native-word function. Inside it, and across calls between such functions,
