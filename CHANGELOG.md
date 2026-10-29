@@ -19,6 +19,10 @@
   `load8`..`load64`/`store8`..`store64`, in native-word functions, so memory reads keep bit 63
   instead of wrapping to the tagged range
   ([#92](https://github.com/mirged/maylang/issues/92)).
+- Lower `for` loops over `a..b` and `a..=b` in raw code and native-word
+  functions as counted loops, with the bounds evaluated once and no range
+  list. Raw programs previously rejected ranges
+  ([#92](https://github.com/mirged/maylang/issues/92)).
 - Reject `addr`, `cstr` and `len` on a non-literal string in x86-64 raw mode,
   as the other raw backends do; they previously compiled to a read of
   unrelated memory.

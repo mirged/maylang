@@ -102,10 +102,10 @@ part. These names do not provide a complete 64-bit payload or machine-width
 storage.
 
 On every target, a function whose parameters and result are all `Int`, `Ptr`
-or `Bool`, and whose body uses only such locals, `true`, `false`, integer operators,
-comparisons, `if`, `while`, `break`, `continue`, `load8` through `load64`,
-`store8` through `store64` and calls to other such functions, compiles as
-a native-word function. Inside it, and across calls between such functions,
+or `Bool`, and whose body uses only such locals, `true`, `false`, integer
+operators, comparisons, `if`, `while`, `for` over `a..b` or `a..=b`, `break`,
+`continue`, `load8` through `load64`, `store8` through `store64` and calls to
+other such functions, compiles as a native-word function. Inside it, and across calls between such functions,
 `Int` values are untagged signed 64-bit machine words: bitwise operators reach
 bit 63, `load64` keeps all 64 bits (tagged code wraps it to 61), shift counts
 may be 0 through 63, and `+`, `-`, `*`, `/` and negation

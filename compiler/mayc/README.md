@@ -245,7 +245,8 @@ compilation overhead. Deploy the `runtime/` directory beside the compiler along
 with its full-runtime sidecars; full builds also need `runtime/math.may`.
 
 ARM64/RISC-V raw targets support integers, literal strings, globals and locals,
-conditionals, loops, direct calls and tail self-calls, `addr`/`cstr`/literal `len`,
+conditionals, loops (`for` only over `a..b` and `a..=b` ranges, counted without
+building a list), direct calls and tail self-calls, `addr`/`cstr`/literal `len`,
 `ptr`, `load8/16/32/64`, `store8/16/32/64`, `exit`, and native `syscall`.
 The first eight function parameters use registers and further parameters use
 the stack. Frames are limited to 2000 bytes; syscalls accept six arguments.
