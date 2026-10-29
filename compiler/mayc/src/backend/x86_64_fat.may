@@ -138,13 +138,13 @@ fun fat_var(ctx: Any, n: Any) -> Any {
     let gi: Any = glob_find(ctx, p, l);
     if (gi >= 0) { return fat_abs_load(ctx, glob_off(ctx, gi)); }
     let fr: Any = backend_find_func(ctx, p, l);
-    if (fr != 0 and fr.mode != 1) { return fat_function_value(ctx, fr.lab, 0, fr.pc); }
+    if (fr != 0 and fr.mode != 1) { return fat_function_value(ctx, fr.lab, false, fr.pc); }
     die_str("mayc: unknown variable `${symbol_name(p, l)}`\n");
     return 0;
 }
 
 // A closure over code `label`; RCX holds the environment when `env` is true.
-fun fat_function_value(ctx: Any, label: Any, env: Any, arity: Any) -> Any {
+fun fat_function_value(ctx: Any, label: Any, env: Bool, arity: Any) -> Any {
     x86_relocated_immediate(ctx, 0, 6, label); e8(ctx, 80);         // push code
     if (env) { e8(ctx, 81); } else { xor_eax(ctx); e8(ctx, 80); }  // push rcx / push 0
     mov_imm(ctx, arity); e8(ctx, 80);
