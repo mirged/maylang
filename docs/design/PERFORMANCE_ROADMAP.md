@@ -76,8 +76,10 @@ Further measurements behind the diagnosis:
 - **Keep semantics.** Optimizations preserve evaluation order, effects,
   overflow and division faults, `may`/`otherwise` recovery and debug traces.
   Each pass gets oracle tests against unoptimized output.
-- **Keep the toolchain green.** Bootstrap fixpoint (`make test-bootstrap`),
-  core targets, ARM64/RISC-V, and the NodeOS compiler image under 4 MiB.
+- **Keep the toolchain green.** Bootstrap fixpoint (`make test-bootstrap`).
+  Only Linux x86-64 is in scope while the other targets are frozen
+  ([LINUX_X86_64_FOCUS.md](LINUX_X86_64_FOCUS.md)); until that freeze lands,
+  keep the existing target suites and the NodeOS 4 MiB image limit passing.
 - **Fix algorithms before code generation.** An O(n) map lookup cannot be
   rescued by a better register allocator.
 
@@ -160,13 +162,13 @@ Goal: Collatz and Mandelbrot within 2× of C. fib on a par with Java.
 
 ## Phase 4: IR optimizer
 
-Passes on the shared IR (`src/ir.may`), so the x86-64, ARM64 and RISC-V
-backends all benefit. Each one is skipped under `--no-opt`.
+Passes on the shared IR (`src/ir.may`), so a revived ARM64 or RISC-V
+backend would benefit too. Each one is skipped under `--no-opt`.
 
 - Constant and copy propagation beyond `sem_fold`; dead code and dead store
   elimination for fat code (the raw backend's DCE as a model).
 - Inlining of small, non-recursive functions and closures with known
-  targets, with a size budget that keeps the NodeOS image limit.
+  targets, with a size budget measured on the compiler's own image.
 - Common subexpression elimination for pure operations, including repeated
   field reads and `len` calls in loop conditions.
 - Loop-invariant code motion.
@@ -199,12 +201,11 @@ CPython.
 Goal: binary trees within 3× of Java; peak RSS within 2× of CPython on every
 benchmark.
 
-## Phase 6: other targets and runtimes
+## Phase 6: other targets and runtimes (deferred)
 
-- Bring phases 2–4 to `src/backend/raw_fat.may` (ARM64, RISC-V) and the
-  core runtime, measured with the core-runtime emulation harnesses.
-- Windows and macOS outputs share the x86-64 and ARM64 code generators and
-  need only their loaders retested.
+Frozen by [LINUX_X86_64_FOCUS.md](LINUX_X86_64_FOCUS.md). When ARM64,
+RISC-V, the core runtime, NodeOS, macOS or Windows are revived, bring phases
+2–4 to them as part of reviving them.
 
 ## Phase 7: compiler throughput
 
@@ -223,5 +224,5 @@ stage timings).
 | 3 Type-directed code generation | #96, #94 open |
 | 4 IR optimizer | not started |
 | 5 Allocation and collection | not started |
-| 6 Other targets | not started |
+| 6 Other targets | deferred (frozen) |
 | 7 Compiler throughput | not started |
