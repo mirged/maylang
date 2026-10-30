@@ -11,6 +11,11 @@
   simulation, which used `stdlib/ml`, move to `frozen/`, where they are kept
   but not built, tested or maintained. `make test-browser`, the doctor's
   `browser` profile and the `maybrowser.yml` workflow are removed.
+- Stop running cross-target emulation (`core-emulation`) and the Windows and
+  macOS real-loader workflow (`native-targets.yml`) in CI, and freeze the
+  WSL launcher `dist/install.ps1`; releases no longer publish it. Release
+  bundles describe themselves as Linux x86-64 only
+  ([#102](https://github.com/mirged/maylang/issues/102)).
 
 ## Compiler
 
