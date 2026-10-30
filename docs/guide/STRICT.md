@@ -106,7 +106,7 @@ integer operators, comparisons, `if`, `while`, `for` over `a..b` or `a..=b`,
 `syscall` (full runtime), calls to top-level functions
 whose parameters (at most six) and result are `Int`, `Ptr` or `Bool`, and
 calls to `extern` functions whose parameters are `Int`, `UInt`, `Ptr` or
-`Bool` and whose result is one of those or `Void` (x86-64 Linux), compiles as a native-word function on x86-64 (ARM64 and RISC-V compile it as ordinary code with the same results). Inside it, and across calls
+`Bool` and whose result is one of those or `Void` (x86-64 Linux), compiles as a native-word function. Inside it, and across calls
 between such functions, `Int` values are signed 64-bit machine words:
 bitwise operators reach bit 63, `load64` keeps all 64 bits, shift counts may
 be 0 through 63, and `+`, `-`, `*`, `/` and negation fault on 64-bit

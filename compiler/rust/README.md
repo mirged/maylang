@@ -61,7 +61,7 @@ to their owner, then the repository's `stdlib`, with optional `.may` extensions
 and cycle deduplication.
 
 Code generation belongs to the self-hosted Maylang compiler. The bootstrap only
-provides the source-only build chain. See [mayc targets](../mayc/README.md#cross-compilation).
+provides the source-only build chain. See [mayc targets](../mayc/README.md#target-and-runtimes).
 
 This bootstrap implements the dynamic subset needed by `mayc`: integers, floats,
 byte strings, lists/maps, structs/enums lowered to constructors, functions and

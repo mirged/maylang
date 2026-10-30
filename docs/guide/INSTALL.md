@@ -176,10 +176,9 @@ Install the released VSIX in VS Code. It finds `maylsp` through PATH; restart
 the editor after installing, or set `maylang.serverPath` to the installed
 binary. See [editor setup](DEVELOPMENT.md#editor-setup).
 
-The compiler host currently requires Linux x86-64. On Windows, install WSL 2
-and run the command inside an x86-64 Linux distribution. Native macOS, Windows
-and ARM64 compiler-host releases are not available. Cross-compilation targets
-and runtime limits are documented in [the target guide](../../frozen/docs/internals/NATIVE_TARGETS.md).
+Maylang currently supports only Linux x86-64, as compiler host and as program
+target. On Windows, install WSL 2 and run the command inside an x86-64 Linux
+distribution. Other targets are [frozen](../../frozen/README.md) for now.
 
 Contributors: see [source development](DEVELOPMENT.md),
 [distribution internals](../../dist/README.md) and

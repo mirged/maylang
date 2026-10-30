@@ -9,12 +9,9 @@ An `Any` parameter is not a guarantee that arbitrary inputs are accepted.
 
 ## Runtime and platform
 
-Ordinary modules target the full runtime on Linux x86-64. Pure functions have
-no filesystem dependency, but may still use floats, maps or closures that core
-rejects. The portable core's supported library is inventoried separately and
-tested on all five direct targets.
+Modules target the full runtime on Linux x86-64, the only supported target.
 Raw mode does not inject a standard library. See the
-[target capability matrix](../compiler/mayc/README.md#cross-compilation).
+[target capability matrix](../compiler/mayc/README.md#target-and-runtimes).
 
 `io`, `net`, environment/process primitives and raw syscall wrappers depend on
 the full Linux runtime. `path` manipulates strings lexically and performs no
@@ -91,7 +88,5 @@ and run by compiler verification. The focused
 [library suite](../compiler/mayc/tests/stdlib_contracts.py) runs typed
 Result/I/O and [boundary cases](../compiler/mayc/tests/library/boundaries.may)
 natively. Numeric, map, file and network suites cover the corresponding runtime
-primitives. The [core suite](../frozen/compiler/mayc/tests/core_runtime.py) covers the
-portable library and [arena lifetimes](../frozen/docs/internals/CORE_MEMORY.md). These tests are
-contracts for exercised boundaries, not exhaustive validation of every `Any`
-input or every experimental ML algorithm.
+primitives. These tests are contracts for exercised boundaries, not
+exhaustive validation of every `Any` input.

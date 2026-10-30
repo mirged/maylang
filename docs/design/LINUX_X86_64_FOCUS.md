@@ -166,5 +166,5 @@ order:
 | 3 CI and distribution | done |
 | 4 Compiler seams | done: `backend/portable.may`, `formats/portable.may`, `backend/x86_64_nodeos.may`; `raw.may` and `raw_float.may` turned out to be portable-only, so no `riscv.may` split was needed |
 | 5 Freeze targets | done |
-| 6 Documentation | not started |
+| 6 Documentation | done |
 | 7 Measure again | not started |

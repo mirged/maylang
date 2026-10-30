@@ -25,13 +25,12 @@ with the final `.may` suffix removed. If the source has another suffix, `.out`
 is appended. `--check` performs import expansion, parsing, strict type checking
 and name resolution without writing an executable. `--legacy` opts into
 dynamic legacy checking; `--strict` restores strict checking (the default).
-`--raw` omits the runtime and standard libraries. On x86-64 it aligns function
+`--raw` omits the runtime and standard libraries. It aligns function
 bodies and loop heads to 16 bytes with NOP padding; `--no-code-align` turns that
 off for layout experiments. `--dump-expanded` prints the
 source after textual imports have been expanded and exits. `--version` reports
-the self-hosted compiler identity. `--runtime full|core|none` selects the library
-set; `none` is equivalent to `--raw`. The default is `full` on x86-64 Linux and
-`core` on the other native targets. `--time` reports elapsed stage times to stderr.
+the self-hosted compiler identity. `--runtime full|none` selects the library
+set; `full` is the default and `none` is equivalent to `--raw`. `--time` reports elapsed stage times to stderr.
 
 Individual input files, including imports, are limited to 1 MiB. The compiler
 rejects larger files with an error instead of compiling a truncated prefix.
@@ -50,7 +49,7 @@ field meanings or coordinate units require a schema-version change. Stage codes
 such as `E_PARSE` and `E_TYPE` identify categories rather than unique errors.
 LSP consumes the same records and converts byte columns to its UTF-16 positions.
 
-`--debug` instruments user functions in full and core builds with source frames.
+`--debug` instruments user functions with source frames.
 Uncaught faults print the captured trace; caught faults expose it in `err.stack`.
 Frames name the function and its declaration location, rather than every call
 site. Tail calls keep bounded trace depth, handlers restore unwound frames, and
@@ -73,18 +72,15 @@ snapshots show at most 64. This is error tracing, not a DWARF debugger interface
    Before lowering, `words.may` marks functions whose parameters, result,
    locals and operations are all `Int`, `Ptr` or `Bool` (including
    `load*`/`store*`);
-   the x86-64 backend lowers them like raw
+   the backend lowers them like raw
    code and emits 64-bit words, checked arithmetic and a fat entry that checks
    the arguments' type words.
-6. `backend.may` selects a `TargetBackend` with IR emission and relocation
-   entry points. `backend/x86_64.may` implements the full dynamic runtime;
-   `backend/arm64.may` and `backend/riscv.may` implement raw and core programs
-   through the shared `CodeEmitter` contract in `backend/raw.may`. Platform
-   primitives adapt the shared core runtime to Linux, Darwin or Windows.
+6. `backend.may` selects the `TargetBackend` with IR emission and relocation
+   entry points. `backend/x86_64.may` emits raw code and runtime functions;
+   `backend/x86_64_fat.may` lowers dynamic code on fat values.
 7. `formats.may` computes an `ImageLayout` after code padding, then the
-   backend applies relocations using that layout. `formats/elf.may`,
-   `formats/macho.may`, and `formats/pe.may` write their respective images.
-   Address bases, header sizes and file geometry belong to the format writers.
+   backend applies relocations using that layout. `formats/elf.may` writes
+   the image; address bases, header sizes and file geometry belong to it.
 
 `emitter.may` owns an explicit `EmissionContext`: checked code, data and image
 sinks, labels, fixups, symbols, frame allocation, runtime mode, and a snapshot
@@ -98,142 +94,54 @@ code, data and image limits are currently 16 MiB, 4 MiB and 32 MiB.
 
 ## One toolchain
 
-mayc writes every executable itself: it emits machine code and the ELF, NXF,
-Mach-O or PE container directly, with no assembler, linker, C compiler or
+mayc writes every executable itself: it emits machine code and the ELF
+container directly, with no assembler, linker, C compiler or
 LLVM. An experimental `clang-llvm` target that lowered the IR to LLVM IR was
 removed in favor of this; `--target clang-llvm` and `--emit-llvm` now fail
 with an explanation.
 
-## Cross compilation
+## Target and runtimes
 
-The compiler executable runs on x86-64 Linux and on NodeOS. Target selection
-is explicit; only the default follows the host (`x86_64-nodeos` on NodeOS):
+The compiler runs on x86-64 Linux and emits x86-64 Linux ELF64 executables.
+That is the only supported target for now: `--target x86_64-nodeos`,
+`arm64-linux`, `riscv64-linux`, `arm64-macos` and `x86_64-windows` and
+`--runtime core` fail with an error. Their backends, formats and runtimes are
+[frozen](../../frozen/README.md) ([why](../../docs/design/LINUX_X86_64_FOCUS.md)).
 
-| Target | Format | Supported programs |
+| Capability | Full runtime (default) | `--raw` / `--runtime none` |
 | --- | --- | --- |
-| `x86_64-linux` (default) | ELF64 | Full runtime, core runtime and `--raw` |
-| `x86_64-nodeos` | NXF | Full runtime, core runtime and `--raw`; no C externs |
-| `arm64-linux` | ELF64 | Core runtime and `--raw` |
-| `riscv64-linux` | ELF64 | Core runtime and `--raw` (RV64IM) |
-| `arm64-macos` | Mach-O ARM64 | Core runtime and `--raw`; sign on macOS |
-| `x86_64-windows` | PE32+ | Core runtime with kernel32 imports and `--raw` |
+| Integers, booleans, direct functions and control flow | Yes | Yes |
+| Allocated UTF-8 strings and lists | Yes | Literal strings and pointer operations |
+| Maps, records, structs and enums | Yes | Use raw storage/operations |
+| Closures, shared captures and higher-order calls | Yes | No injected callable runtime |
+| Float literals, arithmetic, conversions and Float32 | Yes | Use raw storage/operations |
+| Transcendentals and floating-point powers | Yes (portable trig; x87 logs/exp/pow) | Use raw storage/operations |
+| Recoverable faults and source traces | Yes; uncaught faults exit 70 | No injected runtime |
+| Cooperative fibers | Yes | No injected scheduler |
+| Typed extern functions | Yes | No full-runtime ABI |
+| File/process/network libraries | Yes | Explicit Linux syscalls |
+| Heap lifetime | Conservative GC | Program manages raw allocations |
 
-| Capability | Full native | Core | Raw |
-| --- | --- | --- | --- |
-| Integers, booleans, direct functions and control flow | Yes | Yes | Yes |
-| Allocated UTF-8 strings and lists | Yes | Yes | Literal strings and pointer operations |
-| Maps, records, structs and enums | Yes | Yes | Use raw storage/operations |
-| Closures, shared captures and higher-order calls | Yes | Yes | No injected callable runtime |
-| Float literals, arithmetic, conversions and Float32 | Yes | Yes | Use raw storage/operations |
-| Transcendentals and floating-point powers | Yes (portable trig; x87 logs/exp/pow) | Yes (portable) | Use raw storage/operations |
-| Recoverable faults and source traces | Yes | Yes; uncaught faults exit 70 | No injected runtime |
-| Cooperative fibers | Yes | Yes | No injected scheduler |
-| Typed extern functions | Yes | Rejected | No full-runtime ABI |
-| File/process/network libraries | Linux and NodeOS x86-64 (no NodeOS sockets) | Rejected | Explicit target OS calls |
-| Heap lifetime | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
-
-On `x86_64-nodeos`, `syscall` keeps Linux numbering: each site calls a gate
-into a personality in [`runtime/nodeos.may`](../../frozen/compiler/mayc/runtime/nodeos.may) that answers
-with NodeOS syscalls and IPC, and images are written as NXF. See
-[NodeOS target](../../frozen/docs/internals/NODEOS.md) for the mapping, the
-`exec`/`system` spawn path, hosting the compiler there, and limits.
-
-The [backend parity handoff](../../frozen/docs/internals/BACKEND_PARITY_PROGRESS.md)
-records completed work, validation and remaining language/OS API gaps.
-
-`tests/backends.py` and `tests/core_runtime.py` exercise accepted capabilities and reject unsupported combinations before
-writing an executable. The raw ABI and platform limits are described below.
-
-The [native target workflow](../../frozen/docs/internals/NATIVE_TARGETS.md) cross-emits fixtures
-on Linux and executes them with real Windows and Apple Silicon macOS loaders,
-recording host versions, signing results, console output and exit status.
-
-```sh
-compiler/mayc/mayc_new --target arm64-linux examples/hello.may -o hello-arm64
-compiler/mayc/mayc_new --target riscv64-linux examples/hello.may -o hello-riscv64
-compiler/mayc/mayc_new --target x86_64-windows examples/hello.may -o hello.exe
-compiler/mayc/mayc_new --target arm64-macos examples/hello.may -o hello-macos
-# On macOS, before execution:
-codesign --force --sign - hello-macos
-```
-
-The core runtime shares the fat runtime [`runtime/fat.may`](runtime/fat.may)
-and the full runtime's library (`prelude.may`, `native.may`), so core programs
-print what full-runtime programs print. Its host
-[`runtime/fat_core.may`](../../frozen/compiler/mayc/runtime/fat_core.may) takes memory, output and exit
-from each target's platform primitives, and
-[`runtime/fat_corelib.may`](../../frozen/compiler/mayc/runtime/fat_corelib.may) adds `alloc`, arenas,
-`memcpy`, `core_heap_retained`, `gcd` and `lcm`. Uncaught faults such as
-integer overflow print `kind: message` and exit with status 70.
-Core heap chunks live until process exit, with a 256 MiB retained-heap cap.
-Exhausting it prints `core heap limit exceeded` and exits with status 70. Use
-the full collecting runtime for allocation-intensive, long-running programs.
-
-For repeated raw-memory work, `arena_new`, `arena_alloc`, `arena_reset`,
-`arena_used` and `arena_capacity` provide reusable scratch storage; resets
-invalidate all pointers returned by that arena. `core_heap_retained` reports
-mapped chunk bytes. See [ownership rules and measured growth](../../frozen/docs/internals/CORE_MEMORY.md).
-
-Core allocation uses native heap chunks of at least 1 MiB, retained until
-process exit. It has no garbage collector or individual free operation.
-Maps retain insertion order for keys/values, use a string-key hash index, and
-support property access, mutation, spread and cycle-safe printing. Struct and
-enum constructors and pattern matching use this same portable representation.
-Closures share mutable captured cells, including across nested callbacks and
-recursive local functions. Callback helpers include `map`, `filter`, `reduce`,
-`any`, `all`, `count`, `each` and `times`.
-`may`/`otherwise` catches fail/type/arithmetic faults and exposes `err.kind`,
-`err.message` and `err.stack`; `--debug` includes function/source traces. Uncaught
-core faults retain the plain diagnostic and exit status 70. At most 64 handlers
-may be active; exhausting that capacity raises a catchable runtime fault.
-Fibers share the same `spawn`/`yield`/`run` API on all native targets and keep
-independent handlers, caught errors and traces. Each gets a 256 KiB stack;
-at most 128 may be created per process. `yield()` returns `nil`.
-Core floats use binary64 boxes on every target, with Float32 boundary rounding,
-`float`/`int` conversion, comparisons, `sqrt`, `floor`, `ceil`, `round`, `trunc`,
-`pi` and `e`. `runtime/math.may` is loaded by every runtime with a library
-prelude and holds the shared binary64-only code:
+The full runtime is [`runtime/fat.may`](runtime/fat.may) with its Linux host
+[`runtime/fat_linux.may`](runtime/fat_linux.may) (collector, files,
+processes). `runtime/math.may` is loaded with the library prelude and holds
+the shared binary64 code:
 
 - Display (`str`, `print`, nested values) prints the shortest digits that parse
   back to the same value, like Python's `repr`, in Maylang's layout (`1e20`,
   `0.30000000000000004`, `-0.0`); nonfinite values print as `nan`, `inf` or
   `-inf`. `float(text)`, JSON numbers and float literals are correctly rounded.
-- `sin`, `cos` and `tan` reduce arguments of any finite magnitude exactly and
-  return identical bits on the full and core runtimes. Core also uses the
-  portable `ln`, `log2`, `log10`, `exp` and floating `pow`/`**`; full builds keep
-  the faster x87 sequences for those. Every backend is within
-  one ulp of a correctly rounded result, and zeros, infinities, NaN and negative
-  bases follow C99 `pow`/`exp`. The `pow` builtin always returns a Float, while
-  `**` keeps integer powers exact.
-- The core runtime never frees memory, so these pure functions release their
-  temporaries before returning.
+- `sin`, `cos` and `tan` reduce arguments of any finite magnitude exactly.
+  `ln`, `log2`, `log10`, `exp` and floating `pow`/`**` use x87 sequences.
+  Every result is within one ulp of a correctly rounded result, and zeros,
+  infinities, NaN and negative bases follow C99 `pow`/`exp`. The `pow` builtin
+  always returns a Float, while `**` keeps integer powers exact.
 
-FFI still requires the full x86-64 Linux runtime and is diagnosed before
-output. Use `--runtime core` on Linux for small portable programs and lower
-compilation overhead. Deploy the `runtime/` directory beside the compiler along
-with its full-runtime sidecars; full builds also need `runtime/math.may`.
+Deploy `native.may`, `prelude.may` and the `runtime/` directory beside a
+copied compiler.
 
-ARM64/RISC-V raw targets support integers, literal strings, globals and locals,
-conditionals, loops (`for` only over `a..b` and `a..=b` ranges, counted without
-building a list), direct calls and tail self-calls, `addr`/`cstr`/literal `len`,
-`ptr`, `load8/16/32/64`, `store8/16/32/64`, `exit`, and native `syscall`.
-The first eight function parameters use registers and further parameters use
-the stack. Frames are limited to 2000 bytes; syscalls accept six arguments.
-`syscall` numbers and flags are those of the **selected target**:
-Linux ARM64/RISC-V use write=64, mmap=222, exit=93; Darwin uses write=4, exit=1.
-`exit` chooses the target ABI automatically. The Windows raw target rejects
-`syscall` and `exit`; its entry point returns to the Windows loader. The core
-runtime implements exit, output and allocation through Windows imports.
-
-Mach-O output uses `LC_UNIXTHREAD` and needs ad-hoc signing on Apple Silicon;
-signing and native macOS/Windows launches have not been tested here. Core
-execution on every target is checked with Unicorn, including partial writes,
-multiple heap chunks, Windows imports and call alignment. This is cross
-emission support; mayc itself still runs on x86-64 Linux.
-
-```sh
-python3 compiler/mayc/tests/core_runtime.py --compiler compiler/mayc/mayc_new --require-emulation
-```
+`syscall` uses Linux x86-64 numbering. In `--raw` code, frames are limited to
+2000 bytes and syscalls accept six arguments.
 
 ## Build performance
 
@@ -282,9 +190,8 @@ processes, compares functional output and runs each rebuilt compiler:
 | Hello, full runtime | 1.088 s | 0.608 s |
 | Features, full runtime | 1.134 s | 0.732 s |
 | Compiler rebuild | 75.857 s | 5.954 s |
-| Hello, core runtime | — | 0.131 s |
 
-Hello/features/core numbers are medians of three runs. The compiler rebuild
+Hello/features numbers are medians of three runs. The compiler rebuild
 uses one sample per version, giving a measured 12.74× improvement in this run.
 No build cache is used. Use `--time` to inspect individual stages:
 
@@ -307,8 +214,7 @@ symbol-cache behavior.
 
 `tests/reachability.py` executes retained calls, function values, captures,
 recursion, initialization and errors, checks unused code/literals and foreign
-loader entries, and inspects stripping across all core targets and raw Linux
-targets.
+loader entries, and inspects stripping of raw programs.
 
 ## Runtime performance
 
@@ -321,8 +227,8 @@ optimization discovered with these workloads and its raw timing samples.
 `src/regalloc.may` runs a shared basic linear-scan allocator over IR temporaries.
 It expires inclusive live intervals, evicts the interval ending farthest away
 when registers are full, and reuses stack homes after intervals expire. The
-backends use four callee-saved registers: r12–r15 on x86-64, x19–x22 on ARM64,
-and s2–s5 on RISC-V. Functions preserve the registers they use. Before x86 calls,
+backend uses four callee-saved registers, r12–r15. Functions preserve the
+registers they use. Before x86 calls,
 live register values are copied to stack homes for the conservative GC.
 
 This is a conservative first implementation: values spanning control-flow or
@@ -330,7 +236,7 @@ exception boundaries, and values with multiple definitions, stay in private
 stack homes. It does not split intervals or allocate named locals to registers.
 `tests/regalloc.py` checks expiration, pressure spills, stack-home reuse,
 loop-carried values, call preservation, and actual collections with live
-arguments. Cross-target execution checks use Unicorn when available:
+arguments:
 
 ```sh
 python3 compiler/mayc/tests/regalloc.py --compiler compiler/mayc/mayc_new
@@ -365,14 +271,11 @@ python3 compiler/mayc/tests/benchmark.py --compiler compiler/mayc/mayc_new \
   --baseline /path/to/old/mayc --report /tmp/mayc-performance.json
 ```
 
-`tests/backends.py` checks context isolation, a signed arithmetic Python oracle,
-format headers, target errors, and execution of emitted programs when Unicorn
-is installed. `--require-emulation` makes a missing emulator an error:
+`tests/backends.py` checks context isolation, relocations, a signed
+arithmetic Python oracle and target diagnostics:
 
 ```sh
 python3 compiler/mayc/tests/backends.py --compiler compiler/mayc/mayc_new
-# In an environment with the Python unicorn package installed:
-python3 compiler/mayc/tests/backends.py --compiler compiler/mayc/mayc_new --require-emulation
 ```
 
 Strict typing is enabled by default. Use `--legacy` for untyped source and
@@ -416,17 +319,6 @@ and reports are stored there as well.
 
 The source-only workflow keeps source convergence, compiler/library checks,
 project workflows, LSP, extracted installation and compliance in `bootstrap`.
-Editor packaging runs in `editor`. Cross-target emulation and the real-loader
-checks on Windows and macOS are no longer run in CI; they are frozen with the
-other targets (#102).
-Both optional jobs use `continue-on-error`; a failing emulator installation or
-performance measurement does not fail the required checks. Native core checks
-remain in compiler verification. Branch protection can require `bootstrap` and
-`editor` independently of the optional jobs.
-
-The binary layouts and ABIs follow the primary specifications:
-[Arm AAPCS64](https://github.com/ARM-software/abi-aa/blob/main/aapcs64/aapcs64.rst),
-[RISC-V ISA](https://riscv.github.io/riscv-isa-manual/snapshot/spec/),
-[Apple Mach-O headers](https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/loader.h),
-[Microsoft PE/COFF](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format),
-and the [Windows x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention?view=msvc-170).
+Editor packaging runs in `editor`. The optional `performance` job uses
+`continue-on-error`, so a failing measurement does not fail the required
+checks. Branch protection can require `bootstrap` and `editor`.
