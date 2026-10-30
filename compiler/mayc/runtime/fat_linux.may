@@ -122,7 +122,9 @@ fun rt_gc() -> Any {
         if (kind == 3) {
             while (a + 16 <= end) {
                 let t: Any = load64(a);
-                if (t >= 4 and t <= 8) { rt_mark_word(load64(a + 8)); }
+                // Heap types are traced; an Int may be a Ptr from cstr or addr
+                // into the heap, so it is checked like a stack word.
+                if (t == 2 or (t >= 4 and t <= 8)) { rt_mark_word(load64(a + 8)); }
                 a = a + 16;
             }
         } else if (kind == 1) {
