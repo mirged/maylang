@@ -138,6 +138,11 @@ class DeveloperTests(unittest.TestCase):
             self.assertTrue(any('absent.md' in error for error in errors))
             self.assertTrue(any('invalid.json' in error for error in errors))
 
+    def test_repository_check_skips_frozen_code(self):
+        paths = checker.checked(['README.md', 'frozen/README.md', 'frozen/platform/x.py', 'docs/frozen.md', ''])
+        self.assertEqual([path.relative_to(checker.ROOT).as_posix() for path in paths],
+                         ['README.md', 'docs/frozen.md'])
+
     def test_repository_check_requires_identical_native_mirror(self):
         with tempfile.TemporaryDirectory(prefix='may-mirror-') as temporary:
             directory = Path(temporary)
