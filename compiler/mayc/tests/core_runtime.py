@@ -23,6 +23,18 @@ EXPECTED = (
     'heap 73 73\n'
     '[-2, -1, 0, 1] true [1, 2, 3] heλ HEλ\n'
 ).encode()
+# Fat values (#92) share the full runtime's list identity and fault text.
+FAT_EXPECTED = EXPECTED.replace(b'1] true [1, 2, 3]', b'1] false [1, 2, 3]')
+FAT_TARGETS = ['x86_64-linux', 'x86_64-windows']
+FAT_FAILURES = [
+    ('let n: Any = 3; print(n / 0);', b'arithmetic: division by zero\n'),
+    ('let n: Int = 1; let count: Int = 64; print(n << count);', b'arithmetic: shift count out of range\n'),
+    ('let s: Any = "2"; print(pow(s, 3));', b'type: pow requires numbers\n'),
+    ('let a: Ptr = arena_new(8); arena_alloc(a, 9);', b'arena capacity exceeded\n'),
+    ('arena_new(-1);', b'invalid arena capacity\n'),
+    ('let xs: Any = [1]; xs[1] = 2;', b'type: invalid list assignment\n'),
+    ('let xs: Any = [1]; let i: Any = true; print(xs[i]);', b'type: index requires an integer\n'),
+]
 ARENA_EXPECTED = b'arena 1024 iterations 1073741824 scratch bytes 1052672 retained bytes\n'
 LIST_FAILURES = [
     ('list-push-type', 'let bad: Any = nil; push(bad, 1);', b'expected List\n'),
@@ -151,6 +163,56 @@ def emulate(image, target, expected=EXPECTED, status=42, slide=0):
     assert exits == [status] and bytes(output) == expected, (target, exits, bytes(output))
 
 
+def fat_core(compiler, work, have_emulation):
+    # The core runtime on fat values: runtime/fat.may with runtime/fat_core.may.
+    def check(source, expected, status, target):
+        binary = work / f'fat-{target}'
+        image = compile_source(compiler, source, binary, '--runtime', 'core', '--values', 'fat', '--target', target)
+        if target == 'x86_64-linux':
+            result = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            assert (result.returncode, result.stdout, result.stderr) == (status, expected, b''), (source, result)
+        if have_emulation:
+            emulate(image, target, expected, status)
+    for target in FAT_TARGETS:
+        check(HERE / 'backend/core.may', FAT_EXPECTED, 42, target)
+        check(HERE / 'backend/arena.may', ARENA_EXPECTED, 0, target)
+        for body, message in FAT_FAILURES:
+            source = work / 'fat-failure.may'; source.write_text(body)
+            check(source, message, 70, target)
+        print(f'PASS {target}: core runtime on fat values' + ('' if have_emulation else ' (emulation skipped)'), flush=True)
+    # Sharing runtime/fat.may and native.may, core programs print exactly
+    # what the full runtime prints.
+    for source in sorted(HERE.glob('backend/portable_*.may')):
+        outputs = []
+        for flags in (['--runtime', 'core'], ['--runtime', 'full']):
+            binary = work / 'fat-portable'
+            compile_source(compiler, source, binary, '--values', 'fat', *flags)
+            result = subprocess.run([str(binary)], capture_output=True, timeout=30)
+            outputs.append((result.returncode, result.stdout, result.stderr))
+        assert outputs[0] == outputs[1], (source.name, outputs)
+    print('PASS fat core programs match the fat full runtime', flush=True)
+    source = work / 'fat-unsupported.may'; source.write_text('print(read_file("missing"));')
+    binary = work / 'fat-unsupported'
+    result = subprocess.run([str(compiler), '--runtime', 'core', '--values', 'fat', str(source), '-o', str(binary)], capture_output=True)
+    assert result.returncode and b'requires the full runtime' in result.stderr and not binary.exists(), result
+    small = work / 'fat-small'; small.mkdir()
+    shutil.copy2(compiler_binary(compiler), small / 'mayc')
+    shutil.copytree(HERE.parent / 'runtime', small / 'runtime')
+    host = small / 'runtime/fat_core.may'
+    assert host.read_text().count('CORE_RETAINED + size > 268435456') == 1
+    host.write_text(host.read_text().replace('CORE_RETAINED + size > 268435456', 'CORE_RETAINED + size > 2097152'))
+    source = work / 'fat-limit.may'; source.write_text('for i in 0..10 { alloc(700000); }')
+    for target in FAT_TARGETS:
+        binary = work / 'fat-limited'
+        image = compile_source(small / 'mayc', source, binary, '--runtime', 'core', '--values', 'fat', '--target', target)
+        if target == 'x86_64-linux':
+            result = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            assert result.returncode == 70 and result.stdout == b'core heap limit exceeded\n', result
+        if have_emulation:
+            emulate(image, target, b'core heap limit exceeded\n', 70)
+    print('PASS fat core: unsupported features and bounded retained heap', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, required=True)
@@ -226,6 +288,7 @@ def main():
                 assert result.returncode==70 and result.stdout==b'core heap limit exceeded\n',result
             if have_emulation: emulate(image,target,b'core heap limit exceeded\n',70)
         print('PASS bounded core retained heap on every target',flush=True)
+        fat_core(options.compiler, work, have_emulation)
 
 
 if __name__ == '__main__':

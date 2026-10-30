@@ -142,6 +142,7 @@ fun fat_release(ctx: Any, bytes: Any) -> Any { return fat_rsp(ctx, 196, bytes); 
 // Its trampoline returns the RTAG global in RDX (x86_call_trampoline).
 fun fat_rt_call(ctx: Any, name: Any, words: Any) -> Any {
     let rec: Any = backend_find_func(ctx, addr(name), len(name));
+    if (rec == 0 and ctx.runtime == "core") { die_str("mayc: `${name}` requires the full runtime\n"); }
     if (rec == 0) { die_str("mayc: --values fat runtime lacks `${name}`\n"); }
     if (rec.native == true) { die_str("mayc: --values fat runtime function `${name}` must not be native\n"); }
     call(ctx, rec.lab);
@@ -395,6 +396,14 @@ let FAT_BUILTINS: Any = {"str": "rt_to_str", "str_of": "rt_to_str", "len": "rt_l
     "exec": "rt_exec", "system": "rt_system", "remove": "rt_remove"};
 
 // Transcendentals use the portable binary64 kernels, as the core runtime does.
+// A builtin the loaded fat runtime provides, for the core runtime's check
+// (backend.may core_validate): a mapped runtime function that exists.
+fun fat_core_builtin(ctx: Any, name: Any) -> Any {
+    if (not has(FAT_BUILTINS, name)) { return false; }
+    let target: Any = FAT_BUILTINS[name];
+    return backend_find_func(ctx, addr(target), len(target)) != 0;
+}
+
 let FAT_MATH: Any = {"ln": "__math_ln", "log2": "__math_log2", "log10": "__math_log10", "exp": "__math_exp"};
 
 // Raw memory access on Int addresses; loads return full machine words.
@@ -434,6 +443,7 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         // The tagged backend leaves rt_newline's result, so `print` evaluates to 0.
         return fat_set(ctx, 2, 0);
     }
+    if (name == "exit" and ctx.runtime == "core") { return fat_rt(ctx, "rt_exit", args); }
     if (name == "exit") {
         fat_get(ctx, args);
         e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);                             // mov rdi, rax
@@ -483,6 +493,8 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         return fat_set(ctx, 0, 0);
     }
     if (has(FAT_BUILTINS, name)) { return fat_rt(ctx, FAT_BUILTINS[name], args); }
+    // The core library's runtime functions (runtime/fat_core.may).
+    if (ctx.runtime == "core" and starts_with(name, "__core_") and backend_find_func(ctx, addr(name), len(name)) != 0) { return fat_rt(ctx, name, args); }
     if (has(FAT_MATH, name)) {
         let kernel: Any = FAT_MATH[name];
         let rec: Any = backend_find_func(ctx, addr(kernel), len(kernel));

@@ -1,0 +1,16 @@
+// Core-runtime library functions for fat values (#92), loaded after the
+// shared prelude.may and native.may. They call runtime/fat_core.may.
+fun alloc(bytes: Int) -> Ptr { return __core_alloc(bytes); }
+fun arena_new(bytes: Int) -> Ptr { return __core_arena_new(bytes); }
+fun arena_alloc(arena: Ptr, bytes: Int) -> Ptr { return __core_arena_alloc(arena, bytes); }
+fun arena_reset(arena: Ptr) -> Nil { __core_arena_reset(arena); return; }
+fun arena_used(arena: Ptr) -> Int { return __core_arena_used(arena); }
+fun arena_capacity(arena: Ptr) -> Int { return __core_arena_capacity(arena); }
+fun core_heap_retained() -> Int { return __core_heap_retained(); }
+fun memcpy(destination: Ptr, source: Ptr, bytes: Int) -> Nil { __core_copy(destination, source, bytes); return; }
+fun gcd(a: Int, b: Int) -> Int {
+    mut x: Int = abs(a); mut y: Int = abs(b);
+    while (y != 0) { let remainder: Int = x % y; x = y; y = remainder; }
+    return x;
+}
+fun lcm(a: Int, b: Int) -> Int { if (a == 0 or b == 0) { return 0; } return abs((a / gcd(a, b)) * b); }

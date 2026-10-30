@@ -1,0 +1,118 @@
+// runtime/fat_core.may — the core host of the fat runtime (#92), for every
+// target: no collector, FFI or operating-system libraries. Heap chunks come
+// from __host_alloc and live until the process exits; output and exit go
+// through __host_write and __host_exit. Loaded after runtime/fat.may.
+
+mut CORE_HP: Any = 0;
+mut CORE_END: Any = 0;
+mut CORE_RETAINED: Any = 0;
+// The active stack's top, which fibers switch; only the Linux collector reads it.
+mut CSTOP: Any = 0;
+
+fun rt_init() -> Any {
+    HSTACK = rt_alloc(64 * 64);
+    return 0;
+}
+
+fun rt_gc_root(a: Any) -> Any { return 0; }
+
+// Fresh host memory is zero and nothing is freed, so allocations need no
+// clearing. Blocks are 16-byte aligned like the collected heap's.
+fun rt_alloc_kind(n: Any, kind: Any) -> Any {
+    if (n < 0 or n > 268435456) { rt_write(addr("core heap limit exceeded\n"), 25); __host_exit(70); }
+    let need: Any = (n + 15) / 16 * 16;
+    if (CORE_HP + need > CORE_END) {
+        mut size: Any = 1048576;
+        if (need > size) { size = (need + 4095) / 4096 * 4096; }
+        if (CORE_RETAINED + size > 268435456) {
+            rt_write(addr("core heap limit exceeded\n"), 25); __host_exit(70);
+        }
+        CORE_HP = __host_alloc(size);
+        if (CORE_HP <= 0) { __host_exit(70); }
+        CORE_END = CORE_HP + size;
+        CORE_RETAINED += size;
+    }
+    let pointer: Any = CORE_HP;
+    CORE_HP += need;
+    return pointer;
+}
+
+fun rt_write(pointer: Any, count: Any) -> Any {
+    mut offset: Any = 0;
+    while (offset < count) {
+        let written: Any = __host_write(pointer + offset, count - offset);
+        if (written <= 0) { __host_exit(70); }
+        offset += written;
+    }
+    return 0;
+}
+
+fun rt_host_exit(status: Any) -> Any {
+    __host_exit(status);
+    return 0;
+}
+
+// `exit(status)` from compiled code.
+fun rt_exit(t: Any, status: Any) -> Any {
+    __host_exit(status);
+    return 0;
+}
+
+// Fiber stacks are host chunks of their own, kept until exit.
+fun rt_fiber_stack(size: Any) -> Any {
+    CORE_RETAINED += size;
+    return __host_alloc(size);
+}
+
+// ---- core library ----------------------------------------------------------
+// Called from runtime/fat_corelib.may; Int and Ptr arguments arrive as values.
+
+fun __core_alloc(t: Any, bytes: Any) -> Any {
+    RTAG = 2;
+    return rt_alloc_bytes(bytes);
+}
+
+fun __core_copy(dt: Any, destination: Any, st: Any, source: Any, ct: Any, bytes: Any) -> Any {
+    rt_copy(destination, source, bytes);
+    RTAG = 0;
+    return 0;
+}
+
+fun __core_heap_retained() -> Any {
+    RTAG = 2;
+    return CORE_RETAINED;
+}
+
+// Owned scratch arena: the handle and backing bytes live for the process,
+// while reset invalidates every returned pointer without allocating a chunk.
+// Layout: [capacity, cursor, payload...]. Values are raw bytes.
+fun __core_arena_new(t: Any, bytes: Any) -> Any {
+    if (bytes < 0 or bytes > 268435432) {
+        rt_write(addr("invalid arena capacity\n"), 23); __host_exit(70);
+    }
+    let capacity: Any = (bytes + 7) / 8 * 8;
+    let arena: Any = rt_alloc_bytes(capacity + 16);
+    store64(arena, capacity); store64(arena + 8, 0);
+    RTAG = 2;
+    return arena;
+}
+
+fun __core_arena_alloc(at: Any, arena: Any, t: Any, count: Any) -> Any {
+    let cursor: Any = load64(arena + 8);
+    let capacity: Any = load64(arena);
+    if (count < 0 or count > capacity - cursor) {
+        rt_write(addr("arena capacity exceeded\n"), 24); __host_exit(70);
+    }
+    // Keep every pointer eight-byte aligned, including after odd-sized requests.
+    let next: Any = (cursor + count + 7) / 8 * 8;
+    if (next > capacity) {
+        rt_write(addr("arena capacity exceeded\n"), 24); __host_exit(70);
+    }
+    store64(arena + 8, next);
+    RTAG = 2;
+    return arena + 16 + cursor;
+}
+
+fun __core_arena_reset(t: Any, arena: Any) -> Any { store64(arena + 8, 0); RTAG = 0; return 0; }
+fun __core_arena_used(t: Any, arena: Any) -> Any { RTAG = 2; return load64(arena + 8); }
+fun __core_arena_capacity(t: Any, arena: Any) -> Any { RTAG = 2; return load64(arena); }

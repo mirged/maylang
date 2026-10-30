@@ -173,7 +173,7 @@ fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
 // ------------------------------------------------------------- Driver Entry
 
 fun cli_usage() -> Any {
-    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without\n                      .may, or with .nxf for x86_64-nodeos)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --no-code-align     Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME      full (x86-64 Linux/NodeOS), core (all targets), or none\n  --values KIND       fat (default for the full runtime on x86-64 Linux) or\n                      tagged 61-bit values; MAYC_VALUES sets the default\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default on Linux), x86_64-nodeos (default\n                      on NodeOS), arm64-linux, riscv64-linux, arm64-macos,\n                      x86_64-windows (core runtime by default)\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without\n                      .may, or with .nxf for x86_64-nodeos)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --no-code-align     Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME      full (x86-64 Linux/NodeOS), core (all targets), or none\n  --values KIND       fat (default for the full runtime on x86-64 Linux; also\n                      the core runtime on x86-64) or tagged 61-bit values;\n                      MAYC_VALUES sets the default\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default on Linux), x86_64-nodeos (default\n                      on NodeOS), arm64-linux, riscv64-linux, arm64-macos,\n                      x86_64-windows (core runtime by default)\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
     syscall(1, 1, addr(message), len(message));
     syscall(60, 0);
     return 0;
@@ -374,13 +374,14 @@ fun main2() -> Any {
 
     } else {
         DYNMODE = 1;
-        if (ctx.runtime == "core") { load_core(a0, a0l, "core.may"); }
+        if (ctx.runtime == "core" and not FAT_VALUES) { load_core(a0, a0l, "core.may"); }
         else if (FAT_VALUES) {
             // The shared fat runtime, then its host (docs/design/FAT_VALUES.md).
             SRC = load_core(a0, a0l, "fat.may"); SRCLEN = LASTLEN;
             SOURCE_FILES[SRC] = SourceFile("runtime/fat.may", []);
-            let host: Any = load_core(a0, a0l, "fat_linux.may");
-            append_runtime(host, LASTLEN, "runtime/fat_linux.may");
+            let hostName: Any = if (ctx.runtime == "core") { "fat_core.may" } else { "fat_linux.may" };
+            let host: Any = load_core(a0, a0l, hostName);
+            append_runtime(host, LASTLEN, "runtime/" + hostName);
         }
         else { load_runtime(a0, a0l); }
         if (nodeos) { let personality: Any = load_nodeos(a0, a0l); append_runtime(personality, LASTLEN, "runtime/nodeos.may"); }
@@ -401,46 +402,36 @@ fun main2() -> Any {
             syscall(60, 0);
         }
 
-        // Resolve prelude and native library support
-        let pb: Any = if (ctx.runtime == "core") { load_core(a0, a0l, "corelib.may") } else { load_prelude(a0, a0l) };
-        let pn: Any = LASTLEN;
-        let nb: Any = if (ctx.runtime == "core") { 0 } else { load_native(a0, a0l) };
-        if (ctx.runtime == "core") { LASTLEN = 0; }
-        let nn: Any = LASTLEN;
-        // Portable math is shared by every runtime that has a library prelude.
-        let mb: Any = if (pn > 0) { load_math(a0, a0l) } else { 0 };
-        let mn: Any = if (pn > 0) { LASTLEN } else { 0 };
+        // Resolve the library: the prelude and native library (the fat core
+        // runtime adds runtime/fat_corelib.may), or the tagged core runtime's
+        // corelib.may. Portable math follows any library prelude.
+        let parts: Any = [];
+        if (ctx.runtime == "core" and not FAT_VALUES) { push(parts, [load_core(a0, a0l, "corelib.may"), LASTLEN, "prelude.may"]); }
+        else {
+            push(parts, [load_prelude(a0, a0l), LASTLEN, "prelude.may"]);
+            push(parts, [load_native(a0, a0l), LASTLEN, "native.may"]);
+            if (ctx.runtime == "core") { push(parts, [load_core(a0, a0l, "fat_corelib.may"), LASTLEN, "runtime/fat_corelib.may"]); }
+        }
+        mut libraryLength: Any = 0;
+        for part: Any in parts { libraryLength += part[1]; }
+        if (parts[0][1] > 0) { push(parts, [load_math(a0, a0l), LASTLEN, "runtime/math.may"]); }
 
-        if (pn + nn > 0) {
-            let cb: Any = irt_alloc(pn + nn + mn + un + 8);
-            mut z: Any = 0;
-            while (z < pn) {
-                store8(cb + z, load8(pb + z));
-                z = z + 1;
+        if (libraryLength > 0) {
+            mut total: Any = un;
+            for part: Any in parts { total += part[1]; }
+            let cb: Any = irt_alloc(total + 8);
+            let origins: Any = [];
+            mut at: Any = 0;
+            for part: Any in parts {
+                image_copy(cb + at, part[0], part[1]);
+                push(origins, SourceOrigin(at, part[2], 1));
+                at += part[1];
             }
-            z = 0;
-            while (z < nn) {
-                store8(cb + pn + z, load8(nb + z));
-                z = z + 1;
-            }
-            z = 0;
-            while (z < mn) {
-                store8(cb + pn + nn + z, load8(mb + z));
-                z = z + 1;
-            }
-            z = 0;
-            while (z < un) {
-                store8(cb + pn + nn + mn + z, load8(ub + z));
-                z = z + 1;
-            }
+            image_copy(cb + at, ub, un);
             SRC = cb;
-            SRCLEN = pn + nn + mn + un;
-            mut origins: Any = [];
-            push(origins, SourceOrigin(0, "prelude.may", 1));
-            push(origins, SourceOrigin(pn, "native.may", 1));
-            push(origins, SourceOrigin(pn + nn, "runtime/math.may", 1));
+            SRCLEN = total;
             for origin: Any in EXPAND_ORIGINS {
-                push(origins, SourceOrigin(pn + nn + mn + origin.start, origin.path, origin.line));
+                push(origins, SourceOrigin(at + origin.start, origin.path, origin.line));
             }
             SOURCE_FILES[cb] = SourceFile(symbol_name(sp, sl), origins);
         }
