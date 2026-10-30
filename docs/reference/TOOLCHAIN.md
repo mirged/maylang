@@ -14,11 +14,10 @@
 - `--legacy` — disable the strict pass for legacy untyped sources; name resolution and mutability checks still apply.
 - `--raw` — omit runtime, native library and prelude.
 - `--no-code-align` — emit raw x86-64 code without the NOP padding that aligns function bodies and loop heads; for layout experiments.
-- `--runtime full|core|none` — select runtime; none is equivalent to raw; full defaults on x86_64-linux, x86_64-nodeos and clang-llvm, core on other native targets.
-- `--values fat|tagged` — select the value representation; fat (16-byte values, 64-bit Int) is the default with the full runtime on x86_64-linux; other targets support only tagged values. `MAYC_VALUES=tagged` changes the default.
+- `--runtime full|core|none` — select runtime; none is equivalent to raw; full defaults on x86_64-linux and x86_64-nodeos, core on other native targets.
+- `--values fat|tagged` — select the value representation; fat (16-byte values, 64-bit Int) is the default with the full runtime on x86_64-linux and x86_64-nodeos; other targets support only tagged values. `MAYC_VALUES=tagged` changes the default.
 - `--time` — report compilation-stage timings to stderr.
 - `--target TARGET` — select one of the supported targets listed below. The default is x86_64-linux, or x86_64-nodeos when the compiler runs on NodeOS.
-- `--emit-llvm` — write textual LLVM IR when selecting clang-llvm; without explicit output, a final .may becomes .ll.
 - `--dump-expanded` — print import-expanded source and exit.
 - `x86_64-linux` — default ELF64 target with full, core or raw runtime.
 - `x86_64-nodeos` — NodeOS NXF image with full, core or raw runtime; `syscall` keeps Linux numbering through an in-process personality, and C externs are rejected. See [NodeOS target](../internals/NODEOS.md).
@@ -26,8 +25,7 @@
 - `riscv64-linux` — ELF64 RV64IM with core or raw runtime.
 - `arm64-macos` — macOS 11+ Mach-O ARM64 PIE, loaded through dyld with core/raw runtime; ad-hoc signing required on macOS: `codesign --force --sign - output`.
 - `x86_64-windows` — PE32+ with core kernel32 imports or raw output.
-- `clang-llvm` — experimental direct LLVM IR and linked Linux x86-64 executable with the full Maylang runtime, cooperative fibers and typed extern FFI; raw and core modes are unsupported.
-- LLVM executable generation requires Clang, linker and libc development files; `CLANG` chooses an alternative Clang executable. Emitting IR or checking sources does not require Clang.
+- mayc emits every target's machine code and executable container itself, with no assembler, linker, C compiler or LLVM. The experimental `clang-llvm` target and `--emit-llvm` were removed and now fail with an explanation.
 - Cross-target emission does not make the compiler itself run on another host; NodeOS is the exception, where a compiler built with `--target x86_64-nodeos` runs and rebuilds itself. The [native target suite](../internals/NATIVE_TARGETS.md) runs signed macOS ARM64 and Windows x86-64 fixtures through real loaders; emulator checks separately cover all five direct targets.
 - Full runtime supports integers, boxed floats, UTF-8 strings, lists, maps, records, closures, structured errors, fibers and native C interfaces on Linux x86-64.
 - Core runtime supports tagged integers/Booleans/nil/strings/lists, direct functions, loops, console output, indexing/mutation, ASCII case conversion and integer/string helpers.
@@ -43,7 +41,7 @@
 - Package manager: [maypkg usage and manifest reference](../../tools/maypkg/README.md); project manifests are mayproj.json, with mayproj.lock for dependency locking.
 - Compiler verification: `make test-compiler`; source-only chain and bootstrap fixpoint: `make test-bootstrap`.
 - Additional language/runtime regressions: `python3 tests/compliance/run.py`.
-- Networking verification: `python3 compiler/mayc/tests/network.py --llvm`; live tests may skip when socket creation is disallowed; CI can require sockets.
+- Networking verification: `python3 compiler/mayc/tests/network.py`; live tests may skip when socket creation is disallowed; CI can require sockets.
 - Documentation verification: `python3 docs/reference/generate.py --check`; this checks reference freshness, declaration description coverage and pure-list Markdown format.
 - More build/ABI/target details: [compiler guide](../../compiler/mayc/README.md), [native internals](../internals/NATIVE.md), [GC guide](../internals/GC.md), [source bootstrap](../../compiler/rust/README.md).
 - Runnable reference verification: `python3 tests/docs/run.py`; tagged-release provenance and publishing: [installation](../guide/INSTALL.md).

@@ -3,7 +3,7 @@
 Use `make help` at the repository root. These scripts use Python's standard
 library and require Python 3.10+.
 
-- `doctor.py`: read-only build, test, LLVM, UI, browser, editor and package prerequisite checks.
+- `doctor.py`: read-only build, test, UI, browser, editor and package prerequisite checks.
 - `build_tools.py`: compile tools into `build/dev/bin`, copy runtime sidecars and generate a sourceable environment.
 - `check_repository.py`: check local Markdown file links and parse JSON/Python syntax without generating bytecode.
 - `install_nightly.sh`: build the compiler and tools from this checkout, stamp the version

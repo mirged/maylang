@@ -198,14 +198,10 @@ def inspect_code(binary, directory, args):
         data[name] = output(result)
     functions = {}
     current = None
-    names = {}
-    ir = directory / 'program.ll'
-    if ir.exists():
-        names = dict(re.findall(r'^; may-function @(f\d+) (.+)$', ir.read_text(), re.M))
     for line in data['disassembly'].splitlines():
         match = re.match(r'^([0-9a-f]+) <(.+)>:', line)
         if match:
-            current = f'{match[2]}::{names[match[2]]}' if match[2] in names else match[2]
+            current = match[2]
             functions[current] = {'address': int(match[1], 16), 'instructions': 0, 'calls': 0,
                                   'divisions': 0, 'stack_references': 0, 'backward_branches': 0}
         instruction = re.match(r'^\s*([0-9a-f]+):\s+(\S+)\s*(.*)', line)
@@ -224,7 +220,7 @@ def inspect_code(binary, directory, args):
     (directory / 'functions.json').write_text(json.dumps(functions, indent=2) + '\n')
     blocks = re.split(r'(?m)^(\w+ <.+>:\n)', data['disassembly'])
     hot = ''.join(header + body for header, body in zip(blocks[1::2], blocks[2::2])
-                  if 'probe_' in header or any('probe_' in source_name and f'<{symbol}>:' in header for symbol, source_name in names.items()))
+                  if 'probe_' in header)
     (directory / 'hot-functions.asm').write_text(hot)
     # Exact ELF symbol sizes are currently zero. Counts refer to objdump symbol
     # intervals, which can include the following function's unlabeled trampoline.
@@ -329,29 +325,11 @@ def run_codegen(args, report, compiler):
                 variant = directory / label
                 variant.mkdir(exist_ok=True)
                 binary = variant / 'program'
-                ir = variant / 'program.ll'
-                compile_result = execute([selected, '--time', '--target', 'x86_64-linux' if backend == 'native' else 'clang-llvm',
-                                          *(['--emit-llvm'] if backend == 'llvm-o3' else []),
-                                          source, '-o', ir if backend == 'llvm-o3' else binary], variant, 'compile', args, timeout=args.compile_timeout)
+                compile_result = execute([selected, '--time', '--target', 'x86_64-linux',
+                                          source, '-o', binary], variant, 'compile', args, timeout=args.compile_timeout)
                 if compile_result['exit'] != 0:
                     case_report['variants'][label] = {'compile': compile_result, 'passed': False}
                     raise ValueError(f'compilation failed: {compile_result["stderr"]}')
-                if backend == 'llvm':
-                    emitted = execute([selected, '--target', 'clang-llvm', '--emit-llvm', source, '-o', ir],
-                                      variant, 'llvm-ir', args, timeout=args.compile_timeout)
-                    if emitted['exit'] != 0:
-                        raise ValueError(f'IR emission failed: {emitted["stderr"]}')
-                linked = None
-                if backend == 'llvm-o3':
-                    linked = execute([os.environ.get('CLANG', 'clang'), '-x', 'ir', '-O3', ir, '-no-pie', '-lm', '-o', binary],
-                                     variant, 'clang-o3', args, timeout=args.compile_timeout)
-                    if linked['exit'] != 0:
-                        raise ValueError(f'Clang -O3 failed: {linked["stderr"]}')
-                    optimized = execute([os.environ.get('CLANG', 'clang'), '-x', 'ir', '-O3', '-S', '-emit-llvm',
-                                         ir, '-o', variant / 'program.optimized.ll'],
-                                        variant, 'optimized-ir', args, timeout=args.compile_timeout)
-                    if optimized['exit'] != 0:
-                        raise ValueError(f'optimized IR emission failed: {optimized["stderr"]}')
                 if b'GC_CODEGEN_UNREACHABLE_' in binary.read_bytes():
                     raise ValueError(f'unreachable literals survived in {binary}')
                 details = inspect_code(binary, variant, args)
@@ -362,9 +340,6 @@ def run_codegen(args, report, compiler):
                     if retained != set(range(args.functions)) or any(re.search(r'(?:^|::)unused_\d+$', symbol) for symbol in symbols):
                         raise ValueError(f'graph symbol table is incomplete or retains dead functions: {variant}')
                     details['verified_graph_symbols'] = len(retained)
-                if linked is not None:
-                    details['clang_o3'] = linked
-                    details['optimized_ir'] = optimized
                 result = execute([binary, iterations, args.seed], variant, 'warmup', args)
                 require_run(result, expected)
                 details.update({'compile': compile_result, 'samples': [], 'passed': False})
@@ -471,7 +446,7 @@ def write_report(args, report):
                      f'{metric.get("collections", 0)} | {metric.get("requested_bytes", 0) / 1024**2:.2f} | '
                      f'{metric.get("gc_ns", 0) / 1e6:.3f} |')
     lines += ['', 'Each case retains source, executable, logs, commands, and resource usage. Codegen variants also retain',
-              '`disassembly.stdout`, `hot-functions.asm`, `functions.json`, symbol/section tables and optional LLVM IR.',
+              '`disassembly.stdout`, `hot-functions.asm`, `functions.json`, and symbol/section tables.',
               'ELF function sizes are zero: instruction statistics use symbol intervals and may include a neighboring trampoline.', '']
     if report.get('error'):
         lines += ['Failure: ' + report['error'], '']
@@ -484,7 +459,7 @@ def main():
     parser.add_argument('--baseline', type=Path, help='baseline compiler with its own matching sidecars')
     parser.add_argument('--mode', choices=['all', 'gc', 'codegen'], default='all')
     parser.add_argument('--output', type=Path, default=ROOT / 'compiler/mayc/build/limits' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
-    parser.add_argument('--backend', choices=['native', 'llvm', 'llvm-o3'], nargs='+', default=['native'])
+    parser.add_argument('--backend', choices=['native'], nargs='+', default=['native'])
     parser.add_argument('--case', choices=['arithmetic', 'branches', 'calls', 'pressure', 'collections', 'contracts', 'graph'], action='append')
     parser.add_argument('--gc-case', choices=['gc_churn', 'gc_fragmentation', 'gc_capacity', 'gc_objects', 'gc_mark_capacity', 'gc_root_capacity', 'injected_corruption'], action='append')
     parser.add_argument('--samples', type=int, default=5)
@@ -529,7 +504,7 @@ def main():
     report['allowed_cpus'] = sorted(os.sched_getaffinity(0))
     report['cpu_model'] = next((line.split(':', 1)[1].strip() for line in Path('/proc/cpuinfo').read_text().splitlines()
                                 if line.startswith('model name')), 'unknown')
-    for tool in ('objdump', 'readelf', 'clang'):
+    for tool in ('objdump', 'readelf'):
         if shutil.which(tool):
             report[tool + '_version'] = subprocess.check_output([tool, '--version'], text=True).splitlines()[0]
     write_report(args, report)

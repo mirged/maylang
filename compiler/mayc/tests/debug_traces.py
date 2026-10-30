@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[3]
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--compiler',type=Path,default=ROOT/'compiler/mayc/mayc_new');parser.add_argument('--llvm',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--compiler',type=Path,default=ROOT/'compiler/mayc/mayc_new');args=parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='mayc-traces-') as directory:
         work=Path(directory);source=work/'traces.may'
         source.write_text('''
@@ -27,7 +27,7 @@ print(parent());
 print(may { tail(10000); "bad" } otherwise { contains(str(err.stack), "tail (") });
 print(may { leaf(); "bad" } otherwise { contains(str(err.stack), "tail (") });
 ''')
-        for target in ['x86_64-linux','clang-llvm'] if args.llvm else ['x86_64-linux']:
+        for target in ['x86_64-linux']:
             binary=work/target
             result=subprocess.run([str(args.compiler.resolve()),'--debug','--target',target,str(source),'-o',str(binary)],capture_output=True,timeout=120)
             assert result.returncode==0,result.stderr.decode()
@@ -45,7 +45,7 @@ fun fiber_b() -> Nil { yield(); print(may { fail("b"); "bad" } otherwise { conta
 spawn(fiber_a); spawn(fiber_b); run();
 print(may { fail("main"); "bad" } otherwise { contains(str(err.stack), "fiber_a (") });
 ''')
-        for target in ['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']:
+        for target in ['x86_64-linux']:
             binary = work / ('fibers-' + target)
             subprocess.run([str(args.compiler.resolve()), '--debug', '--target', target,
                             str(source), '-o', str(binary)], check=True, timeout=60)

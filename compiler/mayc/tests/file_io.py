@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[3]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT/'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='mayc-file-io-') as directory:
         work = Path(directory)
@@ -25,7 +24,7 @@ write_file({json.dumps(str(work/'empty-copy'))}, read_file({json.dumps(str(work/
 print(may {{ read_file({json.dumps(str(work))}); false }} otherwise {{ true }});
 print(may {{ write_file("/dev/full", "failure"); false }} otherwise {{ true }});
 ''')
-        for target in ['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']:
+        for target in ['x86_64-linux']:
             binary=work/target
             result=subprocess.run([str(args.compiler.resolve()),'--target',target,str(source),'-o',str(binary)],capture_output=True,timeout=120)
             assert result.returncode == 0,result.stderr.decode()

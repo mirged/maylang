@@ -32,10 +32,10 @@ print(may { narrow_error(); "bad" } otherwise { str(err.kind) });
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--compiler',type=Path,default=ROOT/'compiler/mayc/mayc_new');parser.add_argument('--llvm',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--compiler',type=Path,default=ROOT/'compiler/mayc/mayc_new');args=parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='mayc-numeric-') as directory:
         work=Path(directory);source=work/'numbers.may';source.write_text(SOURCE)
-        for target in ['x86_64-linux','clang-llvm'] if args.llvm else ['x86_64-linux']:
+        for target in ['x86_64-linux']:
             binary=work/target
             result=subprocess.run([str(args.compiler.resolve()),'--target',target,str(source),'-o',str(binary)],capture_output=True,timeout=120)
             assert result.returncode==0,result.stderr.decode()

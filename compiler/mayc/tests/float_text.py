@@ -9,7 +9,6 @@ import argparse
 from decimal import Decimal
 from pathlib import Path
 import random
-import shutil
 import struct
 import subprocess
 import tempfile
@@ -85,7 +84,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--require-emulation', action='store_true')
-    parser.add_argument('--clang', default='clang')
     options = parser.parse_args()
     try:
         import unicorn  # noqa: F401
@@ -93,8 +91,7 @@ def main():
     except ImportError:
         have_emulation = False
     assert have_emulation or not options.require_emulation, 'Unicorn is required'
-    have_llvm = shutil.which(options.clang) is not None
-    modes = [('full', []), ('core', ['--runtime', 'core'])] + ([('llvm', ['--target', 'clang-llvm'])] if have_llvm else [])
+    modes = [('full', []), ('core', ['--runtime', 'core'])]
     with tempfile.TemporaryDirectory(prefix='mayc-float-text-') as directory:
         work = Path(directory)
         source = work / 'text.may'
@@ -112,9 +109,6 @@ def main():
         source.write_text(program(values))
         want = expected(values)
         for name, flags in modes:
-            if name == 'llvm':
-                source.write_text(program(values[:200]))
-                want = expected(values[:200])
             compile_source(options.compiler, source, work / name, *flags)
             got = run(work / name)
             mismatches = [(value, a, b) for value, a, b in zip(values, got.decode().splitlines()[::2],

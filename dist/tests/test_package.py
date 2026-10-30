@@ -38,7 +38,7 @@ def main():
             return result.stdout
         assert run('mayc','--version').decode().strip() == 'mayc '+provenance['version']
         targets = run(str(bundle / 'bin/mayc'), '--list-targets').decode()
-        assert 'arm64-macos\tmacho\tcore' in targets and 'clang-llvm\tllvm\tfull' in targets
+        assert 'arm64-macos\tmacho\tcore' in targets and 'llvm' not in targets
         run('mayc','main.may','-o','hello')
         assert run(str(project/'hello')) == b'42\n'
         run(str(bundle/'bin/maypkg'),'build')

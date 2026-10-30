@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Nested comments agree across native/LLVM, modules and interpolations."""
+"""Nested comments across modules and interpolations."""
 import argparse
 import json
 import os
@@ -10,11 +10,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[3]
 parser = argparse.ArgumentParser()
 parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-parser.add_argument('--llvm', action='store_true')
 args = parser.parse_args()
 env = os.environ.copy()
 env['MAYLANG_STDLIB'] = str(ROOT / 'stdlib')
-options = ['--target', 'clang-llvm'] if args.llvm else []
+options = []
 with tempfile.TemporaryDirectory(prefix='mayc-comments-') as directory:
     root = Path(directory)
     source = root / 'main.may'
@@ -49,4 +48,4 @@ with tempfile.TemporaryDirectory(prefix='mayc-comments-') as directory:
     assert result.returncode != 0, result
     report = json.loads(result.stderr)
     assert 'unterminated block comment' in json.dumps(report) and 'lex' in json.dumps(report), report
-    print('PASS nested comments, hidden imports, interpolation and unterminated diagnostics' + (' (LLVM)' if args.llvm else ' (native)'))
+    print('PASS nested comments, hidden imports, interpolation and unterminated diagnostics')

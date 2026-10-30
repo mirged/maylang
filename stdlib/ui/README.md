@@ -15,8 +15,7 @@ synchronized bridge; only that thread calls graphics APIs. A matching software
 renderer handles headless windows, snapshots and pixel inspection. Vendored
 headers and their licenses are listed in [native/vendor/README.md](native/vendor/README.md).
 
-Uses the direct `x86_64-linux` native backend and full runtime. The experimental
-LLVM backend currently has no C `extern` support. Requires a C compiler, X11,
+Uses the direct `x86_64-linux` native backend and full runtime. Requires a C compiler, X11,
 Xi, Xcursor and OpenGL development libraries, and a readable TrueType font.
 Interactive windows need X11 or XWayland and OpenGL 4.3 (Mesa software rendering
 also works). Debian/Ubuntu:

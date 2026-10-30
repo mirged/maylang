@@ -1,5 +1,5 @@
-// math.may — portable binary64 math shared by every runtime. The full, LLVM
-// and core runtimes load this sidecar after their prelude. Only `__math_*`
+// math.may — portable binary64 math shared by every runtime. The full and
+// core runtimes load this sidecar after their prelude. Only `__math_*`
 // names are defined here; each runtime's library chooses which public
 // functions use them. Everything is pure: helpers allocate only boxed Floats
 // and small lists, which lets the core runtime release them after each call.

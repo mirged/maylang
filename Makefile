@@ -5,7 +5,7 @@ INSTALL_ARGS ?=
 INSTALLER_OUTPUT ?= build/installer
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor setup install build tools check test test-rust test-compiler test-bootstrap test-compliance test-tools test-docs test-distribution test-installer test-ui test-browser test-llvm test-limits test-all package editor
+.PHONY: help doctor setup install build tools check test test-rust test-compiler test-bootstrap test-compliance test-tools test-docs test-distribution test-installer test-ui test-browser test-limits test-all package editor
 
 help:
 	@echo 'Maylang development (Linux x86-64)'
@@ -20,7 +20,6 @@ help:
 	@echo '  make test-bootstrap     Verify compiler generation convergence'
 	@echo '  make test-ui            UI checks, including X11 when available'
 	@echo '  make test-browser       Browser checks (native dependencies required)'
-	@echo '  make test-llvm          Experimental LLVM backend checks'
 	@echo '  make test-limits        GC pressure/capacity checks and codegen reports'
 	@echo '  make test-all           All local suites (optional dependencies required)'
 	@echo '  make package            Build a bundle and standalone C/shell installers'
@@ -88,18 +87,11 @@ test-ui:
 test-browser:
 	$(MAKE) -C platform/maybrowser check test MAYC="$(abspath $(MAYC))"
 
-test-llvm:
-	$(PYTHON) compiler/mayc/tests/llvm.py --compiler "$(MAYC)"
-	$(PYTHON) compiler/mayc/tests/externs.py --compiler "$(MAYC)" --llvm
-	$(PYTHON) compiler/mayc/tests/fibers.py --compiler "$(MAYC)" --llvm
-	$(PYTHON) compiler/mayc/tests/debug_traces.py --compiler "$(MAYC)" --llvm
-	$(PYTHON) compiler/mayc/tests/reachability.py --compiler "$(MAYC)" --llvm
-
 test-limits:
 	$(PYTHON) compiler/mayc/tests/test_limits.py
 	$(PYTHON) compiler/mayc/tests/limits.py --compiler "$(MAYC)" --self-test
 
-test-all: test test-bootstrap test-tools test-ui test-browser test-llvm
+test-all: test test-bootstrap test-tools test-ui test-browser
 
 package:
 	$(PYTHON) scripts/doctor.py --profile package

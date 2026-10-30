@@ -39,18 +39,6 @@ class DeveloperTests(unittest.TestCase):
                                     '#include <curl/curl.h>' in call.kwargs.get('input', '')
                                     for call in run.call_args_list))
 
-    def test_llvm_profile_checks_selected_clang(self):
-        for found in (None, '/tools/clang-19'):
-            with self.subTest(found=found), \
-                    patch.dict(os.environ, {'CLANG': '/tools/clang-19'}), \
-                    patch.object(doctor.shutil, 'which', side_effect=lambda name:
-                                 found if name == '/tools/clang-19' else '/usr/bin/' + name) as which:
-                checks = doctor.inspect('llvm')
-                clang = next(entry for entry in checks if entry[0] == 'clang')
-                self.assertEqual(clang[1], bool(found))
-                self.assertTrue(clang[2])
-                which.assert_any_call('/tools/clang-19')
-
     def test_missing_tools_fail_with_instructions(self):
         with patch.object(doctor.shutil, 'which', return_value=None):
             checks = doctor.inspect('build')

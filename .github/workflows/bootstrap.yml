@@ -32,7 +32,7 @@ jobs:
       - name: Install build requirements
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc binutils clang llvm python3 libx11-dev libxi-dev libxcursor-dev libgl-dev fonts-dejavu-core xvfb xdotool
+          sudo apt-get install -y gcc binutils python3 libx11-dev libxi-dev libxcursor-dev libgl-dev fonts-dejavu-core xvfb xdotool
           rustup toolchain install stable --profile minimal
           rustup default stable
       - name: Check the unified Rust workspace
@@ -41,15 +41,14 @@ jobs:
         run: |
           test ! -e compiler/mayc/build/bin/mayc_new
           python3 compiler/rust/test.py
-      - name: Verify networking on native and LLVM backends
+      - name: Verify networking
         run: |
           sh compiler/rust/build.sh
-          python3 compiler/mayc/tests/network.py --require-sockets --llvm
-      - name: Verify direct Maylang LLVM backend
+          python3 compiler/mayc/tests/network.py --require-sockets
+      - name: Verify reachability and strength reduction
         run: |
-          python3 compiler/mayc/tests/llvm.py
-          python3 compiler/mayc/tests/reachability.py --llvm
-          python3 compiler/mayc/tests/strength_reduction.py --llvm
+          python3 compiler/mayc/tests/reachability.py
+          python3 compiler/mayc/tests/strength_reduction.py
       - name: Exercise bounded GC limits and retain actual codegen
         run: |
           python3 compiler/mayc/tests/test_limits.py
@@ -71,14 +70,14 @@ jobs:
         run: |
           python3 tests/docs/run.py
           python3 tools/mayfmt/tests/run.py
-          python3 compiler/mayc/tests/comments.py --llvm
-      - name: Verify contracts and error traces through LLVM
+          python3 compiler/mayc/tests/comments.py
+      - name: Verify contracts and error traces
         run: |
-          python3 compiler/mayc/tests/numeric_contracts.py --llvm
-          python3 compiler/mayc/tests/stdlib_contracts.py --llvm
-          python3 compiler/mayc/tests/strings.py --llvm
-          python3 compiler/mayc/tests/file_io.py --llvm
-          python3 compiler/mayc/tests/debug_traces.py --llvm
+          python3 compiler/mayc/tests/numeric_contracts.py
+          python3 compiler/mayc/tests/stdlib_contracts.py
+          python3 compiler/mayc/tests/strings.py
+          python3 compiler/mayc/tests/file_io.py
+          python3 compiler/mayc/tests/debug_traces.py
       - name: Verify project manager and language server
         run: |
           compiler/mayc/mayc_new tools/maypkg/main.may -o /tmp/maypkg
@@ -167,7 +166,7 @@ jobs:
           set -- /tmp/maylang-toolchain/maylang-*/bin/may
           python3 tools/may/tests/benchmark.py --binary "$1" --compiler "$(dirname "$1")/mayc" --report /tmp/workspace-benchmark.json
           set -- /tmp/maylang-toolchain/maylang-*/bin/mayc
-          python3 compiler/mayc/tests/limits.py --compiler "$1" --backend native llvm llvm-o3 --iterations 2000000 --samples 5 --rounds 256 --heap-mib 4 16 64 256 --pressure 64 --functions 512 --self-test --timeout 120 --output /tmp/gc-codegen-limits
+          python3 compiler/mayc/tests/limits.py --compiler "$1" --backend native --iterations 2000000 --samples 5 --rounds 256 --heap-mib 4 16 64 256 --pressure 64 --functions 512 --self-test --timeout 120 --output /tmp/gc-codegen-limits
       - name: Upload performance measurements
         if: always()
         uses: actions/upload-artifact@v4

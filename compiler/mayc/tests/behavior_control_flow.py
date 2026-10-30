@@ -12,7 +12,6 @@ from backends import ROOT, compiler_binary
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true')
     args = parser.parse_args()
     compiler = compiler_binary(args.compiler)
     count = 0
@@ -115,8 +114,6 @@ root();
 ''', '0\n1\n'),
         }
         targets = [()]
-        if args.llvm:
-            targets.append(('--target', 'clang-llvm'))
         for target, options in enumerate(targets):
             for name, (text, expected) in programs.items():
                 check(f'{name}_{target}', text, output=expected, options=options)

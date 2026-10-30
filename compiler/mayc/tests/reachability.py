@@ -2,7 +2,6 @@
 """Inspect stripped code/data/loader entries and execute retained graph edges."""
 import argparse
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 
@@ -27,11 +26,8 @@ def symbols(binary):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true', help='also inspect and execute direct LLVM output')
     args = parser.parse_args()
     compiler = compiler_binary(args.compiler)
-    clang = shutil.which('clang')
-    assert not args.llvm or clang, '--llvm requires Clang'
     with tempfile.TemporaryDirectory(prefix='mayc-reachability-') as directory:
         work = Path(directory)
 
@@ -82,18 +78,6 @@ def main():
                 assert b'lib-not-installed-reachability.so' not in binary.read_bytes()
                 assert b'missing_reachability_symbol' not in binary.read_bytes()
                 assert b'INTERP' not in run(['readelf', '-l', binary]).stdout
-            if args.llvm:
-                ir = work / (name + '.ll')
-                result = run([compiler, '--target', 'clang-llvm', '--emit-llvm', source, '-o', ir])
-                assert result.returncode == 0, result.stderr.decode()
-                text_ir = ir.read_text()
-                # LLVM literals are encoded as hex byte escapes.
-                escaped = ''.join(f'\\{c:02X}' for c in DEAD.encode())
-                assert DEAD not in text_ir and escaped not in text_ir, name
-                linked = work / (name + '-llvm')
-                result = run([clang, '-x', 'ir', '-O1', ir, '-lm', '-o', linked])
-                assert result.returncode == 0, result.stderr.decode()
-                execute(linked, expected)
             print('PASS retained edges and stripped code/data: ' + name, flush=True)
 
         # Keep used loader slots and ABI conversions, but drop an unavailable

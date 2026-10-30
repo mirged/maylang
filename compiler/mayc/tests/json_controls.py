@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[3]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true')
     args = parser.parse_args()
     controls = ''.join(chr(index) for index in range(32))
     text = controls + '"\\λ🙂日本'
@@ -30,7 +29,7 @@ print(json_stringify(json_parse(json_stringify(document))));
     with tempfile.TemporaryDirectory(prefix='mayc-json-') as directory:
         source = Path(directory) / 'json.may'
         source.write_text(source_code)
-        for target in ['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']:
+        for target in ['x86_64-linux']:
             binary = Path(directory) / target
             subprocess.run([str(args.compiler.resolve()), '--target', target, str(source),
                             '-o', str(binary)], check=True, capture_output=True, timeout=120)

@@ -59,7 +59,6 @@ executable; paths containing spaces are fine.
 
 ```sh
 python3 scripts/doctor.py --profile test
-python3 scripts/doctor.py --profile llvm
 python3 scripts/doctor.py --profile ui
 python3 scripts/doctor.py --profile browser
 python3 scripts/doctor.py --profile editor
@@ -69,7 +68,6 @@ python3 scripts/doctor.py --profile package
 | Profile | Extra requirements |
 | --- | --- |
 | Test | `readelf` from binutils |
-| LLVM | Clang/LLVM; `sudo apt-get install clang llvm` |
 | UI | `libx11-dev`, `libxi-dev`, `libxcursor-dev`, `libgl-dev`, `fonts-dejavu-core`; X11/XWayland and OpenGL 4.3 for Sokol windows |
 | Browser | UI dependencies, libcurl and `libduktape.so.207` |
 | Window testing | `xvfb`, `xauth`, `xdotool` |
@@ -77,8 +75,6 @@ python3 scripts/doctor.py --profile package
 | Package verification | Python 3.12+, base build and UI dependencies for extracted scaffold tests |
 | Core emulation | Unicorn in a Python virtual environment; see compiler tests |
 
-The LLVM profile checks the compiler selected by `CLANG` (default: `clang`).
-Set `CLANG=clang-19` when using a versioned installation.
 
 The [browser](../../platform/maybrowser/README.md) and [UI](../../stdlib/ui/README.md)
 guides have full commands. Socket/window tests may skip when unavailable;

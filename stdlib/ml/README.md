@@ -52,5 +52,5 @@ controllers and a reproducible 100,000-generation experiment.
 
 Compiler verification builds and runs the XOR example; the
 [library boundary suite](../../compiler/mayc/tests/stdlib_contracts.py) checks
-fixed inference and shape failures on native and LLVM. See the
+fixed inference and shape failures. See the
 [public signatures](../../docs/reference/STDLIB.md) and [runtime contracts](../CONTRACTS.md).

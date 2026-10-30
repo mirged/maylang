@@ -34,8 +34,6 @@ mut GBASE: Any = 0;
 mut GROOTS: Any = 0;
 mut GCOUNT: Any = 0;
 mut STACKTOP: Any = 0;
-// LLVM libc entry supplies envp directly; native _start leaves this zero.
-mut INITIAL_ENVP: Any = 0;
 mut CSTOP: Any = 0;
 mut GCFLAG: Any = 0;
 mut GCCOUNT: Any = 0;
@@ -216,8 +214,8 @@ fun rt_init() -> Any {
     GBASE = 0;
     GCOUNT = 0;
     CSTOP = STACKTOP;
-    // Native handlers use 64 bytes; LLVM's libc jump buffers need 256.
-    HSTACK = rt_alloc(64 * 256);
+    // 64 handlers of 64 bytes (rt_handler_limit).
+    HSTACK = rt_alloc(64 * 64);
     GCFLAG = 1;
     return 0;
 }
@@ -1909,8 +1907,7 @@ fun rt_system(cmd: Any) -> Any {
     if (pid == 0 - 38) { return rt_spawned(syscall(1024, rt_cstr(cmd) / 8, 0)); }
     if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
     if (pid == 0) {
-        mut envp: Any = INITIAL_ENVP;
-        if (envp == 0) { envp = STACKTOP + (load64(STACKTOP) + 2) * 8; }
+        let envp: Any = STACKTOP + (load64(STACKTOP) + 2) * 8;
         syscall(59, sh, argv, envp);
         syscall(60, 127);
     }
@@ -1938,8 +1935,7 @@ fun rt_exec(lst: Any) -> Any {
     if (pid == 0) {
         // Linux's initial stack is argc, argv[argc], NULL, envp[], NULL.
         // _start saves that original stack pointer before creating any frames.
-        mut envp: Any = INITIAL_ENVP;
-        if (envp == 0) { envp = STACKTOP + (load64(STACKTOP) + 2) * 8; }
+        let envp: Any = STACKTOP + (load64(STACKTOP) + 2) * 8;
         syscall(59, load64(argv), argv, envp);
         syscall(60, 127);
     }
@@ -2241,7 +2237,7 @@ fun rt_spawn(fn: Any) -> Any {
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
     let rec: Any = rt_alloc(80);
     store64(rec + 32, 0); store64(rec + 40, 0);
-    store64(rec + 48, rt_alloc(64 * 256)); store64(rec + 56, 0);
+    store64(rec + 48, rt_alloc(64 * 64)); store64(rec + 56, 0);
     store64(rec + 64, 2); store64(rec + 72, 0);
     store64(rec + 8, fn);
     store64(rec + 16, 1);

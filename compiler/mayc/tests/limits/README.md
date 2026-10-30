@@ -1,8 +1,7 @@
 # GC and codegen limits
 
 Run from the repository root on Linux x86-64 with Python 3.10+, Rust/C source
-bootstrap tools, and binutils (`objdump`, `readelf`). Clang is required for LLVM
-comparisons. Build changed compiler sources first; the launcher caches its binary.
+bootstrap tools, and binutils (`objdump`, `readelf`). Build changed compiler sources first; the launcher caches its binary.
 
 ```sh
 sh compiler/rust/build.sh
@@ -18,20 +17,14 @@ per-child CPU time and kernel peak RSS. Outputs stay under ignored
 
 ```sh
 python3 compiler/mayc/tests/limits.py --mode codegen \
-  --backend native llvm llvm-o3 --iterations 2000000 --samples 7 \
+  --backend native --iterations 2000000 --samples 7 \
   --pressure 64 --functions 512 --output /tmp/maylang-codegen
 less /tmp/maylang-codegen/codegen/arithmetic/current-native/hot-functions.asm
 objdump -d -Mintel /tmp/maylang-codegen/codegen/arithmetic/current-native/program
-less /tmp/maylang-codegen/codegen/arithmetic/current-llvm-o3/program.optimized.ll
 ```
 
 Every variant retains the executable, normalized complete disassembly, focused
-`hot-functions.asm`, symbol/section tables, and `functions.json`. LLVM IR includes
-comments mapping opaque `@fN` symbols to source function names. `llvm` uses the
-compiler driver's Clang `-O1`; `llvm-o3` emits IR and links it explicitly with
-Clang `-O3`, retaining Clang's optimized IR as `program.optimized.ll` as well
-as the emitter's original `program.ll`. This compares the same tagged Maylang
-program/runtime on each path.
+`hot-functions.asm`, symbol/section tables, and `functions.json`.
 
 The workloads exercise:
 
@@ -89,8 +82,7 @@ python3 compiler/mayc/tests/limits.py --mode codegen \
 
 The runner snapshots each compiler and its own sidecars rather than silently
 using current runtime files for a historical compiler. Generated sources and
-binary hashes remain available for replay. A baseline from an older compiler
-without LLVM name comments will retain opaque LLVM function names.
+binary hashes remain available for replay.
 
 ## Push the collector
 
@@ -151,7 +143,7 @@ affect the precise number of successful allocations.
 
 Normal bootstrap CI runs a small correctness/detector profile and uploads the
 `gc-codegen-limits` artifact. Its dispatch-only performance job runs a larger
-native/LLVM sweep and retains reports/disassembly with the other benchmarks.
+native sweep and retains reports/disassembly with the other benchmarks.
 Neither profile imposes a machine-dependent speed threshold.
 
 `--backend` selects codegen variants. GC mode executes native full-runtime
@@ -159,5 +151,5 @@ fixtures, including fibers, and instruments the checked-out runtime.
 
 See [measured signed-division optimization](../../PERFORMANCE_LIMITS.md) for raw
 samples and the first assembly-driven change. Run
-`python3 compiler/mayc/tests/strength_reduction.py --llvm` for signed boundaries,
+`python3 compiler/mayc/tests/strength_reduction.py` for signed boundaries,
 fallbacks and actual native `idiv` checks.

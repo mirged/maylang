@@ -135,7 +135,7 @@ detected. A failed compilation never runs the previous executable.
 ```
 
 `target` is `host` or a target accepted by `mayc`, such as `x86_64-linux`,
-`arm64-linux`, `riscv64-linux`, `arm64-macos`, `x86_64-windows` or `clang-llvm`.
+`x86_64-nodeos`, `arm64-linux`, `riscv64-linux`, `arm64-macos` or `x86_64-windows`.
 `runtime` is `auto`, `full`, `core` or `none`; `strict` selects strict or legacy
 checking. Optional `flags` supports `--time` and `--debug`. Invalid JSON and
 invalid configuration fail without replacing the manifest.

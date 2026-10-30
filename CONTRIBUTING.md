@@ -23,7 +23,7 @@ JSON/Python syntax, and generated reference freshness.
 | --- | --- |
 | Compiler/frontend/runtime | `make test-rust test-compiler test-compliance` |
 | Bootstrap | `make test-bootstrap` |
-| Backend/code generation | `make test-llvm` and relevant core/native target harnesses |
+| Backend/code generation | `raw_codegen.py` and the relevant core/native target harnesses |
 | Workspace/formatter/legacy manager/LSP | `make test-tools` |
 | Runnable docs | `make test-docs` |
 | Installer/packaging/developer setup | `make test-distribution test-installer`; `make package` for extracted bundles and standalone bootstrap |
@@ -34,7 +34,7 @@ JSON/Python syntax, and generated reference freshness.
 `make test` runs the default Rust/compiler/compliance/docs/distribution checks.
 Run `make test-tools` separately when changing the workspace runner, formatter,
 package manager or language server. `make test-all` adds those tool tests,
-bootstrap convergence, UI, browser and LLVM checks. GC pressure and capacity
+bootstrap convergence, UI and browser checks. GC pressure and capacity
 checks remain a separate `make test-limits` run.
 Pass `MAYC=/absolute/path/to/mayc` when testing a particular compiler. Build
 before testing changed compiler sources: the launcher caches its binary.

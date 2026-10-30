@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[3]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT/'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true')
     args = parser.parse_args()
     compiler = str(args.compiler.resolve())
     with tempfile.TemporaryDirectory(prefix='mayc-library-') as directory:
@@ -37,7 +36,7 @@ io.io_write_lines({json.dumps(str(work/'lines.txt'))}, ["a", "b"]);
 let lines: List<Str> = io.io_read_lines({json.dumps(str(work/'lines.txt'))});
 print(lines);
 ''')
-        targets = ['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']
+        targets = ['x86_64-linux']
         for target in targets:
             binary = work/target
             result = subprocess.run([compiler, '--target', target, str(source), '-o', str(binary)], capture_output=True, timeout=120)

@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 import errno
 from pathlib import Path
 import selectors
-import shutil
 import socket
 import subprocess
 import tempfile
@@ -61,7 +60,6 @@ def echo_example(server, client):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true', help='also test the direct LLVM backend')
     parser.add_argument('--require-sockets', action='store_true', help='fail if the sandbox blocks sockets')
     args = parser.parse_args()
     compiler = args.compiler.resolve()
@@ -75,9 +73,6 @@ def main():
         available = False
         print(f'SKIP live loopback tests: socket creation blocked ({error})', flush=True)
     backends = [('native', [])]
-    if args.llvm:
-        assert shutil.which('clang'), '--llvm requires Clang'
-        backends.append(('llvm', ['--target', 'clang-llvm']))
     with tempfile.TemporaryDirectory(prefix='mayc-network-') as directory:
         work = Path(directory)
         for name, flags in backends:

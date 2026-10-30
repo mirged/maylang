@@ -59,7 +59,7 @@ native sidecar; higher-level helpers are ordinary library functions:
 Everything else is ordinary Maylang in this directory.
 
 The [`net` module](../docs/guide/NETWORK.md) uses Linux syscalls directly in Maylang
-and supports `mayc`'s full native and `clang-llvm` runtimes. See
+and supports `mayc`'s full native runtime. See
 [`examples/network`](../examples/network) for a TCP echo client and server.
 
 ## Search path
@@ -91,7 +91,7 @@ The ML toolkit's API and supported model scope are documented in
 These examples run in compiler verification. Update API signatures and `///`
 comments in the source, regenerate with `python3 docs/reference/generate.py`, and
 commit the generated module pages and `docs/reference/inventory.json`. CI checks generation with `--check` and runs
-the boundary suite on native and LLVM output.
+the boundary suite on native output.
 
 [Native UI](ui/README.md) provides themed desktop widgets, antialiased Sokol GPU
 shapes/text, virtual lists and matching software snapshots.

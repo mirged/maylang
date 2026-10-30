@@ -31,8 +31,7 @@ off for layout experiments. `--dump-expanded` prints the
 source after textual imports have been expanded and exits. `--version` reports
 the self-hosted compiler identity. `--runtime full|core|none` selects the library
 set; `none` is equivalent to `--raw`. The default is `full` on x86-64 Linux and
-`core` on the other native targets. The experimental `clang-llvm` target defaults
-to the full Maylang runtime. `--time` reports elapsed stage times to stderr.
+`core` on the other native targets. `--time` reports elapsed stage times to stderr.
 
 Individual input files, including imports, are limited to 1 MiB. The compiler
 rejects larger files with an error instead of compiling a truncated prefix.
@@ -97,41 +96,13 @@ this change does **not** make the entire compiler or its GC runtime thread-safe.
 Each sink is released after output is written. Capacity checks precede writes;
 code, data and image limits are currently 16 MiB, 4 MiB and 32 MiB.
 
-## Experimental Clang/LLVM target
+## One toolchain
 
-`--target clang-llvm` lowers Maylang's linear `Quad` IR directly to textual
-LLVM IR in `src/backend/llvm.may`. The backend also lowers the Maylang runtime,
-using its tagged values and conservative garbage collector. Clang compiles the
-`.ll` through its LLVM backend and links an x86-64 Linux executable. This path
-requires no Rust compiler or generated C. `--emit-llvm` writes IR directly and
-does not require Clang.
-
-```sh
-sh compiler/rust/build.sh
-compiler/mayc/mayc_new --target clang-llvm examples/hello.may -o /tmp/hello-llvm
-/tmp/hello-llvm
-compiler/mayc/mayc_new --target clang-llvm --emit-llvm examples/hello.may -o /tmp/hello.ll
-python3 compiler/mayc/tests/llvm.py
-```
-
-Executable compilation requires Clang, a linker (`ld`), and libc development
-files. Set `CLANG` to an executable path or name to override PATH discovery.
-Subprocesses inherit the compiler's environment. Paths may contain spaces.
-Without `-o`, IR output replaces the final `.may` with `.ll`. Compilation and
-link failures preserve existing executable outputs.
-
-The experimental backend supports integer/float arithmetic, strings, lists/maps,
-functions, shared captures, pipelines, loops, interpolation, imports, and
-`may`/`otherwise`, cooperative fibers, and typed extern functions. It currently
-requires the full runtime on x86-64 Linux; `--raw` and core/none runtimes are
-rejected. Extern declarations use the same checked scalar conversions as the
-native backend, including C stack arguments and first-class function values.
-Only reachable bindings are loaded, using `dlopen`/`dlsym` before user code;
-their libraries remain open until process exit. Missing libraries or symbols
-produce an uncaught runtime fault. Fibers retain independent exception handlers,
-caught errors and debug traces while suspended.
-`--check` does not require Clang. The regression script validates direct emission,
-compiler invocation, and observable behavior against the native backend.
+mayc writes every executable itself: it emits machine code and the ELF, NXF,
+Mach-O or PE container directly, with no assembler, linker, C compiler or
+LLVM. An experimental `clang-llvm` target that lowered the IR to LLVM IR was
+removed in favor of this; `--target clang-llvm` and `--emit-llvm` now fail
+with an explanation.
 
 ## Cross compilation
 
@@ -146,21 +117,20 @@ is explicit; only the default follows the host (`x86_64-nodeos` on NodeOS):
 | `riscv64-linux` | ELF64 | Core runtime and `--raw` (RV64IM) |
 | `arm64-macos` | Mach-O ARM64 | Core runtime and `--raw`; sign on macOS |
 | `x86_64-windows` | PE32+ | Core runtime with kernel32 imports and `--raw` |
-| `clang-llvm` (experimental) | LLVM IR / ELF64 | Full runtime on x86-64 Linux |
 
-| Capability | Full native | Full LLVM | Core | Raw |
-| --- | --- | --- | --- | --- |
-| Integers, booleans, direct functions and control flow | Yes | Yes | Yes | Yes |
-| Allocated UTF-8 strings and lists | Yes | Yes | Yes | Literal strings and pointer operations |
-| Maps, records, structs and enums | Yes | Yes | Yes | Use raw storage/operations |
-| Closures, shared captures and higher-order calls | Yes | Yes | Yes | No injected callable runtime |
-| Float literals, arithmetic, conversions and Float32 | Yes | Yes | Yes | Use raw storage/operations |
-| Transcendentals and floating-point powers | Yes (portable trig; x87 logs/exp/pow) | Yes (portable trig; libm logs/exp/pow) | Yes (portable) | Use raw storage/operations |
-| Recoverable faults and source traces | Yes | Yes | Yes; uncaught faults exit 70 | No injected runtime |
-| Cooperative fibers | Yes | Yes | Yes | No injected scheduler |
-| Typed extern functions | Yes | Yes | Rejected | No full-runtime ABI |
-| File/process/network libraries | Linux and NodeOS x86-64 (no NodeOS sockets) | Linux x86-64 | Rejected | Explicit target OS calls |
-| Heap lifetime | Conservative GC | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
+| Capability | Full native | Core | Raw |
+| --- | --- | --- | --- |
+| Integers, booleans, direct functions and control flow | Yes | Yes | Yes |
+| Allocated UTF-8 strings and lists | Yes | Yes | Literal strings and pointer operations |
+| Maps, records, structs and enums | Yes | Yes | Use raw storage/operations |
+| Closures, shared captures and higher-order calls | Yes | Yes | No injected callable runtime |
+| Float literals, arithmetic, conversions and Float32 | Yes | Yes | Use raw storage/operations |
+| Transcendentals and floating-point powers | Yes (portable trig; x87 logs/exp/pow) | Yes (portable) | Use raw storage/operations |
+| Recoverable faults and source traces | Yes | Yes; uncaught faults exit 70 | No injected runtime |
+| Cooperative fibers | Yes | Yes | No injected scheduler |
+| Typed extern functions | Yes | Rejected | No full-runtime ABI |
+| File/process/network libraries | Linux and NodeOS x86-64 (no NodeOS sockets) | Rejected | Explicit target OS calls |
+| Heap lifetime | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
 
 On `x86_64-nodeos`, `syscall` keeps Linux numbering: each site calls a gate
 into a personality in [`runtime/nodeos.may`](runtime/nodeos.may) that answers
@@ -171,9 +141,7 @@ with NodeOS syscalls and IPC, and images are written as NXF. See
 The [backend parity handoff](../../docs/internals/BACKEND_PARITY_PROGRESS.md)
 records completed work, validation and remaining language/OS API gaps.
 
-The core/raw modes apply to the direct targets above; LLVM accepts the full
-runtime only. `tests/backends.py`, `tests/core_runtime.py` and `tests/llvm.py`
-exercise accepted capabilities and reject unsupported combinations before
+`tests/backends.py` and `tests/core_runtime.py` exercise accepted capabilities and reject unsupported combinations before
 writing an executable. The raw ABI and platform limits are described below.
 
 The [native target workflow](../../docs/internals/NATIVE_TARGETS.md) cross-emits fixtures
@@ -230,9 +198,9 @@ prelude and holds the shared binary64-only code:
   `0.30000000000000004`, `-0.0`); nonfinite values print as `nan`, `inf` or
   `-inf`. `float(text)`, JSON numbers and float literals are correctly rounded.
 - `sin`, `cos` and `tan` reduce arguments of any finite magnitude exactly and
-  return identical bits on the full, LLVM and core runtimes. Core also uses the
+  return identical bits on the full and core runtimes. Core also uses the
   portable `ln`, `log2`, `log10`, `exp` and floating `pow`/`**`; full builds keep
-  the faster x87 sequences and LLVM uses libm for those. Every backend is within
+  the faster x87 sequences for those. Every backend is within
   one ulp of a correctly rounded result, and zeros, infinities, NaN and negative
   bases follow C99 `pow`/`exp`. The `pow` builtin always returns a Float, while
   `**` keeps integer powers exact.
@@ -278,8 +246,7 @@ copying moves 32-bit words without losing bits through tagged integers.
 After checking all source functions, IR lowering follows reachable direct calls
 and closure labels, skipping unused library and user functions. Runtime IR stays
 available for implicit backend calls, but emission starts at main and follows a
-deduplicated function worklist. Native code relocations and LLVM calls/function
-addresses retain exactly the helpers they reference, including GC, exceptions,
+deduplicated function worklist. Native code relocations retain exactly the helpers they reference, including GC, exceptions,
 closures and ABI trampolines. Unused functions, their literals and ELF symbols
 are omitted. The native fiber switch is emitted only when referenced.
 
@@ -337,17 +304,16 @@ The report also records compiler/sidecar hashes and image sizes. The optional
 replacement/removal, mixed key types, forced collections, byte copying and
 symbol-cache behavior.
 
-`tests/reachability.py --llvm` executes native/LLVM retained calls, function values,
-captures, recursion, initialization and errors, checks unused code/literals and
-foreign loader entries, and inspects stripping across all core targets and raw
-Linux targets. Native verification runs the non-LLVM cases; CI also runs LLVM.
+`tests/reachability.py` executes retained calls, function values, captures,
+recursion, initialization and errors, checks unused code/literals and foreign
+loader entries, and inspects stripping across all core targets and raw Linux
+targets.
 
 ## Runtime performance
 
-Use `make test-limits` for retained GC/codegen experiments, or select
-native/LLVM `-O1`/LLVM `-O3` variants with
-[the limits runner](tests/limits/README.md). It keeps generated sources,
-executables, assembly, LLVM IR, symbol statistics and resource measurements.
+Use `make test-limits` for retained GC/codegen experiments, or run
+[the limits runner](tests/limits/README.md) directly. It keeps generated sources,
+executables, assembly, symbol statistics and resource measurements.
 The [signed constant-division report](PERFORMANCE_LIMITS.md) records a measured
 optimization discovered with these workloads and its raw timing samples.
 

@@ -61,8 +61,8 @@ output drops `.may`; `--emit-c` defaults to a `.c` file. Imports resolve relativ
 to their owner, then the repository's `stdlib`, with optional `.may` extensions
 and cycle deduplication.
 
-LLVM emission belongs to the self-hosted Maylang compiler. The bootstrap only
-provides the source-only build chain. See [mayc targets](../mayc/README.md#experimental-clangllvm-target).
+Code generation belongs to the self-hosted Maylang compiler. The bootstrap only
+provides the source-only build chain. See [mayc targets](../mayc/README.md#cross-compilation).
 
 This bootstrap implements the dynamic subset needed by `mayc`: integers, floats,
 byte strings, lists/maps, structs/enums lowered to constructors, functions and

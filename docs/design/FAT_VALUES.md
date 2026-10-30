@@ -1,8 +1,8 @@
 # Fat values
 
 Status: fat values are the default with the full runtime on x86_64-linux
-and x86_64-nodeos; the core runtime and LLVM still use the 3-bit tagged
-encoding in
+and x86_64-nodeos; the core runtime still uses the 3-bit tagged encoding
+in
 [`runtime.may`](../../compiler/mayc/runtime.may), which `--values tagged`
 also selects ([#92](https://github.com/mirged/maylang/issues/92)). The
 ledger at the end records what works.
@@ -78,7 +78,7 @@ The new representation is built beside the old one behind
 commit keeps the default build and the bootstrap fixpoint green. Progress is
 measured with the existing feature fixtures and their recorded outputs
 (`compiler/mayc/tests/legacy_behavior.json`). Then the core runtime and the
-ARM64, RISC-V and LLVM backends follow, the default changes, the compiler
+ARM64 and RISC-V backends follow, the default changes, the compiler
 bootstraps itself on fat values, and the tagged runtime is deleted.
 
 Observable changes once fat values are the default: `Int` is 64-bit
@@ -100,7 +100,7 @@ itself runs on fat values, source integer literals stay within ±2^60.
 | Self-hosting on fat values | the compiler built with `--values fat` emits byte-identical output and rebuilds itself identically (`fat_values.py`) |
 | Default on x86_64-linux, bootstrap fixpoint | done; integer literals follow the target (±2^63 fat, ±2^60 tagged) |
 | NodeOS | done: the full runtime is fat by default; `exec` and `system` fall back to the personality's spawn extension; the compiler runs and rebuilds itself on NodeOS |
-| Core runtime, ARM64, RISC-V, LLVM on fat values; tagged runtime removed | not started |
+| Core runtime, ARM64, RISC-V on fat values; tagged runtime removed | not started; the LLVM backend was removed instead of ported |
 | Fat code size | temporaries defined once and read before the next boundary share reused frame slots, hot slots first with 8-bit displacements; a temporary read only by the next instruction is never stored; direct calls zero their argument area only when arguments are missing. The compiler's code shrank from 5.0 MB to 3.9 MB (tagged: 2.4 MB), which fits NodeOS's 4 MiB image copy |
 | Fat performance | in progress. Int `/` and `%` run inline (`idiv`; divisors 0 and -1 take the runtime path); closure calls check the type word inline, reuse one scratch pair per function and zero only missing parameters; binary-operator and index slow paths are shared stubs; runtime trampolines return `RTAG` in RDX. The compiler's code is 3.65 MB. Micro-benchmarks against tagged: Int loop 416/365 ms, Float 652/3328, closures 128/281, lists 403/489, maps 384/375 |
 | String library | `index_of`, `replace`, `to_lower` and `to_upper` in `native.may` scan bytes instead of re-indexing code points, for both representations; `stress.may` fell from 7.1 s to 0.7 s (tagged 5.3 s to 0.4 s) |

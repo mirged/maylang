@@ -12,7 +12,6 @@ from backends import ROOT, compiler_binary
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true', help='also execute with the LLVM backend')
     args = parser.parse_args()
     compiler = compiler_binary(args.compiler)
     count = 0
@@ -44,8 +43,6 @@ fun root() -> Bool ! pure { return scale(0.5, 2) == 62.0; }
 print(root());
 '''
         targets = [()]
-        if args.llvm:
-            targets.append(('--target', 'clang-llvm'))
         for index, options in enumerate(targets):
             check(f'arithmetic_{index}', numeric, output='true\n', options=options)
             check(f'recursive_{index}', '''fun a(n: Int) -> Float {

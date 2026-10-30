@@ -9,7 +9,6 @@ import "src/strict.may";
 import "src/behavior.may";
 import "src/ir.may";
 import "src/backend.may";
-import "src/backend/llvm.may";
 import "src/formats.may";
 import "src/formats/bytes.may";
 import "src/formats/nxf.may";
@@ -173,7 +172,7 @@ fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
 // ------------------------------------------------------------- Driver Entry
 
 fun cli_usage() -> Any {
-    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without\n                      .may, or with .nxf for x86_64-nodeos)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --no-code-align     Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME      full (x86-64 Linux/NodeOS), core (all targets), or none\n  --values KIND       fat (default for the full runtime on x86-64 Linux) or\n                      tagged 61-bit values; MAYC_VALUES sets the default\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default on Linux), x86_64-nodeos (default\n                      on NodeOS), arm64-linux, riscv64-linux, arm64-macos,\n                      x86_64-windows (core runtime by default)\n                      clang-llvm (experimental direct LLVM IR, full runtime)\n  --emit-llvm         Emit textual LLVM IR with --target clang-llvm\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without\n                      .may, or with .nxf for x86_64-nodeos)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --no-code-align     Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME      full (x86-64 Linux/NodeOS), core (all targets), or none\n  --values KIND       fat (default for the full runtime on x86-64 Linux) or\n                      tagged 61-bit values; MAYC_VALUES sets the default\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default on Linux), x86_64-nodeos (default\n                      on NodeOS), arm64-linux, riscv64-linux, arm64-macos,\n                      x86_64-windows (core runtime by default)\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
     syscall(1, 1, addr(message), len(message));
     syscall(60, 0);
     return 0;
@@ -198,13 +197,13 @@ fun cli_default_output(pointer: Any, length: Any, targetName: Any) -> Any {
 fun cli_list_targets() -> Any {
     let header: Str = "target\tformat\tdefault-runtime\n";
     syscall(1, 1, addr(header), len(header));
-    for name: Str in ["x86_64-linux", "x86_64-nodeos", "arm64-linux", "riscv64-linux", "arm64-macos", "x86_64-windows", "clang-llvm"] {
+    for name: Str in ["x86_64-linux", "x86_64-nodeos", "arm64-linux", "riscv64-linux", "arm64-macos", "x86_64-windows"] {
         let target: Any = target_select(name);
         let runtime: Str = if (target.runtime) { "full" } else { "core" };
         let line: Str = "${name}\t${target.format}\t${runtime}\n";
         syscall(1, 1, addr(line), len(line));
     }
-    let note: Str = "Compiler hosts: Linux x86-64 and NodeOS; clang-llvm is experimental.\n";
+    let note: Str = "Compiler hosts: Linux x86-64 and NodeOS.\n";
     syscall(1, 1, addr(note), len(note));
     syscall(60, 0);
     return 0;
@@ -249,7 +248,6 @@ fun main2() -> Any {
     mut valuesflag: Any = false;
     mut dumpflag: Any = 0;
     mut checkflag: Any = 0;
-    mut llvmflag: Any = 0;
     mut expandedflag: Any = 0;
     mut k: Any = 1;
     while (k < len(argv)) {
@@ -288,7 +286,7 @@ fun main2() -> Any {
             FAT_VALUES = values == "fat";
             valuesflag = true;
         } else if (name_eq(ap, al, addr("--emit-llvm"), 11) == 1) {
-            llvmflag = 1;
+            die_str("mayc: --emit-llvm was removed; mayc emits native executables itself\n");
         } else if (name_eq(ap, al, addr("--time"), 6) == 1) {
             PROFILE_ENABLED = true;
         } else if (name_eq(ap, al, addr("--debug"), 7) == 1) {
@@ -323,26 +321,19 @@ fun main2() -> Any {
     if (BEHAVIOR_EXPLAIN and (dumpflag == 1 or expandedflag == 1)) {
         die_str("mayc: --explain-behavior cannot be combined with source dumps\n");
     }
-    if (llvmflag == 1 and targetName != "clang-llvm") {
-        die_str("mayc: --emit-llvm requires --target clang-llvm\n");
-    }
     if (sl == 0) {
         die_str("mayc: missing source file (use --help)\n");
     }
     if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
         let default: Any = cli_default_output(sp, sl, targetName);
         op = default[0]; ol = default[1];
-        if (llvmflag == 1) {
-            let llvmOutput: Any = symbol_name(op, ol) + ".ll";
-            op = cstr(llvmOutput); ol = len(llvmOutput);
-        }
     }
     if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
         die_str("mayc: missing -o <binary>\n");
     }
 
     let ctx: Any = emitter_new(target_select(targetName));
-    if (runtimeName == "auto") { runtimeName = if (targetName == "x86_64-linux" or targetName == "x86_64-nodeos" or targetName == "clang-llvm") { "full" } else { "core" }; }
+    if (runtimeName == "auto") { runtimeName = if (targetName == "x86_64-linux" or targetName == "x86_64-nodeos") { "full" } else { "core" }; }
     let nodeos: Any = ctx.target.os == "nodeos";
     if (runtimeName == "none") { rawflag = 1; }
     ctx.runtime = if (rawflag == 1) { "none" } else { runtimeName };
@@ -467,12 +458,6 @@ fun main2() -> Any {
 
     }
     profile_mark("ir");
-    if (targetName == "clang-llvm") {
-        llvm_compile(ctx, symbol_name(op, ol), llvmflag);
-        emitter_release(ctx);
-        profile_mark("clang-llvm");
-        return 0;
-    }
     if (nodeos) { nxf_set_image_name(symbol_name(op, ol)); }
     backend_emit(ctx);
     profile_mark("emit");

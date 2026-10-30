@@ -1,5 +1,9 @@
 # Backend parity progress and handoff
 
+> The experimental `clang-llvm` backend described below has since been
+> removed: mayc is its own toolchain and emits every executable directly.
+> The LLVM notes remain as a record of that work.
+
 This branch advances backend support; **full language and standard-library
 parity is not complete**. The requested scope includes both language features
 and all standard-library OS APIs, including files, processes and networking.

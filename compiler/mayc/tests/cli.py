@@ -28,9 +28,9 @@ def main():
         assert result.returncode == 0 and not result.stderr, result
         lines = result.stdout.splitlines()
         assert lines[0].split('\t') == ['target', 'format', 'default-runtime'], lines
-        assert 'Linux x86-64' in lines[-1] and 'experimental' in lines[-1], lines
+        assert 'Linux x86-64' in lines[-1] and 'llvm' not in result.stdout, lines
         rows = [line.split('\t') for line in lines[1:-1]]
-        assert len(rows) == 7 and len({row[0] for row in rows}) == 7, rows
+        assert len(rows) == 6 and len({row[0] for row in rows}) == 6, rows
         assert sorted(path.name for path in work.iterdir()) == ['mayc']
         source = work / 'hello.may'
         source.write_text('print(42);\n')
@@ -38,18 +38,14 @@ def main():
         for target, format_name, runtime in rows:
             assert runtime in ('full', 'core'), rows
             output = work / target
-            options = ['--emit-llvm'] if format_name == 'llvm' else []
-            command = [str(compiler), '--target', target, *options, str(source), '-o', str(output)]
+            command = [str(compiler), '--target', target, str(source), '-o', str(output)]
             result = subprocess.run(command, cwd=work, env=env, capture_output=True, timeout=120)
             assert result.returncode == 0, (target, result.stderr)
             implicit = output.read_bytes()
             result = subprocess.run([*command, '--runtime', runtime], cwd=work,
                                     env=env, capture_output=True, timeout=120)
             assert result.returncode == 0 and output.read_bytes() == implicit, (target, result)
-            if format_name == 'llvm':
-                assert b'target triple' in implicit and b'define' in implicit, implicit[:200]
-            else:
-                assert implicit.startswith(magic[format_name]), (target, implicit[:4])
+            assert implicit.startswith(magic[format_name]), (target, implicit[:4])
             if target == 'x86_64-linux':
                 result = subprocess.run([str(output)], capture_output=True, timeout=30)
                 assert result.returncode == 0 and result.stdout == b'42\n', result
@@ -59,7 +55,13 @@ def main():
                                 capture_output=True, timeout=30)
         assert result.returncode != 0 and b'unknown target' in result.stderr, result
         assert not bad_output.exists()
-        print('PASS source-free target discovery, emitted formats, runtime defaults and invalid target')
+        # mayc is its own toolchain: the LLVM IR backend was removed.
+        for flags, message in ((['--target', 'clang-llvm'], b'clang-llvm target was removed'),
+                               (['--emit-llvm'], b'--emit-llvm was removed')):
+            result = subprocess.run([str(compiler), *flags, str(source), '-o', str(bad_output)], cwd=work,
+                                    env=env, capture_output=True, timeout=30)
+            assert result.returncode != 0 and message in result.stderr and not bad_output.exists(), result
+        print('PASS source-free target discovery, emitted formats, runtime defaults, invalid and removed targets')
 
         # A bare PATH command and a symlink must find sidecars at the real
         # executable, even outside the checkout and without shell overrides.

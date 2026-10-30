@@ -11,7 +11,10 @@ code disagree, trust the code and fix this file.
 
 Maylang is an experimental, self-hosted language. The compiler `mayc` is
 written in Maylang (`compiler/mayc/`) and emits native executables directly
-(ELF, Mach-O and PE) without an assembler or linker. A small Rust crate
+(ELF, NXF, Mach-O and PE) without an assembler or linker. It is its own
+toolchain: do not add backends that go through LLVM, an external assembler
+or a C compiler (an experimental `clang-llvm` target was removed for this
+reason). A small Rust crate
 (`compiler/rust/crates/may_bootstrap`) compiles the compiler to C, which builds
 the first native generation, so no binary compiler is checked in. Tools (`may`,
 `mayfmt`, `maylsp`, `maypkg`), the standard library and the platform
@@ -103,7 +106,7 @@ that span components. Relative imports between siblings use
 - Useful compiler flags: `--check` (parse, type and name checks with no output),
   `--dump-expanded` (source after import expansion), `--time` (stage timings),
   `--diagnostics json`, `--debug` (source traces), `--legacy` (untyped mode),
-  `--target x86_64-nodeos|arm64-linux|riscv64-linux|arm64-macos|x86_64-windows|clang-llvm`,
+  `--target x86_64-nodeos|arm64-linux|riscv64-linux|arm64-macos|x86_64-windows`,
   `--runtime full|core|none`, and `--raw`. See
   [compiler/mayc/README.md](compiler/mayc/README.md) for the capability matrix.
 - **A failed compile leaves any previous output file in place** (deliberately,
@@ -123,7 +126,6 @@ that span components. Relative imports between siblings use
 | `make test-compliance` | `tests/compliance/run.py`: runtime and coercion boundary cases |
 | `make test-tools` | `may`, `mayfmt`, `maypkg` and `maylsp` suites |
 | `make test-docs` | Compiles and runs the snippets in `docs/reference/EXAMPLES.md` and `docs/guide/STRICT.md` |
-| `make test-llvm` | Experimental Clang/LLVM backend and reachability (needs `clang`) |
 | `make test-ui`, `make test-browser` | Native UI/browser checks (X11/OpenGL/libcurl/duktape; see the doctor profiles) |
 | `make test-limits` | GC pressure, capacity and codegen reports |
 | `make test-all` | Everything, including optional integrations |
@@ -140,7 +142,7 @@ Socket and window tests skip when unavailable; say so in your report.
 | --- | --- |
 | Anything | `make check` |
 | Compiler frontend, IR, sema or strict checker | rebuild, `make test-rust test-compiler test-compliance`; `make test-bootstrap` before merging |
-| Backend or code generation | the above plus `make test-llvm`, `python3 compiler/mayc/tests/raw_codegen.py --compiler compiler/mayc/mayc_new`, and core-target harnesses (`backends.py`, `core_runtime.py`; add `--require-emulation` when Unicorn is installed) |
+| Backend or code generation | the above plus `python3 compiler/mayc/tests/raw_codegen.py --compiler compiler/mayc/mayc_new`, and core-target harnesses (`backends.py`, `core_runtime.py`; add `--require-emulation` when Unicorn is installed) |
 | `runtime.may`, `native.may`, `prelude.may`, `runtime/` | `make test-compiler test-compliance` and the bootstrap fixpoint (`make test-bootstrap`) |
 | `compiler/rust/**` | `make test-rust test-bootstrap` |
 | `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui` |
@@ -218,8 +220,8 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   `Any`-typed numeric code must normalize with `to_float` before comparing.
 - Values are fat (16 bytes: a type word and a payload,
   `compiler/mayc/runtime/fat.may`, `src/backend/x86_64_fat.may`) with the
-  full runtime on x86_64-linux, so `Int` is signed 64-bit there. Other
-  targets (core runtime, LLVM, NodeOS) and `--values tagged` /
+  full runtime on x86_64-linux and x86_64-nodeos, so `Int` is signed 64-bit
+  there. The core runtime and `--values tagged` /
   `MAYC_VALUES=tagged` keep 61-bit tagged values (±2^60, `runtime.may`).
   The plan and status are in [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md).
   Raw mode uses native 64-bit words. On every target, all-`Int`/`Ptr`/`Bool`
@@ -322,7 +324,7 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 
 - Commit subjects follow `type(scope): imperative summary`. Types are
   `feat`, `fix`, `perf`, `test`, `docs`, `refactor`, `chore`, `revert`.
-  Common scopes: `compiler`, `codegen`, `raw`, `raw/x86_64`, `llvm`, `runtime`,
+  Common scopes: `compiler`, `codegen`, `raw`, `raw/x86_64`, `runtime`,
   `stdlib`, `gc`, `maylsp`, `may`, `maypkg`, `ui`, `distribution`, `targets`,
   `compliance`, `examples`, `release`. A bare `docs:` or `feat:` is fine for
   cross-cutting work.

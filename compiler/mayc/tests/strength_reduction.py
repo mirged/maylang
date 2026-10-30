@@ -17,7 +17,6 @@ def trunc_div(value, divisor):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true')
     args = parser.parse_args()
     compiler = compiler_binary(args.compiler)
     rng = random.Random(20261015)
@@ -51,7 +50,7 @@ def main():
         directory = Path(temporary)
         source = directory / 'division.may'
         source.write_text('\n'.join(functions + body))
-        for target in (['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']):
+        for target in ['x86_64-linux']:
             binary = directory / target
             # This checks the tagged backend's division lowering; fat values
             # (the x86_64-linux default) divide in the runtime for now.

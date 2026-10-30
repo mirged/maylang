@@ -345,8 +345,6 @@ ceilings, reject global/alias/scope bypasses and unknown operations, inspect
 normalized reports, compare generated call graphs with an independent
 reachability oracle, and verify that failed checking produces no successful
 report or executable. Bootstrap validation checks stage-2/stage-3 binary convergence.
-The scalar and control-flow suites also accept `--llvm` to execute their positive
-cases through the direct LLVM backend when Clang is installed.
 
 The complete design backlog and continuation checkpoints are tracked in
 [the implementation ledger](../design/BEHAVIOR_PROGRESS.md).

@@ -3,7 +3,6 @@
 import argparse
 from pathlib import Path
 import random
-import shutil
 import struct
 import subprocess
 import tempfile
@@ -35,13 +34,10 @@ def literals():
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--compiler', type=Path, required=True)
-    p.add_argument('--clang', default='clang')
     args = p.parse_args()
     values = literals()
     expected = ''.join('%d %d\n' % struct.unpack('<II', struct.pack('<d', float(text))) for text in values).encode()
     modes = [('full', []), ('core', ['--runtime', 'core'])]
-    if shutil.which(args.clang):
-        modes.append(('llvm', ['--target', 'clang-llvm']))
     with tempfile.TemporaryDirectory(prefix='mayc-float-literals-') as directory:
         work = Path(directory)
         source = work / 'bits.may'

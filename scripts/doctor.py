@@ -14,7 +14,6 @@ import tempfile
 PROFILES = {
     'build': ('cargo', 'rustc', 'cc', 'make', 'sha256sum'),
     'test': ('cargo', 'rustc', 'cc', 'make', 'sha256sum', 'readelf'),
-    'llvm': ('cargo', 'rustc', 'cc', 'make', 'sha256sum', 'readelf', 'clang'),
     'ui': ('cc', 'sha256sum'),
     'browser': ('cargo', 'rustc', 'cc', 'make', 'sha256sum'),
     'package': ('cargo', 'rustc', 'cc', 'make', 'sha256sum'),
@@ -53,7 +52,7 @@ def inspect(profile):
     version = '.'.join(map(str, minimum))
     checks.append((f'Python {version}+', sys.version_info >= minimum,
                    f'Install Python {version} or newer.'))
-    commands = {'cc': os.environ.get('CC', 'cc'), 'clang': os.environ.get('CLANG', 'clang')}
+    commands = {'cc': os.environ.get('CC', 'cc')}
     for command in PROFILES[profile]:
         selected = commands.get(command, command)
         found = shutil.which(selected)

@@ -18,7 +18,6 @@ def literal(value):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true')
     options = parser.parse_args()
     rng = random.Random(31)
     cases = [('', ','), ('', ''), ('a,,b,', ','), ('aaaaa', 'aa'),
@@ -57,7 +56,7 @@ def main():
         work = Path(directory)
         source = work / 'strings.may'
         source.write_text('\n'.join(statements) + '\n')
-        targets = ['x86_64-linux', 'clang-llvm'] if options.llvm else ['x86_64-linux']
+        targets = ['x86_64-linux']
         for target in targets:
             binary = work / target
             subprocess.run([str(options.compiler.resolve()), '--target', target, str(source), '-o', str(binary)],

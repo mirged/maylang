@@ -5,7 +5,7 @@
 - Visibility: only declarations marked `pub` are exported.
 - Source: [implementation](../../../stdlib/net.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
-- Requires the full Linux x86-64 native or clang-llvm runtime; core/raw builds do not support this module.
+- Requires the full Linux x86-64 native runtime; core/raw builds do not support this module.
 - No DNS, IPv6, TLS or HTTP. Use dotted IPv4 or localhost; ports are 0..65535, but peer port zero is invalid.
 - Default timeout is 30000 ms; -1 means unlimited, 0 means immediate, maximum finite value is 2147483647.
 - Sockets share descriptor ownership through aliases. Close explicitly or use with_socket; no automatic finalizer.

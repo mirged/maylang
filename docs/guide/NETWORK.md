@@ -1,8 +1,7 @@
 # Networking
 
 `import "net" as net;` provides synchronous IPv4 TCP and UDP sockets, written
-entirely in Maylang. It supports the full Linux x86-64 runtime on both `mayc`'s
-native and direct `clang-llvm` backends. Addresses are dotted-decimal IPv4 or
+entirely in Maylang. It supports the full Linux x86-64 runtime. Addresses are dotted-decimal IPv4 or
 `localhost`; DNS, IPv6, TLS and HTTP are outside this module's current scope.
 
 ## TCP example
@@ -17,8 +16,6 @@ mayc --strict examples/network/echo_client.may -o /tmp/echo-client
 # In another terminal:
 /tmp/echo-client 9000 "Hello, Maylang!"
 ```
-
-Add `--target clang-llvm` to either compilation command to use LLVM.
 
 ```may
 import "net" as net;
@@ -124,12 +121,12 @@ let result: Any = may {
 ## Verification
 
 ```sh
-python3 compiler/mayc/tests/network.py --llvm
+python3 compiler/mayc/tests/network.py
 ```
 
 The suite checks address validation, byte round trips, TCP/UDP loopback,
 timeouts, partial transfers against a Python peer, EOF, half-close, SIGPIPE,
-descriptor flags and cleanup, and private module visibility on both backends.
+descriptor flags and cleanup, and private module visibility.
 In sandboxes that deny socket creation, live tests are skipped while all
 fixtures still compile and validation tests execute. CI uses
-`--require-sockets --llvm` to require real loopback execution.
+`--require-sockets` to require real loopback execution.

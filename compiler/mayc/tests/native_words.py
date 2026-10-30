@@ -10,7 +10,7 @@ results and locals cross the tagged boundary, that range loops count natively,
 that global reads and writes convert to and from tagged values, and that
 bitwise expressions in tagged code are outlined into native-word functions. All run on the full and core
 runtimes, with and without --debug, and on ARM64/RISC-V core targets when
-QEMU user emulators are installed, and on clang-llvm when clang is.
+QEMU user emulators are installed.
 """
 import argparse
 import random
@@ -502,10 +502,6 @@ def main():
     compiler = args.compiler.resolve()
     configurations = [([], None), (['--runtime', 'core'], None), (['--debug'], None)]
     skipped = []
-    if shutil.which('clang'):
-        configurations.append((['--target', 'clang-llvm'], None))
-    else:
-        skipped.append('clang-llvm')
     for target, emulator in (('arm64-linux', 'qemu-aarch64'), ('riscv64-linux', 'qemu-riscv64')):
         runner = shutil.which(emulator)
         if runner:
@@ -586,7 +582,7 @@ def main():
                 raise AssertionError((flags, mismatch, lines[mismatch], program.splitlines()[mismatch // 3]))
         print(f'PASS {args.cases * 3} seeded native-word oracle calls match signed 64-bit semantics', flush=True)
         if skipped:
-            print('SKIP ' + ', '.join(skipped) + ': install clang or QEMU user emulators', flush=True)
+            print('SKIP ' + ', '.join(skipped) + ': install QEMU user emulators', flush=True)
 
 
 if __name__ == '__main__':

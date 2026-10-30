@@ -40,11 +40,10 @@ def run(argv):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true')
     args = parser.parse_args()
     cc = shutil.which('cc')
     assert cc, 'extern tests require a C compiler'
-    targets = ['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']
+    targets = ['x86_64-linux']
     with tempfile.TemporaryDirectory(prefix='mayc externs ') as directory:
         work = Path(directory)
         library = work / 'abi oracle.so'
@@ -130,16 +129,14 @@ print(may {{ passed(-1); "bad" }} otherwise {{ err.message }});
 print(may {{ widest(); "bad" }} otherwise {{ err.message }});
 print(may {{ high(4); "bad" }} otherwise {{ err.message }});
 ''')
-        expected = (b'3 5 true 1 1231 3\nunsigned argument out of range\n'
-                    b'C result exceeds Int range\nC result exceeds Int range\n')
         for target in targets:
             binary = work / f'words-{target}'
             result = run([args.compiler.resolve(), '--target', target, source, '-o', binary])
             assert result.returncode == 0, result.stderr.decode()
             result = run([binary])
             # With fat values (x86_64-linux) Int holds the 2^63 result of high(4).
-            want = expected if target == 'clang-llvm' else (b'3 5 true 1 1231 3\nunsigned argument out of range\n'
-                                                              b'C result exceeds Int range\nbad\n')
+            want = (b'3 5 true 1 1231 3\nunsigned argument out of range\n'
+                    b'C result exceeds Int range\nbad\n')
             assert (result.returncode, result.stdout, result.stderr) == (0, want, b''), (target, result)
             print(f'PASS {target}: native-word functions call integer externs with machine words', flush=True)
         # Missing unused dependencies must not enter the executable's live graph.
@@ -172,21 +169,11 @@ print(may {{ high(4); "bad" }} otherwise {{ err.message }});
             assert result.returncode == 0, result.stderr.decode()
             result = run([binary])
             lines = result.stdout.splitlines()
-            # Native ELF symbol interposition binds duplicate names globally;
-            # LLVM's explicit library handles preserve the two declarations.
+            # Native ELF symbol interposition binds duplicate names globally.
             assert result.returncode == 0 and not result.stderr, result
             assert sorted(lines[:2]) == [b'loaded1', b'loaded2'] and lines[2] == b'main', result
-            assert lines[3] == (b'1 2' if target == 'clang-llvm' else b'1 1'), result
+            assert lines[3] == b'1 1', result
             print(f'PASS {target}: library constructors run before user statements', flush=True)
-        if args.llvm:
-            for library, symbol in [('lib-not-installed-externs.so', 'missing'), ('libc.so.6', 'missing_externs_symbol')]:
-                source.write_text(f'extern "{library}" {{ fun missing() -> Int = "{symbol}"; }} missing();')
-                binary = work / 'missing'
-                result = run([args.compiler.resolve(), '--target', 'clang-llvm', source, '-o', binary])
-                assert result.returncode == 0, result.stderr.decode()
-                result = run([binary])
-                assert result.returncode == 70 and b'cannot resolve extern' in result.stdout, result
-            print('PASS LLVM missing library and symbol produce runtime diagnostics', flush=True)
 
 
 if __name__ == '__main__':

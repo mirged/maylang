@@ -9,7 +9,7 @@
 | Look up public APIs | [Reference](reference/README.md), [library contracts](../stdlib/CONTRACTS.md) |
 | Understand native compilation | [Compiler guide](../compiler/mayc/README.md), [native internals](internals/NATIVE.md) |
 | Understand runtime memory | [GC](internals/GC.md), [core memory](internals/CORE_MEMORY.md) |
-| Stress GC and inspect native/LLVM codegen | [Limits experiments](../compiler/mayc/tests/limits/README.md) |
+| Stress GC and inspect native codegen | [Limits experiments](../compiler/mayc/tests/limits/README.md) |
 | Use networking | [Networking](guide/NETWORK.md) |
 | Configure language-server support | [LSP](guide/LSP.md), [server guide](../tools/maylsp/README.md) |
 | Review cross-target execution | [Native target tests](internals/NATIVE_TARGETS.md) |

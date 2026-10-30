@@ -9,7 +9,7 @@ mut HDEPTH: Any = 0;
 mut HSTACK: Any = 0;
 mut ERRFLAG: Any = 0;
 mut ERRVAL: Any = 2;
-fun rt_init() -> Any { HSTACK = rt_alloc(64 * 256); return 0; }
+fun rt_init() -> Any { HSTACK = rt_alloc(64 * 64); return 0; }
 fun rt_gc_root(address: Any) -> Any { return 0; }
 fun rt_exit(status: Any) -> Any { __host_exit(status / 8); return 2; }
 fun __core_alloc(bytes: Any) -> Any { return rt_alloc(bytes / 8) * 8; }
@@ -1262,7 +1262,7 @@ fun rt_spawn(fn: Any) -> Any {
     if (FIB_SAVE0 == 0) { FIB_SAVE0 = rt_alloc(8); }
     let rec: Any = rt_alloc(80);
     store64(rec + 32, 0); store64(rec + 40, 0);
-    store64(rec + 48, rt_alloc(64 * 256)); store64(rec + 56, 0);
+    store64(rec + 48, rt_alloc(64 * 64)); store64(rec + 56, 0);
     store64(rec + 64, 2); store64(rec + 72, 0);
     store64(rec + 8, fn);
     store64(rec + 16, 1);

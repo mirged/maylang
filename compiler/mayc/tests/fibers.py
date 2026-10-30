@@ -58,9 +58,8 @@ launch(); run();
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true')
     args = parser.parse_args()
-    targets = ['x86_64-linux', 'clang-llvm'] if args.llvm else ['x86_64-linux']
+    targets = ['x86_64-linux']
     with tempfile.TemporaryDirectory(prefix='mayc-fibers-') as directory:
         work = Path(directory)
         for name, (text, status, output) in CASES.items():

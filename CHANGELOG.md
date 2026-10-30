@@ -2,6 +2,12 @@
 
 ## Compiler
 
+- **Breaking:** remove the experimental `clang-llvm` target and
+  `--emit-llvm`. mayc is its own toolchain and writes every executable
+  itself; both now fail with an explanation. `make test-llvm`, the doctor's
+  `llvm` profile, the harnesses' `--llvm` options and the runtimes' LLVM
+  accommodations (a libc-supplied environment pointer and 256-byte handler
+  slots) are gone, and the compiler's code is 290 KB smaller.
 - **Breaking:** compile x86_64-linux programs with the full runtime using fat
   values, 16 bytes with a separate type word, instead of 3-bit tagged words
   (design and status: [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md)).
@@ -12,7 +18,7 @@
   `type` fault) and a `List<Any>` uses 16 bytes per element. The compiler
   itself runs on fat values and reaches the bootstrap fixpoint.
   `--values tagged` or `MAYC_VALUES=tagged` selects the old representation,
-  which the core runtime and LLVM still use
+  which the core runtime still uses
   ([#92](https://github.com/mirged/maylang/issues/92)).
 - Run Int `/` and `%`, closure calls and their type checks inline in fat
   code, and share one slow-path stub per operator: Int loops run 3.7x and

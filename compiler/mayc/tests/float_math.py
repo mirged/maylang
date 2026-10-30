@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check transcendental functions and floating powers on every backend.
 
-The full runtime uses x87 instructions, LLVM uses the platform libm and the
+The full runtime uses x87 instructions and the
 portable core runtime uses its own binary64 implementation. IEEE special
 cases must agree exactly everywhere; portable results must stay within one
 ulp of the host libm and be bit-identical on every core target.
@@ -10,7 +10,6 @@ import argparse
 import math
 from pathlib import Path
 import random
-import shutil
 import struct
 import subprocess
 import tempfile
@@ -104,7 +103,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--require-emulation', action='store_true')
-    parser.add_argument('--clang', default='clang')
     options = parser.parse_args()
     try:
         import unicorn  # noqa: F401
@@ -112,7 +110,6 @@ def main():
     except ImportError:
         have_emulation = False
     assert have_emulation or not options.require_emulation, 'Unicorn is required'
-    have_llvm = shutil.which(options.clang) is not None
     with tempfile.TemporaryDirectory(prefix='mayc-float-math-') as directory:
         work = Path(directory)
         source = work / 'special.may'
@@ -121,19 +118,15 @@ def main():
             want = (expected + '\n').encode()
             compile_source(options.compiler, source, work / 'full')
             assert run_binary(work / 'full') == want, ('full', line, run_binary(work / 'full'))
-            if have_llvm:
-                compile_source(options.compiler, source, work / 'llvm', '--target', 'clang-llvm')
-                assert run_binary(work / 'llvm') == want, ('llvm', line, run_binary(work / 'llvm'))
             for target in TARGETS:
                 image = compile_source(options.compiler, source, work / target, '--runtime', 'core', '--target', target)
                 if target == 'x86_64-linux':
                     assert run_binary(work / target) == want, (target, line, run_binary(work / target))
                 if have_emulation:
                     emulate(image, target, want, 0)
-        print('PASS IEEE special cases, Int arguments and signed zeros agree on full, '
-              + ('LLVM ' if have_llvm else '') + 'and core runtimes'
-              + ('' if have_emulation else ' (core emulation skipped: install Unicorn)')
-              + ('' if have_llvm else ' (LLVM skipped: clang unavailable)'), flush=True)
+        print('PASS IEEE special cases, Int arguments and signed zeros agree on full '
+              + 'and core runtimes'
+              + ('' if have_emulation else ' (core emulation skipped: install Unicorn)'), flush=True)
 
         cases = accuracy_cases()
         calls = [f'{name}({", ".join(repr(value) for value in args)})' for name, args in cases]
@@ -148,10 +141,10 @@ def main():
                 assert error <= 1.0, (name, args, got, want)
                 worst = max(worst, error)
         print(f'PASS portable transcendentals and powers within {worst:.0f} ulp of the host libm ({len(cases)} inputs)', flush=True)
-        # Full and LLVM share the portable trigonometry; their x87/libm logs,
+        # Full shares the portable trigonometry; its x87 logs,
         # exp and pow may differ from core only in the last place.
         portable = decode(native)
-        for name, flags in [('full', [])] + ([('llvm', ['--target', 'clang-llvm'])] if have_llvm else []):
+        for name, flags in [('full', [])]:
             compile_source(options.compiler, source, work / name, *flags)
             for (function, args), got, core in zip(cases, decode(run_binary(work / name)), portable):
                 if function in ('sin', 'cos', 'tan'):
@@ -159,7 +152,7 @@ def main():
                 elif got != core:
                     want = oracle(function, args)
                     assert math.isfinite(want) and abs(got - want) <= math.ulp(want), (name, function, args, got, want)
-        print('PASS full' + (' and LLVM' if have_llvm else '') + ' trigonometry matches core bit for bit', flush=True)
+        print('PASS full trigonometry matches core bit for bit', flush=True)
         if have_emulation:
             lines = native.splitlines(keepends=True)
             for start in range(0, len(calls), 24):

@@ -16,7 +16,6 @@ ZERO = 'fun apply(f: Fn() -> Int ! pure) -> Int ! pure { return f(); }\n'
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
-    parser.add_argument('--llvm', action='store_true')
     args = parser.parse_args()
     compiler = compiler_binary(args.compiler)
     count = 0
@@ -69,8 +68,6 @@ def main():
                 'fun log() -> Int { print(42); return 0; } repeat(log, 2);', '42\n'),
         }
         targets = [()]
-        if args.llvm:
-            targets.append(('--target', 'clang-llvm'))
         for target, options in enumerate(targets):
             for name, (program, expected) in programs.items():
                 check(f'{name}_{target}', program, output=expected, options=options)

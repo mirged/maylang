@@ -37,8 +37,6 @@ mut MARKMAX: Any = 0;
 mut GROOTS: Any = 0;
 mut GCOUNT: Any = 0;
 mut STACKTOP: Any = 0;
-// LLVM libc entry supplies envp directly; native _start leaves this zero.
-mut INITIAL_ENVP: Any = 0;
 mut CSTOP: Any = 0;
 mut GCFLAG: Any = 0;
 mut GCCOUNT: Any = 0;
@@ -108,7 +106,7 @@ fun rt_init() -> Any {
     MARKSTK = syscall(9, 0, 8388608, 3, 34, 0 - 1, 0);
     if (MARKSTK < 0) { syscall(60, 70); }
     CSTOP = STACKTOP;
-    HSTACK = rt_alloc(64 * 256);
+    HSTACK = rt_alloc(64 * 64);
     GCFLAG = 1;
     return 0;
 }
@@ -1562,7 +1560,7 @@ fun rt_spawn(t: Any, f: Any) -> Any {
     let rec: Any = rt_alloc(80);
     store64(rec + 8, f);
     store64(rec + 16, 1);
-    store64(rec + 32, rt_alloc(64 * 256));
+    store64(rec + 32, rt_alloc(64 * 64));
     let size: Any = 262144;
     let base: Any = syscall(9, 0, size, 3, 34, 0 - 1, 0);
     if (base < 0) { return rt_failstr(rt_from(addr("cannot allocate fiber stack"), 27)); }
@@ -1756,7 +1754,6 @@ fun rt_str_cmp(at: Any, a: Any, bt: Any, b: Any) -> Any {
 }
 
 fun rt_envp() -> Any {
-    if (INITIAL_ENVP != 0) { return INITIAL_ENVP; }
     // Linux's initial stack is argc, argv[argc], NULL, envp[], NULL.
     return STACKTOP + (load64(STACKTOP) + 2) * 8;
 }

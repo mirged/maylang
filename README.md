@@ -120,11 +120,10 @@ Compiler **host** support and emitted **program targets** are separate:
 | `riscv64-linux` | ELF64 (RV64IM) | Core, raw |
 | `arm64-macos` | Mach-O | Core, raw; signing required |
 | `x86_64-windows` | PE32+ | Core, raw |
-| `clang-llvm` | LLVM IR / ELF64 | Experimental full runtime on Linux x86-64 |
 
 Use `mayc --list-targets` for discovery and see the
 [compiler guide](compiler/mayc/README.md#cross-compilation) for feature limits.
-LLVM output requires Clang and excludes fibers and FFI. Native Windows and
+mayc writes these executables itself, with no assembler, linker or LLVM. Native Windows and
 macOS program execution is covered by the [native target suite](docs/internals/NATIVE_TARGETS.md).
 [NodeOS](docs/internals/NODEOS.md), a capability microkernel, runs Maylang
 programs and the compiler itself, which rebuilds itself there byte-identically.

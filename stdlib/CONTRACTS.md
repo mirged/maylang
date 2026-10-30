@@ -12,8 +12,7 @@ An `Any` parameter is not a guarantee that arbitrary inputs are accepted.
 Ordinary modules target the full runtime on Linux x86-64. Pure functions have
 no filesystem dependency, but may still use floats, maps or closures that core
 rejects. The portable core's supported library is inventoried separately and
-tested on all five direct targets. The full LLVM backend supports ordinary
-modules and Linux I/O/networking, excluding fibers and typed extern calls.
+tested on all five direct targets.
 Raw mode does not inject a standard library. See the
 [target capability matrix](../compiler/mayc/README.md#cross-compilation).
 
@@ -101,7 +100,7 @@ See [ML module contracts](ml/README.md).
 `examples/stdlib_expanded.may` are compiled and run by compiler verification.
 The focused [library suite](../compiler/mayc/tests/stdlib_contracts.py) runs
 typed Result/I/O and [boundary cases](../compiler/mayc/tests/library/boundaries.may)
-on native and LLVM, including successful fixed inference and invalid parameter
+natively, including successful fixed inference and invalid parameter
 counts. Numeric, map, file and network suites cover the corresponding runtime
 primitives. The [core suite](../compiler/mayc/tests/core_runtime.py) covers the
 portable library and [arena lifetimes](../docs/internals/CORE_MEMORY.md). These tests are

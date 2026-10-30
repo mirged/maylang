@@ -131,7 +131,6 @@ root(); hidden();
         assert first['log']['inferred_effects'] == first['root']['inferred_effects'] == ['clock', 'output'], first
         assert first['leaf']['inferred_effects'] == [], first
         assert first['leaf']['declared_effects'] is first['log']['declared_effects'] is None, first
-        assert inspect(program, ('--target', 'clang-llvm')) == first
         raw = inspect('fun leaf(n: Int) -> Int { return n * 2; } '
             'fun root() -> Int ! pure { return leaf(21); } '
             'fun hidden() -> Int { return 0; } root(); hidden();', ('--raw',))
