@@ -151,7 +151,7 @@ fun ir_range_loop(ctx: Any, node: Any) -> Any {
     push(IR_BREAKS, [done, IR_HANDLERS]); push(IR_CONTINUES, [step, IR_HANDLERS]);
     ir_label(top);
     ir_emit(IR_FALSE, 0, ir_binary(if (range.inclusive == 1) { TK_LE } else { TK_LT }, index, end, span), 0, done, span);
-    ir_declare(node.name, node.length, ir_copy(ir_temp(span), index), 0, span);
+    ir_declare(node.name, node.length, ir_contract(ctx, ir_copy(ir_temp(span), index), node.bindingContract, span), 0, span);
     ir_node(ctx, node.body);
     ir_label(step);
     if (range.inclusive == 1) { ir_emit(IR_TRUE, 0, ir_binary(TK_EQ, index, end, span), 0, done, span); }
@@ -161,9 +161,21 @@ fun ir_range_loop(ctx: Any, node: Any) -> Any {
     return ir_nil(span);
 }
 
+// A bound the strict checker proved Int; folded literals carry no type.
+fun ir_int_bound(node: Any) -> Any {
+    if (node.kind == E_INT) { return true; }
+    let t: Any = node.strictType;
+    return t != nil and t != 0 and t.name == "Int" and len(t.arguments ?? []) == 0;
+}
+
 fun ir_loop(ctx: Any, node: Any) -> Any {
     let span: Any = node.span;
-    if (node.kind == S_FOR and IR_RAW_MODE == 1 and node.iterable.kind == E_RANGE) { return ir_range_loop(ctx, node); }
+    // `for` over a literal range counts instead of building the list when
+    // both bounds are Int (other bounds keep each runtime's rt_range rules).
+    if (node.kind == S_FOR and node.iterable.kind == E_RANGE) {
+        let range: Any = node.iterable;
+        if (IR_RAW_MODE == 1 or (ir_int_bound(range.start) and ir_int_bound(range.end))) { return ir_range_loop(ctx, node); }
+    }
     let iterable: Any = ir_node(ctx, node.iterable);
     let count: Any = ir_runtime("rt_len", [iterable], span);
     let index: Any = ir_integer(0, span);

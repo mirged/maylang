@@ -1,0 +1,32 @@
+// `for` over an Int range counts without building the list (#92): the
+// 50M-element loop would need 800 MB of fat values.
+let n: Int = 5;
+for i: Int in 0..n { print(i); }
+for i: Int in 3..=3 { print("one", i); }
+for i: Int in 4..2 { print("never", i); }
+for i: Int in 4..=3 { print("never", i); }
+for i: Int in -2..1 { print("neg", i); }
+let fs: List<() -> Int> = [];
+for i: Int in 0..3 { push(fs, fun() -> Int { return i * 10; }); }
+for f: () -> Int in fs { print(f()); }
+for i: Int in 0..10 {
+    if (i == 2) { continue; }
+    if (i == 5) { break; }
+    mut j: Int = i; j += 100; print("j", j);
+}
+mut total: Int = 0;
+print(total);
+let lo: Any = 1; let hi: Any = 3;
+for i: Any in lo..hi { print("any", i); }
+print(may { mut c: Int = 0; for i: Int8 in 120..130 { c += 1; } c } otherwise { "${err.kind}: ${err.message}" });
+mut sum: Int = 0;
+for i: Int in 0..3 { for k: Int in i..3 { sum += k; } }
+print(sum);
+fun first_even(limit: Int) -> Int { for i: Int in 1..limit { if (i % 2 == 0) { return i; } } return -1; }
+print(first_even(10), first_even(1));
+print(may { for i: Int in 0..3 { if (i == 1) { fail("stop"); } } 0 } otherwise { err.message });
+let r: List<Int> = 0..4;
+print(r, [x * 2 for x: Int in 0..3]);
+mut big: Int = 0;
+for i: Int in 0..50000000 { big += 1; }
+print(big);

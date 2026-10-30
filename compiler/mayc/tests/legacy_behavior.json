@@ -164,6 +164,11 @@
     "stdout": "NQpoIGUKMTIzNDUgNzcKdHJ1ZQo=",
     "stderr": ""
   },
+  "range_loops.may": {
+    "exit": 0,
+    "stdout": "MAoxCjIKMwo0Cm9uZSAzCm5lZyAtMgpuZWcgLTEKbmVnIDAKMAoxMAoyMApqIDEwMApqIDEwMQpqIDEwMwpqIDEwNAowCmFueSAxCmFueSAyCmFyaXRobWV0aWM6IGludGVnZXIgb3V0c2lkZSBhbm5vdGF0ZWQgYm91bmRzCjgKMiAtMQpzdG9wClswLCAxLCAyLCAzXSBbMCwgMiwgNF0KNTAwMDAwMDAK",
+    "stderr": ""
+  },
   "results.may": {
     "exit": 0,
     "stdout": "dHJ1ZSAxMDUKZmFsc2UgZGl2IGJ5IHplcm8KdHJ1ZSA1IG5pbAo0IG5vbmUgZXZlbgo=",
