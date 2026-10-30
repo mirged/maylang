@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Target/format selection, isolated output contexts, and real ISA emulation.
+"""Target selection, isolated output contexts, relocations and raw diagnostics.
 
-Unicorn is optional for structural checks; --require-emulation makes its absence
-an error. Install it in a temporary venv and run this test inside that venv.
+The ARM64, RISC-V, Mach-O and PE checks are frozen with their targets in
+frozen/compiler/mayc/tests/backends.py.
 """
 import argparse
 from pathlib import Path
@@ -45,100 +45,11 @@ def elf_segments(image):
             yield virtual, memory, file, disk
 
 
-def macho_segments(image):
-    offset = 32
-    for _ in range(struct.unpack_from('<I', image, 16)[0]):
-        kind, size = struct.unpack_from('<II', image, offset)
-        if kind == 25:
-            name = image[offset + 8:offset + 24].rstrip(b'\0')
-            address, memory, file, disk = struct.unpack_from('<QQQQ', image, offset + 24)
-            if name != b'__PAGEZERO':
-                yield address, memory, file, disk
-        offset += size
-
-
-def emulate(image, arch, macos=False, windows=False, slide=0):
-    import unicorn as u
-    from unicorn import arm64_const as arm, riscv_const as rv, x86_const as x86
-    if arch == 'arm64':
-        cpu = u.Uc(u.UC_ARCH_ARM64, u.UC_MODE_ARM)
-        sp, pc = arm.UC_ARM64_REG_SP, arm.UC_ARM64_REG_PC
-        number = arm.UC_ARM64_REG_X16 if macos else arm.UC_ARM64_REG_X8
-        arguments = [getattr(arm, f'UC_ARM64_REG_X{i}') for i in range(6)]
-    elif arch == 'riscv64':
-        cpu = u.Uc(u.UC_ARCH_RISCV, u.UC_MODE_RISCV64)
-        sp, pc, number = rv.UC_RISCV_REG_SP, rv.UC_RISCV_REG_PC, rv.UC_RISCV_REG_A7
-        arguments = [getattr(rv, f'UC_RISCV_REG_A{i}') for i in range(6)]
-    else:
-        cpu = u.Uc(u.UC_ARCH_X86, u.UC_MODE_64)
-        sp, pc = x86.UC_X86_REG_RSP, x86.UC_X86_REG_RIP
-    if windows:
-        base = struct.unpack_from('<Q', image, 128 + 24 + 24)[0]
-        size = struct.unpack_from('<I', image, 128 + 24 + 56)[0]
-        cpu.mem_map(base, size)
-        cpu.mem_write(base, image)
-        entry = base + struct.unpack_from('<I', image, 128 + 24 + 16)[0]
-    else:
-        segments = list(macho_segments(image) if macos else elf_segments(image))
-        for address, memory, file, disk in segments:
-            if memory:
-                cpu.mem_map(address + slide, (memory + 4095) // 4096 * 4096)
-                cpu.mem_write(address + slide, image[file:file + disk])
-        entry = 4294967296 + 16384 if macos else struct.unpack_from('<Q', image, 24)[0]
-        entry += slide
-    cpu.mem_map(0x10000000, 0x100000)
-    cpu.reg_write(sp, 0x10100000 - (8 if windows else 0))
-    output, status = bytearray(), []
-    if windows:
-        sentinel = 0x10000000
-        cpu.mem_write(0x10100000 - 8, struct.pack('<Q', sentinel))
-        cpu.reg_write(x86.UC_X86_REG_RDI, 0x12345678)
-        cpu.reg_write(x86.UC_X86_REG_RSI, 0x87654321)
-        allocated = [x86.UC_X86_REG_RBX] + [getattr(x86, f'UC_X86_REG_R{i}') for i in range(12, 16)]
-        for index, register in enumerate(allocated):
-            cpu.reg_write(register, 0xabc000 + index)
-        cpu.emu_start(entry, sentinel, count=1000000)
-        assert cpu.reg_read(pc) == sentinel
-        assert cpu.reg_read(x86.UC_X86_REG_RAX) == 0
-        assert cpu.reg_read(x86.UC_X86_REG_RDI) == 0x12345678
-        assert cpu.reg_read(x86.UC_X86_REG_RSI) == 0x87654321
-        for index, register in enumerate(allocated):
-            assert cpu.reg_read(register) == 0xabc000 + index, 'allocator broke callee-save ABI'
-        return
-
-    def trap(uc, interrupt, unused):
-        call = uc.reg_read(number)
-        args = [uc.reg_read(register) for register in arguments]
-        if call == (1 if macos else 93):
-            status.append(args[0]); uc.emu_stop()
-        elif call == (4 if macos else 64):
-            assert args[0] == 1
-            output.extend(uc.mem_read(args[1], args[2]))
-            uc.reg_write(arguments[0], args[2])
-        elif call == 222:
-            assert args[:4] == [0, 4096, 3, 34]
-            uc.mem_map(0x20000000, 4096)
-            uc.reg_write(arguments[0], 0x20000000)
-        else:
-            raise AssertionError((interrupt, call, args))
-
-    cpu.hook_add(u.UC_HOOK_INTR, trap)
-    cpu.emu_start(entry, 0, count=1000000)
-    assert bytes(output) == b'target-ok\n' and status == [42], (bytes(output), status)
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, required=True)
-    parser.add_argument('--require-emulation', action='store_true')
     options = parser.parse_args()
     compiler = options.compiler.resolve()
-    try:
-        import unicorn
-        have_emulation = True
-    except ImportError:
-        have_emulation = False
-    assert have_emulation or not options.require_emulation, 'Unicorn is required'
     with tempfile.TemporaryDirectory(prefix='mayc-backends-') as directory:
         work = Path(directory)
         context = work / 'context'
@@ -179,69 +90,15 @@ def main():
                           'let minimum: Any = -1152921504606846976;\n' +
                           'if minimum / 8 != -144115188075855872 or minimum % 8 != 0 { exit(2); }\nexit(0);\n')
         binary = work / 'raw-oracle'
-        compile_source(compiler, source, binary, '--raw')
+        image = compile_source(compiler, source, binary, '--raw')
+        assert list(elf_segments(image)), 'no loadable segments'
         assert subprocess.run([str(binary)], timeout=10).returncode == 0
         print('PASS signed power-of-two quotient/remainder against Python oracle', flush=True)
 
-        raw = (HERE / 'backend/raw.may').read_text()
-        # Linux AArch64 and RV64 use the generic syscall table, not x86 numbers.
-        for target, machine, arch in [('arm64-linux', 183, 'arm64'), ('riscv64-linux', 243, 'riscv64')]:
-            image = compile_source(compiler, HERE / 'backend/raw.may', work / target, '--raw', '--target', target)
-            assert image[:4] == b'\x7fELF' and struct.unpack_from('<H', image, 18)[0] == machine
-            assert len(list(elf_segments(image))) == 4
-            readelf = subprocess.run(['readelf', '-hSWl', str(work / target)], capture_output=True)
-            assert readelf.returncode == 0 and not readelf.stderr, readelf.stderr
-            if have_emulation:
-                emulate(image, arch)
-            qemu = shutil.which('qemu-aarch64' if arch == 'arm64' else 'qemu-riscv64')
-            if qemu:
-                result = subprocess.run([qemu, str(work / target)], capture_output=True, timeout=30)
-                assert result.returncode == 42 and result.stdout == b'target-ok\n' and not result.stderr, result
-            if have_emulation or qemu:
-                print(f'PASS {target} ELF and integer/pointer/call/branch execution', flush=True)
-            else:
-                print(f'PASS {target} ELF (execution skipped: install Unicorn or QEMU user emulator)', flush=True)
-        # Mach-O exercises Darwin syscall conventions without Linux mmap flags.
-        source = work / 'darwin.may'
-        source.write_text(raw[:raw.index('let memory:')] + 'syscall(4, 1, addr("target-ok\\n"), 10);\nexit(42);\n')
-        image = compile_source(compiler, source, work / 'darwin', '--raw', '--target', 'arm64-macos')
-        assert struct.unpack_from('<IIII', image) == (0xfeedfacf, 0x100000c, 0, 2)
-        assert len(list(macho_segments(image))) == 4
-        linkedit = 32 + 72 * 4
-        assert image[linkedit + 8:linkedit + 18] == b'__LINKEDIT'
-        address, memory, offset, size = struct.unpack_from('<QQQQ', image, linkedit + 24)
-        assert offset == len(image) and offset % 16384 == 0 and memory == size == 0
-        assert address == 4294967296 + offset
-        assert struct.unpack_from('<Q', image, 32 + 32)[0] == 4294967296
-        entry = 32 + 72 * 5
-        assert struct.unpack_from('<IIQQ', image, entry) == (0x80000028, 24, 16384, 0)
-        assert struct.unpack_from('<IIIIII', image, entry + 24) == (50, 24, 1, 11 << 16, 11 << 16, 0)
-        assert struct.unpack_from('<I', image, 24)[0] == 0x200005
-        assert image[entry + 24 + 24 + 12:entry + 24 + 24 + 26] == b'/usr/lib/dyld\0'
-        library = entry + 24 + 24 + 32
-        assert image[library + 24:library + 51] == b'/usr/lib/libSystem.B.dylib\0'
-        assert struct.unpack_from('<12I', image, library + 56) == (0x80000022, 48, *([0] * 10))
-        if have_emulation:
-            emulate(image, 'arm64', macos=True)
-            emulate(image, 'arm64', macos=True, slide=0x12000000)
-        print('PASS ARM64 Mach-O layout and Darwin syscall ABI (native signing not tested)', flush=True)
-        source = work / 'windows.may'
-        source.write_text('fun add(a: Any, b: Any) -> Any { return a + b; }\n'
-                          'fun count(limit: Any) -> Any { mut i: Any = 0; mut x: Any = 1; '
-                          'while i < limit { x = x * 3 + 1; i = i + 1; } return x; }\n'
-                          'if count(4) != 121 { load64(0); }\n'
-                          'mut n: Any = 0; while n < 10 { n = add(n, 1); }\n')
-        image = compile_source(compiler, source, work / 'windows.exe', '--raw', '--target', 'x86_64-windows')
-        assert image[:2] == b'MZ' and image[128:132] == b'PE\0\0'
-        assert struct.unpack_from('<HH', image, 132) == (0x8664, 2)
-        objdump = subprocess.run(['objdump', '-p', str(work / 'windows.exe')], capture_output=True)
-        assert objdump.returncode == 0 and b'pei-x86-64' in objdump.stdout, objdump.stderr
-        if have_emulation:
-            emulate(image, 'x86_64', windows=True)
-        print('PASS x86-64 PE32+ headers, entry return and preserved Windows registers', flush=True)
         for args, message in [(['--target', 'bogus'], b'unknown target'),
                               (['--target'], b'requires a target name'),
-                              (['--target', 'arm64-linux', '--runtime', 'full'], b'--runtime full requires')]:
+                              (['--target', 'arm64-linux'], b'target arm64-linux is frozen'),
+                              (['--runtime', 'core'], b'runtime core is frozen')]:
             output = work / 'invalid'
             command = [str(compiler), *args]
             if args != ['--target']:
@@ -255,11 +112,11 @@ def main():
                               ('len(s)', b'raw len requires a string literal')]:
             source = work / 'raw_literal.may'
             source.write_text(f'fun main() -> Int {{ let s: Str = "abc"; let v: Any = {call}; return 0; }}\nmain();\n')
-            for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux']:
+            for target in ['x86_64-linux']:
                 output = work / 'raw_literal'
                 result = subprocess.run([str(compiler), '--raw', '--target', target, str(source), '-o', str(output)], capture_output=True)
                 assert result.returncode != 0 and message in result.stderr and not output.exists(), (target, call, result)
-        print('PASS raw addr, cstr and len reject non-literal strings on every native target', flush=True)
+        print('PASS raw addr, cstr and len reject non-literal strings', flush=True)
 
 
 if __name__ == '__main__':

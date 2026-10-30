@@ -7,7 +7,6 @@ import "diagnostics.may";
 import "lexer.may";
 import "parser.may";
 import "symbols.may";
-import "platform.may";
 import "behavior.may";
 import "words.may";
 // ir.may — linear three-address instructions with explicit control flow.
@@ -654,7 +653,6 @@ fun ir_program(ctx: Any) -> Any {
     let foreign: Any = [];
     for rec: Any in FOREIGN_DECLS { if (live[rec.lab]) { push(foreign, rec); } }
     ffi_prepare(ctx, foreign);
-    platform_prepare(ctx);
     ctx.globalBytes = ctx.data.length;
     ctx.rodataOffset = ((ctx.data.length / ctx.target.alignment) + 1) * ctx.target.alignment;
     sink_require(ctx.data, ctx.rodataOffset);

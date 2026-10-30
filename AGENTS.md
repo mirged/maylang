@@ -96,7 +96,7 @@ that span components. Relative imports between siblings use
   transcendentals) is loaded by every runtime with a library prelude.
 - `--target x86_64-nodeos` routes every `syscall` site through a gate into
   `runtime/nodeos.may`, a Linux-syscall personality written in the raw subset
-  ([docs/internals/NODEOS.md](docs/internals/NODEOS.md)). Its globals must be
+  ([docs/internals/NODEOS.md](frozen/docs/internals/NODEOS.md)). Its globals must be
   zero-initialized (runtime initializers never run) and it must not allocate
   from the Maylang heap. Running NodeOS images needs a NodeOS checkout:
   `make test-maylang` there boots them, and the compiler, in QEMU.

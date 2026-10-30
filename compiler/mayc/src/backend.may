@@ -7,7 +7,6 @@ import "sema.may";
 import "symbols.may";
 import "backend/x86_64.may";
 import "backend/x86_64_fat.may";
-import "backend/portable.may";
 
 // Target selection is independent of the host running mayc.
 struct Target { name: Any, arch: Any, os: Any, format: Any, machine: Any, alignment: Any, runtime: Any }
@@ -16,68 +15,28 @@ struct TargetBackend { emit: Any, patch: Any }
 fun target_select(name: Any) -> Any {
     if (name == "clang-llvm") { die_str("mayc: the clang-llvm target was removed; mayc emits native executables itself\n"); }
     if (name == "x86_64-linux") { return Target(name, "x86_64", "linux", "elf", 62, 4096, true); }
-    if (name == "x86_64-nodeos") { return Target(name, "x86_64", "nodeos", "nxf", 62, 4096, true); }
-    if (name == "arm64-linux") { return Target(name, "arm64", "linux", "elf", 183, 4096, false); }
-    if (name == "riscv64-linux") { return Target(name, "riscv64", "linux", "elf", 243, 4096, false); }
-    if (name == "arm64-macos") { return Target(name, "arm64", "macos", "macho", 16777228, 16384, false); }
-    if (name == "x86_64-windows") { return Target(name, "x86_64", "windows", "pe", 34404, 4096, false); }
+    if (has(["x86_64-nodeos", "arm64-linux", "riscv64-linux", "arm64-macos", "x86_64-windows"], name)) {
+        die_str("mayc: target ${name} is frozen; Maylang currently supports x86_64-linux (see frozen/README.md)\n");
+    }
     die_str("mayc: unknown target `${name}`\n");
     return 0;
 }
 
 fun backend_validate(ctx: Any, raw: Any) -> Any {
     if (FAT_VALUES and raw == 1) { die_str("mayc: --values fat requires a runtime; --raw code uses machine words\n"); }
-    if (raw == 0 and ctx.runtime == "full" and not ctx.target.runtime) {
-        die_str("mayc: `${ctx.target.name}` supports the core runtime; --runtime full requires x86_64-linux or x86_64-nodeos\n");
-    }
     return 0;
 }
 
 // Each backend implements the same IR-to-code and relocation entry points.
-fun backend_for(ctx: Any) -> Any {
-    if (ctx.target.arch == "x86_64") { return TargetBackend(x86_emit, patch_all); }
-    return portable_backend(ctx);
-}
+fun backend_for(ctx: Any) -> Any { return TargetBackend(x86_emit, patch_all); }
 
 // `--no-code-align` keeps RAW x86-64 code unpadded (#83).
 fun backend_disable_code_alignment() -> Any { X86_FUNCTION_ALIGN = 0; X86_LOOP_ALIGN = 0; return 0; }
 
 fun backend_emit(ctx: Any) -> Any {
-    if (ctx.runtime == "core") { core_validate(ctx); }
-    // NodeOS loads NXF images without a dynamic linker, so there is nothing
-    // to resolve a C library symbol against.
-    if (ctx.target.os == "nodeos" and len(ctx.foreign) > 0) { die_str("mayc: x86_64-nodeos has no dynamic loader; extern functions are unsupported\n"); }
     let selected: Any = backend_for(ctx);
     let emit: Any = selected.emit;
     return emit(ctx);
-}
-
-fun core_validate(ctx: Any) -> Any {
-    if (len(ctx.foreign) > 0) { die_str("mayc: FFI requires the full runtime\n"); }
-    let blocks: Any = [ctx.mainIR];
-    for rec: Any in ctx.functions { if (rec.mode != 1) { push(blocks, rec.ir); } }
-    let callables: Any = {};
-    for rec: Any in ctx.functions {
-        for parameter: Any in rec.parr { callables[symbol_name(parameter.name, parameter.length)] = true; }
-    }
-    for block: Any in blocks {
-        for instruction: Any in block.code {
-            if (instruction.op == S_LET) { callables[symbol_name(instruction.extra.name, instruction.extra.length)] = true; }
-        }
-    }
-    for block: Any in blocks {
-        for instruction: Any in block.code {
-            let op: Any = instruction.op;
-            if (op == E_CALL) {
-                let name: Any = symbol_name(instruction.extra.name, instruction.extra.length);
-                let intrinsics: Any = ["value_tag", "to_float", "pi", "e", "sqrt", "floor", "ceil", "trunc", "spawn", "yield", "run", "map", "filter", "reduce", "any", "all", "count", "each", "times", "keys", "values", "has", "merge", "map_keys", "map_values", "map_has", "print", "len", "str", "str_of", "int_to_str", "int", "bool", "push", "pop", "slice", "char_at", "char_from", "chr", "ord", "contains", "starts_with", "ends_with", "split", "join", "index_of", "min", "max", "abs", "pow", "exit", "fail", "addr", "cstr", "ptr", "value_eq", "str_cmp", "cmp", "to_lower", "to_upper", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64"];
-                if (backend_find_func(ctx, instruction.extra.name, instruction.extra.length) == 0 and not has(intrinsics, name) and not has(callables, name) and not (FAT_VALUES and fat_core_builtin(ctx, name))) {
-                    diagnostic(instruction.span, "`${name}` requires the full runtime");
-                }
-            }
-        }
-    }
-    return 0;
 }
 
 fun backend_patch(ctx: Any) -> Any {

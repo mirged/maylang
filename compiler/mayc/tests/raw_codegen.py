@@ -1160,12 +1160,7 @@ exit((nested(40, 1) + unbounded(30) + m) % 256);
         assert not re.search(r'\bnop\b', disassemble(binary)), prefix
     # Fall-through entries execute the padding: every amount 0..15 occurs.
     assert residues == set(range(16)), residues
-    # RAW exit needs a platform runtime on Windows; a global keeps the result live.
-    source.write_text(source.read_text().replace('exit(', 'let result: Any = ('))
-    compile_source(compiler, source, work / 'align.exe', '--raw', '--target', 'x86_64-windows')
-    padding = heads(disassemble(work / 'align.exe'))
-    assert len(padding) == 4 and all(target % 16 == 0 for target in padding), padding
-    print('PASS aligned bodies and loop heads at every padding amount 0..15 (ELF, PE), unchanged with --no-code-align', flush=True)
+    print('PASS aligned bodies and loop heads at every padding amount 0..15, unchanged with --no-code-align', flush=True)
 
 
 def reciprocal_oracle():

@@ -55,10 +55,10 @@ def main():
                 result = subprocess.run([str(args.compiler.resolve()), '--check', str(source)], capture_output=True, timeout=60)
                 assert result.returncode == 0, (annotation, result.stderr)
         source.write_text('let n: UInt8 = 255; print(n);')
-        binary=work/'core'
-        subprocess.run([str(args.compiler.resolve()),'--runtime','core',str(source),'-o',str(binary)],check=True,timeout=60)
+        binary=work/'uint8'
+        subprocess.run([str(args.compiler.resolve()),str(source),'-o',str(binary)],check=True,timeout=60)
         assert subprocess.check_output([str(binary)])==b'255\n'
-        print('PASS literal rejections and core integer contracts',flush=True)
+        print('PASS literal rejections and fixed-width integer display',flush=True)
 
 
 if __name__=='__main__':main()

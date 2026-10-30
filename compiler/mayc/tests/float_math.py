@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Check transcendental functions and floating powers on every backend.
+"""Check transcendental functions and floating powers in the full runtime.
 
-The full runtime uses x87 instructions and the
-portable core runtime uses its own binary64 implementation. IEEE special
-cases must agree exactly everywhere; portable results must stay within one
-ulp of the host libm and be bit-identical on every core target.
+The full runtime uses the portable binary64 trigonometry (runtime/math.may)
+and x87 logs, exp and pow. IEEE special cases must agree exactly, and every
+result must stay within one ulp of the host libm.
 """
 import argparse
 import math
@@ -15,16 +14,14 @@ import subprocess
 import tempfile
 
 from backends import compile_source
-from core_runtime import emulate
 
-TARGETS = ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']
 PRELUDE = '''let z: Float = 0.0;
 let inf: Float = 1e308 * 10.0;
 let nan: Float = inf - inf;
 let nz: Float = z * -1.0;
 fun high(v: Any) -> Int { return int(__math_high(v)); }
 '''
-# Each line runs as its own program so emulation stays within its budget.
+# Each line runs as its own program.
 SPECIAL = [
     ('print(sin(z), sin(nz), cos(z), tan(nz), sin(inf), cos(nan), tan(0.0 - inf));',
      '0.0 -0.0 1.0 -0.0 nan nan nan'),
@@ -102,14 +99,7 @@ def oracle(name, args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, required=True)
-    parser.add_argument('--require-emulation', action='store_true')
     options = parser.parse_args()
-    try:
-        import unicorn  # noqa: F401
-        have_emulation = True
-    except ImportError:
-        have_emulation = False
-    assert have_emulation or not options.require_emulation, 'Unicorn is required'
     with tempfile.TemporaryDirectory(prefix='mayc-float-math-') as directory:
         work = Path(directory)
         source = work / 'special.may'
@@ -118,50 +108,20 @@ def main():
             want = (expected + '\n').encode()
             compile_source(options.compiler, source, work / 'full')
             assert run_binary(work / 'full') == want, ('full', line, run_binary(work / 'full'))
-            for target in TARGETS:
-                image = compile_source(options.compiler, source, work / target, '--runtime', 'core', '--target', target)
-                if target == 'x86_64-linux':
-                    assert run_binary(work / target) == want, (target, line, run_binary(work / target))
-                if have_emulation:
-                    emulate(image, target, want, 0)
-        print('PASS IEEE special cases, Int arguments and signed zeros agree on full '
-              + 'and core runtimes'
-              + ('' if have_emulation else ' (core emulation skipped: install Unicorn)'), flush=True)
+        print('PASS IEEE special cases, Int arguments and signed zeros', flush=True)
 
         cases = accuracy_cases()
         calls = [f'{name}({", ".join(repr(value) for value in args)})' for name, args in cases]
         source.write_text(bits_program(calls))
-        compile_source(options.compiler, source, work / 'core', '--runtime', 'core')
-        native = run_binary(work / 'core')
+        compile_source(options.compiler, source, work / 'full')
         worst = 0.0
-        for (name, args), got in zip(cases, decode(native)):
+        for (name, args), got in zip(cases, decode(run_binary(work / 'full'))):
             want = oracle(name, args)
             if got != want:
                 error = abs(got - want) / math.ulp(want) if math.isfinite(want) and want != 0.0 else math.inf
                 assert error <= 1.0, (name, args, got, want)
                 worst = max(worst, error)
-        print(f'PASS portable transcendentals and powers within {worst:.0f} ulp of the host libm ({len(cases)} inputs)', flush=True)
-        # Full shares the portable trigonometry; its x87 logs,
-        # exp and pow may differ from core only in the last place.
-        portable = decode(native)
-        for name, flags in [('full', [])]:
-            compile_source(options.compiler, source, work / name, *flags)
-            for (function, args), got, core in zip(cases, decode(run_binary(work / name)), portable):
-                if function in ('sin', 'cos', 'tan'):
-                    assert struct.pack('<d', got) == struct.pack('<d', core), (name, function, args, got, core)
-                elif got != core:
-                    want = oracle(function, args)
-                    assert math.isfinite(want) and abs(got - want) <= math.ulp(want), (name, function, args, got, want)
-        print('PASS full trigonometry matches core bit for bit', flush=True)
-        if have_emulation:
-            lines = native.splitlines(keepends=True)
-            for start in range(0, len(calls), 24):
-                source.write_text(bits_program(calls[start:start + 24]))
-                expected = b''.join(lines[start:start + 24])
-                for target in TARGETS[1:]:
-                    image = compile_source(options.compiler, source, work / target, '--runtime', 'core', '--target', target)
-                    emulate(image, target, expected, 0)
-            print('PASS portable math results are bit-identical on every core target', flush=True)
+        print(f'PASS transcendentals and powers within {worst:.0f} ulp of the host libm ({len(cases)} inputs)', flush=True)
 
 
 if __name__ == '__main__':

@@ -133,18 +133,18 @@ is explicit; only the default follows the host (`x86_64-nodeos` on NodeOS):
 | Heap lifetime | Conservative GC | Process lifetime, 256 MiB cap | Program manages raw allocations |
 
 On `x86_64-nodeos`, `syscall` keeps Linux numbering: each site calls a gate
-into a personality in [`runtime/nodeos.may`](runtime/nodeos.may) that answers
+into a personality in [`runtime/nodeos.may`](../../frozen/compiler/mayc/runtime/nodeos.may) that answers
 with NodeOS syscalls and IPC, and images are written as NXF. See
-[NodeOS target](../../docs/internals/NODEOS.md) for the mapping, the
+[NodeOS target](../../frozen/docs/internals/NODEOS.md) for the mapping, the
 `exec`/`system` spawn path, hosting the compiler there, and limits.
 
-The [backend parity handoff](../../docs/internals/BACKEND_PARITY_PROGRESS.md)
+The [backend parity handoff](../../frozen/docs/internals/BACKEND_PARITY_PROGRESS.md)
 records completed work, validation and remaining language/OS API gaps.
 
 `tests/backends.py` and `tests/core_runtime.py` exercise accepted capabilities and reject unsupported combinations before
 writing an executable. The raw ABI and platform limits are described below.
 
-The [native target workflow](../../docs/internals/NATIVE_TARGETS.md) cross-emits fixtures
+The [native target workflow](../../frozen/docs/internals/NATIVE_TARGETS.md) cross-emits fixtures
 on Linux and executes them with real Windows and Apple Silicon macOS loaders,
 recording host versions, signing results, console output and exit status.
 
@@ -160,9 +160,9 @@ codesign --force --sign - hello-macos
 The core runtime shares the fat runtime [`runtime/fat.may`](runtime/fat.may)
 and the full runtime's library (`prelude.may`, `native.may`), so core programs
 print what full-runtime programs print. Its host
-[`runtime/fat_core.may`](runtime/fat_core.may) takes memory, output and exit
+[`runtime/fat_core.may`](../../frozen/compiler/mayc/runtime/fat_core.may) takes memory, output and exit
 from each target's platform primitives, and
-[`runtime/fat_corelib.may`](runtime/fat_corelib.may) adds `alloc`, arenas,
+[`runtime/fat_corelib.may`](../../frozen/compiler/mayc/runtime/fat_corelib.may) adds `alloc`, arenas,
 `memcpy`, `core_heap_retained`, `gcd` and `lcm`. Uncaught faults such as
 integer overflow print `kind: message` and exit with status 70.
 Core heap chunks live until process exit, with a 256 MiB retained-heap cap.
@@ -172,7 +172,7 @@ the full collecting runtime for allocation-intensive, long-running programs.
 For repeated raw-memory work, `arena_new`, `arena_alloc`, `arena_reset`,
 `arena_used` and `arena_capacity` provide reusable scratch storage; resets
 invalidate all pointers returned by that arena. `core_heap_retained` reports
-mapped chunk bytes. See [ownership rules and measured growth](../../docs/internals/CORE_MEMORY.md).
+mapped chunk bytes. See [ownership rules and measured growth](../../frozen/docs/internals/CORE_MEMORY.md).
 
 Core allocation uses native heap chunks of at least 1 MiB, retained until
 process exit. It has no garbage collector or individual free operation.

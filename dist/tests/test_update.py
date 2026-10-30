@@ -25,7 +25,7 @@ class UpdateTests(unittest.TestCase):
         for name in ('mayc', 'may', 'mayfmt', 'maypkg', 'maylsp'):
             (path / 'bin' / name).write_text(f'#!/bin/sh\necho {version}\n')
         for name in ('native.may', 'prelude.may', 'runtime/math.may',
-                     'runtime/fat.may', 'runtime/fat_linux.may', 'runtime/fat_core.may'):
+                     'runtime/fat.may', 'runtime/fat_linux.may'):
             (path / 'bin' / name).write_text('// fixture\n')
         (path / 'stdlib/prelude.may').write_text('// fixture\n')
         (path / 'VERSION').write_text(version + '\n')

@@ -103,7 +103,7 @@ On every target, a function whose parameters and result are all `Int`, `Ptr`
 or `Bool`, and whose body uses only such locals and globals, `true`, `false`,
 integer operators, comparisons, `if`, `while`, `for` over `a..b` or `a..=b`,
 `break`, `continue`, `load8` through `load64`, `store8` through `store64`,
-`syscall` (full runtime on Linux and NodeOS), calls to top-level functions
+`syscall` (full runtime), calls to top-level functions
 whose parameters (at most six) and result are `Int`, `Ptr` or `Bool`, and
 calls to `extern` functions whose parameters are `Int`, `UInt`, `Ptr` or
 `Bool` and whose result is one of those or `Void` (x86-64 Linux), compiles as a native-word function on x86-64 (ARM64 and RISC-V compile it as ordinary code with the same results). Inside it, and across calls

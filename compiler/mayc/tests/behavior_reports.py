@@ -51,7 +51,7 @@ print(999);
             assert entry['range']['start']['line'] == (1 if name == 'leaf' else 2), entry
         assert entries['leaf']['declared_effects'] is None, entries
         assert entries['root']['declared_effects'] == ['clock', 'output'], entries
-        for options in [(), ('--raw',), ('--runtime', 'core'), ('--target', 'x86_64-windows')]:
+        for options in [(), ('--raw',)]:
             data = report('fun root(x: Int) -> Int ! {} { return x; }', options)
             assert len(data['functions']) == 1, data
             entry = data['functions'][0]

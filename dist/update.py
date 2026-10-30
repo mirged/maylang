@@ -45,7 +45,7 @@ def select_bundle(root, selection):
 def validate_bundle(bundle):
     required = [*(f'bin/{name}' for name in TOOLS),
                 'bin/native.may', 'bin/prelude.may', 'bin/runtime/math.may',
-                'bin/runtime/fat.may', 'bin/runtime/fat_linux.may', 'bin/runtime/fat_core.may',
+                'bin/runtime/fat.may', 'bin/runtime/fat_linux.may',
                 'stdlib/prelude.may', 'VERSION']
     missing = [name for name in required if not (bundle / name).is_file()]
     if missing:

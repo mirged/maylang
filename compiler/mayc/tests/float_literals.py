@@ -37,7 +37,7 @@ def main():
     args = p.parse_args()
     values = literals()
     expected = ''.join('%d %d\n' % struct.unpack('<II', struct.pack('<d', float(text))) for text in values).encode()
-    modes = [('full', []), ('core', ['--runtime', 'core'])]
+    modes = [('full', [])]
     with tempfile.TemporaryDirectory(prefix='mayc-float-literals-') as directory:
         work = Path(directory)
         source = work / 'bits.may'

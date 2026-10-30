@@ -1,20 +1,6 @@
 import "formats/elf.may";
-import "formats/portable.may";
 
 // Layout runs after emission/padding and before target relocations are applied.
-fun format_layout(ctx: Any) -> Any {
-    if (ctx.target.format == "elf") { ctx.layout = elf_layout(ctx); }
-    else { ctx.layout = portable_layout(ctx); }
-    return 0;
-}
+fun format_layout(ctx: Any) -> Any { ctx.layout = elf_layout(ctx); return 0; }
 
-fun format_build(ctx: Any) -> Any {
-    if (ctx.target.format == "elf") { return build_elf(ctx); }
-    return portable_build(ctx);
-}
-
-// Formats that embed the output's name (NXF) read it from here.
-fun format_output_name(ctx: Any, path: Any) -> Any {
-    if (ctx.target.format != "elf") { portable_output_name(ctx, path); }
-    return 0;
-}
+fun format_build(ctx: Any) -> Any { return build_elf(ctx); }

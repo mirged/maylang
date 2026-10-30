@@ -1,5 +1,5 @@
 - **Standard library index** — all top-level functions, records, enums and bindings, including private helpers explicitly labeled on their module pages.
-- The active full-runtime sidecar is `compiler/mayc/native.may`; `stdlib/native.may` is a byte-identical mirror, checked by `make check`, that the language server and these pages read. `prelude.may` is auto-loaded; ordinary modules are imported explicitly. Core has a separate auto-loaded library.
+- The active full-runtime sidecar is `compiler/mayc/native.may`; `stdlib/native.may` is a byte-identical mirror, checked by `make check`, that the language server and these pages read. `prelude.may` is auto-loaded; ordinary modules are imported explicitly.
 - Prefer namespace or selective imports when a helper shares a name with the native library.
 - `Any` is the actual declared type in many modules; descriptions state expected runtime values without promising additional static checks.
 - [algo.may](stdlib/algo.md) — Sorting, searching, grouping and eager list transformations. 14 declarations.
@@ -21,4 +21,3 @@
 - [test.may](stdlib/test.md) — Counting assertions and a final test report. 9 declarations.
 - [ui.may](stdlib/ui.md) — Native Linux desktop widget trees, themes, antialiased GPU shapes/text, layout, Unicode inputs, focus, scrolling, virtual lists and software PNG snapshots; requires the May UI Sokol adapter. 56 declarations.
 - [validate.may](stdlib/validate.md) — Input predicates and structured rule/field validation. 8 declarations.
-- [core](stdlib/core.md) — Core-runtime additions to the shared library: raw allocation, typed scratch arenas, the retained heap size, gcd and lcm. The core runtime also loads prelude.may and native.may. 10 declarations.

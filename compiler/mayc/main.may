@@ -106,15 +106,6 @@ fun load_math(a0: Any, a0l: Any) -> Any {
     return m3;
 }
 
-// NodeOS programs carry a Linux syscall personality, which is part of the
-// raw runtime in every runtime mode (see runtime/nodeos.may).
-fun load_nodeos(a0: Any, a0l: Any) -> Any {
-    let name: Any = "runtime/nodeos.may";
-    let source: Any = side_slurp(a0, a0l, addr(name), len(name));
-    if (LASTLEN == 0) { die_str("mayc: cannot find ${name}\n"); }
-    return source;
-}
-
 // Append a runtime file (`extraLength` bytes named `name`) to the runtime
 // source already in SRC, keeping each file's own line numbers for diagnostics.
 fun append_runtime(extra: Any, extraLength: Any, name: Any) -> Any {
@@ -132,15 +123,6 @@ fun append_runtime(extra: Any, extraLength: Any, name: Any) -> Any {
     return 0;
 }
 
-// A compiler running on NodeOS builds for NodeOS unless told otherwise. The
-// personality reports itself through uname, so this asks the system rather
-// than how the compiler was built.
-fun host_target() -> Any {
-    let names: Any = irt_alloc(390);
-    if (syscall(63, names) == 0 and name_eq(names, 6, addr("NodeOS"), 6) == 1 and load8(names + 6) == 0) { return "x86_64-nodeos"; }
-    return "x86_64-linux";
-}
-
 fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
     let name: Any = "runtime/" + file;
     let source: Any = side_slurp(a0, a0l, addr(name), len(name));
@@ -151,7 +133,7 @@ fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
 // ------------------------------------------------------------- Driver Entry
 
 fun cli_usage() -> Any {
-    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without\n                      .may, or with .nxf for x86_64-nodeos)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --no-code-align     Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME      full (x86-64 Linux/NodeOS), core (all targets), or none\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (default on Linux), x86_64-nodeos (default\n                      on NodeOS), arm64-linux, riscv64-linux, arm64-macos,\n                      x86_64-windows (core runtime by default)\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without\n                      .may)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in runtime errors\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --no-code-align     Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME      full (default) or none (same as --raw)\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (the only supported target; the others are\n                      frozen, see frozen/README.md)\n  --dump-expanded     Print expanded source and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
     syscall(1, 1, addr(message), len(message));
     syscall(60, 0);
     return 0;
@@ -161,8 +143,7 @@ fun cli_default_output(pointer: Any, length: Any, targetName: Any) -> Any {
     mut baseLength: Any = length;
     let hasMaySuffix: Any = length >= 4 and load8(pointer + length - 4) == 46 and load8(pointer + length - 3) == 109 and load8(pointer + length - 2) == 97 and load8(pointer + length - 1) == 121;
     if (hasMaySuffix) { baseLength = length - 4; }
-    // NodeOS runs images by name only when they carry the .nxf suffix.
-    let suffix: Any = if (targetName == "x86_64-nodeos") { ".nxf" } else if (hasMaySuffix) { "" } else { ".out" };
+    let suffix: Any = if (hasMaySuffix) { "" } else { ".out" };
     let suffixLength: Any = len(suffix);
     let result: Any = irt_alloc(baseLength + suffixLength + 1);
     mut i: Any = 0;
@@ -176,13 +157,10 @@ fun cli_default_output(pointer: Any, length: Any, targetName: Any) -> Any {
 fun cli_list_targets() -> Any {
     let header: Str = "target\tformat\tdefault-runtime\n";
     syscall(1, 1, addr(header), len(header));
-    for name: Str in ["x86_64-linux", "x86_64-nodeos", "arm64-linux", "riscv64-linux", "arm64-macos", "x86_64-windows"] {
-        let target: Any = target_select(name);
-        let runtime: Str = if (target.runtime) { "full" } else { "core" };
-        let line: Str = "${name}\t${target.format}\t${runtime}\n";
-        syscall(1, 1, addr(line), len(line));
-    }
-    let note: Str = "Compiler hosts: Linux x86-64 and NodeOS.\n";
+    let target: Any = target_select("x86_64-linux");
+    let line: Str = "${target.name}\t${target.format}\tfull\n";
+    syscall(1, 1, addr(line), len(line));
+    let note: Str = "Compiler host: Linux x86-64. Other targets are frozen (frozen/README.md).\n";
     syscall(1, 1, addr(note), len(note));
     syscall(60, 0);
     return 0;
@@ -221,7 +199,7 @@ fun main2() -> Any {
     mut sl: Any = 0;
     mut op: Any = 0;
     mut ol: Any = 0;
-    mut targetName: Any = host_target();
+    mut targetName: Any = "x86_64-linux";
     mut runtimeName: Any = "auto";
     mut rawflag: Any = 0;
     mut dumpflag: Any = 0;
@@ -253,9 +231,10 @@ fun main2() -> Any {
             backend_disable_code_alignment();
         } else if (name_eq(ap, al, addr("--runtime"), 9) == 1) {
             k += 1;
-            if (k >= len(argv)) { die_str("mayc: --runtime requires full, core, or none\n"); }
+            if (k >= len(argv)) { die_str("mayc: --runtime requires full or none\n"); }
             runtimeName = symbol_name(argv[k][0], argv[k][1]);
-            if (runtimeName != "full" and runtimeName != "core" and runtimeName != "none") { die_str("mayc: unknown runtime `${runtimeName}`\n"); }
+            if (runtimeName == "core") { die_str("mayc: runtime core is frozen; Maylang currently supports the full runtime and --raw on x86_64-linux (see frozen/README.md)\n"); }
+            if (runtimeName != "full" and runtimeName != "none") { die_str("mayc: unknown runtime `${runtimeName}`\n"); }
         } else if (name_eq(ap, al, addr("--values"), 8) == 1) {
             die_str("mayc: --values was removed; every runtime uses fat values (docs/design/FAT_VALUES.md)\n");
         } else if (name_eq(ap, al, addr("--emit-llvm"), 11) == 1) {
@@ -306,8 +285,7 @@ fun main2() -> Any {
     }
 
     let ctx: Any = emitter_new(target_select(targetName));
-    if (runtimeName == "auto") { runtimeName = if (targetName == "x86_64-linux" or targetName == "x86_64-nodeos") { "full" } else { "core" }; }
-    let nodeos: Any = ctx.target.os == "nodeos";
+    if (runtimeName == "auto") { runtimeName = "full"; }
     if (runtimeName == "none") { rawflag = 1; }
     ctx.runtime = if (rawflag == 1) { "none" } else { runtimeName };
     profile_begin();
@@ -318,15 +296,6 @@ fun main2() -> Any {
     if (rawflag == 1) {
         PARSE_RAW = 1;
         DYNMODE = 0;
-        if (nodeos and expandedflag == 0) {
-            // Raw programs still reach the system through the personality.
-            SRC = load_nodeos(a0, a0l); SRCLEN = LASTLEN;
-            SOURCE_FILES[SRC] = SourceFile("runtime/nodeos.may", []);
-            DIAGNOSTIC_STAGE = "lex"; lex_all();
-            DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
-            RUNTIME_BODY = MAINBODY;
-            for r: Any in FUNC_HEAD { r.mode = 1; }
-        }
         expand(sp, sl);
         if (expandedflag == 1) {
             syscall(1, 1, SRC, SRCLEN);
@@ -347,10 +316,8 @@ fun main2() -> Any {
         // The shared fat runtime, then its host (docs/design/FAT_VALUES.md).
         SRC = load_core(a0, a0l, "fat.may"); SRCLEN = LASTLEN;
         SOURCE_FILES[SRC] = SourceFile("runtime/fat.may", []);
-        let hostName: Any = if (ctx.runtime == "core") { "fat_core.may" } else { "fat_linux.may" };
-        let host: Any = load_core(a0, a0l, hostName);
-        append_runtime(host, LASTLEN, "runtime/" + hostName);
-        if (nodeos) { let personality: Any = load_nodeos(a0, a0l); append_runtime(personality, LASTLEN, "runtime/nodeos.may"); }
+        let host: Any = load_core(a0, a0l, "fat_linux.may");
+        append_runtime(host, LASTLEN, "runtime/fat_linux.may");
         PARSE_RAW = 1;
         DIAGNOSTIC_STAGE = "lex"; lex_all();
         DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
@@ -368,13 +335,11 @@ fun main2() -> Any {
             syscall(60, 0);
         }
 
-        // Resolve the library: the prelude and native library (the core
-        // runtime adds runtime/fat_corelib.may). Portable math follows any
-        // library prelude.
+        // Resolve the library: the prelude and native library. Portable math
+        // follows any library prelude.
         let parts: Any = [];
         push(parts, [load_prelude(a0, a0l), LASTLEN, "prelude.may"]);
         push(parts, [load_native(a0, a0l), LASTLEN, "native.may"]);
-        if (ctx.runtime == "core") { push(parts, [load_core(a0, a0l, "fat_corelib.may"), LASTLEN, "runtime/fat_corelib.may"]); }
         mut libraryLength: Any = 0;
         for part: Any in parts { libraryLength += part[1]; }
         if (parts[0][1] > 0) { push(parts, [load_math(a0, a0l), LASTLEN, "runtime/math.may"]); }
@@ -416,7 +381,6 @@ fun main2() -> Any {
 
     }
     profile_mark("ir");
-    format_output_name(ctx, symbol_name(op, ol));
     backend_emit(ctx);
     profile_mark("emit");
     pad_code(ctx);

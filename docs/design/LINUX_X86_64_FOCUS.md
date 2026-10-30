@@ -165,6 +165,6 @@ order:
 | 2 Platform experiments and ML | done; the ML examples (`ml_xor.may`, the ecosystem simulation) are frozen too |
 | 3 CI and distribution | done |
 | 4 Compiler seams | done: `backend/portable.may`, `formats/portable.may`, `backend/x86_64_nodeos.may`; `raw.may` and `raw_float.may` turned out to be portable-only, so no `riscv.may` split was needed |
-| 5 Freeze targets | not started |
+| 5 Freeze targets | done |
 | 6 Documentation | not started |
 | 7 Measure again | not started |

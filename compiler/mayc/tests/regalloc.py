@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 
-from backends import compiler_binary, compile_source, emulate
+from backends import compiler_binary, compile_source
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
@@ -20,15 +20,8 @@ def run(binary, expected):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, required=True)
-    parser.add_argument('--require-emulation', action='store_true')
     args = parser.parse_args()
     compiler = compiler_binary(args.compiler)
-    try:
-        import unicorn
-        have_emulation = True
-    except ImportError:
-        have_emulation = False
-    assert have_emulation or not args.require_emulation, 'Unicorn is required'
     with tempfile.TemporaryDirectory(prefix='mayc-regalloc-') as directory:
         work = Path(directory)
         unit = work / 'unit'
@@ -74,13 +67,7 @@ print(eight(compute(1), compute(2), compute(3), compute(4), compute(5), compute(
                           'return a + 2*b + 3*c + 4*d + 5*e + 6*f + 7*g + 8*h; }\n' +
                           'if (bump(2) + three(4)) * (three(5) + bump(6)) != 189 * 194 { exit(17); }\n' +
                           'if eight(bump(1), bump(2), bump(3), bump(4), bump(5), bump(6), bump(7), bump(8)) != 6684 { exit(18); }\n' +
-                          'syscall(64, 1, addr("target-ok\\n"), 10); exit(42);\n')
-        for target, arch in [('arm64-linux', 'arm64'), ('riscv64-linux', 'riscv64')]:
-            image = compile_source(compiler, source, work / target, '--raw', '--target', target)
-            if have_emulation:
-                emulate(image, arch)
-            print(f'PASS {target}: reusable frames and live values across calls' + ('' if have_emulation else ' (execution skipped)'), flush=True)
-        source.write_text(source.read_text().replace('syscall(64,', 'syscall(1,'))
+                          'syscall(1, 1, addr("target-ok\\n"), 10); exit(42);\n')
         native = work / 'native'
         image = compile_source(compiler, source, native, '--raw')
         result = subprocess.run([str(native)], capture_output=True, timeout=10)
