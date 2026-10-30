@@ -153,10 +153,15 @@ fun fat_rt_call(ctx: Any, name: Any, words: Any) -> Any {
 // A site calls the stub with its operands in R9/R8 (left) and RDX/RAX.
 mut FAT_STUBS: Any = [];
 
+fun fat_stub_label(ctx: Any, name: Any, op: Any) -> Any {
+    for stub: Any in FAT_STUBS { if (stub[0] == name and stub[1] == op) { return stub[2]; } }
+    let label: Any = newlab(ctx);
+    push(FAT_STUBS, [name, op, label]);
+    return label;
+}
+
 fun fat_stub_call(ctx: Any, name: Any, op: Any) -> Any {
-    mut label: Any = 0;
-    for stub: Any in FAT_STUBS { if (stub[0] == name and stub[1] == op) { label = stub[2]; } }
-    if (label == 0) { label = newlab(ctx); push(FAT_STUBS, [name, op, label]); }
+    let label: Any = fat_stub_label(ctx, name, op);
     e8(ctx, 232); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, label);
     return 0;
 }
@@ -170,6 +175,11 @@ fun fat_emit_stubs(ctx: Any) -> Any {
     while (FAT_STUBS_EMITTED < len(FAT_STUBS)) {
         let stub: Any = FAT_STUBS[FAT_STUBS_EMITTED]; FAT_STUBS_EMITTED += 1;
         placelab(ctx, stub[2]);
+        if (stub[0] == "float") {
+            // Not Float operands leave through the operator's rt_binary stub.
+            fat_float_binary(ctx, stub[1], fat_stub_label(ctx, "rt_binary", stub[1]));
+            continue;
+        }
         mut extra: Any = 0;
         if (stub[1] >= 0) { e8(ctx, 106); e8(ctx, 2); e8(ctx, 106); e8(ctx, stub[1]); extra = 2; } // push 2; push op
         fat_operands_call(ctx, stub[0], extra);
@@ -550,22 +560,57 @@ fun fat_operands_call(ctx: Any, name: Any, extra: Any) -> Any {
     return fat_rt_call(ctx, name, extra + 4);
 }
 
-// Int arithmetic, bitwise operators and comparisons run inline; other
-// types, overflow (to raise the runtime's fault) and other operators call
-// rt_binary.
+// Int arithmetic, bitwise operators and comparisons run inline, as do Float
+// arithmetic and comparisons; mixed types, overflow and division by zero (to
+// raise the runtime's fault) and other operators call rt_binary.
 let FAT_INLINE_ARITH: Any = {"20": [73, 1, 194], "21": [73, 41, 194], "22": [76, 15, 175, 208],
     "64": [73, 33, 194], "45": [73, 9, 194], "63": [73, 49, 194]};
 let FAT_INLINE_COMPARE: Any = {"25": 148, "26": 149, "27": 156, "28": 158, "29": 159, "30": 157};
 
+// The body of a "float" stub: Float + - * / and comparisons on two Float
+// operands (fat_operands), as rt_binary computes them: IEEE results,
+// ordering and == false for NaN. Other operands and a zero divisor (either
+// sign, for the arithmetic fault) jump to `slow`, which returns for the stub.
+fun fat_float_binary(ctx: Any, op: Any, slow: Any) -> Any {
+    for byte: Any in [73, 131, 249, 3] { e8(ctx, byte); }                    // cmp r9, 3
+    jcc(ctx, 133, slow);
+    for byte: Any in [72, 131, 250, 3] { e8(ctx, byte); }                    // cmp rdx, 3
+    jcc(ctx, 133, slow);
+    if (op == TK_SLASH) {
+        for byte: Any in [76, 141, 20, 0, 77, 133, 210] { e8(ctx, byte); }   // lea r10, [rax + rax]; test r10, r10
+        jcc(ctx, 132, slow);                                                  // je: +0.0 or -0.0
+    }
+    for byte: Any in [102, 73, 15, 110, 192, 102, 72, 15, 110, 200] { e8(ctx, byte); } // movq xmm0, r8; movq xmm1, rax
+    if (op >= TK_PLUS and op <= TK_SLASH) {
+        for byte: Any in [242, 15, [88, 92, 89, 94][op - TK_PLUS], 193] { e8(ctx, byte); } // addsd/subsd/mulsd/divsd xmm0, xmm1
+        for byte: Any in [102, 72, 15, 126, 192] { e8(ctx, byte); }         // movq rax, xmm0
+        x86_mov_immediate(ctx, 2, 3);
+    } else {
+        // ucomisd orders the operands so that only seta/setae are needed.
+        let swapped: Any = op == TK_LT or op == TK_LE;
+        for byte: Any in [102, 15, 46, if (swapped) { 200 } else { 193 }] { e8(ctx, byte); }
+        if (op == TK_EQ) { for byte: Any in [15, 148, 192, 15, 155, 193, 32, 200] { e8(ctx, byte); } }       // sete; setnp; and
+        else if (op == TK_NE) { for byte: Any in [15, 149, 192, 15, 154, 193, 8, 200] { e8(ctx, byte); } } // setne; setp; or
+        else if (op == TK_LT or op == TK_GT) { for byte: Any in [15, 151, 192] { e8(ctx, byte); } }          // seta
+        else { for byte: Any in [15, 147, 192] { e8(ctx, byte); } }                                          // setae
+        for byte: Any in [15, 182, 192] { e8(ctx, byte); }                   // movzx eax, al
+        x86_mov_immediate(ctx, 2, 1);
+    }
+    e8(ctx, 195);                                                             // ret
+    return 0;
+}
+
 fun fat_binary(ctx: Any, n: Any) -> Any {
     let key: Any = str(n.op);
     let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
+    let floats: Any = (n.op >= TK_PLUS and n.op <= TK_SLASH) or has(FAT_INLINE_COMPARE, key);
+    let notInt: Any = if (floats) { newlab(ctx) } else { slow };
     fat_operands(ctx, n.left, n.right);
     if (has(FAT_INLINE_ARITH, key) or has(FAT_INLINE_COMPARE, key)) {
         for byte: Any in [73, 131, 249, 2] { e8(ctx, byte); }                // cmp r9, 2
-        jcc(ctx, 133, slow);
+        jcc(ctx, 133, notInt);
         for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                // cmp rdx, 2
-        jcc(ctx, 133, slow);
+        jcc(ctx, 133, notInt);
         if (has(FAT_INLINE_ARITH, key)) {
             for byte: Any in [77, 137, 194] { e8(ctx, byte); }                // mov r10, r8
             for byte: Any in FAT_INLINE_ARITH[key] { e8(ctx, byte); }         // op r10, rax
@@ -581,9 +626,9 @@ fun fat_binary(ctx: Any, n: Any) -> Any {
         // remainder, as Maylang's / and % do. Divisors 0 and -1 (division by
         // zero, and the -2^63 / -1 overflow) take the runtime's path.
         for byte: Any in [73, 131, 249, 2] { e8(ctx, byte); }                // cmp r9, 2
-        jcc(ctx, 133, slow);
+        jcc(ctx, 133, notInt);
         for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                // cmp rdx, 2
-        jcc(ctx, 133, slow);
+        jcc(ctx, 133, notInt);
         for byte: Any in [72, 137, 193, 76, 141, 81, 1, 73, 131, 250, 1] { e8(ctx, byte); } // mov rcx, rax; lea r10, [rcx + 1]; cmp r10, 1
         jcc(ctx, 134, slow);                                                  // jbe: divisor 0 or -1
         for byte: Any in [76, 137, 192, 72, 153, 72, 247, 249] { e8(ctx, byte); } // mov rax, r8; cqo; idiv rcx
@@ -591,6 +636,7 @@ fun fat_binary(ctx: Any, n: Any) -> Any {
         x86_mov_immediate(ctx, 2, 2);
         jmp(ctx, done);
     }
+    if (floats) { placelab(ctx, notInt); fat_stub_call(ctx, "float", n.op); jmp(ctx, done); }
     placelab(ctx, slow);
     fat_stub_call(ctx, "rt_binary", n.op);
     placelab(ctx, done);

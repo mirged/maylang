@@ -94,6 +94,106 @@ type
 type: value is not callable
 '''
 
+# Inline Float arithmetic and comparisons (#92) against the runtime's rules:
+# signed zeros, NaN (unordered, unequal), infinities, the zero divisor
+# fault and mixed Int operands.
+FLOATS = '''let big: Float = 1.0e308;
+let xs: List<Any> = [1.5, -2.25, 0.0, -0.0, sqrt(-1.0), big * 10.0, -(big * 10.0), 3, 1.0e-300];
+for x: Any in xs { for y: Any in xs {
+    let q: Str = may { str(x / y) } otherwise { str(err.kind) };
+    let lt: Str = may { "${x < y} ${x <= y} ${x > y} ${x >= y}" } otherwise { str(err.kind) };
+    print("${x} ${y} ${x + y} ${x - y} ${x * y} ${q} ${x == y} ${x != y} ${lt}");
+} }
+mut acc: Float = 0.0;
+for i: Int in 0..1000 { acc = acc * 0.5 + to_float(i) / 3.0; }
+print(acc, acc < 700.0, acc - 666.0 > 0.0);
+'''
+
+# Recorded from the runtime path (rt_binary) before Float ran inline.
+FLOATS_EXPECTED = '''1.5 1.5 3.0 0.0 2.25 1.0 true false false true false true
+1.5 -2.25 -0.75 3.75 -3.375 -0.6666666666666666 false true false false true true
+1.5 0.0 1.5 1.5 0.0 arithmetic false true false false true true
+1.5 -0.0 1.5 1.5 -0.0 arithmetic false true false false true true
+1.5 nan nan nan nan nan false true false false false false
+1.5 inf inf -inf inf 0.0 false true true true false false
+1.5 -inf -inf inf -inf -0.0 false true false false true true
+1.5 3 4.5 -1.5 4.5 0.5 false true type
+1.5 1e-300 1.5 1.5 1.5e-300 1.5e300 false true false false true true
+-2.25 1.5 -0.75 -3.75 -3.375 -1.5 false true true true false false
+-2.25 -2.25 -4.5 0.0 5.0625 1.0 true false false true false true
+-2.25 0.0 -2.25 -2.25 -0.0 arithmetic false true true true false false
+-2.25 -0.0 -2.25 -2.25 0.0 arithmetic false true true true false false
+-2.25 nan nan nan nan nan false true false false false false
+-2.25 inf inf -inf -inf -0.0 false true true true false false
+-2.25 -inf -inf inf inf 0.0 false true false false true true
+-2.25 3 0.75 -5.25 -6.75 -0.75 false true type
+-2.25 1e-300 -2.25 -2.25 -2.25e-300 -2.25e300 false true true true false false
+0.0 1.5 1.5 -1.5 0.0 0.0 false true true true false false
+0.0 -2.25 -2.25 2.25 -0.0 -0.0 false true false false true true
+0.0 0.0 0.0 0.0 0.0 arithmetic true false false true false true
+0.0 -0.0 0.0 0.0 -0.0 arithmetic true false false true false true
+0.0 nan nan nan nan nan false true false false false false
+0.0 inf inf -inf nan 0.0 false true true true false false
+0.0 -inf -inf inf nan -0.0 false true false false true true
+0.0 3 3.0 -3.0 0.0 0.0 false true type
+0.0 1e-300 1e-300 -1e-300 0.0 0.0 false true true true false false
+-0.0 1.5 1.5 -1.5 -0.0 -0.0 false true true true false false
+-0.0 -2.25 -2.25 2.25 0.0 0.0 false true false false true true
+-0.0 0.0 0.0 -0.0 -0.0 arithmetic true false false true false true
+-0.0 -0.0 -0.0 0.0 0.0 arithmetic true false false true false true
+-0.0 nan nan nan nan nan false true false false false false
+-0.0 inf inf -inf nan -0.0 false true true true false false
+-0.0 -inf -inf inf nan 0.0 false true false false true true
+-0.0 3 3.0 -3.0 -0.0 -0.0 false true type
+-0.0 1e-300 1e-300 -1e-300 -0.0 -0.0 false true true true false false
+nan 1.5 nan nan nan nan false true false false false false
+nan -2.25 nan nan nan nan false true false false false false
+nan 0.0 nan nan nan arithmetic false true false false false false
+nan -0.0 nan nan nan arithmetic false true false false false false
+nan nan nan nan nan nan false true false false false false
+nan inf nan nan nan nan false true false false false false
+nan -inf nan nan nan nan false true false false false false
+nan 3 nan nan nan nan false true type
+nan 1e-300 nan nan nan nan false true false false false false
+inf 1.5 inf inf inf inf false true false false true true
+inf -2.25 inf inf -inf -inf false true false false true true
+inf 0.0 inf inf nan arithmetic false true false false true true
+inf -0.0 inf inf nan arithmetic false true false false true true
+inf nan nan nan nan nan false true false false false false
+inf inf inf nan inf nan true false false true false true
+inf -inf nan inf -inf nan false true false false true true
+inf 3 inf inf inf inf false true type
+inf 1e-300 inf inf inf inf false true false false true true
+-inf 1.5 -inf -inf -inf -inf false true true true false false
+-inf -2.25 -inf -inf inf inf false true true true false false
+-inf 0.0 -inf -inf nan arithmetic false true true true false false
+-inf -0.0 -inf -inf nan arithmetic false true true true false false
+-inf nan nan nan nan nan false true false false false false
+-inf inf nan -inf -inf nan false true true true false false
+-inf -inf -inf nan inf nan true false false true false true
+-inf 3 -inf -inf -inf -inf false true type
+-inf 1e-300 -inf -inf -inf -inf false true true true false false
+3 1.5 4.5 1.5 4.5 2.0 false true type
+3 -2.25 0.75 5.25 -6.75 -1.3333333333333333 false true type
+3 0.0 3.0 3.0 0.0 arithmetic false true type
+3 -0.0 3.0 3.0 -0.0 arithmetic false true type
+3 nan nan nan nan nan false true type
+3 inf inf -inf inf 0.0 false true type
+3 -inf -inf inf -inf -0.0 false true type
+3 3 6 0 9 1 true false false true false true
+3 1e-300 3.0 3.0 3e-300 3e300 false true type
+1e-300 1.5 1.5 -1.5 1.5e-300 6.666666666666667e-301 false true true true false false
+1e-300 -2.25 -2.25 2.25 -2.25e-300 -4.4444444444444446e-301 false true false false true true
+1e-300 0.0 1e-300 1e-300 0.0 arithmetic false true false false true true
+1e-300 -0.0 1e-300 1e-300 -0.0 arithmetic false true false false true true
+1e-300 nan nan nan nan nan false true false false false false
+1e-300 inf inf -inf inf 0.0 false true true true false false
+1e-300 -inf -inf inf -inf -0.0 false true false false true true
+1e-300 3 3.0 -3.0 3e-300 3.3333333333333334e-301 false true type
+1e-300 1e-300 2e-300 0.0 0.0 1.0 true false false true false true
+665.3333333333334 true false
+'''
+
 
 def compile_run(compiler, source, binary, *flags):
     result = subprocess.run([str(compiler), *flags, str(source), '-o', str(binary)],
@@ -141,6 +241,11 @@ def main():
         got, error = compile_run(compiler, source, work / 'inline')
         assert got == (0, INLINE_EXPECTED.encode(), b''), (got, error)
         print('PASS inline Int division and closure calls', flush=True)
+        source = work / 'floats.may'
+        source.write_text(FLOATS)
+        got, error = compile_run(compiler, source, work / 'floats')
+        assert got == (0, FLOATS_EXPECTED.encode(), b''), (got, error)
+        print('PASS inline Float arithmetic matches the runtime', flush=True)
         count = 0
         for name in sorted(expected):
             if not (TESTS / name).exists():
