@@ -9,13 +9,13 @@ mkdir -p "$bundle/bin/runtime" "$bundle/stdlib"
 for tool in mayc may mayfmt maypkg maylsp; do
     printf '#!/bin/sh\necho fixture\n' > "$bundle/bin/$tool"
 done
-for file in bin/runtime.may bin/native.may bin/prelude.may bin/runtime/core.may bin/runtime/math.may \
-    bin/runtime/fat.may bin/runtime/fat_linux.may stdlib/prelude.may; do
+for file in bin/native.may bin/prelude.may bin/runtime/math.may \
+    bin/runtime/fat.may bin/runtime/fat_linux.may bin/runtime/fat_core.may stdlib/prelude.may; do
     echo '// fixture' > "$bundle/$file"
 done
-echo '// external sidecar' > "$work/runtime.may"
-rm "$bundle/bin/runtime.may"
-ln -s "$work/runtime.may" "$bundle/bin/runtime.may"
+echo '// external sidecar' > "$work/native.may"
+rm "$bundle/bin/native.may"
+ln -s "$work/native.may" "$bundle/bin/native.may"
 echo 1.2.3 > "$bundle/VERSION"
 archive="$work/release.tar.gz"
 # Release archives hold no links; a directory bundle may (it is dereferenced).
@@ -29,27 +29,27 @@ test "$MAYLANG_STDLIB" = "$root/current/stdlib"
 original_path=$PATH
 . "$root/env.sh"
 test "$PATH" = "$original_path"
-test -f "$root/current/bin/runtime/core.may"
+test -f "$root/current/bin/runtime/fat.may"
 sh "$repo/dist/install.sh" "$bundle" "$root"
 selected="$root/maylang-1.2.3-x86_64-linux"
 test "$(readlink "$root/current")" = "$selected"
 # Removing the extracted source and external sidecar targets cannot break it.
 rm -rf "$bundle"
-rm "$work/runtime.may"
+rm "$work/native.may"
 test "$(mayc)" = fixture
-test -f "$root/current/bin/runtime/core.may"
-test "$(cat "$root/current/bin/runtime.may")" = '// external sidecar'
+test -f "$root/current/bin/runtime/fat.may"
+test "$(cat "$root/current/bin/native.may")" = '// external sidecar'
 # A bad checksum or incomplete bundle must preserve the selected installation.
 echo bad > "$archive.sha256"
 if sh "$repo/dist/install.sh" "$archive" "$root"; then exit 1; fi
 test "$(readlink "$root/current")" = "$selected"
 cp -R "$selected" "$bundle"
-rm "$bundle/bin/runtime/core.may"
+rm "$bundle/bin/runtime/fat.may"
 if sh "$repo/dist/install.sh" "$bundle" "$root"; then exit 1; fi
 test "$(readlink "$root/current")" = "$selected"
 mkdir "$work/conflicting"
 mkdir "$work/conflicting/current"
-echo '// fixture' > "$bundle/bin/runtime/core.may"
+echo '// fixture' > "$bundle/bin/runtime/fat.may"
 if sh "$repo/dist/install.sh" "$bundle" "$work/conflicting"; then exit 1; fi
 # Archives may hold only one bundle of regular files and directories: links,
 # traversal, duplicates and extra roots are rejected before extraction.

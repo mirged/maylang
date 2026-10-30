@@ -245,7 +245,7 @@ fun main_cli(argv: List<Str>) -> Int {
             if (not has(selected, name)) { push(selected, name); }
         }
     }
-    for name: Str in ["VERSION", "bin/may-installer", "bin/runtime.may", "bin/native.may", "bin/prelude.may", "bin/runtime/core.may", "stdlib/prelude.may"] {
+    for name: Str in ["VERSION", "bin/may-installer", "bin/native.may", "bin/prelude.may", "bin/runtime/fat.may", "bin/runtime/fat_linux.may", "stdlib/prelude.may"] {
         if (kind(bundle + "/" + name) != 8) { fail("installer: incomplete bundle: " + name); }
     }
     for name: Str in selected { if (kind(bundle + "/bin/" + name) != 8) { fail("installer: missing component " + name); } }

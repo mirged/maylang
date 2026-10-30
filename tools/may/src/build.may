@@ -59,7 +59,7 @@ fun input_files(ws: workspace.Workspace, spec: Any, entry: Str) -> List<Str> {
         let directory: Str = str(fs.dirname(ws.compiler));
         let binary: Str = directory + "/build/bin/mayc_new";
         if (file_exists(binary)) { push(result, binary); }
-        for path: Str in [directory + "/runtime.may", directory + "/native.may", ws.stdlib + "/prelude.may"] {
+        for path: Str in [directory + "/native.may", ws.stdlib + "/prelude.may"] {
             if (file_exists(path)) { push(result, path); }
         }
         if (file_exists(directory + "/runtime")) {

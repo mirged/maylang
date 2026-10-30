@@ -15,7 +15,7 @@ fun stress_node(ledger: Any, index: Any, value: Any, first: Any, second: Any) ->
     let node: Any = load64(ledger + index * 8);
     stress_assert(rt_candidate(node) == node and load64(node) == index and load64(node + 8) == value, 33);
     stress_assert(load64(node + 40) == 32 and load64(node + 48) == 5124095576638253 and rt_candidate(node + 56) == 0, 34);
-    let copy: Any = load64(node + 32) / 8;
+    let copy: Any = load64(node + 32);
     stress_assert(load8(copy) == 112 and load8(copy + 12) == 187 and load8(copy + 13) == 0, 35);
     if (first >= 0) { stress_assert(load64(node + 16) == load64(ledger + first * 8), 36); }
     if (second >= 0) { stress_assert(load64(node + 24) == load64(ledger + second * 8), 36); }
@@ -30,8 +30,9 @@ fun stress_heap_check() -> Any {
     while (pointer < HP) {
         let size: Any = load64(pointer);
         stress_assert(size >= 16 and size % 8 == 0 and pointer + size <= HP, 20);
+        // Allocation starts record their kind: 1 words, 2 bytes, 3 values.
         let live: Any = load8(GCSTARTS + (pointer - HEAP) / 8);
-        if (live == 1) {
+        if (live != 0) {
             stress_assert(load64(pointer + 8) == 5124095576638253, 21);
             previousFree = 0;
         } else { stress_assert(live == 0 and previousFree == 0, 22); previousFree = 1; free += 1; }
@@ -100,8 +101,8 @@ def program(seed, steps):
                    f'store64(ledger + {index * 8}, node);']
         for field, child in enumerate(edges):
             output.append(f'store64(node + {16 + field * 8}, load64(ledger + {child * 8}));')
-        # An encoded cstr address is the only reference to this independent copy.
-        output += ['store64(node + 32, rt_cstr(rt_from(addr("persistent λ"), 13)));',
+        # A cstr address is the only reference to this independent copy.
+        output += ['store64(node + 32, rt_cstr(4, rt_from(addr("persistent λ"), 13)));',
                    'store64(node + 40, 32); store64(node + 48, 5124095576638253);']
         if len(roots) < 8:
             root_slot = len(roots)
@@ -131,10 +132,20 @@ def program(seed, steps):
     return '\n'.join(functions + output)
 
 
+# Float text and powers live in runtime/math.may, which a raw program cannot
+# load; the stress program never reaches them.
 RAW_MATH_STUBS = '''
-fun __math_parse(text: Any) -> Any { return 0; }
 fun __math_format(value: Any) -> Any { return 0; }
+fun __math_powf(x: Any, y: Any) -> Any { return 0; }
 '''
+
+
+def reduced_runtime():
+    # The shared fat runtime and its Linux host, with a 4 MiB heap.
+    runtime = ROOT / 'compiler/mayc/runtime'
+    host = (runtime / 'fat_linux.may').read_text()
+    assert host.count('mut sz: Any = 268435456;') == 1
+    return (runtime / 'fat.may').read_text() + '\n' + host.replace('mut sz: Any = 268435456;', 'mut sz: Any = 4194304;')
 
 
 def main():
@@ -147,15 +158,13 @@ def main():
     parser.add_argument('--failure-dir', type=Path, default=ROOT / 'tests/compliance/build/gc-stress')
     args = parser.parse_args()
     assert 32 <= args.steps <= 512
-    runtime = (ROOT / 'compiler/mayc/runtime.may').read_text().replace('mut sz: Any = 268435456;', 'mut sz: Any = 4194304;')
+    runtime = reduced_runtime()
     env = os.environ.copy(); env['MAYLANG_STDLIB'] = str(ROOT / 'stdlib')
     results = []
     with tempfile.TemporaryDirectory(prefix='mayc-gc-stress-') as directory:
         work = Path(directory)
         for seed in args.seeds:
             source = work / 'stress.may'; binary = work / 'stress'
-            # Float text conversion lives in the tagged runtime/math.may, which a
-            # raw program cannot load; the stress program never reaches it.
             source.write_text(runtime + RAW_MATH_STUBS + INVARIANTS + program(seed, args.steps))
             stage = 'compile'
             try:
@@ -200,12 +209,12 @@ def main():
         executable = ROOT / 'compiler/mayc/build/bin/mayc_new' if launcher == ROOT / 'compiler/mayc/mayc_new' else launcher
         copied = work / 'mayc'
         shutil.copy2(executable, copied)
-        (work / 'runtime.may').write_text(runtime)
         shutil.copy2(ROOT / 'compiler/mayc/native.may', work / 'native.may')
         shutil.copy2(ROOT / 'stdlib/prelude.may', work / 'prelude.may')
         shutil.copytree(ROOT / 'compiler/mayc/runtime', work / 'runtime')
-        # The checker reads the tagged runtime's heap layout (runtime.may).
-        compiled = subprocess.run([str(copied), '--values', 'tagged', str(ROOT / 'compiler/mayc/tests/library/gc_objects.may'), '-o', str(binary)],
+        host = work / 'runtime/fat_linux.may'
+        host.write_text(host.read_text().replace('mut sz: Any = 268435456;', 'mut sz: Any = 4194304;'))
+        compiled = subprocess.run([str(copied), str(ROOT / 'compiler/mayc/tests/library/gc_objects.may'), '-o', str(binary)],
                                   env=env, capture_output=True, timeout=120)
         assert compiled.returncode == 0, compiled.stderr
         result = subprocess.run([str(binary)], capture_output=True, timeout=60)

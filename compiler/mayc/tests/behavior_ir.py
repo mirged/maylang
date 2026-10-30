@@ -85,7 +85,7 @@ def main():
         driver = work / 'inspect'
         result = run([compiler, driver_source, '-o', driver])
         assert result.returncode == 0, result
-        for name in ['runtime.may', 'native.may', 'runtime']:
+        for name in ['native.may', 'runtime']:
             (work / name).symlink_to(mayc / name)
         (work / 'prelude.may').symlink_to(ROOT / 'stdlib/prelude.may')
 

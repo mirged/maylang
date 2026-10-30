@@ -152,11 +152,11 @@ def main():
         # fragmented heaps despite ample total free space during self-hosting.
         probe = work / 'mayc'
         shutil.copy2(compiler_binary(compiler), probe)
-        runtime = (ROOT / 'compiler/mayc/runtime.may').read_text()
-        assert runtime.count('mut sz: Any = 268435456;') == 1
-        (work / 'runtime.may').write_text(runtime.replace('mut sz: Any = 268435456;', 'mut sz: Any = 8388608;'))
-        for name in ['native.may', 'runtime']:
-            (work / name).symlink_to(ROOT / 'compiler/mayc' / name)
+        shutil.copytree(ROOT / 'compiler/mayc/runtime', work / 'runtime')
+        host = work / 'runtime/fat_linux.may'
+        assert host.read_text().count('mut sz: Any = 268435456;') == 1
+        host.write_text(host.read_text().replace('mut sz: Any = 268435456;', 'mut sz: Any = 8388608;'))
+        (work / 'native.may').symlink_to(ROOT / 'compiler/mayc/native.may')
         (work / 'prelude.may').symlink_to(ROOT / 'stdlib/prelude.may')
         fixups = work / 'fixups'
         compile_source(probe, HERE / 'backend/fixups.may', fixups)

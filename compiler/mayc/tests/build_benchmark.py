@@ -48,8 +48,7 @@ def main():
         work = Path(directory)
         compilers = {}
         outputs = {}
-        sidecars = {'runtime.may': ROOT / 'compiler/mayc/runtime.may',
-                    'native.may': ROOT / 'compiler/mayc/native.may',
+        sidecars = {'native.may': ROOT / 'compiler/mayc/native.may',
                     'prelude.may': ROOT / 'stdlib/prelude.may'}
         report['sidecars_sha256'] = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sidecars.items()}
         versions = [('after', compiler_binary(args.compiler))]

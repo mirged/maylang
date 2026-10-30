@@ -85,8 +85,8 @@ with tempfile.TemporaryDirectory(prefix='may-workspace-tests-') as directory:
                                  '# revision A\n'
                                  f'sys.exit(subprocess.call([{ENV["MAYC"]!r}, *sys.argv[1:]]))\n')
     selected_compiler.chmod(0o755)
-    sidecars = [compiler_directory / 'native.may', compiler_directory / 'runtime.may',
-                compiler_directory / 'runtime/core.may']
+    sidecars = [compiler_directory / 'native.may', compiler_directory / 'runtime/fat_linux.may',
+                compiler_directory / 'runtime/fat.may']
     sidecars[-1].parent.mkdir()
     for path in sidecars:
         path.write_text('// revision A\n')

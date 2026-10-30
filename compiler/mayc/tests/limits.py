@@ -77,10 +77,17 @@ fun limits_report() -> Any {
 
 
 def instrument_runtime(heap_mib, mark_slots=None):
-    text = (ROOT / 'compiler/mayc/runtime.may').read_text()
-    replacements = {
+    """The shared fat runtime and its Linux host with meters, as runtime files."""
+    runtime = ROOT / 'compiler/mayc/runtime'
+    shared = (runtime / 'fat.may').read_text()
+    host = (runtime / 'fat_linux.may').read_text()
+    shared_replacements = {
+        'fun rt_newline() -> Any { rt_write(addr("\\n"), 1);':
+            'fun rt_newline() -> Any { rt_write(addr("\\n"), 1); limits_report();',
+    }
+    host_replacements = {
         'mut sz: Any = 268435456;': f'mut sz: Any = {heap_mib * 1024**2};',
-        'fun rt_alloc(n: Any) -> Any {': 'fun rt_alloc(n: Any) -> Any {\n    LIMIT_ALLOCS += 1; LIMIT_REQUESTED += n;',
+        'fun rt_alloc_kind(n: Any, kind: Any) -> Any {': 'fun rt_alloc_kind(n: Any, kind: Any) -> Any {\n    LIMIT_ALLOCS += 1; LIMIT_REQUESTED += n;',
         '    HP = HP + need;': '    HP = HP + need;\n    if (HP - HEAP > LIMIT_HIGH) { LIMIT_HIGH = HP - HEAP; }',
         '    MARKN = MARKN + 1;': '    MARKN = MARKN + 1;\n    if (MARKN > LIMIT_MARK_HIGH) { LIMIT_MARK_HIGH = MARKN; }',
         '    if (GCFLAG == 0) { return 0; }': '    if (GCFLAG == 0) { return 0; }\n    let limits_started: Any = limits_now();',
@@ -88,16 +95,24 @@ def instrument_runtime(heap_mib, mark_slots=None):
         'rt_write(addr("out of memory\\n"), 14);': 'limits_report(); rt_write(addr("out of memory\\n"), 14);',
         'rt_write(addr("GC mark stack exhausted\\n"), 24);': 'limits_report(); rt_write(addr("GC mark stack exhausted\\n"), 24);',
         'rt_write(addr("GC global root table exhausted\\n"), 31);': 'limits_report(); rt_write(addr("GC global root table exhausted\\n"), 31);',
-        'fun rt_newline() -> Any {\n    rt_write(addr("\\n"), 1);':
-            'fun rt_newline() -> Any {\n    rt_write(addr("\\n"), 1); limits_report();',
     }
     if mark_slots is not None:
-        replacements['    MARKMAX = 1048576;'] = f'    MARKMAX = {mark_slots};'
-    for old, new in replacements.items():
-        if text.count(old) != 1:
-            raise ValueError(f'runtime instrumentation anchor changed: {old!r}')
-        text = text.replace(old, new, 1)
-    return text + METER
+        host_replacements['    MARKMAX = 1048576;'] = f'    MARKMAX = {mark_slots};'
+    for replacements, name in ((shared_replacements, 'shared'), (host_replacements, 'host')):
+        for old, new in replacements.items():
+            text = shared if name == 'shared' else host
+            if text.count(old) != 1:
+                raise ValueError(f'runtime instrumentation anchor changed: {old!r}')
+            if name == 'shared':
+                shared = shared.replace(old, new, 1)
+            else:
+                host = host.replace(old, new, 1)
+    return {'fat.may': shared, 'fat_linux.may': host + METER}
+
+
+def raw_runtime(files):
+    # Raw workloads carry the whole instrumented runtime as source.
+    return files['fat.may'] + '\n' + files['fat_linux.may']
 
 
 def execute(command, directory, label, args, *, environment=None, timeout=None):
@@ -160,11 +175,11 @@ def require_run(result, expected=None):
         raise ValueError(f'checksum mismatch: expected {expected}, got {output(result)!r}')
 
 
-# Float text conversion lives in the tagged runtime/math.may, which raw
-# programs cannot load; the GC workloads never reach it.
+# Float text and powers live in runtime/math.may, which raw programs cannot
+# load; the GC workloads never reach them.
 RAW_MATH_STUBS = '''
-fun __math_parse(text: Any) -> Any { return 0; }
 fun __math_format(value: Any) -> Any { return 0; }
+fun __math_powf(x: Any, y: Any) -> Any { return 0; }
 '''
 
 
@@ -173,14 +188,15 @@ def snapshot(original, destination, runtime=None):
     shutil.copy2(original, destination / 'mayc')
     source = original.parent
     # A baseline keeps its own sidecars. Never mix a historical runtime with the current one.
-    for name in ('native.may', 'prelude.may', 'runtime.may'):
+    for name in ('native.may', 'prelude.may'):
         candidate = source / name
         if not candidate.is_file():
             raise ValueError(f'missing compiler sidecar: {candidate}')
         shutil.copy2(candidate, destination / name)
     shutil.copytree(source / 'runtime', destination / 'runtime', dirs_exist_ok=True)
     if runtime is not None:
-        (destination / 'runtime.may').write_text(runtime)
+        for name, text in runtime.items():
+            (destination / 'runtime' / name).write_text(text)
     hashes = {str(p.relative_to(destination)): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in sorted(destination.rglob('*')) if p.is_file()}
     (destination / 'identity.json').write_text(json.dumps(hashes, indent=2) + '\n')
@@ -384,7 +400,7 @@ def run_gc(args, report, compiler):
             custom = instrument_runtime(heap, args.mark_slots) if case == 'gc_mark_capacity' else runtime
             constants = f'let LIMIT_ROUNDS: Any = {rounds}; let LIMIT_SEED: Any = {seed}; let LIMIT_MARK_SLOTS: Any = {args.mark_slots};\n'
             source = directory / (case + '.may')
-            source.write_text(body if case == 'gc_objects' else custom + RAW_MATH_STUBS + INVARIANTS + constants + body)
+            source.write_text(body if case == 'gc_objects' else raw_runtime(custom) + RAW_MATH_STUBS + INVARIANTS + constants + body)
             compile_result = execute([selected, *([] if case == 'gc_objects' else ['--raw', '--legacy']), source, '-o', directory / 'program'],
                                      directory, 'compile', args, timeout=args.compile_timeout)
             row = {'case': case, 'heap_mib': heap, 'seed': seed, 'rounds': rounds, 'compile': compile_result, 'passed': False}

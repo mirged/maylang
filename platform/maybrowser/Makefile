@@ -24,7 +24,7 @@ src/js_prelude.may: native/dom_bridge.js tools/embed_js.py
 embed:
 	$(PYTHON) tools/embed_js.py
 
-build/maybrowser: $(SOURCES) $(MAYC) ../../compiler/mayc/runtime.may ../../compiler/mayc/native.may ../../stdlib/prelude.may | build/.dir
+build/maybrowser: $(SOURCES) $(MAYC) $(wildcard ../../compiler/mayc/runtime/*.may) ../../compiler/mayc/native.may ../../stdlib/prelude.may | build/.dir
 	$(MAYC) main.may -o $@.next
 	mv $@.next $@
 

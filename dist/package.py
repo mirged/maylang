@@ -75,8 +75,7 @@ def main():
         bundle = Path(directory)/f'maylang-{version}-x86_64-linux'
         bin_dir = bundle/'bin'; bin_dir.mkdir(parents=True)
         shutil.copy2(compiler, bin_dir/'mayc')
-        for name, source in [('runtime.may', ROOT/'compiler/mayc/runtime.may'),
-                             ('native.may', ROOT/'compiler/mayc/native.may'),
+        for name, source in [('native.may', ROOT/'compiler/mayc/native.may'),
                              ('prelude.may', ROOT/'stdlib/prelude.may')]:
             shutil.copy2(source, bin_dir/name)
         shutil.copytree(ROOT/'compiler/mayc/runtime', bin_dir/'runtime', ignore=shutil.ignore_patterns('build', '__pycache__'))

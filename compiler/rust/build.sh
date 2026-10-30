@@ -10,7 +10,6 @@ scratch=$(mktemp -d "$bin_dir/bootstrap.XXXXXX")
 trap 'rm -rf -- "$scratch"' 0
 
 wire_runtime() {
-    ln -sf "$mayc_dir/runtime.may" "$1/runtime.may"
     ln -sf "$mayc_dir/native.may" "$1/native.may"
     ln -sf "$repo_dir/stdlib/prelude.may" "$1/prelude.may"
     ln -sfn "$mayc_dir/runtime" "$1/runtime"

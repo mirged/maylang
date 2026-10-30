@@ -35,8 +35,7 @@ def build(compiler, output):
         binaries = stage / 'bin'
         binaries.mkdir()
         shutil.copy2(compiler, binaries / 'mayc')
-        for name in ('runtime.may', 'native.may'):
-            shutil.copy2(ROOT / 'compiler/mayc' / name, binaries / name)
+        shutil.copy2(ROOT / 'compiler/mayc/native.may', binaries / 'native.may')
         shutil.copy2(ROOT / 'stdlib/prelude.may', binaries / 'prelude.may')
         shutil.copytree(ROOT / 'compiler/mayc/runtime', binaries / 'runtime',
                         ignore=shutil.ignore_patterns('build', '__pycache__'))

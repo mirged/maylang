@@ -94,7 +94,7 @@ out.chmod(0o755)
         run('build'); count = len(calls())
         dependency.write_text('pub fun value() -> Int { return 2; }\n')
         run('build'); assert len(calls()) == count + 1
-        sidecar = work/'runtime.may'; sidecar.write_text('// runtime version 1\n')
+        sidecar = work/'native.may'; sidecar.write_text('// runtime version 1\n')
         run('build'); count = len(calls())
         sidecar.write_text('// runtime version 2\n')
         run('build'); assert len(calls()) == count + 1

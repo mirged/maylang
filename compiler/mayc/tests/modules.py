@@ -120,8 +120,7 @@ def main():
         install.mkdir()
         relocated = install / 'mayc'
         shutil.copy2(compiler_binary(compiler), relocated)
-        for name, origin in {'runtime.may': ROOT / 'compiler/mayc/runtime.may',
-                             'native.may': ROOT / 'compiler/mayc/native.may',
+        for name, origin in {'native.may': ROOT / 'compiler/mayc/native.may',
                              'prelude.may': ROOT / 'stdlib/prelude.may'}.items():
             (install / name).symlink_to(origin)
         (install / 'runtime').symlink_to(ROOT / 'compiler/mayc/runtime')

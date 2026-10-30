@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Check native-word lowering of strictly typed Int functions (#92).
 
-Qualifying functions compute with untagged 64-bit words. Calls from tagged
-code untag arguments and retag the result, so values beyond the tagged range
-fault only when they leave native code. A seeded oracle compares random
+Qualifying functions compute with 64-bit machine words; their fat entry
+checks the type words of dynamic callers. A seeded oracle compares random
 expressions with Python's signed 64-bit semantics. Further programs check
 that Ptr parameters and load/store keep all 64 bits, that Bool parameters,
-results and locals cross the tagged boundary, that range loops count natively,
-that global reads and writes convert to and from tagged values, and that
-bitwise expressions in tagged code are outlined into native-word functions. All run on the full and core
-runtimes, with and without --debug, and on ARM64/RISC-V core targets when
-QEMU user emulators are installed.
+results and locals cross the dynamic boundary, that range loops count
+natively, that native globals convert to and from dynamic values, and that
+bitwise expressions in dynamic code are outlined into native-word functions.
+All run on the full and core runtimes, with and without --debug, and on
+ARM64/RISC-V core targets when QEMU user emulators are installed (those
+compile the same functions as fat dynamic code).
 """
 import argparse
 import random
@@ -357,8 +357,8 @@ arithmetic: integer overflow
 '''
 
 
-# Fat values (the full x86_64-linux runtime) return results beyond +/-2^60
-# that the tagged runtimes report as integer overflow.
+# Fat values return results beyond +/-2^60 that tagged values, which the
+# *_EXPECTED texts above were first written for, reported as integer overflow.
 FAT_EXPECTED = {
     'SEMANTICS': '6765 21\n1 0 1 -1\n-3 -1 -7 0\ntagged 4\n0 1 3367 10\n55\narithmetic: division by zero\narithmetic: division by zero\narithmetic: shift count out of range\narithmetic: shift count out of range\narithmetic: integer overflow\n2305843009213693952\n1152921504606846976\ntagged\n-9223372036854775808\n2 7 3 -7 24 -3 864691128455135232 -1152921504606846976\n',
     'MEMORY': '1701077858 1701077858\n77097 77097\ntrue\n7 5 0\n1 128 128\n-9223372036854775808\n-9223372036854775808\n',
@@ -369,13 +369,8 @@ FAT_EXPECTED = {
 }
 
 
-def uses_fat_values(flags):
-    # Fat values are the default for every runtime and target.
-    return 'tagged' not in flags
-
-
-def expected_for(name, flags, tagged):
-    return FAT_EXPECTED.get(name, tagged) if uses_fat_values(flags) else tagged
+def expected_for(name, flags, default):
+    return FAT_EXPECTED.get(name, default)
 
 
 class Fault(Exception):
@@ -569,13 +564,12 @@ def main():
             output = compile_run(compiler, source, work / 'syscalls', *flags, runner=runner)
             assert output == expected_for('SYSCALLS', flags, SYSCALLS_EXPECTED), (flags, output)
         print('PASS native-word syscall on the full runtime', flush=True)
-        program, tagged_oracle = oracle_program(args.seed, args.cases)
-        fat_oracle = oracle_program(args.seed, args.cases, fat=True)[1]
+        program, oracle = oracle_program(args.seed, args.cases, fat=True)
         source = work / 'oracle.may'
         source.write_text(program)
         for flags, runner in configurations:
             output = compile_run(compiler, source, work / 'oracle', *flags, runner=runner)
-            expected = fat_oracle if uses_fat_values(flags) else tagged_oracle
+            expected = oracle
             if output != expected:
                 lines = list(zip(output.splitlines(), expected.splitlines()))
                 mismatch = next(i for i, (got, want) in enumerate(lines) if got != want)

@@ -25,7 +25,7 @@ if not target.is_absolute():
 bootstrap = target / "release/may-bootstrap"
 with tempfile.TemporaryDirectory(prefix="may-bootstrap-test-") as temp:
     build = Path(temp)
-    for name in ["runtime.may", "native.may", "runtime"]:
+    for name in ["native.may", "runtime"]:
         (build / name).symlink_to(ROOT / "compiler/mayc" / name)
     (build / "prelude.may").symlink_to(ROOT / "stdlib/prelude.may")
     smoke = build / "smoke"

@@ -529,12 +529,10 @@ require(select_try(ctx, mismatched, {}) == -1);
 let long: Any = [];
 for index: Any in 0..12 { for instruction: Any in select_arm(10 + 3 * index, "sx", TK_PLUS, index + 1) { push(long, instruction); } }
 require(select_try(ctx, select_block(long, [], elseLabel, doneLabel), {}) == -1);
-// Full-runtime and tagged functions never use the lowering.
+// Functions of programs with a runtime never use the lowering.
 ctx.dynamic = 1;
 require(select_try(ctx, diamond, {}) == -1);
-ctx.dynamic = 0; ctx.mode = 1;
-require(select_try(ctx, diamond, {}) == -1);
-ctx.mode = 0;
+ctx.dynamic = 0;
 
 // Code alignment (#83). Each length is one recommended NOP instruction.
 let nops: Any = [[144], [102, 144], [15, 31, 0], [15, 31, 64, 0], [15, 31, 68, 0, 0],

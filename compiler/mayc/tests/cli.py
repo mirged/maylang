@@ -68,7 +68,7 @@ def main():
         installed = work / 'installed tools'
         installed.mkdir()
         shutil.copy2(compiler, installed / 'mayc')
-        for name in ('runtime.may', 'native.may', 'prelude.may'):
+        for name in ('native.may', 'prelude.may'):
             shutil.copy2(compiler.parent / name, installed / name)
         shutil.copytree(compiler.parent / 'runtime', installed / 'runtime')
         links = work / 'links'

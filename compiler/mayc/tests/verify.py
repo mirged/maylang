@@ -101,7 +101,6 @@ def targets(compiler):
     for source, label in [(ROOT / "examples/apps/mayboard/src/main.may", "mayboard"), (showcase, "showcase")]:
         ui = run([compiler, "--check", source])
         record(f"target {label} UI type contracts", ui.returncode == 0, ui.stderr.decode())
-    shutil.copy2(COMPILER / "runtime.may", WORK / "runtime.may")
     shutil.copy2(COMPILER / "native.may", WORK / "native.may")
     for index, source in enumerate(sources):
         binary = WORK / f"target-{index}"
@@ -164,8 +163,8 @@ HARNESSES = [
     (["float_math.py"], "transcendental functions and floating powers on every backend"),
     (["float_text.py"], "shortest round-trip display and correctly rounded parsing"),
     (["strength_reduction.py"], "signed power-of-two codegen and runtime fallbacks"),
-    (["native_words.py"], "native-word Int functions and tagged boundaries"),
-    (["fat_values.py"], "fat values: 64-bit integers, tagged opt-out and self-hosting"),
+    (["native_words.py"], "native-word Int functions and dynamic boundaries"),
+    (["fat_values.py"], "fat values: 64-bit integers, inline operations and removed tagged option"),
     (["diagnostics.py"], "structured diagnostics and recovery"),
     (["debug_traces.py"], "debug traces and fiber isolation"),
     (["fibers.py"], "suspended fiber handlers and caught errors"),

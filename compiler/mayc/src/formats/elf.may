@@ -84,7 +84,9 @@ fun build_elf(ctx: Any) -> Any {
     mut symbols: Any = [ElfSymbol(1, 18, 1, ctx.layout.codeAddress, 0)];
     for rec: Any in ctx.functions {
         let name: Any = elf_symbol_name(symbol_name(rec.p, rec.l));
-        push(symbols, ElfSymbol(elf_string(strings, name), 18, 1, ctx.layout.codeAddress + lab_off(ctx, rec.abiLab), 0));
+        // Raw functions start at their ABI body; fat and native-word ones at their entry.
+        let label: Any = if (rec.abiLab != 0) { rec.abiLab } else { rec.lab };
+        push(symbols, ElfSymbol(elf_string(strings, name), 18, 1, ctx.layout.codeAddress + lab_off(ctx, label), 0));
     }
     for global: Any in ctx.globals {
         let name: Any = elf_symbol_name(symbol_name(global.p, global.l));

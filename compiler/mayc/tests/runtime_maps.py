@@ -33,11 +33,7 @@ def main():
         assert key_hash('KmsBdOnXU') == key_hash('kjWKxlbWj')
         small = work / 'small'; small.mkdir()
         shutil.copy2(compiler, small / 'mayc')
-        runtime = (ROOT / 'compiler/mayc/runtime.may').read_text()
-        runtime = runtime.replace('mut sz: Any = 268435456;', 'mut sz: Any = 16777216;', 1)
-        runtime = runtime.replace('    GCCOUNT = GCCOUNT + 1;', '    GCCOUNT = GCCOUNT + 1;\n    rt_write(addr("gc\\n"), 3);', 1)
-        (small / 'runtime.may').write_text(runtime)
-        # Fat values (the x86_64-linux default) keep the heap in runtime/fat_linux.may.
+        # The full runtime's heap lives in runtime/fat_linux.may.
         shutil.copytree(ROOT / 'compiler/mayc/runtime', small / 'runtime')
         fat = (ROOT / 'compiler/mayc/runtime/fat_linux.may').read_text()
         assert 'mut sz: Any = 268435456;' in fat and '    GCCOUNT = GCCOUNT + 1;' in fat
