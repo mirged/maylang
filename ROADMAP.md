@@ -53,6 +53,23 @@ supported capability.
 - [ ] [#55: feat(bootstrap): define a roadmap for native ARM64 and desktop compiler hosts](https://github.com/mirged/maylang/issues/55)
 - [ ] [#56: feat(may): record native host toolchain identity for reproducible recipes](https://github.com/mirged/maylang/issues/56)
 
+## Performance
+
+[GitHub milestone](https://github.com/mirged/maylang/milestone/4) ·
+[tracking issue #101](https://github.com/mirged/maylang/issues/101) ·
+[performance roadmap](docs/design/PERFORMANCE_ROADMAP.md)
+
+Make Maylang run like a compiled language: faster than CPython on every
+benchmark and close to Java and Node on typed code. Fix runtime algorithms
+first, then object layout, type-directed code generation, an IR optimizer and
+allocation. Each step needs a measured report and oracle tests.
+
+- [ ] [#97: perf(runtime): Map hashes only Str keys; Int and other keys use a linear scan](https://github.com/mirged/maylang/issues/97)
+- [ ] [#99: perf(runtime): lists, strings and join slower than CPython with 4-8x its memory](https://github.com/mirged/maylang/issues/99)
+- [ ] [#98: perf(runtime): struct field access is a string-keyed map lookup](https://github.com/mirged/maylang/issues/98)
+- [ ] [#96: perf(codegen): register-allocated temporaries for fat x86-64 code](https://github.com/mirged/maylang/issues/96)
+- [ ] [#94: refactor(compiler): restore or remove native-word extern calls under fat values](https://github.com/mirged/maylang/issues/94)
+
 ## Propose or change priorities
 
 Search open and closed issues, provide source evidence or a minimal reproduction,
