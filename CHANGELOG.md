@@ -25,6 +25,10 @@
   closure calls 4.7x faster than before, closures now 2.2x faster than
   tagged values, and the compiler's code shrinks to 3.65 MB
   ([#92](https://github.com/mirged/maylang/issues/92)).
+- Run fat Float `+ - * /` and comparisons in shared SSE stubs instead of
+  the runtime: a Float loop runs 5.5x faster (405 ms against 2.2 s; tagged
+  values take 8.0 s) for 70 KB more compiler code
+  ([#92](https://github.com/mirged/maylang/issues/92)).
 - Make `index_of`, `contains`, `replace`, `to_lower` and `to_upper` linear:
   they scanned or rebuilt strings one code point at a time from the start,
   so a 17 KB string took seconds. `stress.may` runs 10x faster.
