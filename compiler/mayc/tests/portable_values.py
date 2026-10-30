@@ -25,7 +25,7 @@ CALL_EXPECTED = (b'42 10\n150 120\n3 4\n8\n10 11 12\n'
                  b'[21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]\n'
                  b'[1, 2, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil]\n'
                  b'[2, 3, 4] [2, 4]\n6\n4 6\n')
-FAULT_EXPECTED = (b'42\n["fail", "explicit"]\nrender\narithmetic\ntype\nfirst\nsecond\n'
+FAULT_EXPECTED = (b'42\n["fail", "explicit"]\nrender\n1152921504606846976\ntype\nfirst\nsecond\n'
                   b'7\n3 once\n4\nexception handler limit exceeded\nafter\n')
 DEBUG_EXPECTED = b'true true true\ntrue false true\ntrue\nfalse\n'
 FLOAT_EXPECTED = (b'3.75 5.0 3.0 3.5 -2.5 2.5\n'
@@ -33,8 +33,8 @@ FLOAT_EXPECTED = (b'3.75 5.0 3.0 3.5 -2.5 2.5\n'
                   b'-3.0 -2.0 -2 2.0 3.0 -2.0 3.0\n4.0 true true\n-122.5 42.0 3 -3\n'
                   b'true true true true true true\nfalse true true true\n'
                   b'[1.25, -2.5] {"number": 3.75}\narithmetic\n'
-                  b'true false true true true true\nnan\n'
-                  b'arithmetic Float outside Int range -1152921504606846976 arithmetic\n3.75\n1.0 1e20 1e-10\n3.5\n')
+                  b'false true false false false false\nnan\n'
+                  b'arithmetic Float outside Int range -1152921504606846976 1152921504606846976\n3.75\n1.0 1e20 1e-10\n3.5\n')
 ROUNDING_EXPECTED = (b'2.0 3.0 -3.0 -2.0 -0.0 -0.0 0.0\ntrue true nan -inf\n'
                      b'3.0 -2.0 2.0 0.0 -0.0\ntrue true true true\n')
 FIBER_EXPECTED = b'true false\na a\ntrue false\nb b\nmain\n'
@@ -64,9 +64,8 @@ def main():
             source = HERE / 'backend' / (name + '.may')
             flags = ['--debug'] if name in ('portable_debug', 'portable_fibers') else []
             oracle = work / 'full'
-            # The core runtime still uses tagged values, so compare it with
-            # the tagged full runtime (fat values: docs/design/FAT_VALUES.md).
-            compile_source(options.compiler, source, oracle, '--values', 'tagged', *flags)
+            # Both runtimes share runtime/fat.may, so the full runtime is the oracle.
+            compile_source(options.compiler, source, oracle, *flags)
             result = subprocess.run([str(oracle)], capture_output=True, timeout=20)
             assert (result.returncode, result.stdout, result.stderr) == (0, expected, b''), result
             for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
@@ -108,7 +107,7 @@ def main():
         body.append('print(str(number(0, 2146435072)), str(number(0, 4293918720))); exit(0);')
         source.write_text('\n'.join(body))
         binary = work / 'float-oracle'
-        compile_source(options.compiler, source, binary, '--values', 'tagged')
+        compile_source(options.compiler, source, binary)
         oracle = subprocess.run([str(binary)], capture_output=True, timeout=20)
         assert oracle.returncode == 0 and not oracle.stderr, oracle
         for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
@@ -125,7 +124,7 @@ def main():
             source = work / 'invalid.may'
             source.write_text('let good: Any = fun() -> Int { return 1; }; print(good());'
                               f'let bad: Any = {value}; bad(); exit(0);')
-            expected = b'1\nvalue is not callable\n'
+            expected = b'1\ntype: value is not callable\n'
             for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
                 binary = work / target
                 image = compile_source(options.compiler, source, binary, '--runtime', 'core', '--target', target)
@@ -138,8 +137,6 @@ def main():
         for name, (text, status, expected) in FIBER_CASES.items():
             source = work / 'fibers.may'
             source.write_text(text + '\nexit(0);\n')
-            if name == 'uncaught':
-                expected = b'worker\n'  # Core retains plain uncaught diagnostics.
             for target in ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']:
                 binary = work / target
                 image = compile_source(options.compiler, source, binary, '--runtime', 'core', '--target', target)

@@ -41,16 +41,11 @@ def main():
 
         targets = [('full', ()), ('core', ('--runtime', 'core'))]
         for target, options in targets:
-            values = [('nil', 'nil'), ('zero', '0'), ('bool', 'true'), ('string', '"x"')]
-            if target != 'core':
-                values += [('float', '1.5'), ('map', '{}'), ('function', 'fun() -> Int { return 1; }')]
+            # The core runtime shares the full runtime's fat runtime and library.
+            values = [('nil', 'nil'), ('zero', '0'), ('bool', 'true'), ('string', '"x"'),
+                      ('float', '1.5'), ('map', '{}'), ('function', 'fun() -> Int { return 1; }')]
             for label, value in values:
-                operations = ['push(bad, 1)', 'pop(bad)']
-                # Full slice uses the source library's len/index wrapper;
-                # core dispatches directly to the list-only runtime helper.
-                if target == 'core':
-                    operations.append('slice(bad, 0, 1)')
-                for operation in operations:
+                for operation in ['push(bad, 1)', 'pop(bad)']:
                     name = operation.split('(')[0]
                     check(f'{target}_{name}_{label}', f'let bad: Any = {value}; {operation}; print("unreachable");',
                           options, failure='expected List')
@@ -72,14 +67,13 @@ let empty: Any = []; let missing: Any = pop(empty); push(empty, 42);
 print(missing, empty, slice(xs, -1, 100));
 let text: Any = "aλ"; print(text[1], text[-1], text[2]);
 ''', options, output='[1, 7] 3 2 nil nil\nnil [42] [1, 7]\nλ nil nil\n')
-            if target != 'core':
-                check(f'{target}_float_index', 'let xs: Any = [1]; let i: Any = 0.5; xs[i] = 2;',
-                      options, failure='invalid list assignment')
-                check(f'{target}_float_get', 'let xs: Any = [1]; let i: Any = 0.5; print(xs[i]);',
-                      options, failure='index')
-                check(f'{target}_map_keys', 'let m: Any = {}; m[false] = 1; m[1.5] = 2; print(m[false], m[1.5]);',
-                      options, output='1 2\n')
-                check(f'{target}_recovery', '''let xs: Any = [1, 2];
+            check(f'{target}_float_index', 'let xs: Any = [1]; let i: Any = 0.5; xs[i] = 2;',
+                  options, failure='invalid list assignment')
+            check(f'{target}_float_get', 'let xs: Any = [1]; let i: Any = 0.5; print(xs[i]);',
+                  options, failure='index')
+            check(f'{target}_map_keys', 'let m: Any = {}; m[false] = 1; m[1.5] = 2; print(m[false], m[1.5]);',
+                  options, output='1 2\n')
+            check(f'{target}_recovery', '''let xs: Any = [1, 2];
 let caught: Any = may { xs[2] = 3; false } otherwise { err.kind == "type" };
 print(caught, xs);
 fun answer() -> Int { return 42; }

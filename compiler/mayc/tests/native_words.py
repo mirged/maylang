@@ -370,8 +370,8 @@ FAT_EXPECTED = {
 
 
 def uses_fat_values(flags):
-    # Fat values are the default for the full runtime on x86_64-linux only.
-    return '--runtime' not in flags and '--target' not in flags
+    # Fat values are the default for every runtime and target.
+    return 'tagged' not in flags
 
 
 def expected_for(name, flags, tagged):

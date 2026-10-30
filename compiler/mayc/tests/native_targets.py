@@ -39,8 +39,8 @@ def emit(compiler, directory):
         fixture('floats', HERE / 'backend/portable_floats.may', FLOAT_EXPECTED.decode(), 0, '--runtime', 'core')
         fixture('arena', HERE / 'backend/arena.may', ARENA_EXPECTED.decode(), 0, '--runtime', 'core')
         for name, body, message in [
-            ('overflow', 'let n: Any = int("1152921504606846975"); print(n + 1);', 'integer overflow\n'),
-            ('divide', 'let n: Any = 3; print(n / 0);', 'division by zero\n'),
+            ('overflow', 'let n: Any = int("9223372036854775807"); print(n + 1);', 'arithmetic: integer overflow\n'),
+            ('divide', 'let n: Any = 3; print(n / 0);', 'arithmetic: division by zero\n'),
         ] + [(name, body, message.decode()) for name, body, message in LIST_FAILURES]:
             source = work / (name + '.may')
             source.write_text(body)
@@ -57,8 +57,9 @@ def emit(compiler, directory):
     small.mkdir(exist_ok=True)
     shutil.copy2(compiler_binary(compiler), small / 'mayc')
     shutil.copytree(HERE.parent / 'runtime', small / 'runtime', dirs_exist_ok=True)
-    core = small / 'runtime/core.may'
-    core.write_text(core.read_text().replace('CORE_RETAINED + size > 268435456',
+    host = small / 'runtime/fat_core.may'
+    assert host.read_text().count('CORE_RETAINED + size > 268435456') == 1
+    host.write_text(host.read_text().replace('CORE_RETAINED + size > 268435456',
                                              'CORE_RETAINED + size > 2097152'))
     for target in TARGETS:
         work = directory / target

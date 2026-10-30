@@ -29,10 +29,7 @@ fun target_select(name: Any) -> Any {
 }
 
 fun backend_validate(ctx: Any, raw: Any) -> Any {
-    // The full runtime has fat values on x86_64-linux and NodeOS, the core runtime everywhere.
-    if (FAT_VALUES and (raw == 1 or (ctx.runtime == "full" and (ctx.target.arch != "x86_64" or (ctx.target.os != "linux" and ctx.target.os != "nodeos"))))) {
-        die_str("mayc: --values fat requires the full runtime on x86_64-linux or x86_64-nodeos, or the core runtime\n");
-    }
+    if (FAT_VALUES and raw == 1) { die_str("mayc: --values fat requires a runtime; --raw code uses machine words\n"); }
     if (raw == 0 and ctx.runtime == "full" and not ctx.target.runtime) {
         die_str("mayc: `${ctx.target.name}` supports the core runtime; --runtime full requires x86_64-linux or x86_64-nodeos\n");
     }
