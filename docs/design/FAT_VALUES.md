@@ -93,7 +93,7 @@ itself runs on fat values, source integer literals stay within ±2^60.
 | --- | --- |
 | Design and ABI | this document |
 | `--values fat` flag, fat runtime and x86-64 backend | working (`runtime/fat.may`, `backend/x86_64_fat.may`); Int arithmetic, comparisons and list indexing inline, other operators call the runtime |
-| Feature fixtures passing with `--values fat` | 45 of 45 (`compiler/mayc/tests/fat_values.py`); `bitwise.may` differs only where Int no longer overflows |
+| Feature fixtures passing with `--values fat` | 46 of 46 (`compiler/mayc/tests/fat_values.py`); `bitwise.may` differs only where Int no longer overflows |
 | Prelude, native library, math and stdlib | loaded; floats are unboxed, `math.may` bit helpers are intrinsics |
 | Fibers, handlers, debug traces | working |
 | Typed externs and native-word entries | working; native code calls externs through their fat entry |
@@ -104,4 +104,5 @@ itself runs on fat values, source integer literals stay within ±2^60.
 | Fat code size | temporaries defined once and read before the next boundary share reused frame slots, hot slots first with 8-bit displacements; a temporary read only by the next instruction is never stored; direct calls zero their argument area only when arguments are missing. The compiler's code shrank from 5.0 MB to 3.9 MB (tagged: 2.4 MB), which fits NodeOS's 4 MiB image copy |
 | Fat performance | in progress. Int `/` and `%` run inline (`idiv`; divisors 0 and -1 take the runtime path); closure calls check the type word inline, reuse one scratch pair per function and zero only missing parameters; binary-operator and index slow paths are shared stubs; runtime trampolines return `RTAG` in RDX. Float `+ - * /` and comparisons run in one shared stub per operator (SSE; a zero divisor and other types continue to `rt_binary`), so a 20M-iteration Float loop takes 405 ms instead of 2.2 s (tagged: 8.0 s). The compiler's code is 3.65 MB before the LLVM backend's removal, 3.45 MB now. Micro-benchmarks against tagged: Int loop 416/365 ms, Float 652/3328, closures 128/281, lists 403/489, maps 384/375 |
 | String library | `index_of`, `replace`, `to_lower` and `to_upper` in `native.may` scan bytes instead of re-indexing code points, for both representations; `stress.may` fell from 7.1 s to 0.7 s (tagged 5.3 s to 0.4 s) |
-| Next | register-allocated temporaries for fat code; counted `for` over a literal range without building the list (a 20M-element range needs 320 MB of fat values and runs out of the 256 MiB heap) |
+| Range loops | `for` over an Int-bounded range counts instead of building the list, which with 16-byte values exhausted the heap at 20M elements; a 20M-iteration loop takes 169 ms (tagged: 1397 ms before, 144 ms now) |
+| Next | register-allocated temporaries for fat code |
