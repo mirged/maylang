@@ -37,12 +37,13 @@ def main():
         runtime = runtime.replace('mut sz: Any = 268435456;', 'mut sz: Any = 16777216;', 1)
         runtime = runtime.replace('    GCCOUNT = GCCOUNT + 1;', '    GCCOUNT = GCCOUNT + 1;\n    rt_write(addr("gc\\n"), 3);', 1)
         (small / 'runtime.may').write_text(runtime)
-        # Fat values (the x86_64-linux default) load runtime/fat.may instead.
+        # Fat values (the x86_64-linux default) keep the heap in runtime/fat_linux.may.
         shutil.copytree(ROOT / 'compiler/mayc/runtime', small / 'runtime')
-        fat = (ROOT / 'compiler/mayc/runtime/fat.may').read_text()
+        fat = (ROOT / 'compiler/mayc/runtime/fat_linux.may').read_text()
+        assert 'mut sz: Any = 268435456;' in fat and '    GCCOUNT = GCCOUNT + 1;' in fat
         fat = fat.replace('mut sz: Any = 268435456;', 'mut sz: Any = 16777216;', 1)
         fat = fat.replace('    GCCOUNT = GCCOUNT + 1;', '    GCCOUNT = GCCOUNT + 1;\n    rt_write(addr("gc\\n"), 3);', 1)
-        (small / 'runtime' / 'fat.may').write_text(fat)
+        (small / 'runtime' / 'fat_linux.may').write_text(fat)
         # Keep the public copy-returning helper available under another name
         # so remove() also exercises the backend's in-place runtime intrinsic.
         native = (ROOT / 'compiler/mayc/native.may').read_text().replace('fun remove(', 'fun copied_remove(', 1)

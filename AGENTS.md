@@ -219,7 +219,8 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   types is `false`, `!=` is `true`, and ordering raises a `type` fault, so
   `Any`-typed numeric code must normalize with `to_float` before comparing.
 - Values are fat (16 bytes: a type word and a payload,
-  `compiler/mayc/runtime/fat.may`, `src/backend/x86_64_fat.may`) with the
+  `compiler/mayc/runtime/fat.may` with its host in `fat_linux.may`,
+  `src/backend/x86_64_fat.may`) with the
   full runtime on x86_64-linux and x86_64-nodeos, so `Int` is signed 64-bit
   there. The core runtime and `--values tagged` /
   `MAYC_VALUES=tagged` keep 61-bit tagged values (±2^60, `runtime.may`).
@@ -368,7 +369,7 @@ tag, then packages and publishes. CI uses Ubuntu 24.04 and Node 22.
   blaming the change.
 - **Heap tests rewrite one line:** harnesses shrink the full runtime's heap
   by replacing `mut sz: Any = 268435456;` in `runtime.may` and
-  `runtime/fat.may`. Keep that exact line as the only heap-size literal in
+  `runtime/fat_linux.may`. Keep that exact line as the only heap-size literal in
   each; the reservation (four times `sz`, so the collection threshold can
   grow) is derived from it.
 - **Source size limits:** each source file is limited to 1 MiB and the

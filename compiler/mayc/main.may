@@ -133,19 +133,20 @@ fun load_nodeos(a0: Any, a0l: Any) -> Any {
     return source;
 }
 
-// Append the personality to the runtime source already in SRC, keeping each
-// file's own line numbers for diagnostics.
-fun append_nodeos(a0: Any, a0l: Any, runtimeName: Any) -> Any {
+// Append a runtime file (`extraLength` bytes named `name`) to the runtime
+// source already in SRC, keeping each file's own line numbers for diagnostics.
+fun append_runtime(extra: Any, extraLength: Any, name: Any) -> Any {
     let base: Any = SRC; let baseLength: Any = SRCLEN;
-    let extra: Any = load_nodeos(a0, a0l);
-    let extraLength: Any = LASTLEN;
+    let file: Any = SOURCE_FILES[base];
+    let origins: Any = if (len(file.origins) > 0) { file.origins } else { [SourceOrigin(0, file.path, 1)] };
+    push(origins, SourceOrigin(baseLength + 1, name, 1));
     let combined: Any = irt_alloc(baseLength + extraLength + 2);
     image_copy(combined, base, baseLength);
     store8(combined + baseLength, 10);
     image_copy(combined + baseLength + 1, extra, extraLength);
     store8(combined + baseLength + 1 + extraLength, 0);
     SRC = combined; SRCLEN = baseLength + 1 + extraLength;
-    SOURCE_FILES[combined] = SourceFile(runtimeName, [SourceOrigin(0, runtimeName, 1), SourceOrigin(baseLength + 1, "runtime/nodeos.may", 1)]);
+    SOURCE_FILES[combined] = SourceFile(file.path, origins);
     return 0;
 }
 
@@ -375,11 +376,14 @@ fun main2() -> Any {
         DYNMODE = 1;
         if (ctx.runtime == "core") { load_core(a0, a0l, "core.may"); }
         else if (FAT_VALUES) {
+            // The shared fat runtime, then its host (docs/design/FAT_VALUES.md).
             SRC = load_core(a0, a0l, "fat.may"); SRCLEN = LASTLEN;
             SOURCE_FILES[SRC] = SourceFile("runtime/fat.may", []);
+            let host: Any = load_core(a0, a0l, "fat_linux.may");
+            append_runtime(host, LASTLEN, "runtime/fat_linux.may");
         }
         else { load_runtime(a0, a0l); }
-        if (nodeos) { append_nodeos(a0, a0l, if (ctx.runtime == "core") { "runtime/core.may" } else if (FAT_VALUES) { "runtime/fat.may" } else { RUNTIME_FILE_NAME }); }
+        if (nodeos) { let personality: Any = load_nodeos(a0, a0l); append_runtime(personality, LASTLEN, "runtime/nodeos.may"); }
         PARSE_RAW = 1;
         DIAGNOSTIC_STAGE = "lex"; lex_all();
         DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
