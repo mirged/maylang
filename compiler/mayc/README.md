@@ -73,9 +73,9 @@ snapshots show at most 64. This is error tracing, not a DWARF debugger interface
    Before lowering, `words.may` marks functions whose parameters, result,
    locals and operations are all `Int`, `Ptr` or `Bool` (including
    `load*`/`store*`);
-   every backend lowers them like raw
-   code and emits untagged 64-bit words, checked arithmetic and a tagged entry
-   that untags arguments and retags the result.
+   the x86-64 backend lowers them like raw
+   code and emits 64-bit words, checked arithmetic and a fat entry that checks
+   the arguments' type words.
 6. `backend.may` selects a `TargetBackend` with IR emission and relocation
    entry points. `backend/x86_64.may` implements the full dynamic runtime;
    `backend/arm64.may` and `backend/riscv.may` implement raw and core programs
@@ -157,13 +157,14 @@ compiler/mayc/mayc_new --target arm64-macos examples/hello.may -o hello-macos
 codesign --force --sign - hello-macos
 ```
 
-The shared [`runtime/core.may`](runtime/core.may) uses the existing tagged ABI
-for integers, booleans, nil, UTF-8 strings and lists. It supplies console output,
-indexing and mutation, string comparison/search/split/join, integer arithmetic,
-conversion and integer powers, along with boxed floating-point arithmetic. [`runtime/corelib.may`](runtime/corelib.may) adds
-`str`, `substring`, `trim`, `repeat`, `range`, `sum`, `clamp`, `gcd`, `lcm`,
-`alloc` and `memcpy`. Case conversion is ASCII-only. Integer overflow and
-division by zero print a diagnostic and exit with status 70.
+The core runtime shares the fat runtime [`runtime/fat.may`](runtime/fat.may)
+and the full runtime's library (`prelude.may`, `native.may`), so core programs
+print what full-runtime programs print. Its host
+[`runtime/fat_core.may`](runtime/fat_core.may) takes memory, output and exit
+from each target's platform primitives, and
+[`runtime/fat_corelib.may`](runtime/fat_corelib.may) adds `alloc`, arenas,
+`memcpy`, `core_heap_retained`, `gcd` and `lcm`. Uncaught faults such as
+integer overflow print `kind: message` and exit with status 70.
 Core heap chunks live until process exit, with a 256 MiB retained-heap cap.
 Exhausting it prints `core heap limit exceeded` and exits with status 70. Use
 the full collecting runtime for allocation-intensive, long-running programs.
@@ -241,7 +242,7 @@ remains valid. Mutable heap strings bypass the cache. String-key maps use an
 open-addressed index while retaining insertion order and existing equality for
 other key types. GC sweep coalesces dead runs, reclaims the heap tail and places
 small reusable blocks in size bins. Repetition uses binary doubling, and image
-copying moves 32-bit words without losing bits through tagged integers.
+copying moves 32-bit words.
 
 After checking all source functions, IR lowering follows reachable direct calls
 and closure labels, skipping unused library and user functions. Runtime IR stays
@@ -391,8 +392,8 @@ python3 compiler/mayc/tests/modules.py --compiler compiler/mayc/mayc_new
 `diagnostics.may` formats source excerpts and caret spans.
 Float literals are decoded once during compilation and emitted as binary64
 bits with a fresh runtime box, avoiding repeated decimal parsing in hot loops.
-`addr(Float)` exposes its payload for lossless serialization. The process API
-returns tagged integer PIDs and checks wait failures and signal exit statuses.
+Floats are unboxed payloads (`math.may` reads their bits with intrinsics). The
+process API returns integer PIDs and checks wait failures and signal exit statuses.
 `tests/float_literals.py` checks bit parity with the original literal path;
 `tests/processes.py` validates process behavior. The ecosystem runner isolates
 long allocation histories because the collector still has a reproducible

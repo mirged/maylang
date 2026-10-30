@@ -8,17 +8,35 @@
   `llvm` profile, the harnesses' `--llvm` options and the runtimes' LLVM
   accommodations (a libc-supplied environment pointer and 256-byte handler
   slots) are gone, and the compiler's code is 290 KB smaller.
-- **Breaking:** compile x86_64-linux programs with the full runtime using fat
-  values, 16 bytes with a separate type word, instead of 3-bit tagged words
-  (design and status: [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md)).
-  `Int` is signed 64-bit there: literals and arithmetic reach ±2^63 and
+- **Breaking:** compile every program with a runtime using fat values, 16
+  bytes with a separate type word, instead of 3-bit tagged words, on every
+  target (design: [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md)).
+  `Int` is signed 64-bit: literals and arithmetic reach ±2^63 and
   overflow faults only beyond that, values between 2^60 and 2^63 no longer
   raise `integer overflow`, native-word results and C results cross into
   dynamic code unchanged, Floats are unboxed (`addr` of a Float is now a
   `type` fault) and a `List<Any>` uses 16 bytes per element. The compiler
-  itself runs on fat values and reaches the bootstrap fixpoint.
-  `--values tagged` or `MAYC_VALUES=tagged` selects the old representation,
-  which the core runtime still uses
+  itself runs on fat values and reaches the bootstrap fixpoint. The tagged
+  runtimes (`runtime.may`, `runtime/core.may`, `runtime/corelib.may`) and
+  their code generation are gone, the compiler is 3.19 MB, and `--values`
+  now fails with an explanation (`MAYC_VALUES` is ignored). A copied
+  compiler needs `native.may`, `prelude.may` and `runtime/` beside it
+  ([#92](https://github.com/mirged/maylang/issues/92)).
+- **Breaking:** the core runtime (the default on arm64-linux, riscv64-linux,
+  arm64-macos and x86_64-windows, and `--runtime core`) shares the full
+  runtime's `runtime/fat.may`, `prelude.may` and `native.may`, so core
+  programs print what full-runtime programs print: lists and maps compare
+  by identity rather than structurally, uncaught faults print
+  `kind: message`, and library functions such as `slice` follow
+  `native.may`. ARM64 and RISC-V compile dynamic code with the new
+  `backend/raw_fat.may`, and their emitters accept frames beyond 4 KiB
+  ([#92](https://github.com/mirged/maylang/issues/92)).
+- Fix the fat collector freeing a block whose only reference was a `Ptr`
+  (from `cstr` or `addr`) stored in a list, map or other heap value: Int
+  payloads in heap values are now checked conservatively, as stack words
+  are ([#92](https://github.com/mirged/maylang/issues/92)).
+- Fix ELF symbols of fat functions, and of native-word functions called only
+  from native code, which all pointed at `_start`
   ([#92](https://github.com/mirged/maylang/issues/92)).
 - Run Int `/` and `%`, closure calls and their type checks inline in fat
   code, and share one slow-path stub per operator: Int loops run 3.7x and
@@ -28,13 +46,6 @@
 - Run fat Float `+ - * /` and comparisons in shared SSE stubs instead of
   the runtime: a Float loop runs 5.5x faster (405 ms against 2.2 s; tagged
   values take 8.0 s) for 70 KB more compiler code
-  ([#92](https://github.com/mirged/maylang/issues/92)).
-- Add the core runtime on fat values for every target
-  (`--runtime core --values fat`; x86-64 through the fat x86-64 backend,
-  ARM64 and RISC-V through the new `backend/raw_fat.may`). It shares the full runtime's `runtime/fat.may`,
-  `prelude.may` and `native.may`, so core programs print what the full
-  runtime prints, including identity list equality and `kind: message`
-  fault text. Tagged values remain the core default for now
   ([#92](https://github.com/mirged/maylang/issues/92)).
 - Count `for` loops over an Int-bounded range `a..b` or `a..=b` instead of
   building the list first: a 20M-iteration loop no longer runs out of

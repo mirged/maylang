@@ -15,7 +15,6 @@
 - `--raw` — omit runtime, native library and prelude.
 - `--no-code-align` — emit raw x86-64 code without the NOP padding that aligns function bodies and loop heads; for layout experiments.
 - `--runtime full|core|none` — select runtime; none is equivalent to raw; full defaults on x86_64-linux and x86_64-nodeos, core on other native targets.
-- `--values fat|tagged` — select the value representation; fat (16-byte values, 64-bit Int) is the default with the full runtime on x86_64-linux and x86_64-nodeos and can be selected for the core runtime on every target. `MAYC_VALUES=tagged` changes the default.
 - `--time` — report compilation-stage timings to stderr.
 - `--target TARGET` — select one of the supported targets listed below. The default is x86_64-linux, or x86_64-nodeos when the compiler runs on NodeOS.
 - `--dump-expanded` — print import-expanded source and exit.
@@ -28,8 +27,8 @@
 - mayc emits every target's machine code and executable container itself, with no assembler, linker, C compiler or LLVM. The experimental `clang-llvm` target and `--emit-llvm` were removed and now fail with an explanation.
 - Cross-target emission does not make the compiler itself run on another host; NodeOS is the exception, where a compiler built with `--target x86_64-nodeos` runs and rebuilds itself. The [native target suite](../internals/NATIVE_TARGETS.md) runs signed macOS ARM64 and Windows x86-64 fixtures through real loaders; emulator checks separately cover all five direct targets.
 - Full runtime supports integers, boxed floats, UTF-8 strings, lists, maps, records, closures, structured errors, fibers and native C interfaces on Linux x86-64.
-- Core runtime supports tagged integers/Booleans/nil/strings/lists, direct functions, loops, console output, indexing/mutation, ASCII case conversion and integer/string helpers.
-- Core helpers include `str`, `substring`, `trim`, `repeat`, `range`, `sum`, `clamp`, `gcd`, `lcm`, `alloc` and `memcpy`; signatures/implementation are in [corelib](../../compiler/mayc/runtime/corelib.may).
+- The core runtime uses the same fat values, runtime code ([fat.may](../../compiler/mayc/runtime/fat.may)) and library (`prelude.may`, `native.may`) as the full runtime, with a host for every target instead of the collector and operating-system functions ([fat_core.may](../../compiler/mayc/runtime/fat_core.may)).
+- Core-only helpers are `alloc`, the arena functions, `core_heap_retained`, `memcpy`, `gcd` and `lcm` ([fat_corelib.may](../../compiler/mayc/runtime/fat_corelib.may)).
 - Core allocation retains heap chunks of at least 1 MiB until process exit, with a 256 MiB cap and no individual free/GC. [Explicit scratch arenas](../internals/CORE_MEMORY.md) reclaim capacity on reset, invalidating their returned pointers. Overflow and division by zero print a diagnostic and exit 70.
 - Core supports maps, records, structs, enums, closures, shared captures, callback helpers, recoverable faults, debug traces and cooperative fibers; compilation diagnoses unsupported floats and FFI before output is written.
 - ARM64/RISC-V raw subsets support integer/literal-string operations, globals/locals, direct calls, tail self-calls, loops, addresses, memory loads/stores, exit and target syscalls. Function arguments beyond eight use the stack; frames are limited to 2000 bytes and syscalls accept six arguments.

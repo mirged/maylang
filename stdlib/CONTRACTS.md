@@ -25,11 +25,10 @@ fails if they differ.
 
 ## Values, numbers and text
 
-- Integers have the tagged range -2^60 through 2^60-1. Overflow and integer
-  division by zero raise catchable arithmetic errors in full mode and exit 70
-  in core. Division truncates toward zero and remainder follows the dividend.
-  Fixed-width annotations add checked boundaries, not full-width storage;
-  Int64/UInt64 remain subject to the tagged range. Float32 rounds at annotated
+- Integers are signed 64-bit, -2^63 through 2^63-1. Overflow and integer
+  division by zero raise catchable arithmetic errors; uncaught, they exit 70.
+  Division truncates toward zero and remainder follows the dividend.
+  Fixed-width annotations add checked boundaries, not storage. Float32 rounds at annotated
   boundaries; other floating arithmetic uses binary64. See
   [numeric contracts](../docs/guide/STRICT.md).
 - Text is UTF-8. Length, characters and ordinary substring indexing count
@@ -38,9 +37,8 @@ fails if they differ.
   comparison use their existing runtime representations; no Unicode
   normalization or locale collation is performed. Raw pointers address bytes.
 - Lists, maps and records are mutable references. Passing them does not copy
-  storage; aliases see mutation. Full-runtime list/map equality uses identity;
-  core list equality is structural with tagged values and identity with
-  `--values fat`. Strings compare by value. Use explicit
+  storage; aliases see mutation. List and map equality uses identity on
+  every runtime. Strings compare by value. Use explicit
   element comparisons for portable collection equality.
 - Error recovery uses `may { ... } otherwise { ... }`; `err.kind` and
   `err.message` describe failures. Typed Result helpers preserve their generic

@@ -30,7 +30,7 @@ The workloads exercise:
 
 | Case | What it exposes |
 | --- | --- |
-| `arithmetic` | Tagged integer operations, signed constant division/remainder and loop dependencies |
+| `arithmetic` | Integer operations, signed constant division/remainder and loop dependencies |
 | `branches` | Nested branches, signed/unsigned-looking inputs, repeated tests and loop back edges |
 | `calls` | Eight arguments, stack overflow arguments and weighted checksums |
 | `pressure` | Generated live call arguments beyond the allocator's four registers; tune `--pressure` (up to 256) |
@@ -70,7 +70,7 @@ Preserve a baseline with matching sidecars before editing/rebuilding:
 sh compiler/rust/build.sh
 mkdir -p /tmp/maylang-before/runtime
 cp compiler/mayc/build/bin/mayc_new /tmp/maylang-before/mayc
-cp compiler/mayc/runtime.may compiler/mayc/native.may /tmp/maylang-before/
+cp compiler/mayc/native.may /tmp/maylang-before/
 cp stdlib/prelude.may /tmp/maylang-before/
 cp -R compiler/mayc/runtime/. /tmp/maylang-before/runtime/
 # Edit the compiler, then rebuild.

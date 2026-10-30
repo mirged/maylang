@@ -5,9 +5,8 @@ a capability-based microkernel for x86-64. The full, core and raw runtimes are
 all supported, and the compiler itself runs on NodeOS: a `mayc` built for
 NodeOS compiles programs there, including its own source. The compiler that
 `mayc` builds on NodeOS is byte-identical to the one cross-built on Linux.
-As on x86_64-linux, the full runtime uses fat values
-([FAT_VALUES.md](../design/FAT_VALUES.md)); `--values tagged` selects the
-61-bit tagged runtime. NodeOS's loader copies an image into one contiguous
+As everywhere, programs use fat values
+([FAT_VALUES.md](../design/FAT_VALUES.md)). NodeOS's loader copies an image into one contiguous
 kernel block of at most 4 MiB, so larger images fail with "Not enough
 memory"; `tests/nodeos.py` checks that the compiler's own image fits.
 
@@ -44,7 +43,7 @@ source unchanged and supplies three pieces:
 2. **A personality** (`runtime/nodeos.may`). It answers the Linux calls in
    the program's own process with NodeOS syscalls and IPC, using only the
    handles the program was given. It is written in the raw subset, like
-   `runtime.may`, and is appended to the runtime in every runtime mode; for
+   `runtime/fat.may`, and is appended to the runtime in every runtime mode; for
    `--raw` programs it is parsed as their runtime. It issues NodeOS syscalls
    through the internal `__nodeos_syscall` builtin, which emits the real
    instruction and is rejected on other targets.
@@ -94,8 +93,8 @@ its globals start at zero because runtime initializers do not run.
 ## Compiler hosting
 
 A `mayc` built for NodeOS finds its sidecars as on Linux: next to the
-executable, so `/bin/mayc.nxf` uses `/bin/runtime.may`, `/bin/native.may`,
-`/bin/prelude.may` and `/bin/runtime/*.may`. The standard library is found by
+executable, so `/bin/mayc.nxf` uses `/bin/native.may`, `/bin/prelude.may`
+and `/bin/runtime/*.may`. The standard library is found by
 walking up from the executable, so it lives in `/stdlib`. Output defaults to
 `<name>.nxf`, which the shell runs by name. NodeOS's FAT driver reads long
 names but creates only 8.3 names, so output names must fit 8.3.

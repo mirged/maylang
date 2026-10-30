@@ -101,7 +101,7 @@
 - `F64` example: `let ratio: F64 = 0.5;`.
 - **Void** — `Void` — Alias for Nil
 - `Void` example: `fun finish() -> Void { return; }`.
-- **Int** — `Int` — A signed integer used for whole numbers, indexes, and system call arguments: 64-bit on x86_64-linux with the full runtime, 61-bit on tagged targets.
+- **Int** — `Int` — A signed integer used for whole numbers, indexes, and system call arguments: signed 64-bit on every target.
 - `Int` example: `let answer: Int = 42;`.
 - **Float** — `Float` — A 64-bit floating-point number.
 - `Float` example: `let ratio: Float = 0.5;`.

@@ -1,11 +1,9 @@
 # Fat values
 
-Status: fat values are the default with the full runtime on x86_64-linux
-and x86_64-nodeos; the core runtime still uses the 3-bit tagged encoding
-in
-[`runtime.may`](../../compiler/mayc/runtime.may), which `--values tagged`
-also selects ([#92](https://github.com/mirged/maylang/issues/92)). The
-ledger at the end records what works.
+Status: done. Every runtime and target uses fat values; the 3-bit tagged
+encoding, its runtimes and the `--values` option were removed
+([#92](https://github.com/mirged/maylang/issues/92)). The ledger at the end
+records the steps.
 
 ## Problem
 
@@ -51,9 +49,10 @@ are stored as 16-byte values.
 
 The collector stays a non-moving mark-sweep. Each allocation records its
 kind in the existing allocation-identity byte map: bytes (strings, buffers;
-never scanned), values (an array of 16-byte values; a payload is traced only
-when its type word is a heap type) or words (runtime-internal pointer
-tables; scanned conservatively). Stacks and registers are still scanned
+never scanned), values (an array of 16-byte values; a payload is traced when
+its type word is a heap type, and an Int payload is checked conservatively,
+since a `Ptr` from `cstr` or `addr` may be the only reference to a heap
+block) or words (runtime-internal pointer tables; scanned conservatively). Stacks and registers are still scanned
 conservatively, accepting a word that equals an object start or the byte
 pointer `addr` returns. The `address * 8` decoding disappears.
 
@@ -124,7 +123,7 @@ move to fat values in four steps, each green on its own:
 | Step | State |
 | --- | --- |
 | Design and ABI | this document |
-| `--values fat` flag, fat runtime and x86-64 backend | working (`runtime/fat.may` with `runtime/fat_linux.may`, `backend/x86_64_fat.may`); Int arithmetic, comparisons and list indexing inline, other operators call the runtime |
+| Fat runtime and x86-64 backend (first behind `--values fat`) | done (`runtime/fat.may` with `runtime/fat_linux.may`, `backend/x86_64_fat.may`); Int arithmetic, comparisons and list indexing inline, other operators call the runtime |
 | Feature fixtures passing with `--values fat` | 46 of 46 (`compiler/mayc/tests/fat_values.py`); `bitwise.may` differs only where Int no longer overflows |
 | Prelude, native library, math and stdlib | loaded; floats are unboxed, `math.may` bit helpers are intrinsics |
 | Fibers, handlers, debug traces | working |
@@ -133,9 +132,9 @@ move to fat values in four steps, each green on its own:
 | Default on x86_64-linux, bootstrap fixpoint | done; integer literals follow the target (±2^63 fat, ±2^60 tagged) |
 | NodeOS | done: the full runtime is fat by default; `exec` and `system` fall back to the personality's spawn extension; the compiler runs and rebuilds itself on NodeOS |
 | Runtime split by host (step 1) | done: `runtime/fat.may` makes no syscalls; `runtime/fat_linux.may` is the full runtime's host |
-| x86-64 core runtime (step 2) | working with `--values fat` on x86_64-linux, x86_64-windows and NodeOS (`runtime/fat_core.may`, `runtime/fat_corelib.may`); the core runtime loads `prelude.may` and `native.may`, so its programs print what the full runtime prints, including identity list equality and `kind: message` faults (`core_runtime.py`). Tagged values stay the core default until ARM64 and RISC-V follow |
-| ARM64, RISC-V (step 3) | working with `--runtime core --values fat` on arm64-linux, riscv64-linux and arm64-macos (`backend/raw_fat.may`): 16-byte frame slots, the payload and type word in logical registers 0 and 1, compiled functions take an argument pointer and count and pad missing parameters with nil, runtime calls pass two words per value; `__fbits` and `__fat_apply` have portable implementations, and ARM64/RISC-V frames and offsets beyond 12 bits are supported. Every portable program and compatible feature fixture prints the same on all five targets. Native-word functions are not used there yet |
-| Tagged runtime removed (step 4) | not started; the LLVM backend was removed instead of ported |
+| x86-64 core runtime (step 2) | done on x86_64-linux, x86_64-windows and NodeOS (`runtime/fat_core.may`, `runtime/fat_corelib.may`); the core runtime loads `prelude.may` and `native.may`, so its programs print what the full runtime prints, including identity list equality and `kind: message` faults (`core_runtime.py`) |
+| ARM64, RISC-V (step 3) | done on arm64-linux, riscv64-linux and arm64-macos (`backend/raw_fat.may`): 16-byte frame slots, the payload and type word in logical registers 0 and 1, compiled functions take an argument pointer and count and pad missing parameters with nil, runtime calls pass two words per value; `__fbits` and `__fat_apply` have portable implementations, and ARM64/RISC-V frames and offsets beyond 12 bits are supported. Every portable program and compatible feature fixture prints the same on all five targets. Native-word functions are not used there yet |
+| Fat default everywhere, tagged runtime removed (step 4) | done: fat values became the default for every runtime and target, then `runtime.may`, `runtime/core.may`, `runtime/corelib.may`, `--values` and `MAYC_VALUES` were removed, along with the tagged dynamic lowering in `backend/raw.may` and `backend/x86_64.may` (about 1,900 lines; the compiler is 3.19 MB). The LLVM backend was removed instead of ported. Removing tagged values found a collector gap: a `Ptr` held only in a heap value was not traced (`gc_stress.py`). Left for later: native-word functions on ARM64/RISC-V, dead native-word extern paths (`word_foreign` now always declines) and the `FAT_VALUES` flag, which now means "has a runtime" |
 | Fat code size | temporaries defined once and read before the next boundary share reused frame slots, hot slots first with 8-bit displacements; a temporary read only by the next instruction is never stored; direct calls zero their argument area only when arguments are missing. The compiler's code shrank from 5.0 MB to 3.9 MB (tagged: 2.4 MB), which fits NodeOS's 4 MiB image copy |
 | Fat performance | in progress. Int `/` and `%` run inline (`idiv`; divisors 0 and -1 take the runtime path); closure calls check the type word inline, reuse one scratch pair per function and zero only missing parameters; binary-operator and index slow paths are shared stubs; runtime trampolines return `RTAG` in RDX. Float `+ - * /` and comparisons run in one shared stub per operator (SSE; a zero divisor and other types continue to `rt_binary`), so a 20M-iteration Float loop takes 405 ms instead of 2.2 s (tagged: 8.0 s). The compiler's code is 3.65 MB before the LLVM backend's removal, 3.45 MB now. Micro-benchmarks against tagged: Int loop 416/365 ms, Float 652/3328, closures 128/281, lists 403/489, maps 384/375 |
 | String library | `index_of`, `replace`, `to_lower` and `to_upper` in `native.may` scan bytes instead of re-indexing code points, for both representations; `stress.may` fell from 7.1 s to 0.7 s (tagged 5.3 s to 0.4 s) |

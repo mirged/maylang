@@ -16,8 +16,8 @@ can include `Nil`, for example the result of `print`; Nil storage and literals
 are not admitted. Arithmetic follows the selected
 runtime's existing [numeric semantics](../reference/LANGUAGE.md), rather than
 unbounded mathematical integers or exact real arithmetic. Numeric primitives
-may fault. The full runtime uses bounded tagged integers and boxed binary64
-values; raw execution has different representation assumptions. These differences
+may fault. Runtimes use signed 64-bit integers and binary64
+floats in fat values; raw execution has different representation assumptions. These differences
 cannot be erased by an effect annotation.
 
 The core includes scalar literals and local reads; unary negation and Boolean

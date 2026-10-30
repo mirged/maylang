@@ -40,7 +40,6 @@ target/release/may-bootstrap compiler/mayc/main.may -o compiler/rust/build/mayc1
 Keep runtime sidecars beside the generated compiler:
 
 ```sh
-ln -sf ../../mayc/runtime.may compiler/rust/build/runtime.may
 ln -sf ../../mayc/native.may compiler/rust/build/native.may
 ln -sfn ../../mayc/runtime compiler/rust/build/runtime
 ln -sf ../../../stdlib/prelude.may compiler/rust/build/prelude.may

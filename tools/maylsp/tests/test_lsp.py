@@ -466,7 +466,7 @@ def run_documentation(binary, work):
         client.send("textDocument/didOpen", {"textDocument": {"uri": path.as_uri(), "text": text, "version": 1, "languageId": "maylang"}})
         for name, phrase in [("print", "standard output"), ("len", "Unicode characters"),
                              ("map", "input list is preserved"), ("slice", "stop index is exclusive"),
-                             ("let", "immutable binding"), ("Int", "61-bit"), ("??", "false")]:
+                             ("let", "immutable binding"), ("Int", "64-bit"), ("??", "false")]:
             hover = client.result("textDocument/hover", {**doc, "position": position(text, name)})
             prose = hover["contents"]["value"]
             assert phrase in prose and "**Example**" in prose, (name, prose)

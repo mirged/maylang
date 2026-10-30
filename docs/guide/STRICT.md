@@ -87,19 +87,17 @@ Dynamic calls, operators, predicates and native builtins retain runtime
 dispatch; an `Any` condition still uses truthiness. Typed callbacks check
 parameter compatibility in the contravariant direction and return compatibility
 in the covariant direction. `--legacy` keeps the previous unchecked behavior.
-Values use the existing tagged representation, with types erased after checking.
+Values are fat (16 bytes: a type word and a payload), with types erased after
+checking ([docs/design/FAT_VALUES.md](../design/FAT_VALUES.md)).
 
-Integer annotations use the tagged integer ABI. `Int8`, `Int16`, `Int32`,
-`UInt8`, `UInt16` and `UInt32` enforce their declared bounds at typed
-bindings, assignments, arguments, returns and collection accesses. Invalid
-integer literals fail checking; dynamic overflow raises an `arithmetic`
-fault in the full runtime, or exits with status 70 in the core runtime.
-Integer families are assignment-compatible, so a dynamic conversion to a
-narrower type is checked rather than rejected solely for having a wider type.
-With fat values (the full runtime on x86_64-linux) `Int` and `Int64` are
-signed 64-bit; with tagged values (other targets, or `--values tagged`) they
-retain the signed 61-bit range `-1152921504606846976..1152921504606846975`.
-`UInt64` uses the nonnegative part of either range.
+`Int8`, `Int16`, `Int32`, `UInt8`, `UInt16` and `UInt32` enforce their
+declared bounds at typed bindings, assignments, arguments, returns and
+collection accesses. Invalid integer literals fail checking; dynamic overflow
+raises an `arithmetic` fault, which ends the program with status 70 when it is
+not caught. Integer families are assignment-compatible, so a dynamic
+conversion to a narrower type is checked rather than rejected solely for
+having a wider type. `Int` and `Int64` are signed 64-bit on every runtime and
+target; `UInt64` uses the nonnegative part of that range.
 
 On every target, a function whose parameters and result are all `Int`, `Ptr`
 or `Bool`, and whose body uses only such locals and globals, `true`, `false`,
@@ -108,37 +106,23 @@ integer operators, comparisons, `if`, `while`, `for` over `a..b` or `a..=b`,
 `syscall` (full runtime on Linux and NodeOS), calls to top-level functions
 whose parameters (at most six) and result are `Int`, `Ptr` or `Bool`, and
 calls to `extern` functions whose parameters are `Int`, `UInt`, `Ptr` or
-`Bool` and whose result is one of those or `Void` (x86-64 Linux), compiles as a native-word function. Inside it, and across calls
-between such functions, `Int` values are untagged signed 64-bit machine words:
-bitwise operators reach bit 63, `load64` keeps all 64 bits (in tagged code a
-word outside the 61-bit range raises `integer overflow`), shift counts may be
-0 through 63, and `+`, `-`, `*`, `/` and negation fault on 64-bit overflow. A
-call from other code untags the arguments and retags the result, which raises
-an `integer overflow` fault if it does not fit the 61-bit range. A call from a
-native-word function to a function that stays tagged (because its body uses
-lists, strings, `print` and so on) does the reverse: an argument outside the
-61-bit range raises `integer overflow` before the callee runs. Globals keep
-tagged values: a native-word function untags them on read and retags them on
-write, where a value outside the 61-bit range raises `integer overflow` and
-leaves the global unchanged. Extern calls pass machine words straight to C,
+`Bool` and whose result is one of those or `Void` (x86-64 Linux), compiles as a native-word function on x86-64 (ARM64 and RISC-V compile it as ordinary code with the same results). Inside it, and across calls
+between such functions, `Int` values are signed 64-bit machine words:
+bitwise operators reach bit 63, `load64` keeps all 64 bits, shift counts may
+be 0 through 63, and `+`, `-`, `*`, `/` and negation fault on 64-bit
+overflow. Int and Bool payloads already are machine words, so native-word
+functions exchange them with other code unchanged; an argument of another
+type raises a `type` fault. Extern calls pass machine words straight to C,
 so an `Int` or `Ptr` result keeps all 64 bits; a negative `UInt` argument or a
 `UInt` result above the `Int` range raises an `arithmetic` fault. `Int32` and
-`UInt32` values carry range contracts and keep their users tagged. In other
+`UInt32` values carry range contracts, so their users stay ordinary code. In other
 code, an `Int` or `Bool` expression that contains a bitwise operator and uses
 only integer variables, literals, operators and such calls is compiled the
 same way, with its variables (at most six) passed as arguments, so
 `(1 << 63) & (1 << 63) != 0` is `true`; an expression that calls a function
-and also reads a global stays tagged. Debug traces omit native-word frames,
+and also reads a global stays ordinary code. Debug traces omit native-word frames,
 so under `--debug` a native-word function may only call other native-word
-functions.
-Other functions keep the tagged
-semantics ([#92](https://github.com/mirged/maylang/issues/92)).
-
-The 61-bit boundaries above apply to tagged values. With fat values, Int
-and Bool payloads already are machine words: native-word functions exchange
-them with other code unchanged (an argument of another type raises a `type`
-fault), and dynamic integers are signed 64-bit everywhere, so only 64-bit
-overflow faults.
+functions ([#92](https://github.com/mirged/maylang/issues/92)).
 
 `Float32` rounds through IEEE binary32 at typed boundaries and keeps the
 existing boxed binary64 storage. `Float` and `Float64` use binary64. Float32

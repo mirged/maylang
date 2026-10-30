@@ -87,7 +87,7 @@ def render_module(path, module=None):
            '- Import: ' + ('automatically injected; do not import the sidecar.' if module == 'core' else inline('import "' + module.removesuffix('.may') + '" as library;') + '.'),
            '- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.',
            '- Visibility: ' + ('only declarations marked `pub` are exported.' if explicit else 'all top-level declarations are exported because this module has no `pub` declarations.'),
-           '- Source: [implementation](' + ('../../../compiler/mayc/runtime/corelib.may' if module == 'core' else '../' * (3 + module.count('/')) + 'stdlib/' + module) + ').',
+           '- Source: [implementation](' + ('../../../compiler/mayc/runtime/fat_corelib.may' if module == 'core' else '../' * (3 + module.count('/')) + 'stdlib/' + module) + ').',
            '- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](' + '../' * (3 + module.count('/')) + 'stdlib/CONTRACTS.md).']
     for note in DESCRIPTIONS.get('notes', {}).get(module, []):
         out.append('- ' + note)
@@ -163,7 +163,7 @@ def main():
                HERE / 'RUNTIME.md': render_runtime()}
     inventory = []
     sources = [(path, path.relative_to(ROOT / 'stdlib').as_posix()) for path in sorted((ROOT / 'stdlib').rglob('*.may'))]
-    sources.append((ROOT / 'compiler/mayc/runtime/corelib.may', 'core'))
+    sources.append((ROOT / 'compiler/mayc/runtime/fat_corelib.may', 'core'))
     for path, module in sources:
         content, ds = render_module(path, module)
         outputs[HERE / 'stdlib' / Path(module).with_suffix('.md')] = content

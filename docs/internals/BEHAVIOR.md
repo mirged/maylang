@@ -191,7 +191,7 @@ finite row. This increment adds no capability, memory-safety or isolation profil
 ## Primitive audit and expansion gates
 
 The strict checker's builtin registry in `src/strict.may` and the runtime bodies
-in `native.may` and `runtime.may` are the starting points for this inventory.
+in `native.may` and `runtime/fat.may` are the starting points for this inventory.
 A value signature is not an effect summary. Only `print`, `time`, `clock`, `pi`,
 and `e` currently have explicit primitive behavior rules; other builtin and
 runtime calls remain unknown, including apparently scalar mathematical operations.

@@ -29,4 +29,4 @@
 - [test.may](stdlib/test.md) — Counting assertions and a final test report. 9 declarations.
 - [ui.may](stdlib/ui.md) — Native Linux desktop widget trees, themes, antialiased GPU shapes/text, layout, Unicode inputs, focus, scrolling, virtual lists and software PNG snapshots; requires the May UI Sokol adapter. 56 declarations.
 - [validate.may](stdlib/validate.md) — Input predicates and structured rule/field validation. 8 declarations.
-- [core](stdlib/core.md) — Portable core library, including typed scratch arenas and basic list/string/integer helpers. 32 declarations.
+- [core](stdlib/core.md) — Core-runtime additions to the shared library: raw allocation, typed scratch arenas, the retained heap size, gcd and lcm. The core runtime also loads prelude.may and native.may. 10 declarations.

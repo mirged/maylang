@@ -76,8 +76,9 @@ that span components. Relative imports between siblings use
   with `sh compiler/rust/build.sh` (or `make build`).** Otherwise you are
   testing the old compiler.
 - **Runtime sidecars are read at compile time and need no rebuild:**
-  `compiler/mayc/runtime.may`, `compiler/mayc/native.may`,
-  `compiler/mayc/runtime/{core,corelib,math,nodeos}.may` and `stdlib/prelude.may` are
+  `compiler/mayc/native.may`, the `compiler/mayc/runtime/` files
+  (`fat.may`, `fat_linux.may`, `fat_core.may`, `fat_corelib.may`, `math.may`,
+  `nodeos.may`) and `stdlib/prelude.may` are
   symlinked beside the cached binary, so edits apply to the next program you
   compile. They are still compiled into the compiler itself, so a sidecar
   change that the compiler relies on also needs a rebuild and a bootstrap
@@ -87,11 +88,11 @@ that span components. Relative imports between siblings use
   and the API docs. Edit the active copy, then
   `cp compiler/mayc/native.may stdlib/native.may`; `make check` fails while
   they differ.
-- A copied compiler needs `runtime.may`, `native.may`, `prelude.may` and the
-  `runtime/` directory next to it. If they are missing, `mayc` looks for
-  `runtime.may` in the current directory, and for `prelude.may`/`native.may`/
-  `runtime/math.may` at their checkout locations two levels above the
-  executable or under the current directory. Outside a checkout, missing
+- A copied compiler needs `native.may`, `prelude.may` and the `runtime/`
+  directory next to it. The `runtime/fat*.may` files must be there; for
+  `prelude.may`/`native.may`/`runtime/math.may`, `mayc` also tries their
+  checkout locations two levels above the executable or under the current
+  directory. Outside a checkout, missing
   sidecars are an error. `runtime/math.may` (shared float parsing, display and
   transcendentals) is loaded by every runtime with a library prelude.
 - `--target x86_64-nodeos` routes every `syscall` site through a gate into
@@ -143,7 +144,7 @@ Socket and window tests skip when unavailable; say so in your report.
 | Anything | `make check` |
 | Compiler frontend, IR, sema or strict checker | rebuild, `make test-rust test-compiler test-compliance`; `make test-bootstrap` before merging |
 | Backend or code generation | the above plus `python3 compiler/mayc/tests/raw_codegen.py --compiler compiler/mayc/mayc_new`, and core-target harnesses (`backends.py`, `core_runtime.py`; add `--require-emulation` when Unicorn is installed) |
-| `runtime.may`, `native.may`, `prelude.may`, `runtime/` | `make test-compiler test-compliance` and the bootstrap fixpoint (`make test-bootstrap`) |
+| `native.may`, `prelude.may`, `runtime/` | `make test-compiler test-compliance` and the bootstrap fixpoint (`make test-bootstrap`) |
 | `compiler/rust/**` | `make test-rust test-bootstrap` |
 | `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui` |
 | `tools/**` | `make test-tools` |
@@ -218,24 +219,21 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   `Float` (write `0.0` or convert with `to_float`). On `Any` values `==` across
   types is `false`, `!=` is `true`, and ordering raises a `type` fault, so
   `Any`-typed numeric code must normalize with `to_float` before comparing.
-- Values are fat (16 bytes: a type word and a payload,
-  `compiler/mayc/runtime/fat.may` with its host in `fat_linux.may`,
-  `src/backend/x86_64_fat.may`) with the
-  full runtime on x86_64-linux and x86_64-nodeos, so `Int` is signed 64-bit
-  there. The core runtime and `--values tagged` /
-  `MAYC_VALUES=tagged` keep 61-bit tagged values (±2^60, `runtime.may`).
-  The plan and status are in [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md).
-  Raw mode uses native 64-bit words. On every target, all-`Int`/`Ptr`/`Bool`
-  functions (`compiler/mayc/src/words.may`) compute with native 64-bit words,
-  and tagged code outlines bitwise expressions into such functions, so
-  `1 << 63` is a valid intermediate. With tagged values results are retagged
-  at the boundary; one outside ±2^60, a tagged `load64` of such a word,
-  overflow and division by zero raise catchable `arithmetic` faults
-  (uncaught core faults exit 70). `/` truncates toward zero and `%` has the
-  dividend's sign.
+- Values are fat on every runtime and target (16 bytes: a type word and a
+  payload; [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md)), so `Int`
+  is signed 64-bit. `compiler/mayc/runtime/fat.may` is shared; its hosts are
+  `fat_linux.may` (full runtime: collector, files, processes) and
+  `fat_core.may` (core runtime, every target). Dynamic code is lowered by
+  `src/backend/x86_64_fat.may` on x86-64 and `src/backend/raw_fat.may` on
+  ARM64/RISC-V; runtime functions are raw code (`raw.may`, the x86-64 code
+  generator) and take two words per value, returning the type word in
+  `RTAG`. Raw mode uses native 64-bit words. On x86-64, all-`Int`/`Ptr`/`Bool`
+  functions (`compiler/mayc/src/words.may`) compile as native-word functions
+  and bitwise expressions are outlined into them. Overflow and division by
+  zero raise catchable `arithmetic` faults (uncaught faults exit 70). `/`
+  truncates toward zero and `%` has the dividend's sign.
 - The compiler itself runs on fat values once built, but the Rust/C stage 1
-  and `--values tagged` builds do not, so keep integer literals in compiler
-  sources within ±2^60.
+  does not, so keep integer literals in compiler sources within ±2^60.
 - Strings are UTF-8 and `len`/indexing count code points. For byte length use
   `byte_length` from `import "net";`, or `load64(addr(s) - 8)` as `net.may`
   does. `print` always appends a newline; for raw output use
@@ -368,10 +366,10 @@ tag, then packages and publishes. CI uses Ubuntu 24.04 and Node 22.
   workload may be this bug rather than your change, so reproduce it before
   blaming the change.
 - **Heap tests rewrite one line:** harnesses shrink the full runtime's heap
-  by replacing `mut sz: Any = 268435456;` in `runtime.may` and
-  `runtime/fat_linux.may`. Keep that exact line as the only heap-size literal in
-  each; the reservation (four times `sz`, so the collection threshold can
-  grow) is derived from it.
+  by replacing `mut sz: Any = 268435456;` in `runtime/fat_linux.may`, and
+  the core heap limit by replacing `CORE_RETAINED + size > 268435456` in
+  `runtime/fat_core.may`. Keep those exact texts unique; the reservation
+  (four times `sz`, so the collection threshold can grow) is derived from it.
 - **Source size limits:** each source file is limited to 1 MiB and the
   expanded import closure to 4 MiB; both are rejected with an error, not
   truncated (#37, #38). The 256 MiB source arena is bounded and can be resized
