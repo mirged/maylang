@@ -11,7 +11,6 @@ import "src/ir.may";
 import "src/backend.may";
 import "src/formats.may";
 import "src/formats/bytes.may";
-import "src/formats/nxf.may";
 import "src/modules.may";
 import "src/profile.may";
 
@@ -417,7 +416,7 @@ fun main2() -> Any {
 
     }
     profile_mark("ir");
-    if (nodeos) { nxf_set_image_name(symbol_name(op, ol)); }
+    format_output_name(ctx, symbol_name(op, ol));
     backend_emit(ctx);
     profile_mark("emit");
     pad_code(ctx);

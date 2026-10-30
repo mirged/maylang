@@ -1,0 +1,23 @@
+import "elf.may";
+import "macho.may";
+import "pe.may";
+import "nxf.may";
+// Mach-O, PE and NodeOS NXF output. formats.may reaches them only through
+// these functions; NXF reuses the ELF layout.
+
+fun portable_layout(ctx: Any) -> Any {
+    if (ctx.target.format == "nxf") { return elf_layout(ctx); }
+    if (ctx.target.format == "macho") { return macho_layout(ctx); }
+    return pe_layout(ctx);
+}
+
+fun portable_build(ctx: Any) -> Any {
+    if (ctx.target.format == "nxf") { return build_nxf(ctx); }
+    if (ctx.target.format == "macho") { return build_macho(ctx); }
+    return build_pe(ctx);
+}
+
+fun portable_output_name(ctx: Any, path: Any) -> Any {
+    if (ctx.target.format == "nxf") { nxf_set_image_name(path); }
+    return 0;
+}

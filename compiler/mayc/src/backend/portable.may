@@ -1,0 +1,16 @@
+import "../backend.may";
+import "arm64.may";
+import "riscv.may";
+import "raw.may";
+// The ARM64 and RISC-V backends: emitters for the portable RAW lowering in
+// raw.may, raw_fat.may and raw_float.may. backend.may reaches them only
+// through portable_backend.
+struct CodeEmitter { immediate: Any, move: Any, load: Any, store: Any, binary: Any, unary: Any, jump: Any, branch: Any, prologue: Any, epilogue: Any, trap: Any }
+
+fun portable_backend(ctx: Any) -> Any {
+    if (ctx.target.arch == "arm64") { return TargetBackend(arm64_emit, arm64_patch); }
+    return TargetBackend(riscv_emit, riscv_patch);
+}
+
+fun arm64_emit(ctx: Any) -> Any { return raw_program(ctx, arm64_emitter()); }
+fun riscv_emit(ctx: Any) -> Any { return raw_program(ctx, riscv_emitter()); }

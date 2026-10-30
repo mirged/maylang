@@ -3,7 +3,7 @@ import "../state.may";
 import "../ast.may";
 import "../diagnostics.may";
 import "../emitter.may";
-import "../backend.may";
+import "portable.may";
 // AArch64 integer emitter. Function ABI: x0-x7, x0 result, 16-byte SP.
 // Linux syscalls: x8 number; Darwin syscalls: x16 number; x0-x5 arguments.
 fun arm64_register(ctx: Any, register: Any) -> Any {

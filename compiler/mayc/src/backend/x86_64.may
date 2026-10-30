@@ -2,6 +2,7 @@ import "../regalloc.may";
 import "x86_64_ffi.may";
 import "x86_64_fat.may";
 import "platform_x86.may";
+import "x86_64_nodeos.may";
 import "../emitter.may";
 import "../symbols.may";
 import "../ffi.may";
@@ -1957,25 +1958,11 @@ fun cg_syscall(ctx: Any, args: Any) -> Any {
     return 0;
 }
 
-// `syscall` keeps Linux numbering on every x86-64 target. NodeOS has its own
-// syscall table, so there each site calls the gate instead, which hands the
-// Linux call to the personality in runtime/nodeos.may. The gate preserves
-// every register a `syscall` instruction preserves, so register allocation
-// is identical on both targets.
+// `syscall` keeps Linux numbering on every x86-64 target; NodeOS routes it
+// through a gate (x86_64_nodeos.may).
 fun x86_syscall_instruction(ctx: Any) -> Any {
-    if (ctx.target.os == "nodeos") {
-        e8(ctx, 232); let offset: Any = ctx.code.length; e32(ctx, 0);
-        fx(ctx, 0, offset, ctx.platform[0]);
-    } else { e8(ctx, 15); e8(ctx, 5); }
-    return 0;
-}
-
-// `__nodeos_syscall` always issues the instruction itself, with NodeOS numbering.
-fun cg_nodeos_syscall(ctx: Any, args: Any, tagged: Any) -> Any {
-    if (ctx.target.os != "nodeos") { die_str("mayc: __nodeos_syscall requires --target x86_64-nodeos\n"); }
-    x86_syscall_arguments(ctx, args, tagged);
-    e8(ctx, 15); e8(ctx, 5);
-    if (tagged) { tag_rax(ctx); }
+    if (ctx.target.os == "nodeos") { x86_nodeos_call_gate(ctx); }
+    else { e8(ctx, 15); e8(ctx, 5); }
     return 0;
 }
 
@@ -2815,13 +2802,7 @@ fun x86_emit(ctx: Any) -> Any {
     if (ctx.dynamic == 1) {
         ctx.fiberLabel = newlab(ctx);
     }
-    mut gate: Any = 0;
-    if (ctx.target.os == "nodeos") {
-        gate = ctx.functionIndex["rt_nodeos_syscall"] ?? 0;
-        if (gate == 0) { die_str("mayc: x86_64-nodeos requires runtime/nodeos.may\n"); }
-        ctx.platform = [newlab(ctx)];
-        emission_reference(ctx, gate.lab);
-    }
+    let gate: Any = if (ctx.target.os == "nodeos") { x86_nodeos_begin(ctx) } else { 0 };
     cg_program(ctx);
     mut next: Any = 0;
     mut draining: Any = true;
@@ -2836,38 +2817,5 @@ fun x86_emit(ctx: Any) -> Any {
     if (ctx.reachability.fiber) { x86_emit_fiber(ctx); }
     if (gate != 0) { x86_emit_nodeos_gate(ctx, gate); }
     emission_finish(ctx);
-    return 0;
-}
-
-// The NodeOS syscall gate. A call site has loaded a Linux syscall exactly as
-// for the `syscall` instruction: number in RAX, arguments in RDI, RSI, RDX,
-// R10, R8 and R9, at any stack alignment. The gate saves everything that
-// instruction would preserve (all but RAX, RCX and R11, including the SSE
-// registers), realigns the stack, and calls
-// rt_nodeos_syscall(number, a0, a1, a2, a3, a4, a5) with the SysV ABI.
-fun x86_emit_nodeos_gate(ctx: Any, rec: Any) -> Any {
-    placelab(ctx, ctx.platform[0]);
-    x86_encode(ctx, X86Instruction([85, 72, 137, 229], 0, 0));           // push rbp; mov rbp, rsp
-    x86_encode(ctx, X86Instruction([87, 86, 82, 65, 80, 65, 81, 65, 82], 0, 0)); // push rdi, rsi, rdx, r8, r9, r10
-    x86_encode(ctx, X86Instruction([72, 129, 236], 256, 4));             // sub rsp, 256
-    x86_encode(ctx, X86Instruction([72, 131, 228], 240, 1));             // and rsp, -16
-    for i: Any in 0..16 { x86_nodeos_xmm(ctx, 127, i); }                  // movdqu [rsp + 16i], xmm_i
-    x86_encode(ctx, X86Instruction([72, 131, 236, 8, 65, 81], 0, 0));     // sub rsp, 8; push r9 (7th argument)
-    x86_encode(ctx, X86Instruction([77, 137, 193, 77, 137, 208], 0, 0));  // mov r9, r8; mov r8, r10
-    x86_encode(ctx, X86Instruction([72, 137, 209, 72, 137, 242], 0, 0));  // mov rcx, rdx; mov rdx, rsi
-    x86_encode(ctx, X86Instruction([72, 137, 254, 72, 137, 199], 0, 0));  // mov rsi, rdi; mov rdi, rax
-    if (rec.abiLab == 0) { rec.abiLab = newlab(ctx); }
-    e8(ctx, 232); let offset: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, offset, rec.abiLab);
-    x86_encode(ctx, X86Instruction([72, 131, 196, 16], 0, 0));           // add rsp, 16
-    for i: Any in 0..16 { x86_nodeos_xmm(ctx, 111, i); }                  // movdqu xmm_i, [rsp + 16i]
-    x86_encode(ctx, X86Instruction([72, 141, 101, 208], 0, 0));          // lea rsp, [rbp - 48]
-    x86_encode(ctx, X86Instruction([65, 90, 65, 89, 65, 88, 90, 94, 95, 93, 195], 0, 0)); // pop r10..rdi; pop rbp; ret
-    return 0;
-}
-
-fun x86_nodeos_xmm(ctx: Any, opcode: Any, register: Any) -> Any {
-    e8(ctx, 243);
-    if (register >= 8) { e8(ctx, 68); }
-    e8(ctx, 15); e8(ctx, opcode); e8(ctx, 132 + (register % 8) * 8); e8(ctx, 36); e32(ctx, register * 16);
     return 0;
 }
