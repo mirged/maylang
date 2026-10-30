@@ -64,7 +64,7 @@ fun ls_navigation_scan(path: Any, depth: Any, files: Any, seen: Any) -> Any {
     let entries: Any = may { read_dir(path) } otherwise { [] };
     for entry: Any in entries {
         if (len(files) >= 10000) { break; }
-        if (has([".", "..", ".git", ".may", "target", "node_modules", ".codex", ".agents", "build"], entry)) { continue; }
+        if (has([".", "..", ".git", ".may", "target", "node_modules", ".codex", ".agents", "build", "frozen"], entry)) { continue; }
         let child: Any = path + "/" + entry;
         if (ls_is_directory(child)) { ls_navigation_scan(child, depth + 1, files, seen); }
         else if (ls_ends(entry, ".may")) {

@@ -125,6 +125,11 @@
     "name": "status:needs-info"
   },
   {
+    "color": "D4C5F9",
+    "description": "Area is frozen in frozen/ and not maintained for now",
+    "name": "status:frozen"
+  },
+  {
     "color": "7057FF",
     "description": "Suitable for first-time contributors",
     "name": "good-first-issue"

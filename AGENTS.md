@@ -39,6 +39,8 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
   anything you skipped because a dependency was missing.
 - Keep behavior changes separate from mechanical moves or reformatting so
   each can be reviewed.
+- Do not edit, fix or test anything under `frozen/`. It is kept for later
+  but not built or maintained; see [frozen/README.md](frozen/README.md).
 
 ## Repository map
 
@@ -58,6 +60,7 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
 | `docs/` | `guide/`, `internals/`, `design/`, `history/`, generated `reference/` | `make check test-docs` |
 | `editors/vscode/` | VS Code extension (TypeScript, grammar, snippets) | `make editor` |
 | `scripts/` | `doctor.py`, `build_tools.py`, `check_repository.py` | `make check` |
+| `frozen/` | Unmaintained code outside the Linux x86-64 focus ([frozen/README.md](frozen/README.md)) | None |
 
 Component tests live beside their implementation. `tests/` holds only suites
 that span components. Relative imports between siblings use
