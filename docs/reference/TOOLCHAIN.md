@@ -15,7 +15,7 @@
 - `--raw` — omit runtime, native library and prelude.
 - `--no-code-align` — emit raw x86-64 code without the NOP padding that aligns function bodies and loop heads; for layout experiments.
 - `--runtime full|core|none` — select runtime; none is equivalent to raw; full defaults on x86_64-linux and x86_64-nodeos, core on other native targets.
-- `--values fat|tagged` — select the value representation; fat (16-byte values, 64-bit Int) is the default with the full runtime on x86_64-linux and x86_64-nodeos; other targets support only tagged values. `MAYC_VALUES=tagged` changes the default.
+- `--values fat|tagged` — select the value representation; fat (16-byte values, 64-bit Int) is the default with the full runtime on x86_64-linux and x86_64-nodeos and can be selected for the core runtime on every x86-64 target (x86_64-windows included); ARM64 and RISC-V support only tagged values so far. `MAYC_VALUES=tagged` changes the default.
 - `--time` — report compilation-stage timings to stderr.
 - `--target TARGET` — select one of the supported targets listed below. The default is x86_64-linux, or x86_64-nodeos when the compiler runs on NodeOS.
 - `--dump-expanded` — print import-expanded source and exit.

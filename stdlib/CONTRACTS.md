@@ -39,7 +39,8 @@ fails if they differ.
   normalization or locale collation is performed. Raw pointers address bytes.
 - Lists, maps and records are mutable references. Passing them does not copy
   storage; aliases see mutation. Full-runtime list/map equality uses identity;
-  core list equality is structural. Strings compare by value. Use explicit
+  core list equality is structural with tagged values and identity with
+  `--values fat`. Strings compare by value. Use explicit
   element comparisons for portable collection equality.
 - Error recovery uses `may { ... } otherwise { ... }`; `err.kind` and
   `err.message` describe failures. Typed Result helpers preserve their generic

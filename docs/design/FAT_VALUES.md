@@ -87,12 +87,44 @@ keeps reporting the 3-bit tag numbers during the migration, for library
 compatibility; a `List<Any>` uses 16 bytes per element. Until the compiler
 itself runs on fat values, source integer literals stay within ±2^60.
 
+## Core runtime and portable backends
+
+The core runtime (every target, no collector, FFI or operating-system
+libraries) and the ARM64 and RISC-V backends still use tagged values. They
+move to fat values in four steps, each green on its own:
+
+1. **Split the fat runtime by host.** `runtime/fat.may` keeps what every
+   target shares: errors, strings, lists, maps, closures, operators,
+   numbers, collections, closure calls and fibers. A host file supplies the
+   heap, output, exit and fiber stacks: `runtime/fat_linux.may` (the
+   collector, mmap, files, processes, time and externs) for the full
+   runtime, `runtime/fat_core.may` (chunks from `__host_alloc` kept until
+   exit, `__host_write`, `__host_exit`, arenas and the `core_heap_*`
+   functions) for the core runtime. Both load the same library
+   (`prelude.may`, `native.may`, `math.may`), so the core runtime stops
+   carrying its own copies in `core.may` and `corelib.may`; a reachable
+   function that needs an operating-system primitive is reported as needing
+   the full runtime.
+2. **x86-64 core targets** (`x86_64-windows`, and `--runtime core` on
+   x86_64-linux and NodeOS) compile with the fat x86-64 backend; its
+   `exit` and syscall builtins go through the host primitives.
+3. **ARM64 and RISC-V.** `backend/raw.may` gains a fat lowering for dynamic
+   code: every temporary and local has a 16-byte frame slot, an expression
+   leaves its payload in logical register 0 and its type word in a new
+   logical register, and runtime calls pass two argument registers per
+   value. The raw subset's `__fbits` and `__fat_apply` builtins get
+   portable implementations, since the runtime uses them.
+4. **Remove tagged values.** Fat values become the only representation:
+   `runtime.may`, `core.may`, `corelib.may`, the tagged x86-64 code
+   generator paths, `--values` and `MAYC_VALUES` go away, and the raw
+   subset no longer scales addresses.
+
 ## Ledger
 
 | Step | State |
 | --- | --- |
 | Design and ABI | this document |
-| `--values fat` flag, fat runtime and x86-64 backend | working (`runtime/fat.may`, `backend/x86_64_fat.may`); Int arithmetic, comparisons and list indexing inline, other operators call the runtime |
+| `--values fat` flag, fat runtime and x86-64 backend | working (`runtime/fat.may` with `runtime/fat_linux.may`, `backend/x86_64_fat.may`); Int arithmetic, comparisons and list indexing inline, other operators call the runtime |
 | Feature fixtures passing with `--values fat` | 46 of 46 (`compiler/mayc/tests/fat_values.py`); `bitwise.may` differs only where Int no longer overflows |
 | Prelude, native library, math and stdlib | loaded; floats are unboxed, `math.may` bit helpers are intrinsics |
 | Fibers, handlers, debug traces | working |
@@ -100,7 +132,9 @@ itself runs on fat values, source integer literals stay within ±2^60.
 | Self-hosting on fat values | the compiler built with `--values fat` emits byte-identical output and rebuilds itself identically (`fat_values.py`) |
 | Default on x86_64-linux, bootstrap fixpoint | done; integer literals follow the target (±2^63 fat, ±2^60 tagged) |
 | NodeOS | done: the full runtime is fat by default; `exec` and `system` fall back to the personality's spawn extension; the compiler runs and rebuilds itself on NodeOS |
-| Core runtime, ARM64, RISC-V on fat values; tagged runtime removed | not started; the LLVM backend was removed instead of ported |
+| Runtime split by host (step 1) | done: `runtime/fat.may` makes no syscalls; `runtime/fat_linux.may` is the full runtime's host |
+| x86-64 core runtime (step 2) | working with `--values fat` on x86_64-linux, x86_64-windows and NodeOS (`runtime/fat_core.may`, `runtime/fat_corelib.may`); the core runtime loads `prelude.may` and `native.may`, so its programs print what the full runtime prints, including identity list equality and `kind: message` faults (`core_runtime.py`). Tagged values stay the core default until ARM64 and RISC-V follow |
+| ARM64, RISC-V (step 3); tagged runtime removed (step 4) | not started; the LLVM backend was removed instead of ported |
 | Fat code size | temporaries defined once and read before the next boundary share reused frame slots, hot slots first with 8-bit displacements; a temporary read only by the next instruction is never stored; direct calls zero their argument area only when arguments are missing. The compiler's code shrank from 5.0 MB to 3.9 MB (tagged: 2.4 MB), which fits NodeOS's 4 MiB image copy |
 | Fat performance | in progress. Int `/` and `%` run inline (`idiv`; divisors 0 and -1 take the runtime path); closure calls check the type word inline, reuse one scratch pair per function and zero only missing parameters; binary-operator and index slow paths are shared stubs; runtime trampolines return `RTAG` in RDX. Float `+ - * /` and comparisons run in one shared stub per operator (SSE; a zero divisor and other types continue to `rt_binary`), so a 20M-iteration Float loop takes 405 ms instead of 2.2 s (tagged: 8.0 s). The compiler's code is 3.65 MB before the LLVM backend's removal, 3.45 MB now. Micro-benchmarks against tagged: Int loop 416/365 ms, Float 652/3328, closures 128/281, lists 403/489, maps 384/375 |
 | String library | `index_of`, `replace`, `to_lower` and `to_upper` in `native.may` scan bytes instead of re-indexing code points, for both representations; `stress.may` fell from 7.1 s to 0.7 s (tagged 5.3 s to 0.4 s) |
