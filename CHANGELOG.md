@@ -29,9 +29,9 @@
   the runtime: a Float loop runs 5.5x faster (405 ms against 2.2 s; tagged
   values take 8.0 s) for 70 KB more compiler code
   ([#92](https://github.com/mirged/maylang/issues/92)).
-- Add the core runtime on fat values for x86-64 targets
-  (`--runtime core --values fat` on x86_64-linux, x86_64-windows and
-  x86_64-nodeos). It shares the full runtime's `runtime/fat.may`,
+- Add the core runtime on fat values for every target
+  (`--runtime core --values fat`; x86-64 through the fat x86-64 backend,
+  ARM64 and RISC-V through the new `backend/raw_fat.may`). It shares the full runtime's `runtime/fat.may`,
   `prelude.may` and `native.may`, so core programs print what the full
   runtime prints, including identity list equality and `kind: message`
   fault text. Tagged values remain the core default for now
