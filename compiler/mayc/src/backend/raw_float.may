@@ -1,5 +1,7 @@
 import "../emitter.may";
 import "../lexer.may";
+import "../ast.may";
+import "../state.may";
 import "raw.may";
 import "riscv.may";
 
@@ -123,4 +125,61 @@ fun raw_float_call(ctx: Any, emitter: Any, name: Any, args: Any) -> Any {
     if (name == "floor" or name == "ceil") { return raw_float_round(ctx, emitter, if (name == "floor") { 1 } else { 2 }); }
     raw_float_truncate(ctx, emitter, 0);
     (emitter.move)(ctx, 10, 0); return raw_invoke(ctx, emitter, "rt_float_int");
+}
+
+// `__fbits(op, a, b)` for the fat runtime (#92), on binary64 bits in
+// integer registers: op 0-3 add/sub/mul/div, 4 sqrt, 5 floor, 6 ceil,
+// 7 trunc, 8 round half to even, 9 round to binary32, 10 Int to Float,
+// 11 Float to Int (truncating; NaN and out of range give -2^63), 20-25
+// == != < <= > >= as 0 or 1, false for NaN except !=. As in cg_fbits.
+fun raw_fbits(ctx: Any, emitter: Any, args: Any) -> Any {
+    if (args.kind != E_INT) { die_str("mayc: __fbits needs a literal operation\n"); }
+    let op: Any = args.value;
+    let arm: Any = ctx.target.arch == "arm64";
+    raw_get(ctx, emitter, args.next, 0);
+    if (op == 10) {
+        e32(ctx, if (arm) { 2657222656 } else { 3525640275 });   // scvtf d0, x0 / fcvt.d.l f0, a0, rne
+        e32(ctx, if (arm) { 2657484800 } else { 3791652179 });   // fmov x0, d0 / fmv.x.d a0, f0
+        return 0;
+    }
+    e32(ctx, if (arm) { 2657550336 } else { 4060414035 });       // fmov d0, x0 / fmv.d.x f0, a0
+    if (op == 11) { return raw_float_truncate(ctx, emitter, 0); }
+    if (op == 4) { e32(ctx, if (arm) { 509722624 } else { 1509978195 }); }  // fsqrt
+    else if (op >= 5 and op <= 8) {
+        if (arm) { e32(ctx, [509952000, 509919232, 509984768, 509886464][op - 5]); } // frintm/p/z/n
+        else {
+            // RISC-V D has no round-to-integral: |x| >= 2^52, infinities and
+            // NaN are integral already; others round through an integer, and
+            // FSGNJ keeps the sign of zero results such as ceil(-0.5).
+            let integral: Any = newlab(ctx);
+            e32(ctx, 3791652179); riscv_i(ctx, 20499, 10, 10, 52); // fmv.x.d a0, f0; srli a0, a0, 52
+            (emitter.immediate)(ctx, 2048, 1); (emitter.binary)(ctx, TK_PCT);
+            (emitter.immediate)(ctx, 1075, 1); (emitter.binary)(ctx, TK_GE);
+            (emitter.branch)(ctx, integral, false);
+            e32(ctx, 3256878419 + [2, 3, 1, 0][op - 5] * 4096);  // fcvt.l.d a0, f0, rdn/rup/rtz/rne
+            e32(ctx, 3525640403); e32(ctx, 570458195);            // fcvt.d.l f1, a0; fsgnj.d f0, f1, f0
+            placelab(ctx, integral);
+        }
+    }
+    else if (op == 9) {
+        e32(ctx, if (arm) { 509755392 } else { 1074819155 });     // fcvt s0, d0
+        e32(ctx, if (arm) { 505593856 } else { 1107296339 });     // fcvt d0, s0
+    } else {
+        raw_get(ctx, emitter, args.next.next, 0);
+        e32(ctx, if (arm) { 2657550337 } else { 4060414163 });   // fmov d1, x0 / fmv.d.x f1, a0
+        if (op <= 3) {
+            e32(ctx, if (arm) { [509683712, 509687808, 509675520, 509679616][op] } else { [34631763, 168849491, 303067219, 437284947][op] });
+        } else if (arm) {
+            // fcmp; cset with EQ, NE, MI, LS, GT, GE: all false when unordered but NE.
+            e32(ctx, 509681664);
+            e32(ctx, 2594113504 + [1, 0, 5, 8, 13, 11][op - 20] * 4096);
+            return 0;
+        } else {
+            e32(ctx, [2718967123, 2718967123, 2718963027, 2718958931, 2717947219, 2717943123][op - 20]); // feq/flt/fle
+            if (op == 21) { riscv_i(ctx, 16403, 10, 10, 1); }    // xori a0, a0, 1
+            return 0;
+        }
+    }
+    e32(ctx, if (arm) { 2657484800 } else { 3791652179 });       // fmov x0, d0 / fmv.x.d a0, f0
+    return 0;
 }

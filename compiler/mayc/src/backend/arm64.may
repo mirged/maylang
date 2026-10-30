@@ -33,8 +33,22 @@ fun arm64_move(ctx: Any, destination: Any, source: Any) -> Any {
     return 0;
 }
 
+// x17 = base + offset for offsets a scaled 12-bit immediate cannot reach
+// (fat frames, #92). x17 belongs to no logical register.
+fun arm64_far(ctx: Any, base: Any, offset: Any) -> Any {
+    if (offset < 0 or offset >= 2147483648) { die_str("mayc: ARM64 frame offset out of range\n"); }
+    e32(ctx, 3531603968 + (offset % 65536) * 32 + 17);                          // movz x17, low
+    e32(ctx, 4070572032 + (offset / 65536) * 32 + 17);                          // movk x17, high, lsl 16
+    e32(ctx, 2334154752 + 17 * 65536 + arm64_register(ctx, base) * 32 + 17);   // add x17, base, x17, uxtx
+    return 17;
+}
+
 fun arm64_load(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> Any {
     let opcodes: Any = {1: 960495616, 2: 2034237440, 4: 3107979264, 8: 4181721088};
+    if (offset >= 0 and offset % width == 0 and offset / width > 4095) {
+        e32(ctx, opcodes[width] + arm64_far(ctx, base, offset) * 32 + arm64_register(ctx, register));
+        return 0;
+    }
     if (offset < 0 or offset % width != 0 or offset / width > 4095) { die_str("mayc: ARM64 load offset out of range\n"); }
     e32(ctx, opcodes[width] + (offset / width) * 1024 + arm64_register(ctx, base) * 32 + arm64_register(ctx, register));
     return 0;
@@ -42,6 +56,10 @@ fun arm64_load(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> A
 
 fun arm64_store(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> Any {
     let opcodes: Any = {1: 956301312, 2: 2030043136, 4: 3103784960, 8: 4177526784};
+    if (offset >= 0 and offset % width == 0 and offset / width > 4095) {
+        e32(ctx, opcodes[width] + arm64_far(ctx, base, offset) * 32 + arm64_register(ctx, register));
+        return 0;
+    }
     if (offset < 0 or offset % width != 0 or offset / width > 4095) { die_str("mayc: ARM64 store offset out of range\n"); }
     e32(ctx, opcodes[width] + (offset / width) * 1024 + arm64_register(ctx, base) * 32 + arm64_register(ctx, register));
     return 0;
@@ -86,14 +104,19 @@ fun arm64_branch(ctx: Any, label: Any, zero: Any) -> Any {
     return 0;
 }
 
+// Frames beyond a 12-bit immediate (fat frames, #92) take a second,
+// 4 KiB-shifted adjustment, up to 16 MiB.
 fun arm64_prologue(ctx: Any, frame: Any) -> Any {
     e32(ctx, 2847898621); e32(ctx, 2432697341);
-    e32(ctx, 3506439167 + frame * 1024);
+    if (frame >= 16777216) { die_str("mayc: ARM64 stack frame exceeds 16 MiB\n"); }
+    if (frame > 4095) { e32(ctx, 3510633471 + (frame / 4096) * 1024); }    // sub sp, sp, high, lsl 12
+    e32(ctx, 3506439167 + (if (frame > 4095) { frame % 4096 } else { frame }) * 1024);
     return 0;
 }
 
 fun arm64_epilogue(ctx: Any, frame: Any) -> Any {
-    e32(ctx, 2432697343 + frame * 1024);
+    if (frame > 4095) { e32(ctx, 2432697279); }                              // mov sp, x29
+    else { e32(ctx, 2432697343 + frame * 1024); }
     e32(ctx, 2831252477); e32(ctx, 3596551104);
     return 0;
 }

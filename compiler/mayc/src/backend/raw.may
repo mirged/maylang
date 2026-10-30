@@ -11,6 +11,7 @@ import "../backend.may";
 import "../literals.may";
 import "x86_64.may";
 import "raw_float.may";
+import "raw_fat.may";
 // Shared IR lowering for raw and tagged portable programs. The emitter
 // contract uses logical registers 0 (result), 1 (right operand), 2 (address).
 // Linear scan uses logical registers 20-23; branch joins keep private homes.
@@ -69,6 +70,8 @@ fun raw_set(ctx: Any, emitter: Any, name: Any, length: Any, initialize: Any) -> 
 fun raw_call(ctx: Any, emitter: Any, payload: Any) -> Any {
     let name: Any = symbol_name(payload.name, payload.length);
     let args: Any = payload.args;
+    if (FAT_VALUES and name == "__fbits") { return raw_fbits(ctx, emitter, args); }
+    if (FAT_VALUES and name == "__fat_apply") { return raw_fat_apply(ctx, emitter, args); }
     if (ctx.runtime == "core" and ctx.mode == 0 and has(["__fbin", "__fcmp", "__ftrunc", "__ffrac", "__fsign", "__f32", "__fabs", "sqrt", "floor", "ceil", "trunc"], name)) { return raw_float_call(ctx, emitter, name, args); }
     if (name == "__longjmp") { return raw_throw(ctx, emitter); }
     if (name == "__fiber_stack") { return raw_fiber_stack(ctx, emitter, args); }
@@ -241,7 +244,8 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
             } else {
                 raw_get(ctx, emitter, payload.left, 0); raw_get(ctx, emitter, payload.right, 1);
                 (emitter.binary)(ctx, payload.op);
-                if (ctx.dynamic != 0 and has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], payload.op)) {
+                // Tagged runtimes keep raw bitwise results in 61 bits; fat ones use words.
+                if (ctx.dynamic != 0 and not FAT_VALUES and has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], payload.op)) {
                     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
                     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
                 }
@@ -268,7 +272,7 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
                     (emitter.load)(ctx, 0, -1, raw_native_slot(ctx, 0), 8);
                 }
                 (emitter.unary)(ctx, payload.op);
-                if (ctx.dynamic != 0 and not ctx.native and payload.op == TK_BITNOT) {
+                if (ctx.dynamic != 0 and not ctx.native and not FAT_VALUES and payload.op == TK_BITNOT) {
                     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHL);
                     (emitter.immediate)(ctx, 3, 1); (emitter.binary)(ctx, TK_SHR);
                 }
@@ -306,6 +310,8 @@ fun raw_block(ctx: Any, emitter: Any, block: Any) -> Any {
 }
 
 fun raw_function(ctx: Any, emitter: Any, block: Any, rec: Any) -> Any {
+    // Dynamic code on fat values has its own lowering (raw_fat.may).
+    if (FAT_VALUES and ctx.dynamic == 1 and (rec == 0 or rec.mode != 1)) { return rf_function(ctx, emitter, block, rec); }
     ctx.native = ctx.dynamic == 1 and rec != 0 and rec.native == true;
     ctx.nativeFaults = [0, 0, 0];
     ctx.mode = if (ctx.dynamic == 1 and not ctx.native and (rec == 0 or rec.mode != 1)) { 1 } else { 0 };
@@ -606,9 +612,13 @@ fun raw_handler_address(ctx: Any, emitter: Any, previous: Any) -> Any {
 }
 
 fun raw_handler(ctx: Any, emitter: Any, label: Any) -> Any {
+    return raw_handler_at(ctx, emitter, label, raw_home(ctx, ctx.allocation.callSlot));
+}
+
+// Push a handler for `label`, keeping its address in the frame word at `slot`.
+fun raw_handler_at(ctx: Any, emitter: Any, label: Any, slot: Any) -> Any {
     raw_invoke(ctx, emitter, "rt_handler_limit");
     raw_handler_address(ctx, emitter, false);
-    let slot: Any = raw_home(ctx, ctx.allocation.callSlot);
     (emitter.store)(ctx, 2, -1, slot, 8);
     if (ctx.target.arch == "arm64") { e32(ctx, 2432697312); } // mov x0,sp
     else { e32(ctx, 66835); } // mv a0,sp
@@ -626,6 +636,11 @@ fun raw_handler(ctx: Any, emitter: Any, label: Any) -> Any {
 }
 
 fun raw_throw(ctx: Any, emitter: Any) -> Any {
+    // With no handler the fault is uncaught, as in the x86-64 backend.
+    let handled: Any = newlab(ctx);
+    raw_variable(ctx, emitter, addr("HDEPTH"), 6); (emitter.branch)(ctx, handled, false);
+    raw_invoke(ctx, emitter, "rt_die_uncaught");
+    placelab(ctx, handled);
     raw_handler_address(ctx, emitter, true);
     for i: Any in 0..4 { (emitter.load)(ctx, 20 + i, 2, 24 + i * 8, 8); }
     (emitter.load)(ctx, 0, 2, 0, 8); (emitter.load)(ctx, 1, 2, 8, 8); (emitter.load)(ctx, 2, 2, 16, 8);

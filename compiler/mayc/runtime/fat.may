@@ -1218,8 +1218,8 @@ fun rt_spawn(t: Any, f: Any) -> Any {
     if (base <= 0) { return rt_failstr(rt_from(addr("cannot allocate fiber stack"), 27)); }
     let top: Any = base + size;
     store64(rec + 24, top);
-    let sp: Any = top - 56;
-    store64(sp + 48, __fiber_entry());
+    // A frame the backend's fiber switch returns from into rt_fiber_entry.
+    let sp: Any = __fiber_stack(top);
     store64(rec, sp);
     store64(FIB_TAB + FIB_N * 8, rec);
     FIB_N = FIB_N + 1;

@@ -25,7 +25,7 @@ EXPECTED = (
 ).encode()
 # Fat values (#92) share the full runtime's list identity and fault text.
 FAT_EXPECTED = EXPECTED.replace(b'1] true [1, 2, 3]', b'1] false [1, 2, 3]')
-FAT_TARGETS = ['x86_64-linux', 'x86_64-windows']
+FAT_TARGETS = ['x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']
 FAT_FAILURES = [
     ('let n: Any = 3; print(n / 0);', b'arithmetic: division by zero\n'),
     ('let n: Int = 1; let count: Int = 64; print(n << count);', b'arithmetic: shift count out of range\n'),
@@ -181,7 +181,7 @@ def fat_core(compiler, work, have_emulation):
             check(source, message, 70, target)
         print(f'PASS {target}: core runtime on fat values' + ('' if have_emulation else ' (emulation skipped)'), flush=True)
     # Sharing runtime/fat.may and native.may, core programs print exactly
-    # what the full runtime prints.
+    # what the full runtime prints, on every target.
     for source in sorted(HERE.glob('backend/portable_*.may')):
         outputs = []
         for flags in (['--runtime', 'core'], ['--runtime', 'full']):
@@ -189,8 +189,22 @@ def fat_core(compiler, work, have_emulation):
             compile_source(compiler, source, binary, '--values', 'fat', *flags)
             result = subprocess.run([str(binary)], capture_output=True, timeout=30)
             outputs.append((result.returncode, result.stdout, result.stderr))
-        assert outputs[0] == outputs[1], (source.name, outputs)
-    print('PASS fat core programs match the fat full runtime', flush=True)
+        assert outputs[0] == outputs[1] and not outputs[0][2], (source.name, outputs)
+        if have_emulation:
+            for target in FAT_TARGETS[1:]:
+                image = compile_source(compiler, source, work / 'fat-portable', '--runtime', 'core', '--values', 'fat', '--target', target)
+                emulate(image, target, outputs[0][1], outputs[0][0])
+    print('PASS fat core programs match the fat full runtime' + (' on every target' if have_emulation else ''), flush=True)
+    # Frames beyond 12-bit offsets (ARM64 and RISC-V) and far locals in
+    # closures and handlers.
+    lines = ['fun big(seed: Int) -> Int {'] + [f'    let v{i}: Int = seed + {i};' for i in range(300)]
+    lines += ['    let f: (Int) -> Int = fun(x: Int) -> Int { return x + v299; };',
+              '    let r: Int = may { if (seed > 100) { fail("big"); } v7 + v250 } otherwise { -1 };',
+              '    return f(r) + v0 + v150;', '}', 'print(big(1), big(500));', 'exit(0);']
+    source = work / 'fat-frame.may'; source.write_text('\n'.join(lines) + '\n')
+    for target in FAT_TARGETS:
+        check(source, b'711 1948\n', 0, target)
+    print('PASS fat core frames beyond 4 KiB', flush=True)
     source = work / 'fat-unsupported.may'; source.write_text('print(read_file("missing"));')
     binary = work / 'fat-unsupported'
     result = subprocess.run([str(compiler), '--runtime', 'core', '--values', 'fat', str(source), '-o', str(binary)], capture_output=True)

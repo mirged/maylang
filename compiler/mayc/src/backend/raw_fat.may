@@ -1,0 +1,518 @@
+import "../regalloc.may";
+import "../lexer.may";
+import "../state.may";
+import "../ast.may";
+import "../emitter.may";
+import "../symbols.may";
+import "../ir.may";
+import "../literals.may";
+import "../sema.may";
+import "raw.may";
+import "raw_float.may";
+import "x86_64.may";
+import "x86_64_fat.may";
+// backend/raw_fat.may — dynamic code on fat values for the portable
+// backends (ARM64, RISC-V; #92, docs/design/FAT_VALUES.md).
+//
+// Every IR temporary and local has a 16-byte frame slot, type word first,
+// above the outgoing argument area at SP. An expression leaves its payload
+// in logical register 0 and its type word in register 1, which are also the
+// first two result registers of the platform ABI. Register 2 is an address
+// scratch (RISC-V branches clobber it); register 3 holds a word across
+// branches. Compiled functions receive a pointer to their argument values
+// in register 10, the argument count in register 11 and the closure
+// environment in register 18, and pad missing parameters with nil
+// themselves, so callers need not know a closure's arity. Runtime functions
+// are raw: each value is two word arguments, type first, and the result's
+// type word comes back in the RTAG global (runtime/fat.may).
+
+fun rf_off(ctx: Any, k: Any) -> Any { return ctx.rfOutgoing + 16 * k; }
+fun rf_local(ctx: Any, index: Any) -> Any { return ctx.fatBase + index; }
+
+fun rf_load_slot(ctx: Any, emitter: Any, k: Any) -> Any {
+    (emitter.load)(ctx, 1, -1, rf_off(ctx, k), 8); (emitter.load)(ctx, 0, -1, rf_off(ctx, k) + 8, 8);
+    return 0;
+}
+fun rf_store_slot(ctx: Any, emitter: Any, k: Any) -> Any {
+    (emitter.store)(ctx, 1, -1, rf_off(ctx, k), 8); (emitter.store)(ctx, 0, -1, rf_off(ctx, k) + 8, 8);
+    return 0;
+}
+fun rf_get(ctx: Any, emitter: Any, value: Any) -> Any { return rf_load_slot(ctx, emitter, FAT_SLOTS[value.slot]); }
+fun rf_put(ctx: Any, emitter: Any, value: Any) -> Any { return rf_store_slot(ctx, emitter, FAT_SLOTS[value.slot]); }
+fun rf_set(ctx: Any, emitter: Any, tag: Any, payload: Any) -> Any {
+    (emitter.immediate)(ctx, tag, 1); (emitter.immediate)(ctx, payload, 0);
+    return 0;
+}
+
+// Register 2 = SP-relative address of the outgoing area; register `register` = SP.
+fun rf_sp(ctx: Any, register: Any) -> Any {
+    if (register != 10) { die_str("mayc: rf_sp supports register 10\n"); }
+    if (ctx.target.arch == "arm64") { e32(ctx, 2432697312); } else { e32(ctx, 66835); } // mov x0, sp / mv a0, sp
+    return 0;
+}
+
+// Load and store a value through the address in register 2.
+fun rf_load_at(ctx: Any, emitter: Any) -> Any { (emitter.load)(ctx, 1, 2, 0, 8); (emitter.load)(ctx, 0, 2, 8, 8); return 0; }
+fun rf_store_at(ctx: Any, emitter: Any) -> Any { (emitter.store)(ctx, 1, 2, 0, 8); (emitter.store)(ctx, 0, 2, 8, 8); return 0; }
+
+// ---- runtime calls ---------------------------------------------------------
+// An operand is ["v", IR value], ["s", slot], ["c", type, payload] or
+// ["l", data offset of a string literal].
+
+fun rf_v(value: Any) -> Any { return ["v", value]; }
+
+fun rf_values(args: Any) -> Any {
+    let operands: Any = [];
+    mut arg: Any = args;
+    while (arg != 0) { push(operands, rf_v(arg)); arg = arg.next; }
+    return operands;
+}
+
+// Load word `w` of `operands` (type words even, payloads odd) into `register`.
+fun rf_word(ctx: Any, emitter: Any, operands: Any, w: Any, register: Any) -> Any {
+    let operand: Any = operands[w / 2];
+    let payload: Any = w % 2 == 1;
+    let kind: Any = operand[0];
+    if (kind == "c") { (emitter.immediate)(ctx, if (payload) { operand[2] } else { operand[1] }, register); return 0; }
+    if (kind == "l") {
+        if (not payload) { (emitter.immediate)(ctx, 4, register); return 0; }
+        raw_address(ctx, emitter, operand[1]); (emitter.move)(ctx, register, 2); return 0;
+    }
+    let k: Any = if (kind == "v") { FAT_SLOTS[operand[1].slot] } else { operand[1] };
+    (emitter.load)(ctx, register, -1, rf_off(ctx, k) + (if (payload) { 8 } else { 0 }), 8);
+    return 0;
+}
+
+// Register 1 = the RTAG global, the type word of a runtime function's result.
+fun rf_rtag(ctx: Any, emitter: Any) -> Any {
+    raw_address(ctx, emitter, fat_global(ctx, "RTAG")); (emitter.load)(ctx, 1, 2, 0, 8);
+    return 0;
+}
+
+fun rf_rt_function(ctx: Any, name: Any) -> Any {
+    let function: Any = backend_find_func(ctx, addr(name), len(name));
+    if (function == 0 and ctx.runtime == "core") { die_str("mayc: `${name}` requires the full runtime\n"); }
+    if (function == 0) { die_str("mayc: --values fat runtime lacks `${name}`\n"); }
+    return function;
+}
+
+// Call raw runtime function `name` on `operands`; the result is a value.
+fun rf_rt(ctx: Any, emitter: Any, name: Any, operands: Any) -> Any {
+    let function: Any = rf_rt_function(ctx, name);
+    let words: Any = 2 * len(operands);
+    if (words != function.pc) { die_str("mayc: runtime function `${name}` takes ${function.pc} words, not ${words}\n"); }
+    // Stack words first: register 0 is also the first argument register.
+    if (words > 8) {
+        for w: Any in 8..words { rf_word(ctx, emitter, operands, w, 0); (emitter.store)(ctx, 0, -1, (w - 8) * 8, 8); }
+    }
+    for w: Any in 0..min(words, 8) { rf_word(ctx, emitter, operands, w, 10 + w); }
+    (emitter.jump)(ctx, function.lab, true);
+    return rf_rtag(ctx, emitter);
+}
+
+// ---- calls to compiled code -------------------------------------------------
+
+fun rf_count(args: Any) -> Any {
+    mut count: Any = 0;
+    mut arg: Any = args;
+    while (arg != 0) { count += 1; arg = arg.next; }
+    return count;
+}
+
+// Store `args` in the outgoing area and load the argument pointer and count.
+fun rf_arguments(ctx: Any, emitter: Any, args: Any) -> Any {
+    mut index: Any = 0;
+    mut arg: Any = args;
+    while (arg != 0) {
+        rf_get(ctx, emitter, arg);
+        (emitter.store)(ctx, 1, -1, 16 * index, 8); (emitter.store)(ctx, 0, -1, 16 * index + 8, 8);
+        index += 1; arg = arg.next;
+    }
+    rf_sp(ctx, 10); (emitter.immediate)(ctx, index, 11);
+    return 0;
+}
+
+fun rf_direct(ctx: Any, emitter: Any, rec: Any, args: Any) -> Any {
+    rf_arguments(ctx, emitter, args);
+    (emitter.immediate)(ctx, 0, 18);
+    (emitter.jump)(ctx, rec.lab, true);
+    return 0;
+}
+
+// Apply the value in slot `k` to `args`; a non-closure raises a type fault.
+fun rf_apply(ctx: Any, emitter: Any, k: Any, args: Any) -> Any {
+    let callable: Any = newlab(ctx);
+    (emitter.load)(ctx, 0, -1, rf_off(ctx, k), 8);
+    (emitter.immediate)(ctx, 7, 1); (emitter.binary)(ctx, TK_EQ);
+    (emitter.branch)(ctx, callable, false);
+    rf_rt(ctx, emitter, "rt_require_callable", [["s", k]]);
+    placelab(ctx, callable);
+    rf_arguments(ctx, emitter, args);
+    (emitter.load)(ctx, 2, -1, rf_off(ctx, k) + 8, 8);
+    (emitter.load)(ctx, 18, 2, 8, 8); (emitter.load)(ctx, 2, 2, 0, 8);
+    if (ctx.target.arch == "arm64") { e32(ctx, 3594453280); } else { e32(ctx, 164071); } // blr x9 / jalr ra, t0
+    return 0;
+}
+
+// `__fat_apply(closure, argv, argc)` in raw runtime code: call a compiled
+// closure (a payload) on `argc` values at `argv`. The payload is the result;
+// the type word goes to RTAG.
+fun raw_fat_apply(ctx: Any, emitter: Any, args: Any) -> Any {
+    raw_get(ctx, emitter, args, 2);
+    (emitter.load)(ctx, 18, 2, 8, 8); (emitter.load)(ctx, 2, 2, 0, 8);
+    raw_get(ctx, emitter, args.next, 10); raw_get(ctx, emitter, args.next.next, 11);
+    if (ctx.target.arch == "arm64") { e32(ctx, 3594453280); } else { e32(ctx, 164071); }
+    raw_address(ctx, emitter, fat_global(ctx, "RTAG")); (emitter.store)(ctx, 1, 2, 0, 8);
+    return 0;
+}
+
+// ---- variables and closures ------------------------------------------------
+
+// Register 2 = environment entry `index`, a cell pointer.
+fun rf_env_cell(ctx: Any, emitter: Any, index: Any) -> Any {
+    (emitter.load)(ctx, 2, -1, rf_off(ctx, rf_local(ctx, ctx.envSlot)) + 8, 8);
+    (emitter.load)(ctx, 2, 2, 8 * index, 8);
+    return 0;
+}
+
+// A closure over code `label` whose environment payload is in slot `env`
+// (or none when `env` is negative).
+fun rf_function_value(ctx: Any, emitter: Any, label: Any, env: Any, arity: Any) -> Any {
+    raw_code_address(ctx, emitter, label); (emitter.move)(ctx, 10, 2);
+    if (env >= 0) { (emitter.load)(ctx, 11, -1, rf_off(ctx, env) + 8, 8); } else { (emitter.immediate)(ctx, 0, 11); }
+    (emitter.immediate)(ctx, arity, 12);
+    (emitter.jump)(ctx, rf_rt_function(ctx, "rt_closure3").lab, true);
+    (emitter.immediate)(ctx, 7, 1);
+    return 0;
+}
+
+fun rf_closure(ctx: Any, emitter: Any, n: Any) -> Any {
+    let count: Any = rf_count(n.captures);
+    if (count == 0) { return rf_function_value(ctx, emitter, n.label, -1, n.arity); }
+    let env: Any = rf_local(ctx, ctx.rfScratch);
+    (emitter.immediate)(ctx, count, 10);
+    (emitter.jump)(ctx, rf_rt_function(ctx, "rt_env_new").lab, true);
+    (emitter.store)(ctx, 0, -1, rf_off(ctx, env) + 8, 8);
+    mut capture: Any = n.captures;
+    mut index: Any = 0;
+    while (capture != 0) {
+        mut found: Any = -1;
+        for i: Any in 0..ctx.envCount {
+            let c: Any = ctx.envCaptures[i];
+            if (found < 0 and name_eq(capture.name, capture.length, c[0], c[1]) == 1) { found = i; }
+        }
+        if (found >= 0) { rf_env_cell(ctx, emitter, found); (emitter.move)(ctx, 0, 2); }
+        else {
+            let li: Any = loc_find(ctx, capture.name, capture.length);
+            if (li < 0) { die_str("mayc: unknown capture `${symbol_name(capture.name, capture.length)}`\n"); }
+            (emitter.load)(ctx, 0, -1, rf_off(ctx, rf_local(ctx, li)) + 8, 8);
+        }
+        (emitter.load)(ctx, 2, -1, rf_off(ctx, env) + 8, 8);
+        (emitter.store)(ctx, 0, 2, 8 * index, 8);
+        capture = capture.next; index += 1;
+    }
+    return rf_function_value(ctx, emitter, n.label, env, n.arity);
+}
+
+fun rf_global(ctx: Any, emitter: Any, index: Any) -> Any {
+    raw_address(ctx, emitter, glob_off(ctx, index));
+    return 0;
+}
+
+fun rf_var(ctx: Any, emitter: Any, n: Any) -> Any {
+    let p: Any = n.name; let l: Any = n.length;
+    if (name_eq(p, l, addr("nil"), 3) == 1) { return rf_set(ctx, emitter, 0, 0); }
+    if (name_eq(p, l, addr("true"), 4) == 1) { return rf_set(ctx, emitter, 1, 1); }
+    if (name_eq(p, l, addr("false"), 5) == 1) { return rf_set(ctx, emitter, 1, 0); }
+    if (name_eq(p, l, addr("err"), 3) == 1) {
+        raw_address(ctx, emitter, fat_global(ctx, "ERRVAL")); (emitter.load)(ctx, 0, 2, 0, 8);
+        (emitter.immediate)(ctx, 6, 1);
+        return 0;
+    }
+    let li: Any = loc_find(ctx, p, l);
+    if (li >= 0) {
+        if (is_boxed(ctx, p, l) == 1) {
+            (emitter.load)(ctx, 2, -1, rf_off(ctx, rf_local(ctx, li)) + 8, 8);
+            return rf_load_at(ctx, emitter);
+        }
+        return rf_load_slot(ctx, emitter, rf_local(ctx, li));
+    }
+    let gi: Any = glob_find(ctx, p, l);
+    if (gi >= 0) { rf_global(ctx, emitter, gi); return rf_load_at(ctx, emitter); }
+    let fr: Any = backend_find_func(ctx, p, l);
+    if (fr != 0 and fr.mode != 1) { return rf_function_value(ctx, emitter, fr.lab, -1, fr.pc); }
+    die_str("mayc: unknown variable `${symbol_name(p, l)}`\n");
+    return 0;
+}
+
+// ---- builtins ----------------------------------------------------------------
+
+fun rf_math_bits(ctx: Any, emitter: Any, name: Any, args: Any) -> Any {
+    if (name == "__math_bits") {
+        // __math_bits(low, high), as math.may calls it.
+        rf_get(ctx, emitter, args);
+        (emitter.immediate)(ctx, 4294967295, 1); (emitter.binary)(ctx, TK_BITAND); (emitter.move)(ctx, 3, 0);
+        rf_get(ctx, emitter, args.next);
+        (emitter.immediate)(ctx, 32, 1); (emitter.binary)(ctx, TK_SHL);
+        (emitter.move)(ctx, 1, 3); (emitter.binary)(ctx, TK_PIPE);
+        (emitter.immediate)(ctx, 3, 1);
+        return 0;
+    }
+    rf_get(ctx, emitter, args);
+    if (name == "__math_high") { (emitter.immediate)(ctx, 32, 1); (emitter.binary)(ctx, TK_SHR); }
+    (emitter.immediate)(ctx, 4294967295, 1); (emitter.binary)(ctx, TK_BITAND);
+    (emitter.immediate)(ctx, 2, 1);
+    return 0;
+}
+
+fun rf_builtin(ctx: Any, emitter: Any, name: Any, args: Any) -> Any {
+    if (name == "print") {
+        mut arg: Any = args;
+        mut first: Any = true;
+        while (arg != 0) {
+            if (not first) { rf_rt(ctx, emitter, "rt_space", []); }
+            rf_rt(ctx, emitter, "rt_print1", [rf_v(arg)]);
+            first = false; arg = arg.next;
+        }
+        rf_rt(ctx, emitter, "rt_newline", []);
+        return rf_set(ctx, emitter, 2, 0);
+    }
+    if (name == "exit") { return rf_rt(ctx, emitter, "rt_exit", rf_values(args)); }
+    let loads: Any = {"load8": 1, "load16": 2, "load32": 4, "load64": 8};
+    let stores: Any = {"store8": 1, "store16": 2, "store32": 4, "store64": 8};
+    if (has(loads, name)) {
+        rf_get(ctx, emitter, args); (emitter.move)(ctx, 2, 0);
+        (emitter.load)(ctx, 0, 2, 0, loads[name]);
+        (emitter.immediate)(ctx, 2, 1);
+        return 0;
+    }
+    if (has(stores, name)) {
+        rf_get(ctx, emitter, args.next); (emitter.move)(ctx, 3, 0);
+        rf_get(ctx, emitter, args); (emitter.move)(ctx, 2, 0); (emitter.move)(ctx, 0, 3);
+        (emitter.store)(ctx, 0, 2, 0, stores[name]);
+        return rf_set(ctx, emitter, 0, 0);
+    }
+    if (has(FAT_BUILTINS, name)) { return rf_rt(ctx, emitter, FAT_BUILTINS[name], rf_values(args)); }
+    // The core library's runtime functions (runtime/fat_core.may).
+    if (ctx.runtime == "core" and starts_with(name, "__core_") and backend_find_func(ctx, addr(name), len(name)) != 0) {
+        return rf_rt(ctx, emitter, name, rf_values(args));
+    }
+    if (has(FAT_MATH, name)) {
+        let kernel: Any = FAT_MATH[name];
+        let rec: Any = backend_find_func(ctx, addr(kernel), len(kernel));
+        if (rec != 0) { return rf_direct(ctx, emitter, rec, args); }
+    }
+    die_str("mayc: --values fat does not support `${name}` on ${ctx.target.name} yet\n");
+    return 0;
+}
+
+fun rf_call(ctx: Any, emitter: Any, n: Any) -> Any {
+    let p: Any = n.name; let l: Any = n.length;
+    if (loc_find(ctx, p, l) < 0 and glob_find(ctx, p, l) < 0) {
+        let name: Any = symbol_name(p, l);
+        if (name == "__math_high" or name == "__math_low" or name == "__math_bits") { return rf_math_bits(ctx, emitter, name, n.args); }
+        let rec: Any = backend_find_func(ctx, p, l);
+        if (rec != 0 and rec.mode != 1) { return rf_direct(ctx, emitter, rec, n.args); }
+        return rf_builtin(ctx, emitter, name, n.args);
+    }
+    rf_var(ctx, emitter, n);
+    let k: Any = rf_local(ctx, ctx.rfScratch);
+    rf_store_slot(ctx, emitter, k);
+    return rf_apply(ctx, emitter, k, n.args);
+}
+
+// ---- operations ----------------------------------------------------------------
+
+fun rf_literal(ctx: Any, emitter: Any, off: Any) -> Any {
+    raw_address(ctx, emitter, off); (emitter.move)(ctx, 0, 2);
+    (emitter.immediate)(ctx, 4, 1);
+    return 0;
+}
+
+fun rf_operation(ctx: Any, emitter: Any, n: Any) -> Any {
+    let k: Any = n.kind;
+    if (k == E_INT) { return rf_set(ctx, emitter, 2, n.value); }
+    if (k == E_STR) { return rf_literal(ctx, emitter, intern_obj(ctx, n.span.source, n.start, n.length)); }
+    if (k == E_STRB) { return rf_literal(ctx, emitter, intern_obj2(ctx, n.address, n.length)); }
+    if (k == E_FLOAT) {
+        // Compiler integers may be tagged, so build the bits at run time.
+        let bits: Any = float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)));
+        (emitter.immediate)(ctx, bits[1], 0);
+        (emitter.immediate)(ctx, 4294967296, 1); (emitter.binary)(ctx, TK_STAR);
+        (emitter.immediate)(ctx, bits[0], 1); (emitter.binary)(ctx, TK_PLUS);
+        (emitter.immediate)(ctx, 3, 1);
+        return 0;
+    }
+    if (k == E_VAR) { return rf_var(ctx, emitter, n); }
+    if (k == E_CAPVAR) { rf_env_cell(ctx, emitter, n.index); return rf_load_at(ctx, emitter); }
+    if (k == E_CLOSURE) { return rf_closure(ctx, emitter, n); }
+    if (k == E_INDEX) { return rf_rt(ctx, emitter, "rt_index_get", [rf_v(n.object), rf_v(n.index)]); }
+    if (k == E_GET) {
+        return rf_rt(ctx, emitter, "rt_map_get", [rf_v(n.object), ["l", intern_obj(ctx, n.span.source, n.start, n.length)]]);
+    }
+    if (k == E_ICALL) { return rf_apply(ctx, emitter, FAT_SLOTS[n.callee.slot], n.args); }
+    if (k == E_RANGE) {
+        return rf_rt(ctx, emitter, "rt_range", [rf_v(n.start), rf_v(n.end), ["c", 1, if (n.inclusive == 1) { 1 } else { 0 }]]);
+    }
+    if (k == E_POW) { return rf_rt(ctx, emitter, "rt_pow", [rf_v(n.left), rf_v(n.right)]); }
+    if (k == E_BIN) { return rf_rt(ctx, emitter, "rt_binary", [["c", 2, n.op], rf_v(n.left), rf_v(n.right)]); }
+    if (k == E_UN) { return rf_rt(ctx, emitter, "rt_unary", [["c", 2, n.op], rf_v(n.operand)]); }
+    if (k == E_CALL) { return rf_call(ctx, emitter, n); }
+    die_str("mayc: --values fat does not support IR operation ${k} on ${ctx.target.name}\n");
+    return 0;
+}
+
+// Branch on the value in registers 1/0: nil and false go to `falsy`,
+// anything else falls through to the code after, or `truthy` for non-Bools.
+fun rf_test(ctx: Any, emitter: Any, falsy: Any, truthy: Any) -> Any {
+    (emitter.move)(ctx, 3, 0); (emitter.move)(ctx, 0, 1);
+    (emitter.branch)(ctx, falsy, true);                                   // nil
+    (emitter.immediate)(ctx, 1, 1); (emitter.binary)(ctx, TK_EQ);
+    (emitter.branch)(ctx, truthy, true);                                  // not a Bool
+    (emitter.move)(ctx, 0, 3);
+    (emitter.branch)(ctx, falsy, true);                                   // false
+    return 0;
+}
+
+fun rf_block(ctx: Any, emitter: Any, block: Any) -> Any {
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        let payload: Any = instruction.extra;
+        if (op == IR_LABEL) { placelab(ctx, payload); }
+        else if (op == IR_JUMP) { (emitter.jump)(ctx, payload, false); }
+        else if (op == IR_COPY) { rf_get(ctx, emitter, instruction.arg1); }
+        else if (op == IR_NIL) { rf_set(ctx, emitter, 0, 0); }
+        else if (op == IR_BOOL) {
+            let falsy: Any = newlab(ctx); let truthy: Any = newlab(ctx); let done: Any = newlab(ctx);
+            rf_get(ctx, emitter, instruction.arg1); rf_test(ctx, emitter, falsy, truthy);
+            placelab(ctx, truthy); rf_set(ctx, emitter, 1, 1); (emitter.jump)(ctx, done, false);
+            placelab(ctx, falsy); rf_set(ctx, emitter, 1, 0); placelab(ctx, done);
+        }
+        else if (op == IR_FALSE) {
+            let truthy: Any = newlab(ctx);
+            rf_get(ctx, emitter, instruction.arg1); rf_test(ctx, emitter, payload, truthy);
+            placelab(ctx, truthy);
+        }
+        else if (op == IR_TRUE) {
+            let falsy: Any = newlab(ctx);
+            rf_get(ctx, emitter, instruction.arg1); rf_test(ctx, emitter, falsy, payload);
+            (emitter.jump)(ctx, payload, false); placelab(ctx, falsy);
+        }
+        else if (op == IR_ISNIL or op == IR_NONNULL) {
+            rf_get(ctx, emitter, instruction.arg1); (emitter.move)(ctx, 0, 1);
+            (emitter.branch)(ctx, payload, op == IR_ISNIL);
+        }
+        else if (op == IR_RUNTIME) { rf_rt(ctx, emitter, payload, rf_values(instruction.arg1)); }
+        else if (op == IR_RETURN) { rf_get(ctx, emitter, instruction.arg1); (emitter.jump)(ctx, ctx.returnLabel, false); }
+        else if (op == IR_TAILCALL) {
+            mut arg: Any = instruction.arg1;
+            mut i: Any = 0;
+            while (arg != 0) { rf_get(ctx, emitter, arg); rf_store_slot(ctx, emitter, rf_local(ctx, i)); i += 1; arg = arg.next; }
+            (emitter.jump)(ctx, ctx.restartLabel, false);
+        }
+        else if (op == IR_TRY_BEGIN) { raw_handler_at(ctx, emitter, payload, rf_off(ctx, rf_local(ctx, ctx.rfScratch)) + 8); }
+        else if (op == IR_TRY_END) {
+            raw_variable(ctx, emitter, addr("HDEPTH"), 6);
+            (emitter.immediate)(ctx, 1, 1); (emitter.binary)(ctx, TK_MINUS);
+            raw_set(ctx, emitter, addr("HDEPTH"), 6, false);
+        }
+        else if (op == S_LET) {
+            rf_get(ctx, emitter, payload.initializer);
+            if (payload.global == 1) { rf_global(ctx, emitter, glob_find(ctx, payload.name, payload.length)); rf_store_at(ctx, emitter); }
+            else {
+                if (is_boxed(ctx, payload.name, payload.length) == 1) {
+                    let scratch: Any = rf_local(ctx, ctx.rfScratch);
+                    rf_store_slot(ctx, emitter, scratch);
+                    rf_rt(ctx, emitter, "rt_cell", [["s", scratch]]);
+                }
+                rf_store_slot(ctx, emitter, rf_local(ctx, loc_add(ctx, payload.name, payload.length)));
+            }
+        }
+        else if (op == S_ASSIGN) {
+            rf_get(ctx, emitter, payload.value);
+            let li: Any = loc_find(ctx, payload.name, payload.length);
+            if (li >= 0) {
+                if (is_boxed(ctx, payload.name, payload.length) == 1) {
+                    (emitter.load)(ctx, 2, -1, rf_off(ctx, rf_local(ctx, li)) + 8, 8);
+                    rf_store_at(ctx, emitter);
+                } else { rf_store_slot(ctx, emitter, rf_local(ctx, li)); }
+            } else {
+                let gi: Any = glob_find(ctx, payload.name, payload.length);
+                if (gi < 0) { die_str("mayc: assign to unknown\n"); }
+                rf_global(ctx, emitter, gi); rf_store_at(ctx, emitter);
+            }
+        }
+        else if (op == S_CASSIGN) { rf_get(ctx, emitter, payload.value); rf_env_cell(ctx, emitter, payload.index); rf_store_at(ctx, emitter); }
+        else if (op == S_SETIDX) { rf_rt(ctx, emitter, "rt_index_set", [rf_v(payload.object), rf_v(payload.index), rf_v(payload.value)]); }
+        else if (op == S_SETPROP) {
+            rf_rt(ctx, emitter, "rt_map_set", [rf_v(payload.object), ["l", intern_obj(ctx, payload.span.source, payload.start, payload.length)], rf_v(payload.value)]);
+        }
+        else { rf_operation(ctx, emitter, payload); }
+        if (instruction.result != 0) { rf_put(ctx, emitter, instruction.result); }
+    }
+    return 0;
+}
+
+// The outgoing area: argument values of compiled calls and runtime words
+// beyond the eighth.
+fun rf_outgoing(block: Any) -> Any {
+    mut bytes: Any = 0;
+    for instruction: Any in block.code {
+        mut args: Any = 0;
+        if (instruction.op == IR_RUNTIME) { args = instruction.arg1; }
+        else if (instruction.op == E_CALL or instruction.op == E_ICALL) { args = instruction.extra.args; }
+        let size: Any = 16 * rf_count(args);
+        if (size > bytes) { bytes = size; }
+    }
+    return bytes;
+}
+
+fun rf_function(ctx: Any, emitter: Any, block: Any, rec: Any) -> Any {
+    ctx.mode = 1; ctx.native = false; ctx.allocation = 0;
+    loc_reset(ctx);
+    bx_use_list(ctx, if (rec == 0) { ctx.mainBoxed } else { rec.boxed });
+    ctx.fatBase = fat_plan_slots(block);
+    ctx.envCaptures = if (rec == 0) { [] } else { rec.caparr };
+    ctx.envCount = if (rec == 0) { 0 } else { rec.cc };
+    let pc: Any = if (rec == 0) { 0 } else { rec.pc };
+    if (rec != 0) { for i: Any in 0..pc { loc_add(ctx, rec.parr[i].name, rec.parr[i].length); } }
+    ctx.envSlot = loc_add(ctx, addr("0env"), 4);
+    ctx.rfScratch = loc_add(ctx, addr("0rf"), 3);
+    let arguments: Any = rf_local(ctx, loc_add(ctx, addr("0args"), 5));
+    // Locals are added as each `let` runs, as on x86-64; count them now.
+    mut lets: Any = 0;
+    for instruction: Any in block.code { if (instruction.op == S_LET and instruction.extra.global != 1) { lets += 1; } }
+    ctx.rfOutgoing = rf_outgoing(block);
+    let frame: Any = (rf_off(ctx, ctx.fatBase + len(ctx.locals) + lets) + 15) / 16 * 16;
+    if (rec == 0) { placelab(ctx, 1); } else { placelab(ctx, rec.lab); rec.abiLab = rec.lab; }
+    (emitter.prologue)(ctx, frame);
+    if (rec != 0) {
+        (emitter.store)(ctx, 10, -1, rf_off(ctx, arguments), 8); (emitter.store)(ctx, 11, -1, rf_off(ctx, arguments) + 8, 8);
+        (emitter.store)(ctx, 18, -1, rf_off(ctx, rf_local(ctx, ctx.envSlot)) + 8, 8);
+        // Parameters beyond the argument count are nil.
+        for i: Any in 0..pc {
+            let missing: Any = newlab(ctx); let copied: Any = newlab(ctx);
+            (emitter.load)(ctx, 0, -1, rf_off(ctx, arguments) + 8, 8);
+            (emitter.immediate)(ctx, i, 1); (emitter.binary)(ctx, TK_GT);
+            (emitter.branch)(ctx, missing, true);
+            (emitter.load)(ctx, 2, -1, rf_off(ctx, arguments), 8);
+            (emitter.load)(ctx, 1, 2, 16 * i, 8); (emitter.load)(ctx, 0, 2, 16 * i + 8, 8);
+            (emitter.jump)(ctx, copied, false);
+            placelab(ctx, missing); rf_set(ctx, emitter, 0, 0);
+            placelab(ctx, copied);
+            if (is_boxed(ctx, rec.parr[i].name, rec.parr[i].length) == 1) {
+                rf_store_slot(ctx, emitter, rf_local(ctx, i));
+                rf_rt(ctx, emitter, "rt_cell", [["s", rf_local(ctx, i)]]);
+            }
+            rf_store_slot(ctx, emitter, rf_local(ctx, i));
+        }
+    } else { rf_rt(ctx, emitter, "rt_init", []); }
+    ctx.returnLabel = newlab(ctx); ctx.restartLabel = newlab(ctx);
+    placelab(ctx, ctx.restartLabel);
+    rf_block(ctx, emitter, block);
+    rf_set(ctx, emitter, 0, 0);
+    placelab(ctx, ctx.returnLabel);
+    (emitter.epilogue)(ctx, frame);
+    ctx.allocation = 0;
+    return 0;
+}

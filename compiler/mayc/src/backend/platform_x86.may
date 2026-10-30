@@ -3,7 +3,7 @@ import "../state.may";
 import "../symbols.may";
 import "x86_64.may";
 fun x86_core_fiber_stack(ctx: Any, args: Any) -> Any {
-    if (ctx.runtime != "core" or ctx.mode != 0) { die_str("mayc: fiber stack setup is internal to the core runtime\n"); }
+    if ((ctx.runtime != "core" and not FAT_VALUES) or ctx.mode != 0) { die_str("mayc: fiber stack setup is internal to the core runtime\n"); }
     cg_expr(ctx, args); e8(ctx, 72); e8(ctx, 131); e8(ctx, 232); e8(ctx, 56);
     let slot: Any = loc_add(ctx, addr("0fiber"), 6); st_local(ctx, 8 * (slot + 1));
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 194); xor_eax(ctx);

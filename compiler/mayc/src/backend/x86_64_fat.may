@@ -397,10 +397,11 @@ let FAT_BUILTINS: Any = {"str": "rt_to_str", "str_of": "rt_to_str", "len": "rt_l
 
 // Transcendentals use the portable binary64 kernels, as the core runtime does.
 // A builtin the loaded fat runtime provides, for the core runtime's check
-// (backend.may core_validate): a mapped runtime function that exists.
+// (backend.may core_validate): a mapped runtime function or math kernel
+// that exists.
 fun fat_core_builtin(ctx: Any, name: Any) -> Any {
-    if (not has(FAT_BUILTINS, name)) { return false; }
-    let target: Any = FAT_BUILTINS[name];
+    if (not has(FAT_BUILTINS, name) and not has(FAT_MATH, name)) { return false; }
+    let target: Any = if (has(FAT_BUILTINS, name)) { FAT_BUILTINS[name] } else { FAT_MATH[name] };
     return backend_find_func(ctx, addr(target), len(target)) != 0;
 }
 

@@ -52,19 +52,42 @@ fun riscv_move(ctx: Any, destination: Any, source: Any) -> Any {
     return 0;
 }
 
+// t3 = `value`, a non-negative 31-bit constant (lui; addi).
+fun riscv_t3(ctx: Any, value: Any) -> Any {
+    if (value < 0 or value >= 2147481600) { die_str("mayc: RISC-V frame offset out of range\n"); }
+    let low: Any = (value % 4096 + 2048) % 4096 - 2048;
+    e32(ctx, 55 + 28 * 128 + ((value - low) / 4096) * 4096);  // lui t3, high
+    riscv_i(ctx, 19, 28, 28, low);                          // addi t3, t3, low
+    return 28;
+}
+
+// t3 = base + offset for offsets beyond 12 bits (fat frames, #92). t3
+// belongs to no logical register.
+fun riscv_far(ctx: Any, base: Any, offset: Any) -> Any {
+    riscv_t3(ctx, offset);
+    riscv_r(ctx, 51, 28, 28, riscv_register(base));         // add t3, t3, base
+    return 28;
+}
+
 fun riscv_load(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> Any {
     let opcodes: Any = {1: 16387, 2: 20483, 4: 24579, 8: 12291};
+    if (offset > 2047) { riscv_i(ctx, opcodes[width], riscv_register(register), riscv_far(ctx, base, offset), 0); return 0; }
     if (offset < -2048 or offset > 2047) { die_str("mayc: RISC-V load offset out of range\n"); }
     riscv_i(ctx, opcodes[width], riscv_register(register), riscv_register(base), offset);
     return 0;
 }
 
-fun riscv_store(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> Any {
+fun riscv_store_at(ctx: Any, width: Any, value: Any, base: Any, offset: Any) -> Any {
     let opcodes: Any = {1: 35, 2: 4131, 4: 8227, 8: 12323};
-    if (offset < -2048 or offset > 2047) { die_str("mayc: RISC-V store offset out of range\n"); }
     let bits: Any = (offset + 4096) % 4096;
-    e32(ctx, opcodes[width] + (bits % 32) * 128 + riscv_register(base) * 32768 + riscv_register(register) * 1048576 + (bits / 32) * 33554432);
+    e32(ctx, opcodes[width] + (bits % 32) * 128 + base * 32768 + value * 1048576 + (bits / 32) * 33554432);
     return 0;
+}
+
+fun riscv_store(ctx: Any, register: Any, base: Any, offset: Any, width: Any) -> Any {
+    if (offset > 2047) { return riscv_store_at(ctx, width, riscv_register(register), riscv_far(ctx, base, offset), 0); }
+    if (offset < -2048 or offset > 2047) { die_str("mayc: RISC-V store offset out of range\n"); }
+    return riscv_store_at(ctx, width, riscv_register(register), riscv_register(base), offset);
 }
 
 fun riscv_binary(ctx: Any, op: Any) -> Any {
@@ -109,6 +132,14 @@ fun riscv_branch(ctx: Any, label: Any, zero: Any) -> Any {
 }
 
 fun riscv_prologue(ctx: Any, frame: Any) -> Any {
+    if (frame + 16 > 2047) {
+        // Fat frames (#92): sp -= frame + 16 through t3; ra, s0 above the frame.
+        riscv_r(ctx, 1073741875, 2, 2, riscv_t3(ctx, frame + 16));   // sub sp, sp, t3
+        riscv_store_at(ctx, 8, 1, riscv_far(ctx, -1, frame), 0);
+        riscv_store_at(ctx, 8, 8, riscv_far(ctx, -1, frame + 8), 0);
+        riscv_r(ctx, 51, 8, 2, riscv_t3(ctx, frame + 16));             // add s0, sp, t3
+        return 0;
+    }
     riscv_i(ctx, 19, 2, 2, 0 - frame - 16);
     mut bits: Any = frame;
     e32(ctx, 12323 + (bits % 32) * 128 + 2 * 32768 + 1 * 1048576 + (bits / 32) * 33554432);
@@ -119,6 +150,13 @@ fun riscv_prologue(ctx: Any, frame: Any) -> Any {
 }
 
 fun riscv_epilogue(ctx: Any, frame: Any) -> Any {
+    if (frame + 16 > 2047) {
+        riscv_i(ctx, 12291, 1, riscv_far(ctx, -1, frame), 0);
+        riscv_i(ctx, 12291, 8, riscv_far(ctx, -1, frame + 8), 0);
+        riscv_r(ctx, 51, 2, 2, riscv_t3(ctx, frame + 16));             // add sp, sp, t3
+        riscv_i(ctx, 103, 0, 1, 0);
+        return 0;
+    }
     riscv_i(ctx, 12291, 1, 2, frame);
     riscv_i(ctx, 12291, 8, 2, frame + 8);
     riscv_i(ctx, 19, 2, 2, frame + 16);
