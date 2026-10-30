@@ -69,15 +69,13 @@ python3 scripts/doctor.py --profile package
 | --- | --- |
 | Test | `readelf` from binutils |
 | UI | `libx11-dev`, `libxi-dev`, `libxcursor-dev`, `libgl-dev`, `fonts-dejavu-core`; X11/XWayland and OpenGL 4.3 for Sokol windows |
-| Browser | UI dependencies, libcurl and `libduktape.so.207` |
 | Window testing | `xvfb`, `xauth`, `xdotool` |
 | Editor | Node.js and npm; CI uses Node 22 |
 | Package verification | Python 3.12+, base build and UI dependencies for extracted scaffold tests |
 | Core emulation | Unicorn in a Python virtual environment; see compiler tests |
 
 
-The [browser](../../platform/maybrowser/README.md) and [UI](../../stdlib/ui/README.md)
-guides have full commands. Socket/window tests may skip when unavailable;
+The [UI guide](../../stdlib/ui/README.md) has full commands. Socket/window tests may skip when unavailable;
 required integration modes turn those skips into failures.
 
 ## Editor setup

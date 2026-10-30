@@ -1,5 +1,17 @@
 # Unreleased
 
+## Scope
+
+- **Breaking:** freeze the platform experiments and the experimental ML
+  library while Maylang focuses on Linux x86-64
+  ([plan](docs/design/LINUX_X86_64_FOCUS.md),
+  [#102](https://github.com/mirged/maylang/issues/102)). `platform/maybrowser`,
+  `platform/mayos`, `stdlib/ml` (`import "ml/..."` no longer resolves), its
+  reference pages, `examples/ml_xor.may` and the artificial ecosystem
+  simulation, which used `stdlib/ml`, move to `frozen/`, where they are kept
+  but not built, tested or maintained. `make test-browser`, the doctor's
+  `browser` profile and the `maybrowser.yml` workflow are removed.
+
 ## Compiler
 
 - **Breaking:** remove the experimental `clang-llvm` target and

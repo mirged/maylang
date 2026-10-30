@@ -37,7 +37,6 @@ print(quick_sort([3, 1, 2]));  // [1, 2, 3]
 | `format.may`      | Tables, key-value blocks, durations, byte sizes, percentages, ANSI styling |
 | `result.may`      | `ok`, `error`, `is_ok`, `is_err`, `unwrap`, `unwrap_or`, `map_result`, `and_then`, `collect`, `attempt` |
 | `test.may`        | `check`, `assert_true`, `assert_equal`, `assert_not_equal`, `assert_contains`, `assert_near`, `test_summary` |
-| `ml/`             | Tensors, classical ML, dense neural networks, training, optimizers, data utilities |
 
 ## Runtime primitives
 
@@ -81,12 +80,10 @@ compiler/mayc/mayc_new examples/stdlib_tour.may -o /tmp/stdlib-tour
 /tmp/stdlib-tour
 compiler/mayc/mayc_new examples/stdlib_expanded.may -o /tmp/stdlib-expanded
 /tmp/stdlib-expanded
-compiler/mayc/mayc_new examples/ml_xor.may -o /tmp/ml-xor
-/tmp/ml-xor
 ```
 
-The ML toolkit's API and supported model scope are documented in
-[`ml/README.md`](ml/README.md).
+The experimental ML toolkit is frozen in
+[`frozen/stdlib/ml/`](../frozen/README.md) and not maintained for now.
 
 These examples run in compiler verification. Update API signatures and `///`
 comments in the source, regenerate with `python3 docs/reference/generate.py`, and

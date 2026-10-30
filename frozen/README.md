@@ -27,4 +27,17 @@ history, for when there is a reason and the capacity to bring it back.
 Each entry records the last commit at which the area was tested, the
 commands that tested it then, and the issues that tracked it.
 
-None yet.
+| Area | Paths | Last tested | Tested with | Issues |
+| --- | --- | --- | --- | --- |
+| Browser | `platform/maybrowser/`, `.github/workflows/maybrowser.yml` | `2ec1b1a`, CI `maybrowser.yml` under Xvfb | `make test-browser` (`make -C platform/maybrowser check test`), doctor profile `browser` | #45 |
+| MayOS | `platform/mayos/`, `platform/README.md` | Booted locally during #92 (`8d322c0`); never in CI | `make -C platform/mayos test` (QEMU) and `check` | #53 |
+| ML library | `stdlib/ml/`, `docs/reference/stdlib/ml/` | `2ec1b1a`, `make test-compiler` | `examples/stdlib_expanded.may` (tensor, data, classical, loss, nn, optim and model checks), `compiler/mayc/tests/library/boundaries.may` (fixed inference), reference generator entries in `docs/reference/descriptions.json` | #57 |
+| ML examples | `examples/ml_xor.may`, `examples/simulations/ecosystem/` | `2ec1b1a`, `make test-compiler` | `compiler/mayc/tests/verify.py` example entry points; the ecosystem's own `make test` | #57 |
+
+Reviving the ML library also means restoring the removed checks in
+`stdlib_expanded.may` and `boundaries.may`, the `ml/` entries in
+`descriptions.json`, the experimental-API branches in
+`docs/reference/generate.py` and the Tensor snippet in
+`docs/reference/EXAMPLES.md`/`tests/docs/run.py`; `git show` on the freezing
+commit lists them. Reviving the browser restores `make test-browser` and the
+doctor's `browser` profile.

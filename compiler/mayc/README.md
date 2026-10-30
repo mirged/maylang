@@ -395,9 +395,8 @@ bits with a fresh runtime box, avoiding repeated decimal parsing in hot loops.
 Floats are unboxed payloads (`math.may` reads their bits with intrinsics). The
 process API returns integer PIDs and checks wait failures and signal exit statuses.
 `tests/float_literals.py` checks bit parity with the original literal path;
-`tests/processes.py` validates process behavior. The ecosystem runner isolates
-long allocation histories because the collector still has a reproducible
-corruption issue under sustained workloads.
+`tests/processes.py` validates process behavior. The collector still has a
+reproducible corruption issue under sustained workloads (#2).
 
 Run the feature regressions, area harnesses, ABI and diagnostics checks, all
 current example/project entry points, and ELF validation with:

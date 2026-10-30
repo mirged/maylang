@@ -95,7 +95,6 @@ def targets(compiler):
         ROOT / "examples/apps/textstats/main.may",
         ROOT / "examples/games/starfall/main.may",
         ROOT / "examples/tools/rivet/main.may",
-        ROOT / "examples/simulations/ecosystem/main.may",
     ]
     print(f"Testing {len(sources)} current entrypoints", flush=True)
     for source, label in [(ROOT / "examples/apps/mayboard/src/main.may", "mayboard"), (showcase, "showcase")]:

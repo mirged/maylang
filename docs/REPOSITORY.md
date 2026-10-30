@@ -3,8 +3,7 @@
 ```text
 compiler/    mayc (self-hosted compiler) and rust (source bootstrap, shared crates)
 tools/       may, mayfmt, maylsp, maypkg and their shared formatter
-platform/    maybrowser and mayos experiments built on the toolchain
-stdlib/      public libraries, native UI and experimental ML
+stdlib/      public libraries and native UI
 dist/        packaging, installers, update and migration scripts
 tests/       cross-component suites: compliance, docs, ui
 examples/    single-file examples and complete apps, games, simulations
@@ -23,9 +22,7 @@ frozen/      kept but unmaintained code for other targets and experiments
 | `tools/maylsp/` | Active Maylang language server | `make test-tools` |
 | `tools/maypkg/` | Legacy manager and shared filesystem/import helpers | `make test-tools` |
 | `tools/shared/` | Formatter core shared by `may`, `mayfmt` and `maylsp` | `make test-tools` |
-| `platform/maybrowser/` | Experimental browser and native adapter | `make test-browser` |
-| `platform/mayos/` | OS/kernel experiment | Component Makefile and README |
-| `stdlib/` | Public libraries, UI and experimental ML | Compiler contracts and `make test-ui` |
+| `stdlib/` | Public libraries and UI | Compiler contracts and `make test-ui` |
 | `dist/` | Packaging, installers and Bash migration; tests in `dist/tests/` | `make test-distribution package` |
 | `tests/compliance/` | Legacy runtime/coercion and boundary regressions | `make test-compliance` |
 | `tests/docs/` | Runnable documentation examples | `make test-docs` |
@@ -39,7 +36,7 @@ frozen/      kept but unmaintained code for other targets and experiments
 
 Component tests stay beside their implementation; `tests/` holds only suites
 that span components. Directory depth was preserved where possible, so
-relative imports between `compiler/`, `tools/` and `platform/` siblings use
+relative imports between `compiler/` and `tools/` siblings use
 `../../<group>/<component>/`.
 
 ## Path migration
@@ -51,7 +48,7 @@ The October 2026 re-layout replaced `toolchain/`, `example_projects/` and the to
 | --- | --- |
 | `toolchain/mayc/`, `toolchain/rust/` | `compiler/mayc/`, `compiler/rust/` |
 | `toolchain/{may,mayfmt,maylsp,maypkg,shared}/` | `tools/…/` |
-| `toolchain/{maybrowser,mayos}/` | `platform/…/` |
+| `toolchain/{maybrowser,mayos}/` | `platform/…/`, now `frozen/platform/…/` |
 | `toolchain/distribution/`, `toolchain/{install.sh,install.ps1,package.py,update.py}` | `dist/` |
 | `toolchain/tests/` | `dist/tests/`; `documentation.py` is now `tests/docs/run.py` |
 | `toolchain/mayui/` | `tests/ui/` |
