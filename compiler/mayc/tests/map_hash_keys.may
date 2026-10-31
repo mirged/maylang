@@ -1,0 +1,49 @@
+// Hashed maps (#97): every key type is indexed once a map has eight entries,
+// with the same equality as `==` and insertion order kept.
+mut m: Any = {};
+for i: Any in 0..10 { m["pad" + str(i)] = i; }
+m[1] = "int";
+m["1"] = "str";
+m[1.0] = "float";
+m[true] = "bool";
+m[nil] = "nil";
+m[0.0] = "zero";
+m[-0.0] = "negative zero";
+m[-7] = "negative";
+m[1000000000000000000] = "large";
+print(len(m), m[1], m["1"], m[1.0], m[true], m[nil], m[-7], m[1000000000000000000]);
+print(m[0.0], m[2], m["2"], m[false], has(m, 1), has(m, 2));
+
+// A list key is found by identity, not by contents.
+let a: Any = [1, 2];
+let b: Any = [1, 2];
+m[a] = "list a";
+print(m[a], m[b], has(m, b));
+
+// Removal (`remove` returns a copy) and re-insertion, which appends the key.
+let before: Any = m;
+m = remove(remove(m, 1), "pad3");
+print(len(m), m[1], m["1"], m[1.0], m["pad3"], m["pad4"], len(before), before[1]);
+m[1] = "int again";
+print(m[1], keys(m)[len(keys(m)) - 1]);
+
+// Iteration follows insertion order.
+let order: Any = {};
+for i: Any in 0..20 { order[(i * 37) % 20 - 10] = i; }
+print(keys(order));
+
+// Many integer keys, including negatives, with lookups that miss.
+mut big: Any = {};
+mut i: Any = 0;
+while (i < 5000) { big[i * 7 - 10000] = i; i += 1; }
+mut sum: Any = 0;
+mut found: Any = 0;
+i = 0 - 10000;
+while (i < 25000) {
+    if (has(big, i)) { found += 1; sum += big[i]; }
+    i += 1;
+}
+print(len(big), found, sum);
+i = 0;
+while (i < 200) { if (i % 2 == 0) { big = remove(big, i * 7 - 10000); } i += 1; }
+print(len(big), big[0 - 10000], big[0 - 9993], keys(big)[0]);

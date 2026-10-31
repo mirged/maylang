@@ -1,0 +1,8 @@
+mut sum: Int = 0;
+mut r: Int = 0;
+while (r < 200000) {
+    let m: Map<Str, Int> = {"a": 1, "bb": 2, "ccc": 3, "dddd": 4};
+    sum += (m["a"] ?? 0) + (m["dddd"] ?? 0) + (m["zz"] ?? 0);
+    r += 1;
+}
+print(sum);

@@ -1,0 +1,8 @@
+let n: Int = 20000;
+let m: Map<Int, Int> = {};
+mut i: Int = 0;
+while (i < n) { m[i * 7] = i; i += 1; }
+mut sum: Int = 0;
+i = 0;
+while (i < n * 7) { sum += m[i] ?? 0; i += 1; }
+print(sum);

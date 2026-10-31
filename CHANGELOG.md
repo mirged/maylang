@@ -153,6 +153,14 @@
   ([#91](https://github.com/mirged/maylang/issues/91)).
 - Support bitwise operators on the experimental `clang-llvm` target, which
   previously rejected them ([#91](https://github.com/mirged/maylang/issues/91)).
+- Hash `Map` keys of every type, not only `Str`
+  ([#97](https://github.com/mirged/maylang/issues/97)). `Int`, `Float`,
+  `Bool`, `nil` and reference keys used a linear scan, so building a map
+  was O(n²): 500 000 `Int` keys now take 0.34 s on a loaded machine
+  instead of not finishing in 120 s. String hashing drops its per-byte division, and the
+  index table uses CPython-style perturbed probing. Equality and insertion
+  order are unchanged
+  ([report](compiler/mayc/tests/backend/map-hashing.md)).
 - Cache struct and record field access per site
   ([#98](https://github.com/mirged/maylang/issues/98)). Each `x.f` checks
   inline whether the entry where it last found `f` still holds the

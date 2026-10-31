@@ -523,21 +523,56 @@ fun rt_map_new_sized(t: Any, n: Any) -> Any {
     return p;
 }
 
-fun rt_key_hash(k: Any) -> Any {
-    let n: Any = load64(k);
-    mut h: Any = 5381;
-    mut i: Any = 0;
-    while (i < n) { h = (h * 131 + load8(k + 8 + i)) % 2147483647; i += 1; }
-    return h;
+// Map hashing (#97). Every key type is hashed consistently with rt_same.
+// Ints, Bools and strings keep nearby keys in nearby slots, which keeps
+// sequential workloads in cache: an Int folds its high words into its low
+// bits, and a string is a wrapping polynomial over its bytes. Floats (with
+// -0.0 folded onto 0.0; NaN never matches, as under rt_same) and heap
+// references, which the non-moving collector keeps stable, have no useful
+// low bits and go through a multiplicative mixer. A probe starts at
+// hash & mask and takes three linear steps, which stay in one cache line,
+// then follows CPython's slot = 5 * slot + 1 + perturb, shifting perturb
+// right by five bits each step, so keys that share their low bits (packed
+// coordinates, multiples of a power of two) are spread by their high bits.
+// Constants stay below 2^60 for the bootstrap compiler; `& mask` after `>>`
+// makes the shifts logical.
+fun rt_hash_mix(x: Any) -> Any {
+    mut h: Any = x * 1024421277861575701;
+    h = h ^ ((h >> 32) & 4294967295);
+    h = h * 1105712242481227193;
+    return h ^ ((h >> 29) & 34359738367);
 }
 
+fun rt_key_hash(kt: Any, k: Any) -> Any {
+    if (kt == 4) {
+        mut p: Any = k + 8;
+        let end: Any = p + load64(k);
+        mut h: Any = 0;
+        while (p < end) { h = h * 131 + load8(p); p = p + 1; }
+        return h;
+    }
+    if (kt <= 2) { return k ^ ((k >> 32) & 4294967295) ^ ((k >> 48) & 65535); }
+    if (kt == 3 and k == (1 << 63)) { return rt_hash_mix(0); }
+    return rt_hash_mix(k);
+}
+
+// Index tables are power-of-two arrays of entry index + 1 (0 is empty);
+// maps below eight entries have none and are scanned.
 fun rt_map_index(m: Any, index: Any) -> Any {
-    let d: Any = load64(m + 16);
-    if (load64(d + index * 32) != 4) { return 0; }
-    let cap: Any = load64(m + 32);
+    let e: Any = load64(m + 16) + index * 32;
+    let mask: Any = load64(m + 32) - 1;
     let table: Any = load64(m + 24);
-    mut slot: Any = rt_key_hash(load64(d + index * 32 + 8)) % cap;
-    while (load64(table + slot * 8) != 0) { slot = (slot + 1) % cap; }
+    mut perturb: Any = rt_key_hash(load64(e), load64(e + 8));
+    mut slot: Any = perturb & mask;
+    mut step: Any = 0;
+    while (load64(table + slot * 8) != 0) {
+        step = step + 1;
+        if (step < 4) { slot = (slot + 1) & mask; }
+        else {
+            perturb = (perturb >> 5) & 576460752303423487;
+            slot = (slot * 5 + 1 + perturb) & mask;
+        }
+    }
     store64(table + slot * 8, index + 1);
     return 0;
 }
@@ -557,14 +592,27 @@ fun rt_map_find(m: Any, kt: Any, k: Any) -> Any {
     let n: Any = load64(m);
     let d: Any = load64(m + 16);
     let cap: Any = load64(m + 32);
-    if (cap != 0 and kt == 4) {
+    if (cap != 0) {
         let table: Any = load64(m + 24);
-        mut slot: Any = rt_key_hash(k) % cap;
+        let mask: Any = cap - 1;
+        mut perturb: Any = rt_key_hash(kt, k);
+        mut slot: Any = perturb & mask;
+        mut step: Any = 0;
         mut entry: Any = load64(table + slot * 8);
         while (entry != 0) {
             let e: Any = d + (entry - 1) * 32;
-            if (load64(e) == 4 and rt_str_eq(load64(e + 8), k) == 1) { return entry - 1; }
-            slot = (slot + 1) % cap;
+            if (load64(e) == kt) {
+                let ek: Any = load64(e + 8);
+                if (kt == 4) { if (rt_str_eq(ek, k) == 1) { return entry - 1; } }
+                else if (kt == 3) { if (__fbits(20, ek, k) == 1) { return entry - 1; } }
+                else if (ek == k) { return entry - 1; }
+            }
+            step = step + 1;
+            if (step < 4) { slot = (slot + 1) & mask; }
+            else {
+                perturb = (perturb >> 5) & 576460752303423487;
+                slot = (slot * 5 + 1 + perturb) & mask;
+            }
             entry = load64(table + slot * 8);
         }
         return 0 - 1;
