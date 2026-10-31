@@ -55,7 +55,7 @@ fun glob_find(ctx: Any, p: Any, l: Any) -> Any {
 
 fun glob_add(ctx: Any, p: Any, l: Any) -> Any {
     // Fat globals hold a type word and a payload; raw runtime globals use the first word.
-    push(ctx.globals, {"p": p, "l": l, "off": dalloc(ctx, if (FAT_VALUES) { 16 } else { 8 })});
+    push(ctx.globals, {"p": p, "l": l, "off": dalloc(ctx, if (DYNMODE == 1) { 16 } else { 8 })});
     return len(ctx.globals) - 1;
 }
 

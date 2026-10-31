@@ -40,7 +40,7 @@ fun word_builtin(scan: Any, node: Any, name: Any) -> Any {
 // bridge (x86-64 Linux ELF), at most six arguments.
 fun word_foreign(ctx: Any, rec: Any) -> Any {
     // Fat values call externs through their fat entry (x86_64_fat.may) for now.
-    if (rec.foreign != true or rec.pc > 6 or FAT_VALUES) { return false; }
+    if (rec.foreign != true or rec.pc > 6 or DYNMODE == 1) { return false; }
     if (not (ctx.target.arch == "x86_64" and ctx.target.os == "linux")) { return false; }
     for kind: Any in rec.ffiArgs { if (not has([0, 1, 6, 8], kind)) { return false; } }
     return has([0, 1, 6, 8, 9], rec.ffiResult);
@@ -275,7 +275,7 @@ fun word_adapt(scan: Any) -> Any {
 // function native-word code may call.
 fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
     // --debug keeps the same arithmetic; native frames add no trace entries.
-    if (DYNMODE == 0 or not has(["x86_64", "arm64", "riscv64"], ctx.target.arch) or not words_target(ctx)) { return 0; }
+    if (DYNMODE == 0 or ctx.target.arch != "x86_64") { return 0; }
     WORD_NAMES = names; WORD_PENDING = [];
     for rec: Any in functions {
         rec.wordForeign = word_foreign(ctx, rec);
@@ -359,14 +359,10 @@ fun word_calls(node: Any) -> Any {
     return false;
 }
 
-// Fat values on the portable backends (backend/raw_fat.may) have no
-// native-word entries yet.
-fun words_target(ctx: Any) -> Any { return not FAT_VALUES or ctx.target.arch == "x86_64"; }
-
 // The call that replaces `node`, or 0 when it stays tagged.
 fun words_outline(ctx: Any, node: Any) -> Any {
     if (DYNMODE == 0 or node == 0 or (node.kind != E_BIN and node.kind != E_UN)) { return 0; }
-    if (not has(["x86_64", "arm64", "riscv64"], ctx.target.arch) or not words_target(ctx) or not word_plain(node)) { return 0; }
+    if (ctx.target.arch != "x86_64" or not word_plain(node)) { return 0; }
     let result: Any = word_kind(node.strictType);
     if (result == nil or not word_bitwise(node) or source_module(node.span) == "") { return 0; }
     let order: Any = [];
