@@ -1,0 +1,267 @@
+// Proven types in fat code: type checks are dropped, and locals get
+// single-register homes, only where the operations themselves prove a
+// value's type (fat_plan_types), never from annotations alone. The
+// expected output was produced by the compiler before proven types.
+
+fun show(label: Str, value: Any) -> Nil { print(label, value); return; }
+
+fun fault(f: () -> Any) -> Str {
+    return may { str(f()) } otherwise { "${err.kind}: ${err.message}" };
+}
+
+// ------------------------------------------------ proven Int arithmetic
+fun int_loop(limit: Int) -> List<Int> {
+    mut sum: Int = 0;
+    mut product: Int = 1;
+    mut bits: Int = 0;
+    mut i: Int = 0;
+    while (i < limit) {
+        sum += i * i - i / 3 + i % 5;
+        product = (product * 7 + i) % 1000003;
+        bits = (bits ^ (i << 3)) | (i & 12);
+        bits = bits >> 1;
+        i += 1;
+    }
+    return [sum, product, bits, i];
+}
+show("int loop", int_loop(1000));
+show("int loop empty", int_loop(0));
+
+// Six hot proven locals and two hot unproven ones compete for homes.
+fun pressure(limit: Int, step: Any) -> List<Any> {
+    mut a: Int = 1; mut b: Int = 2; mut c: Int = 3; mut d: Int = 4; mut e: Int = 5; mut f: Int = 6;
+    mut g: Any = 0; mut h: Any = "";
+    mut i: Int = 0;
+    while (i < limit) {
+        a = a + b; b = b + c; c = c + d; d = d + e; e = e + f; f = f + 1;
+        a = a % 1000; b = b % 1000; c = c % 1000; d = d % 1000; e = e % 1000;
+        g = g + step; h = h + str(i % 10);
+        i += 1;
+    }
+    return [a, b, c, d, e, f, g, h];
+}
+show("pressure", pressure(40, 1));
+show("pressure float", pressure(5, 0.5));
+show("pressure str", fault(fun() -> Any { return pressure(3, "x"); }));
+
+// Faults on proven operands still come from the runtime.
+show("overflow", fault(fun() -> Any {
+    mut x: Int = 1;
+    mut i: Int = 0;
+    while (i < 100) { x = x * 3; i += 1; }
+    return x;
+}));
+show("add overflow", fault(fun() -> Any {
+    mut x: Int = 9223372036854775800;
+    while (x > 0) { x += 1; }
+    return x;
+}));
+show("div zero", fault(fun() -> Any {
+    mut x: Int = 100;
+    mut d: Int = 3;
+    while (d > -5) { x = x + 100 / d; d -= 1; }
+    return x;
+}));
+show("mod zero", fault(fun() -> Any { mut d: Int = 2; mut x: Int = 9; while (true) { x = x % d; d -= 1; } return x; }));
+show("shift range", fault(fun() -> Any { mut s: Int = 60; mut x: Int = 1; while (s < 70) { x = 1 << s; s += 1; } return x; }));
+show("negate min", fault(fun() -> Any { mut x: Int = -9223372036854775807 - 1; mut i: Int = 0; while (i < 1) { x = -x; i += 1; } return x; }));
+
+// ------------------------------------------------ proven Float arithmetic
+fun float_loop(n: Int) -> List<Any> {
+    mut x: Float = 0.0;
+    mut y: Float = 1.0;
+    mut k: Int = 0;
+    while (k < n) {
+        let t: Float = x * 0.5 - y * 0.25 + to_float(k);
+        y = y / 2.0 + x;
+        x = t;
+        k += 1;
+    }
+    return [x, y, x < y, x == y, x != y];
+}
+show("float loop", float_loop(30));
+show("float mixed", fault(fun() -> Any {
+    mut x: Float = 1.5;
+    mut k: Int = 0;
+    while (k < 3) { x = x * 2.0 + to_float(k) / 3.0; k += 1; }
+    return [x, x + 1, 1 + x, x * 2, x - 1];
+}));
+show("float div zero", fault(fun() -> Any { mut x: Float = 1.0; mut d: Float = 2.0; while (d > -1.0) { x = x / d; d = d - 1.0; } return x; }));
+show("float neg zero div", fault(fun() -> Any { mut x: Float = 1.0; mut d: Float = -0.0; mut i: Int = 0; while (i < 1) { x = x / d; i += 1; } return x; }));
+show("nan", fault(fun() -> Any {
+    mut x: Float = 0.0;
+    mut i: Int = 0;
+    mut out: List<Bool> = [];
+    let big: Float = 1.0e308;
+    while (i < 2) { x = x * 0.0 + (big * 10.0 - big * 10.0); push(out, x == x); push(out, x != x); push(out, x < 1.0); push(out, x >= 1.0); i += 1; }
+    return out;
+}));
+show("neg zero", fault(fun() -> Any { mut z: Float = 0.0; mut i: Int = 0; while (i < 1) { z = -z; i += 1; } return [z, z == 0.0, str(z)]; }));
+show("to_float str", fault(fun() -> Any { let s: Any = "7"; mut x: Any = 0; mut i: Int = 0; while (i < 2) { x = to_float(s); i += 1; } return [x, x + "!"]; }));
+
+// ------------------------------------------------ Bool branches
+fun bools(n: Int) -> List<Any> {
+    mut flag: Bool = false;
+    mut count: Int = 0;
+    mut i: Int = 0;
+    while (i < n) {
+        let even: Bool = i % 2 == 0;
+        flag = not flag;
+        if (even) { count += 1; }
+        if (flag) { count += 10; }
+        if (!even and flag) { count += 100; }
+        i += 1;
+    }
+    return [flag, count];
+}
+show("bools", bools(7));
+
+// ------------------------------------------------ bindings that do not qualify
+// A global assigned by a function can change type behind main's back.
+mut drift: Any = 1;
+fun drift_to_str() -> Nil { drift = "s"; return; }
+mut di: Int = 0;
+while (di < 2) { drift = drift + 1; di += 1; }
+drift_to_str();
+show("global drift", drift + 1);
+
+// A local named like a function.
+fun twice(x: Int) -> Int { return x * 2; }
+fun shadow(n: Int) -> List<Any> {
+    let early: Any = twice;
+    mut out: List<Any> = [str(early(3))];
+    mut i: Int = 0;
+    while (i < n) { let twice: Int = i * 3; push(out, twice + 1); i += 1; }
+    return out;
+}
+show("shadow fn", shadow(3));
+
+// A captured local changes type inside a closure.
+fun captured() -> List<Any> {
+    mut v: Any = 1;
+    let change: () -> Nil = fun() -> Nil { v = "c"; return; };
+    mut out: List<Any> = [];
+    mut i: Int = 0;
+    while (i < 3) { if (i == 1) { change(); } push(out, v + 1); i += 1; }
+    return out;
+}
+show("captured", captured());
+
+// Parameters are unproven, even with an Int annotation.
+fun param_loop(x: Int, n: Int) -> Any {
+    mut acc: Any = 0;
+    mut v: Int = x;
+    mut i: Int = 0;
+    while (i < n) { acc = acc + v; v = v + 1; i += 1; }
+    return acc;
+}
+let loose: Any = param_loop;
+show("param", loose(2, 3));
+show("param float", loose(2.5, 3));
+show("param str", fault(fun() -> Any { return loose("a", 2); }));
+
+// Assignments of different types meet to unknown.
+fun mixed(n: Int) -> List<Any> {
+    mut v: Any = 0;
+    mut out: List<Any> = [];
+    mut i: Int = 0;
+    while (i < n) {
+        if (i % 3 == 1) { v = 0.5; } else if (i % 3 == 2) { v = "s"; } else { v = 1; }
+        push(out, v + 1);
+        i += 1;
+    }
+    return out;
+}
+show("mixed", mixed(6));
+
+// List elements and fields are never proven: an Any alias can store anything.
+struct Cell { value: Int }
+fun aliases() -> List<Any> {
+    let xs: List<Int> = [1, 2, 3];
+    let alias: Any = xs;
+    alias[1] = "two";
+    let c: Cell = Cell(5);
+    let calias: Any = c;
+    calias.value = 2.5;
+    mut out: List<Any> = [];
+    mut i: Int = 0;
+    while (i < 3) { push(out, xs[i] + 1); i += 1; }
+    push(out, c.value + 1);
+    return out;
+}
+show("aliases", fault(fun() -> Any { return aliases(); }));
+
+// ------------------------------------------------ control flow around homes
+fun tail(n: Int, acc: Int) -> Int {
+    mut i: Int = 0;
+    mut local: Int = 0;
+    while (i < 3) { local = local + i; i += 1; }
+    if (n == 0) { return acc + local; }
+    return tail(n - 1, acc + local + n);
+}
+show("tail", tail(50, 0));
+
+fun guarded(n: Int) -> List<Any> {
+    mut total: Int = 0;
+    mut i: Int = 0;
+    let out: List<Any> = [];
+    while (i < n) {
+        total += i;
+        let r: Any = may { 10 / (i - 2) } otherwise { "caught ${err.kind}" };
+        push(out, r);
+        i += 1;
+    }
+    push(out, total);
+    return out;
+}
+show("handler", guarded(4));
+
+fun ranges(n: Int) -> List<Int> {
+    mut sum: Int = 0;
+    mut odd: Int = 0;
+    for i: Int in 0..n { sum += i; if (i % 2 == 1) { odd += i * i; } }
+    return [sum, odd];
+}
+show("ranges", ranges(100));
+
+// Heap values in pair homes next to proven homes, across collections.
+fun heap_homes(n: Int) -> Int {
+    mut keep: List<Str> = [];
+    mut parts: Any = [];
+    mut total: Int = 0;
+    mut i: Int = 0;
+    while (i < n) {
+        let s: Str = "v" + str(i);
+        push(keep, s);
+        parts = parts + [i];
+        total += len(s) + len(keep);
+        i += 1;
+    }
+    return total + len(parts) + len(keep[n - 1]);
+}
+show("heap homes", heap_homes(3000));
+
+fun worker(id: Int) -> Nil {
+    mut i: Int = 0;
+    mut acc: Int = id;
+    while (i < 3) { acc = acc * 2 + i; print("fiber", id, i, acc); yield(); i += 1; }
+    return;
+}
+spawn(fun() -> Nil { worker(1); return; });
+spawn(fun() -> Nil { worker(2); return; });
+run();
+
+// Top-level proven globals and locals.
+let size: Int = 50;
+mut total: Int = 0;
+mut y: Int = 0;
+while (y < size) {
+    mut x: Int = 0;
+    let fy: Float = to_float(y) / to_float(size);
+    while (x < size) {
+        if (to_float(x) / to_float(size) + fy > 1.0) { total += 1; }
+        x += 1;
+    }
+    y += 1;
+}
+show("top level", total);

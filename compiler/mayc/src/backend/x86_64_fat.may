@@ -54,7 +54,7 @@ mut FAT_HOME_NAMES: Any = {};
 mut FAT_HOME_ORDER: Any = [];
 mut FAT_HOMES: Any = [];
 mut FAT_SAVES: Any = [];
-let FAT_HOME_PAIRS: Any = [[3, 12], [13, 14]];                             // rbx/r12, r13/r14
+let FAT_HOME_REGISTERS: Any = [3, 12, 13, 14, 15];                         // rbx, r12-r15
 // Slow paths moved after the function's code, so that fast paths fall
 // through (fat_emit_deferred): ["binary", notInt, slow, op, done, right] or
 // ["branch", slow, op, label, truthy, done, right]. `right` is the forwarded
@@ -174,13 +174,14 @@ fun fat_plan_forwarding(block: Any, intervals: Any) -> Any {
     return 0;
 }
 
-// Choose up to two locals for register homes (#96): names declared once in
-// the function (a parameter or one `let`, so that no shadowing local
-// shares the pair), not captured, and used inside a loop, ranked by uses
-// weighted 8x per loop level. A function with a handler gets none: a fault
-// restores callee-saved registers to their values at the handler's start.
-// The collector marks the callee-saved registers (rt_gc), so a pair needs
-// no spilling around calls.
+// Choose locals for register homes in RBX and R12-R15 (#96): names declared
+// once in the function (a parameter or one `let`, so that no shadowing
+// local shares the registers), not captured, and used inside a loop,
+// ranked by uses weighted 8x per loop level. A local of a proven type
+// (fat_plan_types) keeps only its payload in one register; others take a
+// pair. A function with a handler gets none: a fault restores callee-saved
+// registers to their values at the handler's start. The collector marks
+// the callee-saved registers (rt_gc), so homes need no spilling around calls.
 fun fat_plan_homes(ctx: Any, block: Any, parameters: Any, count: Any) -> Any {
     let code: Any = block.code;
     let labels: Any = {};
@@ -232,14 +233,215 @@ fun fat_plan_homes(ctx: Any, block: Any, parameters: Any, count: Any) -> Any {
         }
         position += 1;
     }
+    // A local of a proven type (fat_plan_types) needs only a payload
+    // register; any other needs a pair. Take the heaviest that still fits.
     let chosen: Any = [];
-    for pair: Any in FAT_HOME_PAIRS {
+    mut free: Any = 0;
+    mut searching: Any = true;
+    while (searching) {
         mut best: Any = nil;
         for name: Any in names {
-            if ((declared[name] ?? 0) == 1 and not has(chosen, name) and (best == nil or weights[name] > weights[best])) { best = name; }
+            let need: Any = if ((FAT_PROVEN_VARS[name] ?? -1) > 0) { 1 } else { 2 };
+            if ((declared[name] ?? 0) == 1 and not has(chosen, name) and free + need <= len(FAT_HOME_REGISTERS) and (best == nil or weights[name] > weights[best])) { best = name; }
         }
-        if (best != nil) { push(chosen, best); FAT_HOME_NAMES[best] = pair; push(FAT_HOME_ORDER, best); }
+        if (best == nil) { searching = false; }
+        else {
+            push(chosen, best); push(FAT_HOME_ORDER, best);
+            let known: Any = FAT_PROVEN_VARS[best] ?? -1;
+            if (known > 0) { FAT_HOME_NAMES[best] = [-1, FAT_HOME_REGISTERS[free], known]; free += 1; }
+            else { FAT_HOME_NAMES[best] = [FAT_HOME_REGISTERS[free], FAT_HOME_REGISTERS[free + 1], -1]; free += 2; }
+        }
     }
+    return 0;
+}
+
+// Proven types. FAT_PROVEN[slot] is the type word that temporary `slot`
+// holds whenever it is read (1 Bool, 2 Int, 3 Float, 4 Str), or -1. The
+// proof comes from the operations themselves, not from annotations, which
+// dynamic aliases can bypass: literals; comparisons, which give a Bool or
+// fault; Int arithmetic on two Ints, which gives an Int or faults; Float
+// arithmetic with a Float operand; `len`, `str` and `to_float` of a number;
+// and variables whose every assignment is proven. A variable qualifies when
+// every read of its name must reach the same binding: a local declared once
+// (no parameter, not captured, no global or function of that name), or a
+// global declared once at top level that no function assigns.
+mut FAT_PROVEN: Any = [];
+mut FAT_PROVEN_VARS: Any = {};
+mut FAT_GLOBAL_WRITES: Any = {};
+let FAT_PROVEN_TOP: Any = -2;
+
+// Names assigned by any function: globals they name lose their proofs.
+fun fat_plan_global_writes(ctx: Any) -> Any {
+    FAT_GLOBAL_WRITES = {};
+    for rec: Any in ctx.functions {
+        if (rec.ir == nil or rec.ir == 0) { continue; }
+        for instruction: Any in rec.ir.code {
+            if (instruction.op == S_ASSIGN) { FAT_GLOBAL_WRITES[symbol_name(instruction.extra.name, instruction.extra.length)] = true; }
+        }
+    }
+    return 0;
+}
+
+fun fat_meet(a: Any, b: Any) -> Any {
+    if (a == FAT_PROVEN_TOP) { return b; }
+    if (b == FAT_PROVEN_TOP or a == b) { return a; }
+    return -1;
+}
+
+// The type an operation's result is proven to have, from its operands'.
+// `variable` is the operation's variable id (E_VAR) and `call` the type a
+// builtin call gives (fat_plan_types resolves both once).
+fun fat_proven_result(instruction: Any, variable: Any, call: Any, variables: Any) -> Any {
+    let op: Any = instruction.op;
+    let n: Any = instruction.extra;
+    if (op == E_INT) { return 2; }
+    if (op == E_FLOAT) { return 3; }
+    if (op == E_STR or op == E_STRB) { return 4; }
+    if (op == IR_BOOL) { return 1; }
+    if (op == IR_COPY) { return if (instruction.arg1 == 0) { -1 } else { FAT_PROVEN[instruction.arg1.slot] }; }
+    if (op == E_VAR) { return if (variable >= 0) { variables[variable] } else { call }; }
+    if (op == E_BIN) {
+        let o: Any = n.op;
+        if (o >= TK_EQ and o <= 30) { return 1; }
+        let l: Any = FAT_PROVEN[n.left.slot]; let r: Any = FAT_PROVEN[n.right.slot];
+        if (l == FAT_PROVEN_TOP or r == FAT_PROVEN_TOP) { return FAT_PROVEN_TOP; }
+        if (o >= TK_PLUS and o <= TK_SLASH) {
+            if (l == 2 and r == 2) { return 2; }
+            if ((l == 2 or l == 3) and (r == 2 or r == 3)) { return 3; }
+            return -1;
+        }
+        if (o == TK_PCT or o == TK_BITAND or o == TK_PIPE or o == TK_XOR or o == TK_SHL or o == TK_SHR) {
+            return if (l == 2 and r == 2) { 2 } else { -1 };
+        }
+        return -1;
+    }
+    if (op == E_UN) {
+        if (n.op == TK_NOT) { return 1; }
+        let v: Any = FAT_PROVEN[n.operand.slot];
+        if (v == FAT_PROVEN_TOP) { return v; }
+        if (n.op == TK_MINUS and (v == 2 or v == 3)) { return v; }
+        if (n.op == TK_BITNOT and v == 2) { return 2; }
+        return -1;
+    }
+    if (op == E_CALL) {
+        if (call != 0) { return call; }
+        // to_float: a Float for an Int or Float argument.
+        let v: Any = FAT_PROVEN[n.args.slot];
+        if (v == FAT_PROVEN_TOP) { return v; }
+        return if (v == 2 or v == 3) { 3 } else { -1 };
+    }
+    return -1;
+}
+
+// The type a call to builtin `name` with one argument gives: 2 for len, 4
+// for str, 0 for to_float (it depends on the argument), else -1. A local,
+// global or function of that name hides the builtin.
+fun fat_builtin_type(ctx: Any, n: Any, locals: Any) -> Any {
+    if (n.args == 0 or n.args.next != 0) { return -1; }
+    let name: Any = symbol_name(n.name, n.length);
+    if (name != "len" and name != "str" and name != "to_float") { return -1; }
+    if (has(locals, name) or glob_find(ctx, n.name, n.length) >= 0 or backend_find_func(ctx, n.name, n.length) != 0) { return -1; }
+    if (name == "len") { return 2; }
+    if (name == "str") { return 4; }
+    return 0;
+}
+
+fun fat_plan_types(ctx: Any, block: Any, parameters: Any, count: Any, main: Bool) -> Any {
+    FAT_PROVEN = [];
+    FAT_PROVEN_VARS = {};
+    for interval: Any in FAT_INTERVALS { push(FAT_PROVEN, FAT_PROVEN_TOP); }
+    let code: Any = block.code;
+    // Name ids, declarations per id; parameters and captured names never
+    // qualify. A read before the declaration (in code order) sees another
+    // binding, or an unset global. Names are resolved once here, so that
+    // the iteration below allocates nothing.
+    let ids: Any = {};
+    let names: Any = [];
+    let declared: Any = [];
+    let isLocal: Any = [];
+    let at: Any = [];
+    let calls: Any = [];
+    let locals: Any = {};
+    for index: Any in 0..count {
+        let name: Any = symbol_name(parameters[index].name, parameters[index].length);
+        locals[name] = true;
+        if (ids[name] == nil) { ids[name] = len(names); push(names, name); push(declared, 2); push(isLocal, true); }
+    }
+    for instruction: Any in code {
+        let op: Any = instruction.op;
+        mut id: Any = -1;
+        mut call: Any = -1;
+        if (op == S_LET or op == S_ASSIGN or op == E_VAR) {
+            let n: Any = instruction.extra;
+            let name: Any = symbol_name(n.name, n.length);
+            id = ids[name] ?? -1;
+            if (id < 0) {
+                id = len(names); ids[name] = id; push(names, name);
+                // First seen at a read or an assignment: not a declared binding.
+                push(declared, if (op == S_LET) { 0 } else { 2 }); push(isLocal, false);
+            }
+            if (op == S_LET) {
+                if (n.global == 1) { declared[id] = declared[id] + if (main) { 1 } else { 2 }; }
+                else {
+                    isLocal[id] = true; locals[name] = true;
+                    let hidden: Any = is_boxed(ctx, n.name, n.length) == 1 or glob_find(ctx, n.name, n.length) >= 0 or backend_find_func(ctx, n.name, n.length) != 0;
+                    declared[id] = declared[id] + if (hidden) { 2 } else { 1 };
+                }
+            } else if (op == E_VAR and (name == "true" or name == "false")) { call = 1; id = -1; }
+        }
+        push(at, id); push(calls, call);
+    }
+    // Builtin calls resolve once all locals are known.
+    mut position: Any = 0;
+    for instruction: Any in code {
+        if (instruction.op == E_CALL) { calls[position] = fat_builtin_type(ctx, instruction.extra, locals); }
+        position += 1;
+    }
+    let variables: Any = [];
+    mut id: Any = 0;
+    while (id < len(names)) {
+        let name: Any = names[id];
+        let global: Any = main and not isLocal[id];
+        push(variables, if (declared[id] == 1 and name != "err" and not (global and has(FAT_GLOBAL_WRITES, name))) { FAT_PROVEN_TOP } else { -1 });
+        id += 1;
+    }
+    // Optimistic iteration: types only fall (top, a type, -1), so it ends.
+    mut changed: Any = true;
+    while (changed) {
+        changed = false;
+        position = 0;
+        for instruction: Any in code {
+            let op: Any = instruction.op;
+            let variable: Any = at[position];
+            if ((op == S_LET or op == S_ASSIGN) and variable >= 0) {
+                let current: Any = variables[variable];
+                if (current != -1) {
+                    let n: Any = instruction.extra;
+                    let value: Any = if (op == S_LET) { n.initializer } else { n.value };
+                    let next: Any = fat_meet(current, if (value == 0 or value == nil) { -1 } else { FAT_PROVEN[value.slot] });
+                    if (next != current) { variables[variable] = next; changed = true; }
+                }
+            }
+            let result: Any = instruction.result;
+            if (result != 0 and result != nil) {
+                let current: Any = FAT_PROVEN[result.slot];
+                if (current != -1) {
+                    let next: Any = fat_meet(current, fat_proven_result(instruction, variable, calls[position], variables));
+                    if (next != current) { FAT_PROVEN[result.slot] = next; changed = true; }
+                }
+            }
+            position += 1;
+        }
+    }
+    // A temporary or variable that is never defined stays top; it proves nothing.
+    id = 0;
+    while (id < len(names)) {
+        let v: Any = variables[id];
+        if (v > 0) { FAT_PROVEN_VARS[names[id]] = v; }
+        id += 1;
+    }
+    mut index: Any = 0;
+    while (index < len(FAT_PROVEN)) { if (FAT_PROVEN[index] == FAT_PROVEN_TOP) { FAT_PROVEN[index] = -1; } index += 1; }
     return 0;
 }
 
@@ -294,9 +496,14 @@ fun fat_home(k: Any) -> Any {
     return FAT_HOMES[k];
 }
 
+// A home of a proven type keeps only the payload; its type is home[2].
 fun fat_load_pair(ctx: Any, k: Any, t: Any, p: Any) -> Any {
     let home: Any = fat_home(k);
-    if (home != nil) { x86_move_register(ctx, t, home[0]); x86_move_register(ctx, p, home[1]); return 0; }
+    if (home != nil) {
+        if (home[0] < 0) { x86_mov_immediate(ctx, t, home[2]); } else { x86_move_register(ctx, t, home[0]); }
+        x86_move_register(ctx, p, home[1]);
+        return 0;
+    }
     fat_frame(ctx, 139, t, fat_disp(k)); fat_frame(ctx, 139, p, fat_disp(k) - 8);
     return 0;
 }
@@ -309,8 +516,10 @@ fun fat_load_slot(ctx: Any, k: Any) -> Any {
 fun fat_store_slot(ctx: Any, k: Any) -> Any {
     FAT_HELD_START = ctx.code.length;
     let home: Any = fat_home(k);
-    if (home != nil) { x86_move_register(ctx, home[0], 2); x86_move_register(ctx, home[1], 0); }
-    else { fat_frame(ctx, 137, 2, fat_disp(k)); fat_frame(ctx, 137, 0, fat_disp(k) - 8); }
+    if (home != nil) {
+        if (home[0] >= 0) { x86_move_register(ctx, home[0], 2); }
+        x86_move_register(ctx, home[1], 0);
+    } else { fat_frame(ctx, 137, 2, fat_disp(k)); fat_frame(ctx, 137, 0, fat_disp(k) - 8); }
     FAT_HELD_SLOT = k; FAT_HELD_AT = ctx.code.length;
     return 0;
 }
@@ -352,14 +561,15 @@ fun fat_materialize(ctx: Any, d: Any, t: Any, p: Any) -> Any {
     return 0;
 }
 
-// The type of a forwarded constant, or -1 when it is not known here.
+// The type of a forwarded constant or a proven temporary (fat_plan_types),
+// or -1 when it is not known here.
 fun fat_known_type(value: Any) -> Any {
     let d: Any = FAT_FORWARD[value.slot];
-    if (d == nil) { return -1; }
+    if (d == nil) { return FAT_PROVEN[value.slot]; }
     if (d[0] == 0) { return d[1]; }
     if (d[0] == 1) { return 3; }
     if (d[0] == 2) { return 4; }
-    return -1;
+    return FAT_PROVEN[value.slot];
 }
 
 // Record where a forwardable definition's value is instead of computing
@@ -1076,9 +1286,11 @@ fun fat_binary_immediate(ctx: Any, n: Any) -> Bool {
     let shift: Any = if (op == TK_SLASH or op == TK_PCT) { fat_power_of_two(value) } else { 0 };
     if (not has(FAT_INLINE_COMPARE, key) and op != TK_PLUS and op != TK_MINUS and op != TK_STAR and shift == 0) { return false; }
     let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
-    let floats: Any = op != TK_PCT;
+    // A proven Int needs no type check, so neither path for other types.
+    let checked: Any = fat_known_type(n.left) != 2;
+    let floats: Any = checked and op != TK_PCT;
     let notInt: Any = if (floats) { newlab(ctx) } else { slow };
-    mut slowUsed: Any = not floats;
+    mut slowUsed: Any = checked and not floats;
     fat_left_int(ctx, n, notInt);
     if (has(FAT_INLINE_COMPARE, key)) {
         fat_alu_immediate(ctx, 7, 8, value);                                   // cmp r8, c
@@ -1229,11 +1441,12 @@ fun fat_binary(ctx: Any, n: Any) -> Any {
     if (fat_float_hint(n) and ((n.op >= TK_PLUS and n.op <= TK_SLASH) or has(FAT_INLINE_COMPARE, key))) { return fat_float_inline(ctx, n); }
     if (fat_binary_immediate(ctx, n)) { return 0; }
     let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
-    let floats: Any = (n.op >= TK_PLUS and n.op <= TK_SLASH) or has(FAT_INLINE_COMPARE, key);
+    let checked: Any = fat_known_type(n.left) != 2 or fat_known_type(n.right) != 2;
+    let floats: Any = checked and ((n.op >= TK_PLUS and n.op <= TK_SLASH) or has(FAT_INLINE_COMPARE, key));
     let notInt: Any = if (floats) { newlab(ctx) } else { slow };
     // Whether any jump reaches `slow` (overflow, a divisor of 0 or -1, or
     // operands that are not Ints when there is no Float path).
-    mut slowUsed: Any = not floats;
+    mut slowUsed: Any = checked and not floats;
     fat_operands(ctx, n.left, n.right);
     if (has(FAT_INLINE_ARITH, key) or has(FAT_INLINE_COMPARE, key)) {
         fat_int_checks(ctx, n, notInt);
@@ -1381,7 +1594,13 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
             fat_set(ctx, 1, 1); jmp(ctx, done);
             placelab(ctx, falsy); fat_set(ctx, 1, 0); placelab(ctx, done);
         }
-        else if (op == IR_FALSE or op == IR_TRUE) { fat_get(ctx, instruction.arg1); fat_branch(ctx, payload, op == IR_TRUE); }
+        else if (op == IR_FALSE or op == IR_TRUE) {
+            fat_get(ctx, instruction.arg1);
+            if (fat_known_type(instruction.arg1) == 1) {
+                e8(ctx, 72); e8(ctx, 133); e8(ctx, 192);                    // test rax, rax
+                jcc(ctx, if (op == IR_TRUE) { 133 } else { 132 }, payload);
+            } else { fat_branch(ctx, payload, op == IR_TRUE); }
+        }
         else if (op == IR_ISNIL or op == IR_NONNULL) {
             fat_get(ctx, instruction.arg1);
             e8(ctx, 72); e8(ctx, 133); e8(ctx, 210);                        // test rdx, rdx
@@ -1413,7 +1632,11 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
 // The registers of the function's homes, saved below its slots (#96).
 fun fat_home_registers() -> Any {
     let registers: Any = [];
-    for name: Any in FAT_HOME_ORDER { for register: Any in FAT_HOME_NAMES[name] { push(registers, register); } }
+    for name: Any in FAT_HOME_ORDER {
+        let home: Any = FAT_HOME_NAMES[name];
+        if (home[0] >= 0) { push(registers, home[0]); }
+        push(registers, home[1]);
+    }
     return registers;
 }
 
@@ -1561,6 +1784,7 @@ fun fat_foreign(ctx: Any, rec: Any) -> Any {
 fun fat_func(ctx: Any, rec: Any) -> Any {
     if (rec.foreign == true) { return fat_foreign(ctx, rec); }
     fat_begin(ctx, rec.ir, rec.boxed);
+    fat_plan_types(ctx, rec.ir, rec.parr, rec.pc, false);
     fat_plan_homes(ctx, rec.ir, rec.parr, rec.pc);
     for i: Any in 0..rec.pc { fat_declare(ctx, rec.parr[i].name, rec.parr[i].length); }
     ctx.envCaptures = rec.caparr; ctx.envCount = rec.cc;
@@ -1585,6 +1809,8 @@ fun fat_func(ctx: Any, rec: Any) -> Any {
 // Top-level statements (label 1), called from _start.
 fun fat_main(ctx: Any) -> Any {
     fat_begin(ctx, ctx.mainIR, ctx.mainBoxed);
+    fat_plan_global_writes(ctx);
+    fat_plan_types(ctx, ctx.mainIR, [], 0, true);
     fat_plan_homes(ctx, ctx.mainIR, [], 0);
     placelab(ctx, 1);
     let fp: Any = fat_prologue(ctx);
