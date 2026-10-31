@@ -124,8 +124,8 @@ Compiler **host** support and emitted **program targets** are separate:
 Use `mayc --list-targets` for discovery and see the
 [compiler guide](compiler/mayc/README.md#cross-compilation) for feature limits.
 mayc writes these executables itself, with no assembler, linker or LLVM. Native Windows and
-macOS program execution is covered by the [native target suite](docs/internals/NATIVE_TARGETS.md).
-[NodeOS](docs/internals/NODEOS.md), a capability microkernel, runs Maylang
+macOS program execution is covered by the [native target suite](frozen/docs/internals/NATIVE_TARGETS.md).
+[NodeOS](frozen/docs/internals/NODEOS.md), a capability microkernel, runs Maylang
 programs and the compiler itself, which rebuilds itself there byte-identically.
 
 ## Find your way around

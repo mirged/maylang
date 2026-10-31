@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check Float display and parsing against Python on every backend.
+"""Check Float display and parsing against Python.
 
 `str`, `print` and nested display must produce the shortest digits that parse
 back to the same value (Python's `repr` digits in Maylang's layout), and
@@ -14,9 +14,7 @@ import subprocess
 import tempfile
 
 from backends import compile_source
-from core_runtime import emulate
 
-TARGETS = ['arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows']
 # __math_bits (runtime/math.may) builds a Float from its 32-bit halves with
 # either value representation.
 PRELUDE = 'fun bits(low: Int, high: Int) -> Float { return float(__math_bits(low, high)); }\n'
@@ -83,15 +81,8 @@ def run(binary):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, required=True)
-    parser.add_argument('--require-emulation', action='store_true')
     options = parser.parse_args()
-    try:
-        import unicorn  # noqa: F401
-        have_emulation = True
-    except ImportError:
-        have_emulation = False
-    assert have_emulation or not options.require_emulation, 'Unicorn is required'
-    modes = [('full', []), ('core', ['--runtime', 'core'])]
+    modes = [('full', [])]
     with tempfile.TemporaryDirectory(prefix='mayc-float-text-') as directory:
         work = Path(directory)
         source = work / 'text.may'
@@ -100,7 +91,7 @@ def main():
             compile_source(options.compiler, source, work / name, *flags)
             assert run(work / name) == FIXED_EXPECTED, (name, run(work / name))
         source.write_text(FIXED + 'print(json_parse("[0.1, 1e-7, 3.141592653589793238, -0.0]"));\nexit(0);\n')
-        for name, flags in modes[:1] + modes[2:]:
+        for name, flags in modes:
             compile_source(options.compiler, source, work / name, *flags)
             assert run(work / name) == FIXED_EXPECTED + b'[0.1, 1e-7, 3.141592653589793, -0.0]\n', (name, run(work / name))
         print('PASS fixed display, nested display, float() edge cases and JSON numbers', flush=True)
@@ -116,17 +107,6 @@ def main():
             assert got == want, (name, mismatches[:5])
         print(f'PASS shortest round-trip display and correctly rounded float() ({len(values)} values; '
               + ', '.join(name for name, _ in modes) + ')', flush=True)
-        if have_emulation:
-            # Each conversion costs about two million emulated RISC-V instructions,
-            # so keep every program well inside the emulator's budget.
-            for start in range(0, 40, 5):
-                chunk = values[start:start + 5]
-                source.write_text(program(chunk))
-                for target in TARGETS:
-                    image = compile_source(options.compiler, source, work / target, '--runtime', 'core', '--target', target)
-                    emulate(image, target, expected(chunk), 0)
-            print('PASS display and parsing are identical on every core target', flush=True)
-
 
 if __name__ == '__main__':
     main()

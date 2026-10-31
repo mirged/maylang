@@ -8,13 +8,10 @@ that Ptr parameters and load/store keep all 64 bits, that Bool parameters,
 results and locals cross the dynamic boundary, that range loops count
 natively, that native globals convert to and from dynamic values, and that
 bitwise expressions in dynamic code are outlined into native-word functions.
-All run on the full and core runtimes, with and without --debug, and on
-ARM64/RISC-V core targets when QEMU user emulators are installed (those
-compile the same functions as fat dynamic code).
+All run on the full runtime, with and without --debug.
 """
 import argparse
 import random
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -495,14 +492,7 @@ def main():
     parser.add_argument('--cases', type=int, default=120)
     args = parser.parse_args()
     compiler = args.compiler.resolve()
-    configurations = [([], None), (['--runtime', 'core'], None), (['--debug'], None)]
-    skipped = []
-    for target, emulator in (('arm64-linux', 'qemu-aarch64'), ('riscv64-linux', 'qemu-riscv64')):
-        runner = shutil.which(emulator)
-        if runner:
-            configurations.append((['--target', target], runner))
-        else:
-            skipped.append(target)
+    configurations = [([], None), (['--debug'], None)]
     with tempfile.TemporaryDirectory(prefix='mayc-native-words-') as directory:
         work = Path(directory)
         source = work / 'semantics.may'
@@ -559,8 +549,6 @@ def main():
         source = work / 'syscalls.may'
         source.write_text(SYSCALLS)
         for flags, runner in configurations:
-            if runner or '--runtime' in flags:
-                continue
             output = compile_run(compiler, source, work / 'syscalls', *flags, runner=runner)
             assert output == expected_for('SYSCALLS', flags, SYSCALLS_EXPECTED), (flags, output)
         print('PASS native-word syscall on the full runtime', flush=True)
@@ -575,8 +563,6 @@ def main():
                 mismatch = next(i for i, (got, want) in enumerate(lines) if got != want)
                 raise AssertionError((flags, mismatch, lines[mismatch], program.splitlines()[mismatch // 3]))
         print(f'PASS {args.cases * 3} seeded native-word oracle calls match signed 64-bit semantics', flush=True)
-        if skipped:
-            print('SKIP ' + ', '.join(skipped) + ': install QEMU user emulators', flush=True)
 
 
 if __name__ == '__main__':

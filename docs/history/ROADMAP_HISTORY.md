@@ -157,7 +157,7 @@ The original compiler guide required native macOS launch and signing verificatio
 - [x] Record tested macOS versions and automate native checks when runner access is available.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
-Native validation: [successful Windows/macOS run](https://github.com/mirged/maylang/actions/runs/38255666274) and [tested host versions/loader corrections](../internals/NATIVE_TARGETS.md).
+Native validation: [successful Windows/macOS run](https://github.com/mirged/maylang/actions/runs/38255666274) and [tested host versions/loader corrections](../../frozen/docs/internals/NATIVE_TARGETS.md).
 
 ### Initiative 6. Verify PE output on native Windows runners
 
@@ -174,7 +174,7 @@ The original Windows checks used emulation; native loader behavior is now verifi
 - [x] Document tested Windows versions and automate the native checks.
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
-Native validation: [successful Windows/macOS run](https://github.com/mirged/maylang/actions/runs/38255666274) and [tested host versions/loader corrections](../internals/NATIVE_TARGETS.md).
+Native validation: [successful Windows/macOS run](https://github.com/mirged/maylang/actions/runs/38255666274) and [tested host versions/loader corrections](../../frozen/docs/internals/NATIVE_TARGETS.md).
 
 ### Initiative 7. Publish and enforce a target/runtime feature compatibility matrix
 
@@ -382,7 +382,7 @@ Core allocation retains chunks until process exit and has no individual free ope
 - [x] Implement the selected API across core targets.
 - [x] Test repeated reclamation and document ownership and restrictions.
 
-PR #21 caps process-lifetime core allocation at 256 MiB and verifies exhaustion on every emitted target. Explicit scratch arenas now reuse capacity on all five targets with documented ownership rules. The 1,024-round workload requests 1 GiB cumulatively with only 1,052,672 retained bytes; reset does not free OS pages. See [core memory](../internals/CORE_MEMORY.md).
+PR #21 caps process-lifetime core allocation at 256 MiB and verifies exhaustion on every emitted target. Explicit scratch arenas now reuse capacity on all five targets with documented ownership rules. The 1,024-round workload requests 1 GiB cumulatively with only 1,052,672 retained bytes; reset does not free OS pages. See [core memory](../../frozen/docs/internals/CORE_MEMORY.md).
 
 **Done when:** the acceptance checklist passes with validation recorded in the linked issue or PR.
 

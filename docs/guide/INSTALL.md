@@ -179,7 +179,7 @@ binary. See [editor setup](DEVELOPMENT.md#editor-setup).
 The compiler host currently requires Linux x86-64. On Windows, install WSL 2
 and run the command inside an x86-64 Linux distribution. Native macOS, Windows
 and ARM64 compiler-host releases are not available. Cross-compilation targets
-and runtime limits are documented in [the target guide](../internals/NATIVE_TARGETS.md).
+and runtime limits are documented in [the target guide](../../frozen/docs/internals/NATIVE_TARGETS.md).
 
 Contributors: see [source development](DEVELOPMENT.md),
 [distribution internals](../../dist/README.md) and

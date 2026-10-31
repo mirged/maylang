@@ -94,23 +94,11 @@ def main():
         assert b'INTERP' in run(['readelf', '-l', binary]).stdout
         print('PASS used foreign calls/function values and pruned loader dependencies', flush=True)
 
-        core = unused + 'fun kept(n:Int)->Int{return n+1;}print(kept(41));'
-        for target in ('x86_64-linux', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows'):
-            _, binary = compile_case('core-' + target, core, ['--runtime', 'core', '--target', target])
-            if target.endswith('linux'):
-                names = symbols(binary)
-                assert 'rt_split' not in names and 'rt_contains' not in names, names
-            if target == 'x86_64-linux':
-                execute(binary, b'42\n')
-            print('PASS core runtime stripping: ' + target, flush=True)
-
         raw = f'fun dead()->Any{{return addr("{DEAD}");}}' \
               'fun kept(n:Any)->Any{return n+1;}if kept(41)!=42{exit(1);}exit(0);'
-        for target in ('x86_64-linux', 'arm64-linux', 'riscv64-linux'):
-            _, binary = compile_case('raw-' + target, raw, ['--raw', '--target', target])
-            assert not any(n.endswith('::dead') for n in symbols(binary))
-            if target == 'x86_64-linux':
-                execute(binary, b'')
+        _, binary = compile_case('raw', raw, ['--raw'])
+        assert not any(n.endswith('::dead') for n in symbols(binary))
+        execute(binary, b'')
         print('PASS raw direct-call reachability and stripped literals', flush=True)
 
         # Checking remains whole-program: unreachable errors are not hidden.

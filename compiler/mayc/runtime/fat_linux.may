@@ -1,8 +1,7 @@
 // runtime/fat_linux.may — the Linux host of the fat runtime (#92): a
 // collected heap in mmap memory, output, exit and fiber stacks, and the
 // files, processes, time and extern conversions only the full runtime has.
-// Loaded after runtime/fat.may; NodeOS programs reach these syscalls through
-// its Linux personality (runtime/nodeos.may).
+// Loaded after runtime/fat.may.
 
 mut HEAP: Any = 0;
 mut HP: Any = 0;
@@ -472,13 +471,6 @@ fun rt_exec(t: Any, l: Any) -> Any {
         i = i + 1;
     }
     let pid: Any = syscall(57);
-    if (pid == 0 - 38) {
-        // Without fork (x86_64-nodeos), the personality spawns the program.
-        let child: Any = syscall(1024, load64(argv), argv);
-        if (child < 0) { return rt_failstr(rt_from(addr("cannot start process"), 20)); }
-        RTAG = 2;
-        return child;
-    }
     if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
     if (pid == 0) {
         syscall(59, load64(argv), argv, rt_envp());
@@ -494,12 +486,6 @@ fun rt_system(t: Any, cmd: Any) -> Any {
     store64(argv + 8, rt_cstr_raw(rt_from(addr("-c"), 2)));
     store64(argv + 16, rt_cstr_raw(cmd));
     let pid: Any = syscall(57);
-    if (pid == 0 - 38) {
-        // Without fork (x86_64-nodeos), the personality spawns the command line.
-        let child: Any = syscall(1024, rt_cstr_raw(cmd), 0);
-        if (child < 0) { RTAG = 2; return 127; }
-        return rt_wait(2, child);
-    }
     if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
     if (pid == 0) {
         syscall(59, load64(argv), argv, rt_envp());

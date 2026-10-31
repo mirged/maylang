@@ -178,13 +178,13 @@ Native core/raw loader validation now passes on Apple Silicon macOS 14.8.9 and
 that emulation missed; fixes include omitting an empty PE section, Mach-O
 signature storage, 4 GiB page zero, platform/build metadata, dyld/libSystem
 loading, empty binding/rebase streams, LC_MAIN and ASLR-safe ADRP/ADD references.
-[Native host evidence](../internals/NATIVE_TARGETS.md) links the successful Actions run.
+[Native host evidence](../../frozen/docs/internals/NATIVE_TARGETS.md) links the successful Actions run.
 
 Core has explicit, owned raw scratch arenas. A reset invalidates its spans and
 reclaims usable capacity without returning pages to the OS. Tests request 1 GiB
 cumulatively while retaining only 1,052,672 bytes, across all five emulated
 targets and native Windows/macOS. Ordinary strings/lists retain their existing
-process lifetime and 256 MiB cap. See [lifetime rules](../internals/CORE_MEMORY.md).
+process lifetime and 256 MiB cap. See [lifetime rules](../../frozen/docs/internals/CORE_MEMORY.md).
 
 The GC audit found a separate deterministic encoded-cstr root defect. Its
 regression fails with exit 6 before the change: the only copied-buffer address

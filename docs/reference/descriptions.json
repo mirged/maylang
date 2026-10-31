@@ -18,7 +18,6 @@
     "string.may": "String transformations and simple delimiter helpers.",
     "test.may": "Counting assertions and a final test report.",
     "validate.may": "Input predicates and structured rule/field validation.",
-    "core": "Core-runtime additions to the shared library: raw allocation, typed scratch arenas, the retained heap size, gcd and lcm. The core runtime also loads prelude.may and native.may.",
     "ui.may": "Native Linux desktop widget trees, themes, antialiased GPU shapes/text, layout, Unicode inputs, focus, scrolling, virtual lists and software PNG snapshots; requires the May UI Sokol adapter."
   },
   "symbols": {
@@ -396,9 +395,6 @@
       "Sockets share descriptor ownership through aliases. Close explicitly or use with_socket; no automatic finalizer.",
       "Binary payloads may contain NUL and invalid UTF-8. TCP receive allocation is at most 16 MiB; UDP payload is at most 65507 bytes.",
       "Errors have kind network, message, operation and positive Linux errno. Timeout=110, invalid input=22, closed socket=9, oversize UDP=90, early exact-read EOF=0."
-    ],
-    "core": [
-      "See [arena ownership and allocation growth](../../internals/CORE_MEMORY.md). Core has no collector; ordinary strings/lists and the arena itself retain process-lifetime storage."
     ]
   },
   "details": {

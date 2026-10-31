@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise list type/index traps and valid mutations on full/core runtimes."""
+"""Exercise list type/index traps and valid mutations on the full runtime."""
 import argparse
 from pathlib import Path
 import resource
@@ -39,9 +39,8 @@ def main():
                 assert (result.returncode, result.stdout, result.stderr) == (0, output, ''), (name, result)
             count += 1
 
-        targets = [('full', ()), ('core', ('--runtime', 'core'))]
+        targets = [('full', ())]
         for target, options in targets:
-            # The core runtime shares the full runtime's fat runtime and library.
             values = [('nil', 'nil'), ('zero', '0'), ('bool', 'true'), ('string', '"x"'),
                       ('float', '1.5'), ('map', '{}'), ('function', 'fun() -> Int { return 1; }')]
             for label, value in values:

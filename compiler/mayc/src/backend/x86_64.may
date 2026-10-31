@@ -2,7 +2,6 @@ import "../regalloc.may";
 import "x86_64_ffi.may";
 import "x86_64_fat.may";
 import "platform_x86.may";
-import "x86_64_nodeos.may";
 import "../emitter.may";
 import "../symbols.may";
 import "../ffi.may";
@@ -1224,8 +1223,7 @@ fun x86_accumulator_only(ctx: Any, block: Any, instruction: Any) -> Any {
 fun x86_forwardable(ctx: Any, instruction: Any) -> Any {
     let op: Any = instruction.op;
     // Each allowed lowering reads its first IR operand before changing rax.
-    // Labels/joins and all other operations invalidate the fact. In particular,
-    // Windows __host_write calls GetStdHandle before loading its first operand.
+    // Labels/joins and all other operations invalidate the fact.
     if (op == E_BIN or op == E_UN or op == IR_COPY or op == IR_RETURN or
         op == IR_BOOL or op == IR_FALSE or op == IR_TRUE or op == S_LET or op == S_ASSIGN) { return true; }
     if (op == E_CALL) {
@@ -1952,19 +1950,12 @@ fun x86_syscall_arguments(ctx: Any, args: Any, tagged: Any) -> Any {
 }
 
 fun cg_syscall(ctx: Any, args: Any) -> Any {
-    if (ctx.target.os != "linux" and ctx.target.os != "nodeos") { die_str("mayc: raw syscall is not supported for this target\n"); }
     x86_syscall_arguments(ctx, args, false);
     x86_syscall_instruction(ctx);
     return 0;
 }
 
-// `syscall` keeps Linux numbering on every x86-64 target; NodeOS routes it
-// through a gate (x86_64_nodeos.may).
-fun x86_syscall_instruction(ctx: Any) -> Any {
-    if (ctx.target.os == "nodeos") { x86_nodeos_call_gate(ctx); }
-    else { e8(ctx, 15); e8(ctx, 5); }
-    return 0;
-}
+fun x86_syscall_instruction(ctx: Any) -> Any { e8(ctx, 15); e8(ctx, 5); return 0; }
 
 // Encode ModRM/SIB/displacement for [base + index*scale + displacement].
 // A REX prefix is emitted when required or for 64-bit operands.
@@ -2040,7 +2031,6 @@ fun tag_rax(ctx: Any) -> Any { e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 
 fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     let platformName: Any = symbol_name(np, nl);
     if (platformName == "__fiber_stack") { x86_core_fiber_stack(ctx, args); return 1; }
-    if (platformName == "__host_write" or platformName == "__host_alloc" or platformName == "__host_exit") { x86_host(ctx, platformName, args); return 1; }
     if (name_eq(np, nl, addr("__ccall6"), len("__ccall6")) == 1) { cg_ccall6(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__longjmp"), len("__longjmp")) == 1) { cg_longjmp(ctx); return 1; }
     if (name_eq(np, nl, addr("__sp"), len("__sp")) == 1) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 224); return 1; }
@@ -2056,7 +2046,6 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
         return 1;
     }
     if (name_eq(np, nl, addr("syscall"), len("syscall")) == 1) { cg_syscall(ctx, args); return 1; }
-    if (name_eq(np, nl, addr("__nodeos_syscall"), len("__nodeos_syscall")) == 1) { cg_nodeos_syscall(ctx, args, false); return 1; }
     if (name_eq(np, nl, addr("addr"), len("addr")) == 1 or name_eq(np, nl, addr("cstr"), len("cstr")) == 1) {
         if (args.kind != E_STR) { diagnostic(args.span, "raw addr/cstr requires a string literal"); }
         let off: Any = intern(ctx, args.span.source, args.start, args.length);
@@ -2080,7 +2069,6 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (name_eq(np, nl, addr("store32"), len("store32")) == 1) { cg_store(ctx, args, 4); return 1; }
     if (name_eq(np, nl, addr("store64"), len("store64")) == 1) { cg_store(ctx, args, 8); return 1; }
     if (name_eq(np, nl, addr("exit"), len("exit")) == 1) {
-        if (ctx.target.os != "linux" and ctx.target.os != "nodeos") { die_str("mayc: raw exit requires a platform runtime on this target\n"); }
         cg_expr(ctx, args);
         e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);
         mov_imm(ctx, 60);
@@ -2671,31 +2659,15 @@ fun cg_program(ctx: Any) -> Any {
 
     // _start
     placelab(ctx, 0);
-    if (ctx.target.os == "windows") { e8(ctx, 87); e8(ctx, 86); }
-    if (ctx.target.os == "nodeos") {
-        // NodeOS starts a process with its bootstrap channel in RDI and
-        // nothing on the stack. The personality receives it on first use.
-        let boot: Any = glob_find(ctx, addr("NODEOS_BOOT"), 11);
-        e8(ctx, 72); e8(ctx, 137); e8(ctx, 248);      // mov rax, rdi
-        st_abs(ctx, glob_off(ctx, boot));
-        e8(ctx, 72); e8(ctx, 131); e8(ctx, 228); e8(ctx, 240); // and rsp, -16
-    }
     if (ctx.dynamic == 1) {
         let st: Any = glob_find(ctx, addr("STACKTOP"), 8);
         e8(ctx, 72); e8(ctx, 137); e8(ctx, 224);      // mov rax, rsp
         st_abs(ctx, glob_off(ctx, st));
     }
     if (len(ctx.foreign) > 0) { ffi_start(ctx); }
-    else if (ctx.target.os == "windows") {
-        e8(ctx, 72); e8(ctx, 131); e8(ctx, 236); e8(ctx, 40);
-        call(ctx, 1);
-        e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, 40);
-    } else { call(ctx, 1); }
-    if (ctx.target.os == "windows") { xor_eax(ctx); e8(ctx, 94); e8(ctx, 95); e8(ctx, 195); }
-    else {
-        e8(ctx, 49); e8(ctx, 255); // xor edi, edi
-        mov_imm(ctx, 60); x86_syscall_instruction(ctx);
-    }
+    else { call(ctx, 1); }
+    e8(ctx, 49); e8(ctx, 255); // xor edi, edi
+    mov_imm(ctx, 60); x86_syscall_instruction(ctx);
 
     if (FAT_VALUES) { return fat_main(ctx); }
 
@@ -2802,7 +2774,6 @@ fun x86_emit(ctx: Any) -> Any {
     if (ctx.dynamic == 1) {
         ctx.fiberLabel = newlab(ctx);
     }
-    let gate: Any = if (ctx.target.os == "nodeos") { x86_nodeos_begin(ctx) } else { 0 };
     cg_program(ctx);
     mut next: Any = 0;
     mut draining: Any = true;
@@ -2815,7 +2786,6 @@ fun x86_emit(ctx: Any) -> Any {
         draining = FAT_VALUES and fat_emit_stubs(ctx) > 0;
     }
     if (ctx.reachability.fiber) { x86_emit_fiber(ctx); }
-    if (gate != 0) { x86_emit_nodeos_gate(ctx, gate); }
     emission_finish(ctx);
     return 0;
 }

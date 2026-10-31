@@ -91,7 +91,7 @@ and run by compiler verification. The focused
 [library suite](../compiler/mayc/tests/stdlib_contracts.py) runs typed
 Result/I/O and [boundary cases](../compiler/mayc/tests/library/boundaries.may)
 natively. Numeric, map, file and network suites cover the corresponding runtime
-primitives. The [core suite](../compiler/mayc/tests/core_runtime.py) covers the
-portable library and [arena lifetimes](../docs/internals/CORE_MEMORY.md). These tests are
+primitives. The [core suite](../frozen/compiler/mayc/tests/core_runtime.py) covers the
+portable library and [arena lifetimes](../frozen/docs/internals/CORE_MEMORY.md). These tests are
 contracts for exercised boundaries, not exhaustive validation of every `Any`
 input or every experimental ML algorithm.

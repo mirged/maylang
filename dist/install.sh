@@ -48,7 +48,7 @@ else
 fi
 for file in VERSION bin/mayc bin/may bin/mayfmt bin/maypkg bin/maylsp \
     bin/native.may bin/prelude.may bin/runtime/math.may \
-    bin/runtime/fat.may bin/runtime/fat_linux.may bin/runtime/fat_core.may stdlib/prelude.may; do
+    bin/runtime/fat.may bin/runtime/fat_linux.may stdlib/prelude.may; do
     [ -f "$bundle/$file" ] || fail "Incomplete bundle: missing $file"
 done
 version=$(cat "$bundle/VERSION")

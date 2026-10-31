@@ -85,10 +85,6 @@ def main():
             if not args.skip_rebuild:
                 version = subprocess.run([str(work / 'compiler_rebuild'), '--version'], capture_output=True, timeout=10)
                 assert version.returncode == 0 and version.stdout.startswith(b'mayc '), version
-        report['results']['core_hello'] = measure(compilers['after'], ROOT / 'examples/hello.may', work / 'core', args.samples, ['--runtime', 'core'])
-        expected = b'Hello, Maylang!\nHello, world!\n'
-        run = subprocess.run([str(work / 'core')], capture_output=True, timeout=10)
-        assert run.returncode == 0 and run.stdout == expected and not run.stderr, run
     if args.baseline is not None:
         report['speedups'] = {label: round(report['results']['before'][label]['median_ms'] / report['results']['after'][label]['median_ms'], 2)
                               for label in report['results']['after'] if label != 'compiler_sha256'}

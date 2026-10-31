@@ -11,6 +11,20 @@
   simulation, which used `stdlib/ml`, move to `frozen/`, where they are kept
   but not built, tested or maintained. `make test-browser`, the doctor's
   `browser` profile and the `maybrowser.yml` workflow are removed.
+- **Breaking:** mayc targets only `x86_64-linux`, with the full runtime and
+  `--raw` (`--runtime none`). `--target x86_64-nodeos`, `arm64-linux`,
+  `riscv64-linux`, `arm64-macos` and `x86_64-windows` and `--runtime core`
+  fail with `target ... is frozen` / `runtime core is frozen`. The ARM64 and
+  RISC-V backends and their RAW lowering (`raw.may`, `raw_fat.may`,
+  `raw_float.may`), the Mach-O, PE and NXF formats, the NodeOS syscall gate
+  and personality (`runtime/nodeos.may`), the core runtime
+  (`runtime/fat_core.may`, `runtime/fat_corelib.may`, the `core` API page),
+  their harnesses (`core_runtime.py`, `portable_values.py`,
+  `native_targets.py`, `nodeos.py`) and target documentation move to
+  `frozen/`. The remaining harnesses test x86-64 Linux only. Release bundles
+  no longer contain `runtime/fat_core.may`. The compiler is 2.67 MB instead
+  of 3.19 MB, and its x86-64 Linux output is byte-identical
+  ([#102](https://github.com/mirged/maylang/issues/102)).
 - Stop running cross-target emulation (`core-emulation`) and the Windows and
   macOS real-loader workflow (`native-targets.yml`) in CI, and freeze the
   WSL launcher `dist/install.ps1`; releases no longer publish it. Release
@@ -200,7 +214,7 @@ are stricter.
   Maylang uses with NodeOS syscalls and IPC: console and file I/O, directories,
   memory, time, `exec`/`system`/`wait` through a spawn extension, and
   `/proc/self` arguments. C externs and sockets are unsupported there.
-  See [NodeOS target](docs/internals/NODEOS.md).
+  See [NodeOS target](frozen/docs/internals/NODEOS.md).
 - The compiler runs on NodeOS. A `mayc` built for NodeOS compiles programs
   there and defaults to `x86_64-nodeos`; it rebuilds itself on NodeOS into a
   compiler byte-identical to the one cross-built on Linux. Without `-o`, NodeOS
@@ -376,7 +390,7 @@ and RAW x86-64 code is faster and placement-stable.
 - File, process and network libraries and typed FFI still need the full
   x86-64 Linux runtime; the portable runtime keeps allocations until exit
   (256 MiB cap). See the
-  [backend parity handoff](docs/internals/BACKEND_PARITY_PROGRESS.md).
+  [backend parity handoff](frozen/docs/internals/BACKEND_PARITY_PROGRESS.md).
 - Full and LLVM builds keep x87/libm logarithms, `exp` and `pow`, which can
   differ from the portable runtime in the last place; `nan == nan` is `true`
   on every backend.

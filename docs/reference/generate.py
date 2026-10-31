@@ -83,11 +83,11 @@ def render_module(path, module=None):
     ds = declarations(path)
     explicit = any(d['public'] for d in ds)
     out = ['- **' + module + '** — ' + DESCRIPTIONS['modules'][module],
-           '- Availability: ' + ('portable core on all five direct targets; auto-loaded with `--runtime core`.' if module == 'core' else 'full Linux x86-64 runtime.'),
-           '- Import: ' + ('automatically injected; do not import the sidecar.' if module == 'core' else inline('import "' + module.removesuffix('.may') + '" as library;') + '.'),
+           '- Availability: ' + 'full Linux x86-64 runtime.',
+           '- Import: ' + inline('import "' + module.removesuffix('.may') + '" as library;') + '.',
            '- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.',
            '- Visibility: ' + ('only declarations marked `pub` are exported.' if explicit else 'all top-level declarations are exported because this module has no `pub` declarations.'),
-           '- Source: [implementation](' + ('../../../compiler/mayc/runtime/fat_corelib.may' if module == 'core' else '../' * (3 + module.count('/')) + 'stdlib/' + module) + ').',
+           '- Source: [implementation](' + '../' * (3 + module.count('/')) + 'stdlib/' + module + ').',
            '- Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](' + '../' * (3 + module.count('/')) + 'stdlib/CONTRACTS.md).']
     for note in DESCRIPTIONS.get('notes', {}).get(module, []):
         out.append('- ' + note)
@@ -123,7 +123,7 @@ def render_catalog(groups):
 def render_runtime():
     out = ['- **Runtime API** — built-ins and automatically available full-runtime functions for self-hosted mayc.',
            '- These signatures describe calls; dynamic values may have several runtime types. Read [native module](stdlib/native.md) for exact source-defined signatures and additional automatically loaded helpers.',
-           '- Availability: full Linux x86-64 runtime. The core subset on all five native targets supports collections, closures, faults, traces, fibers and basic Float/Float32 operations; transcendental math, floating powers and C calls require the full runtime.',
+           '- Availability: full Linux x86-64 runtime.',
            '- String method syntax forwards the receiver as the first argument: `s.trim()` = `trim(s)`, `s.split(",")` = `split(s, ",")`; the same convention applies to library helpers.',
            '- Errors: I/O, parsing, arithmetic, type, indexing and callback faults may propagate; catch recoverable failures with `may ... otherwise`.',
            '- Pointer operations use integer machine addresses; syscall results/ABI and memory validity remain the caller’s responsibility.']
@@ -163,18 +163,16 @@ def main():
                HERE / 'RUNTIME.md': render_runtime()}
     inventory = []
     sources = [(path, path.relative_to(ROOT / 'stdlib').as_posix()) for path in sorted((ROOT / 'stdlib').rglob('*.may'))]
-    sources.append((ROOT / 'compiler/mayc/runtime/fat_corelib.may', 'core'))
     for path, module in sources:
         content, ds = render_module(path, module)
         outputs[HERE / 'stdlib' / Path(module).with_suffix('.md')] = content
         explicit = any(d['public'] for d in ds)
         inventory.extend(dict(module=module, name=d['name'], kind=d['kind'], signature=d['signature'], line=d['line'],
                               exported=d['public'] or not explicit,
-                              runtime='core' if module == 'core' else 'full',
-                              platform='all five direct targets' if module == 'core' else 'Linux x86-64',
+                              runtime='full', platform='Linux x86-64',
                               status='supported') for d in ds)
     out = ['- **Standard library index** — all top-level functions, records, enums and bindings, including private helpers explicitly labeled on their module pages.',
-           '- The active full-runtime sidecar is `compiler/mayc/native.may`; `stdlib/native.may` is a byte-identical mirror, checked by `make check`, that the language server and these pages read. `prelude.may` is auto-loaded; ordinary modules are imported explicitly. Core has a separate auto-loaded library.',
+           '- The active full-runtime sidecar is `compiler/mayc/native.may`; `stdlib/native.may` is a byte-identical mirror, checked by `make check`, that the language server and these pages read. `prelude.may` is auto-loaded; ordinary modules are imported explicitly.',
            '- Prefer namespace or selective imports when a helper shares a name with the native library.',
            '- `Any` is the actual declared type in many modules; descriptions state expected runtime values without promising additional static checks.']
     for path, module in sources:
