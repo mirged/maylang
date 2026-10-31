@@ -97,6 +97,11 @@ fun rt_gc() -> Any {
         rt_mark_word(load64(root)); rt_mark_word(load64(root + 8));
         i = i + 1;
     }
+    // Compiled code keeps locals in callee-saved registers (#96). Every
+    // function between it and here leaves them alone or saves them in its
+    // stack frame, which the scan below covers.
+    rt_mark_word(__callee_saved(0)); rt_mark_word(__callee_saved(1)); rt_mark_word(__callee_saved(2));
+    rt_mark_word(__callee_saved(3)); rt_mark_word(__callee_saved(4));
     rt_scan_range(__sp(), CSTOP);
     rt_mark_word(FIB_TAB); rt_mark_word(FIB_SAVE0); rt_mark_word(FIB_HSTACK0); rt_mark_word(FIB_ERRVAL0);
     // A fiber running now scans its own stack above; the others and the

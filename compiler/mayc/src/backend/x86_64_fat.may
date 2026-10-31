@@ -33,8 +33,215 @@ mut FAT_HELD_AT: Any = -1;
 // maps each temporary to its slot.
 mut FAT_INTERVALS: Any = [];
 mut FAT_SLOTS: Any = [];
+// Forwarded temporaries (#96). FAT_FORWARDABLE[t] is 1 when temporary t is
+// a constant defined once (a literal, nil, true or false) and 2 when it is
+// one read of a variable that nothing can change before t's last reader.
+// Such a definition emits no code: FAT_FORWARD[t] records where the value
+// is ([0, type, payload], [1, Float bits], [2, string data offset], [3,
+// frame slot] or [4, global offset]) and each reader loads it from there,
+// straight into the registers it needs.
+mut FAT_FORWARDABLE: Any = [];
+mut FAT_FORWARD: Any = [];
+// FAT_DEAD[position] is true for an IR_COPY whose target nothing reads
+// (an `if` statement's unused value, say); it emits no code and does not
+// count as a reader of its source.
+mut FAT_DEAD: Any = [];
+// Register homes for hot locals (#96): FAT_HOME_NAMES maps a chosen local's
+// name to a callee-saved register pair [type, payload]; FAT_HOMES[k] is the
+// pair of frame slot k, or nil (the list grows as locals are declared). FAT_SAVES lists the code offsets
+// of the prologue's register saves, whose displacements fat_epilogue fills.
+mut FAT_HOME_NAMES: Any = {};
+mut FAT_HOME_ORDER: Any = [];
+mut FAT_HOMES: Any = [];
+mut FAT_SAVES: Any = [];
+let FAT_HOME_PAIRS: Any = [[3, 12], [13, 14]];                             // rbx/r12, r13/r14
+// Slow paths moved after the function's code, so that fast paths fall
+// through (fat_emit_deferred): ["binary", notInt, slow, op, done, right] or
+// ["branch", slow, op, label, truthy, done, right]. `right` is the forwarded
+// right operand when the fast path used it as an immediate (nil otherwise);
+// the slow path loads it into RDX/RAX first.
+mut FAT_DEFERRED: Any = [];
 
 fun fat_forget() -> Any { FAT_HELD_SLOT = -1; FAT_HELD_AT = -1; return 0; }
+
+fun fat_constant_name(p: Any, l: Any) -> Bool {
+    return name_eq(p, l, addr("nil"), 3) == 1 or name_eq(p, l, addr("true"), 4) == 1 or name_eq(p, l, addr("false"), 5) == 1;
+}
+
+// True when nothing between positions `start` and `end` of `code` can change
+// the variable `name` that a temporary read at `start` and last used at
+// `end`: no declaration or assignment of that name before `end` (the one at
+// `end` reads the temporary first), no tail call, and no call, runtime call
+// or closure before `end`, as a call can assign a global.
+fun fat_variable_stable(code: Any, start: Any, end: Any, name: Any, length: Any) -> Bool {
+    mut position: Any = start + 1;
+    while (position <= end) {
+        let instruction: Any = code[position];
+        let op: Any = instruction.op;
+        if (op == IR_TAILCALL) { return false; }
+        if (position < end) {
+            if (op == E_CALL or op == E_ICALL or op == IR_RUNTIME or op == E_CLOSURE) { return false; }
+            if ((op == S_LET or op == S_ASSIGN) and name_eq(instruction.extra.name, instruction.extra.length, name, length) == 1) { return false; }
+        }
+        position += 1;
+    }
+    return true;
+}
+
+// Exact reader counts. lsra_operands counts conservatively: operations
+// whose payload names their operands also carry them in arg1/arg2, and are
+// counted twice. Fat code reads such an operation's operands only through
+// the payload, so only those are counted here.
+let FAT_PAYLOAD_OPS: Any = [E_BIN, E_POW, E_UN, E_CALL, E_ICALL, S_LET, S_ASSIGN, S_CASSIGN, E_INDEX, S_SETIDX, E_GET, S_SETPROP, E_RANGE];
+
+fun fat_count_use(intervals: Any, value: Any) -> Any {
+    if (value != 0 and value != nil) { intervals[value.slot].uses += 1; }
+    return 0;
+}
+
+fun fat_count_list(intervals: Any, values: Any) -> Any {
+    mut value: Any = values;
+    while (value != 0 and value != nil) { intervals[value.slot].uses += 1; value = value.next; }
+    return 0;
+}
+
+fun fat_exact_uses(block: Any, intervals: Any) -> Any {
+    for interval: Any in intervals { interval.uses = 0; }
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        let n: Any = instruction.extra;
+        if (has(FAT_PAYLOAD_OPS, op)) {
+            if (op == E_BIN or op == E_POW) { fat_count_use(intervals, n.left); fat_count_use(intervals, n.right); }
+            else if (op == E_UN) { fat_count_use(intervals, n.operand); }
+            else if (op == S_LET) { fat_count_use(intervals, n.initializer); }
+            else if (op == S_ASSIGN or op == S_CASSIGN) { fat_count_use(intervals, n.value); }
+            else if (op == E_INDEX or op == S_SETIDX) {
+                fat_count_use(intervals, n.object); fat_count_use(intervals, n.index);
+                if (op == S_SETIDX) { fat_count_use(intervals, n.value); }
+            } else if (op == E_GET) { fat_count_use(intervals, n.object); }
+            else if (op == S_SETPROP) { fat_count_use(intervals, n.object); fat_count_use(intervals, n.value); }
+            else if (op == E_RANGE) { fat_count_use(intervals, n.start); fat_count_use(intervals, n.end); }
+            else if (op == E_ICALL) { fat_count_use(intervals, n.callee); }
+            if (op == E_CALL or op == E_ICALL) { fat_count_list(intervals, n.args); }
+        } else {
+            fat_count_list(intervals, instruction.arg1);
+            fat_count_list(intervals, instruction.arg2);
+        }
+    }
+    return 0;
+}
+
+fun fat_plan_dead_copies(block: Any, intervals: Any) -> Any {
+    FAT_DEAD = [];
+    for instruction: Any in block.code { push(FAT_DEAD, false); }
+    mut changed: Any = true;
+    while (changed) {
+        changed = false;
+        mut position: Any = 0;
+        for instruction: Any in block.code {
+            if (not FAT_DEAD[position] and instruction.op == IR_COPY and intervals[instruction.result.slot].uses == 0) {
+                FAT_DEAD[position] = true; changed = true;
+                if (instruction.arg1 != 0) { intervals[instruction.arg1.slot].uses -= 1; }
+            }
+            position += 1;
+        }
+    }
+    return 0;
+}
+
+fun fat_plan_forwarding(block: Any, intervals: Any) -> Any {
+    fat_exact_uses(block, intervals);
+    fat_plan_dead_copies(block, intervals);
+    FAT_FORWARDABLE = []; FAT_FORWARD = [];
+    for interval: Any in intervals { push(FAT_FORWARDABLE, 0); push(FAT_FORWARD, nil); }
+    mut position: Any = 0;
+    for instruction: Any in block.code {
+        let result: Any = instruction.result;
+        if (result != 0 and intervals[result.slot].definitions == 1) {
+            let interval: Any = intervals[result.slot];
+            let op: Any = instruction.op;
+            if (op == E_INT or op == E_FLOAT or op == E_STR or op == E_STRB or op == IR_NIL) { FAT_FORWARDABLE[result.slot] = 1; }
+            else if (op == E_VAR) {
+                let payload: Any = instruction.extra;
+                if (fat_constant_name(payload.name, payload.length)) { FAT_FORWARDABLE[result.slot] = 1; }
+                else if (not interval.pinned and fat_variable_stable(block.code, position, interval.end, payload.name, payload.length)) {
+                    FAT_FORWARDABLE[result.slot] = 2;
+                }
+            }
+        }
+        position += 1;
+    }
+    return 0;
+}
+
+// Choose up to two locals for register homes (#96): names declared once in
+// the function (a parameter or one `let`, so that no shadowing local
+// shares the pair), not captured, and used inside a loop, ranked by uses
+// weighted 8x per loop level. A function with a handler gets none: a fault
+// restores callee-saved registers to their values at the handler's start.
+// The collector marks the callee-saved registers (rt_gc), so a pair needs
+// no spilling around calls.
+fun fat_plan_homes(ctx: Any, block: Any, parameters: Any, count: Any) -> Any {
+    let code: Any = block.code;
+    let labels: Any = {};
+    mut position: Any = 0;
+    for instruction: Any in code {
+        if (instruction.op == IR_TRY_BEGIN) { return 0; }
+        if (instruction.op == IR_LABEL) { labels[instruction.extra] = position; }
+        position += 1;
+    }
+    // Loop depth per position, from backward jumps.
+    let steps: Any = [];
+    mut loops: Any = false;
+    for index: Any in 0..(len(code) + 1) { push(steps, 0); }
+    position = 0;
+    for instruction: Any in code {
+        if (instruction.op == IR_JUMP or instruction.op == IR_FALSE or instruction.op == IR_TRUE) {
+            let target: Any = labels[instruction.extra];
+            if (target != nil and target < position) { steps[target] += 1; steps[position + 1] -= 1; loops = true; }
+        }
+        position += 1;
+    }
+    if (not loops) { return 0; }
+    // Names in order of first weighted use, so that ties do not depend on
+    // map iteration order (the bootstrap's stages must choose alike).
+    let declared: Any = {};
+    let weights: Any = {};
+    let names: Any = [];
+    for index: Any in 0..count {
+        let name: Any = symbol_name(parameters[index].name, parameters[index].length);
+        declared[name] = (declared[name] ?? 0) + 1;
+    }
+    mut depth: Any = 0;
+    position = 0;
+    for instruction: Any in code {
+        depth += steps[position];
+        let op: Any = instruction.op;
+        if ((op == E_VAR or op == S_LET or op == S_ASSIGN) and (depth > 0 or op == S_LET)) {
+            let n: Any = instruction.extra;
+            if (not fat_constant_name(n.name, n.length) and is_boxed(ctx, n.name, n.length) != 1) {
+                let name: Any = symbol_name(n.name, n.length);
+                if (op == S_LET) { declared[name] = (declared[name] ?? 0) + if (n.global == 1) { 2 } else { 1 }; }
+                if (depth > 0) {
+                    mut weight: Any = 1;
+                    for level: Any in 0..(if (depth > 4) { 4 } else { depth }) { weight = weight * 8; }
+                    if (weights[name] == nil) { push(names, name); }
+                    weights[name] = (weights[name] ?? 0) + weight;
+                }
+            }
+        }
+        position += 1;
+    }
+    let chosen: Any = [];
+    for pair: Any in FAT_HOME_PAIRS {
+        mut best: Any = nil;
+        for name: Any in names {
+            if ((declared[name] ?? 0) == 1 and not has(chosen, name) and (best == nil or weights[name] > weights[best])) { best = name; }
+        }
+        if (best != nil) { push(chosen, best); FAT_HOME_NAMES[best] = pair; push(FAT_HOME_ORDER, best); }
+    }
+    return 0;
+}
 
 // Give the temporaries of `block` frame slots and return how many there
 // are. A temporary defined once and read before the next label, branch or
@@ -59,6 +266,8 @@ fun fat_plan_slots(block: Any) -> Any {
         else { push(slots, interval.home - pinned); }
     }
     FAT_INTERVALS = intervals; FAT_SLOTS = slots;
+    fat_plan_forwarding(block, intervals);
+    FAT_DEFERRED = [];
     return extra;
 }
 
@@ -79,22 +288,124 @@ fun fat_outgoing(ctx: Any, register: Any, displacement: Any) -> Any {
     return 0;
 }
 
+// Load frame slot `k` (or its register home) into registers `t` and `p`.
+fun fat_home(k: Any) -> Any {
+    if (k >= len(FAT_HOMES)) { return nil; }
+    return FAT_HOMES[k];
+}
+
+fun fat_load_pair(ctx: Any, k: Any, t: Any, p: Any) -> Any {
+    let home: Any = fat_home(k);
+    if (home != nil) { x86_move_register(ctx, t, home[0]); x86_move_register(ctx, p, home[1]); return 0; }
+    fat_frame(ctx, 139, t, fat_disp(k)); fat_frame(ctx, 139, p, fat_disp(k) - 8);
+    return 0;
+}
+
 fun fat_load_slot(ctx: Any, k: Any) -> Any {
     if (k == FAT_HELD_SLOT and ctx.code.length == FAT_HELD_AT) { return 0; }
-    fat_frame(ctx, 139, 2, fat_disp(k)); fat_frame(ctx, 139, 0, fat_disp(k) - 8);
-    return 0;
+    return fat_load_pair(ctx, k, 2, 0);
 }
 
 fun fat_store_slot(ctx: Any, k: Any) -> Any {
     FAT_HELD_START = ctx.code.length;
-    fat_frame(ctx, 137, 2, fat_disp(k)); fat_frame(ctx, 137, 0, fat_disp(k) - 8);
+    let home: Any = fat_home(k);
+    if (home != nil) { x86_move_register(ctx, home[0], 2); x86_move_register(ctx, home[1], 0); }
+    else { fat_frame(ctx, 137, 2, fat_disp(k)); fat_frame(ctx, 137, 0, fat_disp(k) - 8); }
     FAT_HELD_SLOT = k; FAT_HELD_AT = ctx.code.length;
     return 0;
 }
 
+// Declare a local; a name chosen by fat_plan_homes gets its register pair.
+fun fat_declare(ctx: Any, p: Any, l: Any) -> Any {
+    let index: Any = loc_add(ctx, p, l);
+    if (len(FAT_HOME_ORDER) == 0) { return index; }
+    let home: Any = FAT_HOME_NAMES[symbol_name(p, l)];
+    if (home != nil) {
+        let k: Any = fat_local_slot(ctx, index);
+        while (len(FAT_HOMES) <= k) { push(FAT_HOMES, nil); }
+        FAT_HOMES[k] = home;
+    }
+    return index;
+}
+
 fun fat_local_slot(ctx: Any, index: Any) -> Any { return ctx.fatBase + index; }
+
+// mov reg, [disp32] for a data offset.
+fun fat_abs_register(ctx: Any, register: Any, off: Any) -> Any {
+    e8(ctx, if (register >= 8) { 76 } else { 72 }); e8(ctx, 139); e8(ctx, 4 + (register % 8) * 8); e8(ctx, 37);
+    let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 2, o, off);
+    return 0;
+}
+
+// Load forwarded value `d` (FAT_FORWARD) into registers `t` (type) and `p`.
+fun fat_materialize(ctx: Any, d: Any, t: Any, p: Any) -> Any {
+    let kind: Any = d[0];
+    if (kind == 0) { x86_mov_immediate(ctx, t, d[1]); x86_mov_immediate(ctx, p, d[2]); }
+    else if (kind == 1) {
+        x86_mov_immediate(ctx, t, 3);
+        e8(ctx, if (p >= 8) { 73 } else { 72 }); e8(ctx, 184 + p % 8); e32(ctx, d[1][0]); e32(ctx, d[1][1]); // movabs p, bits
+    } else if (kind == 2) { x86_mov_immediate(ctx, t, 4); x86_relocated_immediate(ctx, p, 1, d[1]); }
+    else if (kind == 3) {
+        if (t == 2 and p == 0) { fat_load_slot(ctx, d[1]); }
+        else { fat_load_pair(ctx, d[1], t, p); }
+    } else { fat_abs_register(ctx, t, d[1]); fat_abs_register(ctx, p, d[1] + 8); }
+    return 0;
+}
+
+// The type of a forwarded constant, or -1 when it is not known here.
+fun fat_known_type(value: Any) -> Any {
+    let d: Any = FAT_FORWARD[value.slot];
+    if (d == nil) { return -1; }
+    if (d[0] == 0) { return d[1]; }
+    if (d[0] == 1) { return 3; }
+    if (d[0] == 2) { return 4; }
+    return -1;
+}
+
+// Record where a forwardable definition's value is instead of computing
+// it. Returns false (and nothing is recorded) when the variable turns out
+// to be boxed, a function or unknown here; the definition then runs.
+fun fat_forward(ctx: Any, instruction: Any) -> Bool {
+    let op: Any = instruction.op;
+    let n: Any = instruction.extra;
+    mut d: Any = nil;
+    if (op == IR_NIL) { d = [0, 0, 0]; }
+    else if (op == E_INT) { d = [0, 2, n.value]; }
+    else if (op == E_FLOAT) { d = [1, float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)))]; }
+    else if (op == E_STR) { d = [2, fat_key(ctx, n.span.source, n.start, n.length)]; }
+    else if (op == E_STRB) { d = [2, intern_obj2(ctx, n.address, n.length)]; }
+    else if (op == E_VAR) {
+        let p: Any = n.name; let l: Any = n.length;
+        if (name_eq(p, l, addr("nil"), 3) == 1) { d = [0, 0, 0]; }
+        else if (name_eq(p, l, addr("true"), 4) == 1) { d = [0, 1, 1]; }
+        else if (name_eq(p, l, addr("false"), 5) == 1) { d = [0, 1, 0]; }
+        else if (FAT_FORWARDABLE[instruction.result.slot] == 2 and name_eq(p, l, addr("err"), 3) != 1) {
+            let li: Any = loc_find(ctx, p, l);
+            if (li >= 0) { if (is_boxed(ctx, p, l) != 1) { d = [3, fat_local_slot(ctx, li)]; } }
+            else {
+                let gi: Any = glob_find(ctx, p, l);
+                if (gi >= 0) { d = [4, glob_off(ctx, gi)]; }
+            }
+        }
+    }
+    if (d == nil) { return false; }
+    FAT_FORWARD[instruction.result.slot] = d;
+    return true;
+}
+
+// Load `value` into registers `t` and `p` (not RDX/RAX).
+fun fat_get_into(ctx: Any, value: Any, t: Any, p: Any) -> Any {
+    let d: Any = FAT_FORWARD[value.slot];
+    if (d != nil) { return fat_materialize(ctx, d, t, p); }
+    fat_get(ctx, value);
+    x86_move_register(ctx, t, 2); x86_move_register(ctx, p, 0);
+    return 0;
+}
+
 // A temporary read only here, right after its one definition, needs no store.
 fun fat_get(ctx: Any, value: Any) -> Any {
+    let d: Any = FAT_FORWARD[value.slot];
+    if (d != nil) { return fat_materialize(ctx, d, 2, 0); }
     let k: Any = FAT_SLOTS[value.slot];
     let interval: Any = FAT_INTERVALS[value.slot];
     if (k == FAT_HELD_SLOT and ctx.code.length == FAT_HELD_AT and interval.uses == 1 and interval.definitions == 1) {
@@ -623,9 +934,15 @@ fun fat_operation(ctx: Any, n: Any) -> Any {
 }
 
 // Load `left` into R9 (type) and R8 (payload) and `right` into RDX/RAX.
+// A forwarded left operand loads after the right one, so that a right
+// operand computed just before still skips its store (fat_get); loads have
+// no effects, so the order is not observable.
 fun fat_operands(ctx: Any, left: Any, right: Any) -> Any {
-    fat_get(ctx, left);
-    for byte: Any in [73, 137, 209, 73, 137, 192] { e8(ctx, byte); }         // mov r9, rdx; mov r8, rax
+    if (FAT_FORWARD[left.slot] != nil and FAT_FORWARD[right.slot] == nil) {
+        fat_get(ctx, right);
+        return fat_get_into(ctx, left, 9, 8);
+    }
+    fat_get_into(ctx, left, 9, 8);
     fat_get(ctx, right);
     return 0;
 }
@@ -677,46 +994,280 @@ fun fat_float_binary(ctx: Any, op: Any, slow: Any) -> Any {
     return 0;
 }
 
+// Jump to `notInt` unless both operands (fat_operands) are Ints; a
+// forwarded Int constant needs no check.
+fun fat_int_checks(ctx: Any, n: Any, notInt: Any) -> Any {
+    if (fat_known_type(n.left) != 2) {
+        for byte: Any in [73, 131, 249, 2] { e8(ctx, byte); }                // cmp r9, 2
+        jcc(ctx, 133, notInt);
+    }
+    if (fat_known_type(n.right) != 2) {
+        for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                // cmp rdx, 2
+        jcc(ctx, 133, notInt);
+    }
+    return 0;
+}
+
+// The slow paths deferred by fat_binary and fat_branch_compare.
+fun fat_emit_deferred(ctx: Any) -> Any {
+    for item: Any in FAT_DEFERRED {
+        if (item[0] == "binary") {
+            for index: Any in [1, 2] {
+                if (item[index] >= 0) {
+                    placelab(ctx, item[index]);
+                    if (item[5] != nil) { fat_materialize(ctx, item[5], 2, 0); }
+                    fat_stub_call(ctx, if (index == 1) { "float" } else { "rt_binary" }, item[3]); jmp(ctx, item[4]);
+                }
+            }
+        } else {
+            placelab(ctx, item[1]);
+            if (item[6] != nil) { fat_materialize(ctx, item[6], 2, 0); }
+            fat_stub_call(ctx, "float", item[2]);
+            fat_branch(ctx, item[3], item[4]); jmp(ctx, item[5]);
+        }
+    }
+    FAT_DEFERRED = [];
+    return 0;
+}
+
+// The value of a forwarded Int constant that fits a sign-extended imm32,
+// or nil.
+fun fat_imm32(value: Any) -> Any {
+    let d: Any = FAT_FORWARD[value.slot];
+    if (d == nil or d[0] != 0 or d[1] != 2 or d[2] < -2147483648 or d[2] > 2147483647) { return nil; }
+    return d[2];
+}
+
+// ALU operation /digit on `register` with an immediate (83 ib or 81 id).
+fun fat_alu_immediate(ctx: Any, digit: Any, register: Any, value: Any) -> Any {
+    e8(ctx, if (register >= 8) { 73 } else { 72 });
+    if (value >= -128 and value <= 127) { e8(ctx, 131); e8(ctx, 192 + digit * 8 + register % 8); e8(ctx, (value + 256) % 256); }
+    else { e8(ctx, 129); e8(ctx, 192 + digit * 8 + register % 8); e32(ctx, value); }
+    return 0;
+}
+
+// Load the left operand into R9/R8 and jump to `notInt` unless it is an Int,
+// for a right operand used as an immediate.
+fun fat_left_int(ctx: Any, n: Any, notInt: Any) -> Any {
+    fat_get_into(ctx, n.left, 9, 8);
+    if (fat_known_type(n.left) != 2) {
+        for byte: Any in [73, 131, 249, 2] { e8(ctx, byte); }                // cmp r9, 2
+        jcc(ctx, 133, notInt);
+    }
+    return 0;
+}
+
+// The power of two that Int constant `value` is (2 to 2^31), or 0.
+fun fat_power_of_two(value: Any) -> Any {
+    if (value == nil or value < 2) { return 0; }
+    mut k: Any = 1; mut power: Any = 2;
+    while (power < value and k < 31) { power = power * 2; k += 1; }
+    return if (power == value) { k } else { 0 };
+}
+
+// `left op c` for an Int constant right operand `c` that fits an imm32:
+// comparisons, + - * and / % by a power of two use it as an immediate.
+// Returns false, emitting nothing, for other operators and constants.
+fun fat_binary_immediate(ctx: Any, n: Any) -> Bool {
+    let value: Any = fat_imm32(n.right);
+    if (value == nil) { return false; }
+    let op: Any = n.op;
+    let key: Any = str(op);
+    let shift: Any = if (op == TK_SLASH or op == TK_PCT) { fat_power_of_two(value) } else { 0 };
+    if (not has(FAT_INLINE_COMPARE, key) and op != TK_PLUS and op != TK_MINUS and op != TK_STAR and shift == 0) { return false; }
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
+    let floats: Any = op != TK_PCT;
+    let notInt: Any = if (floats) { newlab(ctx) } else { slow };
+    mut slowUsed: Any = not floats;
+    fat_left_int(ctx, n, notInt);
+    if (has(FAT_INLINE_COMPARE, key)) {
+        fat_alu_immediate(ctx, 7, 8, value);                                   // cmp r8, c
+        for byte: Any in [15, FAT_INLINE_COMPARE[key], 192, 15, 182, 192] { e8(ctx, byte); } // setcc al; movzx eax, al
+        x86_mov_immediate(ctx, 2, 1);
+    } else if (shift > 0) {
+        // Truncating division: add 2^k - 1 to a negative dividend first.
+        for byte: Any in [76, 137, 192, 76, 137, 193, 72, 193, 249, 63, 72, 193, 233, 64 - shift, 72, 1, 200] { e8(ctx, byte); } // mov rax, r8; mov rcx, r8; sar rcx, 63; shr rcx, 64-k; add rax, rcx
+        if (op == TK_SLASH) { for byte: Any in [72, 193, 248, shift] { e8(ctx, byte); } }        // sar rax, k
+        else {
+            fat_alu_immediate(ctx, 4, 0, 0 - value);                          // and rax, -2^k
+            for byte: Any in [76, 137, 193, 72, 41, 193, 72, 137, 200] { e8(ctx, byte); }       // mov rcx, r8; sub rcx, rax; mov rax, rcx
+        }
+        x86_mov_immediate(ctx, 2, 2);
+    } else {
+        if (op == TK_STAR) {
+            // imul r10, r8, c (6B ib or 69 id)
+            if (value >= -128 and value <= 127) { for byte: Any in [77, 107, 208, (value + 256) % 256] { e8(ctx, byte); } }
+            else { for byte: Any in [77, 105, 208] { e8(ctx, byte); } e32(ctx, value); }
+        } else {
+            for byte: Any in [77, 137, 194] { e8(ctx, byte); }                // mov r10, r8
+            fat_alu_immediate(ctx, if (op == TK_PLUS) { 0 } else { 5 }, 10, value); // add/sub r10, c
+        }
+        jcc(ctx, 128, slow); slowUsed = true;                                  // jo
+        for byte: Any in [76, 137, 208] { e8(ctx, byte); }                    // mov rax, r10
+        x86_mov_immediate(ctx, 2, 2);
+    }
+    placelab(ctx, done);
+    push(FAT_DEFERRED, ["binary", if (floats) { notInt } else { -1 }, if (slowUsed) { slow } else { -1 }, op, done, FAT_FORWARD[n.right.slot]]);
+    return true;
+}
+
+// `left op right` steering a branch (IR_TRUE when `truthy`, else IR_FALSE)
+// whose condition is used nowhere else: Ints compare and jump directly;
+// other operands take the operator's float stub (which falls back to
+// rt_binary) and branch on the Bool it returns, out of line.
+fun fat_branch_compare(ctx: Any, n: Any, label: Any, truthy: Any) -> Any {
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
+    let jump: Any = FAT_INLINE_COMPARE[str(n.op)] - 16;                      // setcc -> jcc
+    let condition: Any = if (truthy) { jump } else if (jump % 2 == 0) { jump + 1 } else { jump - 1 };
+    let value: Any = fat_imm32(n.right);
+    if (value != nil) {
+        fat_left_int(ctx, n, slow);
+        fat_alu_immediate(ctx, 7, 8, value);                                   // cmp r8, c
+        jcc(ctx, condition, label);
+        placelab(ctx, done);
+        push(FAT_DEFERRED, ["branch", slow, n.op, label, truthy, done, FAT_FORWARD[n.right.slot]]);
+        return 0;
+    }
+    fat_operands(ctx, n.left, n.right);
+    if (fat_float_hint(n)) {
+        fat_float_operands(ctx, n, slow);
+        fat_float_compare(ctx, n.op);
+        fat_float_jump(ctx, n.op, label, truthy);
+        placelab(ctx, done);
+        push(FAT_DEFERRED, ["branch", slow, n.op, label, truthy, done, nil]);
+        return 0;
+    }
+    fat_int_checks(ctx, n, slow);
+    for byte: Any in [73, 57, 192] { e8(ctx, byte); }                        // cmp r8, rax
+    jcc(ctx, condition, label);
+    placelab(ctx, done);
+    push(FAT_DEFERRED, ["branch", slow, n.op, label, truthy, done, nil]);
+    return 0;
+}
+
+// True when an operand is statically a Float (its checked type, or a Float
+// constant). Only a hint for code layout: the type words are still checked.
+fun fat_float_value(value: Any) -> Bool {
+    if (fat_known_type(value) == 3) { return true; }
+    let t: Any = value.valueType;
+    return t != nil and t != 0 and t.name == "Float";
+}
+
+fun fat_float_hint(n: Any) -> Bool { return fat_float_value(n.left) or fat_float_value(n.right); }
+
+// Jump to `slow` unless both operands are Floats, and for `/` unless the
+// divisor is nonzero (either sign: the runtime raises the fault); then
+// move the payloads into XMM0 (left) and XMM1.
+fun fat_float_operands(ctx: Any, n: Any, slow: Any) -> Any {
+    if (fat_known_type(n.left) != 3) {
+        for byte: Any in [73, 131, 249, 3] { e8(ctx, byte); }                // cmp r9, 3
+        jcc(ctx, 133, slow);
+    }
+    if (fat_known_type(n.right) != 3) {
+        for byte: Any in [72, 131, 250, 3] { e8(ctx, byte); }                // cmp rdx, 3
+        jcc(ctx, 133, slow);
+    }
+    if (n.op == TK_SLASH) {
+        for byte: Any in [76, 141, 20, 0, 77, 133, 210] { e8(ctx, byte); }   // lea r10, [rax + rax]; test r10, r10
+        jcc(ctx, 132, slow);                                                  // je: +0.0 or -0.0
+    }
+    for byte: Any in [102, 73, 15, 110, 192, 102, 72, 15, 110, 200] { e8(ctx, byte); } // movq xmm0, r8; movq xmm1, rax
+    return 0;
+}
+
+// ucomisd for comparison `op`, with the operands swapped for < and <= so
+// that "above" means the comparison holds.
+fun fat_float_compare(ctx: Any, op: Any) -> Any {
+    let swapped: Any = op == TK_LT or op == TK_LE;
+    for byte: Any in [102, 15, 46, if (swapped) { 200 } else { 193 }] { e8(ctx, byte); }
+    return 0;
+}
+
+// Float arithmetic or comparison inline, for operands hinted Float; any
+// other operands, and a zero divisor, call rt_binary out of line.
+fun fat_float_inline(ctx: Any, n: Any) -> Any {
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
+    fat_operands(ctx, n.left, n.right);
+    fat_float_operands(ctx, n, slow);
+    let op: Any = n.op;
+    if (op >= TK_PLUS and op <= TK_SLASH) {
+        for byte: Any in [242, 15, [88, 92, 89, 94][op - TK_PLUS], 193] { e8(ctx, byte); } // addsd/subsd/mulsd/divsd xmm0, xmm1
+        for byte: Any in [102, 72, 15, 126, 192] { e8(ctx, byte); }         // movq rax, xmm0
+        x86_mov_immediate(ctx, 2, 3);
+    } else {
+        fat_float_compare(ctx, op);
+        if (op == TK_EQ) { for byte: Any in [15, 148, 192, 15, 155, 193, 32, 200] { e8(ctx, byte); } }       // sete; setnp; and
+        else if (op == TK_NE) { for byte: Any in [15, 149, 192, 15, 154, 193, 8, 200] { e8(ctx, byte); } } // setne; setp; or
+        else if (op == TK_LT or op == TK_GT) { for byte: Any in [15, 151, 192] { e8(ctx, byte); } }          // seta
+        else { for byte: Any in [15, 147, 192] { e8(ctx, byte); } }                                          // setae
+        for byte: Any in [15, 182, 192] { e8(ctx, byte); }                   // movzx eax, al
+        x86_mov_immediate(ctx, 2, 1);
+    }
+    placelab(ctx, done);
+    push(FAT_DEFERRED, ["binary", -1, slow, op, done, nil]);
+    return 0;
+}
+
+// Jump to `label` when Float comparison `op` (flags from fat_float_compare)
+// is `truthy`. NaN compares unordered: only != holds.
+fun fat_float_jump(ctx: Any, op: Any, label: Any, truthy: Any) -> Any {
+    if (op == TK_EQ or op == TK_NE) {
+        if ((op == TK_EQ) == truthy) {
+            let skip: Any = newlab(ctx);
+            jcc(ctx, 138, skip); jcc(ctx, 132, label); placelab(ctx, skip);  // jp skip; je label
+        } else { jcc(ctx, 138, label); jcc(ctx, 133, label); }              // jp label; jne label
+        return 0;
+    }
+    let strict: Any = op == TK_LT or op == TK_GT;
+    if (truthy) { jcc(ctx, if (strict) { 135 } else { 131 }, label); }      // ja / jae
+    else { jcc(ctx, if (strict) { 134 } else { 130 }, label); }             // jbe / jb
+    return 0;
+}
+
 fun fat_binary(ctx: Any, n: Any) -> Any {
     let key: Any = str(n.op);
+    if (fat_float_hint(n) and ((n.op >= TK_PLUS and n.op <= TK_SLASH) or has(FAT_INLINE_COMPARE, key))) { return fat_float_inline(ctx, n); }
+    if (fat_binary_immediate(ctx, n)) { return 0; }
     let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
     let floats: Any = (n.op >= TK_PLUS and n.op <= TK_SLASH) or has(FAT_INLINE_COMPARE, key);
     let notInt: Any = if (floats) { newlab(ctx) } else { slow };
+    // Whether any jump reaches `slow` (overflow, a divisor of 0 or -1, or
+    // operands that are not Ints when there is no Float path).
+    mut slowUsed: Any = not floats;
     fat_operands(ctx, n.left, n.right);
     if (has(FAT_INLINE_ARITH, key) or has(FAT_INLINE_COMPARE, key)) {
-        for byte: Any in [73, 131, 249, 2] { e8(ctx, byte); }                // cmp r9, 2
-        jcc(ctx, 133, notInt);
-        for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                // cmp rdx, 2
-        jcc(ctx, 133, notInt);
+        fat_int_checks(ctx, n, notInt);
         if (has(FAT_INLINE_ARITH, key)) {
             for byte: Any in [77, 137, 194] { e8(ctx, byte); }                // mov r10, r8
             for byte: Any in FAT_INLINE_ARITH[key] { e8(ctx, byte); }         // op r10, rax
-            if (n.op == TK_PLUS or n.op == TK_MINUS or n.op == TK_STAR) { jcc(ctx, 128, slow); } // jo
+            if (n.op == TK_PLUS or n.op == TK_MINUS or n.op == TK_STAR) { jcc(ctx, 128, slow); slowUsed = true; } // jo
             for byte: Any in [76, 137, 208] { e8(ctx, byte); }                // mov rax, r10
         } else {
             for byte: Any in [73, 57, 192, 15, FAT_INLINE_COMPARE[key], 192, 15, 182, 192] { e8(ctx, byte); } // cmp r8, rax; setcc; movzx
             x86_mov_immediate(ctx, 2, 1);
         }
-        jmp(ctx, done);
     } else if (n.op == TK_SLASH or n.op == TK_PCT) {
         // idiv truncates toward zero and leaves the dividend's sign on the
         // remainder, as Maylang's / and % do. Divisors 0 and -1 (division by
         // zero, and the -2^63 / -1 overflow) take the runtime's path.
-        for byte: Any in [73, 131, 249, 2] { e8(ctx, byte); }                // cmp r9, 2
-        jcc(ctx, 133, notInt);
-        for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                // cmp rdx, 2
-        jcc(ctx, 133, notInt);
-        for byte: Any in [72, 137, 193, 76, 141, 81, 1, 73, 131, 250, 1] { e8(ctx, byte); } // mov rcx, rax; lea r10, [rcx + 1]; cmp r10, 1
-        jcc(ctx, 134, slow);                                                  // jbe: divisor 0 or -1
+        fat_int_checks(ctx, n, notInt);
+        for byte: Any in [72, 137, 193] { e8(ctx, byte); }                   // mov rcx, rax
+        let divisor: Any = FAT_FORWARD[n.right.slot];
+        if (divisor == nil or divisor[0] != 0 or divisor[1] != 2 or divisor[2] == 0 or divisor[2] == -1) {
+            for byte: Any in [76, 141, 81, 1, 73, 131, 250, 1] { e8(ctx, byte); } // lea r10, [rcx + 1]; cmp r10, 1
+            jcc(ctx, 134, slow);                                              // jbe: divisor 0 or -1
+            slowUsed = true;
+        }
         for byte: Any in [76, 137, 192, 72, 153, 72, 247, 249] { e8(ctx, byte); } // mov rax, r8; cqo; idiv rcx
         if (n.op == TK_PCT) { for byte: Any in [72, 137, 208] { e8(ctx, byte); } } // mov rax, rdx
         x86_mov_immediate(ctx, 2, 2);
-        jmp(ctx, done);
+    } else {
+        // No inline form: every operand takes the runtime's path.
+        fat_stub_call(ctx, "rt_binary", n.op);
+        return 0;
     }
-    if (floats) { placelab(ctx, notInt); fat_stub_call(ctx, "float", n.op); jmp(ctx, done); }
-    placelab(ctx, slow);
-    fat_stub_call(ctx, "rt_binary", n.op);
     placelab(ctx, done);
+    push(FAT_DEFERRED, ["binary", if (floats) { notInt } else { -1 }, if (slowUsed) { slow } else { -1 }, n.op, done, nil]);
     return 0;
 }
 
@@ -769,7 +1320,7 @@ fun fat_let(ctx: Any, s: Any) -> Any {
     fat_get(ctx, s.initializer);
     if (s.global == 1) { return fat_abs_store(ctx, glob_off(ctx, glob_find(ctx, s.name, s.length))); }
     if (is_boxed(ctx, s.name, s.length) == 1) { fat_push(ctx); fat_rt_call(ctx, "rt_cell", 2); }
-    return fat_store_slot(ctx, fat_local_slot(ctx, loc_add(ctx, s.name, s.length)));
+    return fat_store_slot(ctx, fat_local_slot(ctx, fat_declare(ctx, s.name, s.length)));
 }
 
 fun fat_assign(ctx: Any, s: Any) -> Any {
@@ -788,10 +1339,38 @@ fun fat_assign(ctx: Any, s: Any) -> Any {
     return fat_abs_store(ctx, glob_off(ctx, gi));
 }
 
+// A comparison whose only reader is the branch right after it (#96).
+// Dead copies in between (fat_plan_dead_copies) emit nothing. Returns the
+// branch's position, or -1.
+fun fat_fusable(block: Any, position: Any) -> Any {
+    let instruction: Any = block.code[position];
+    if (instruction.op != E_BIN or not has(FAT_INLINE_COMPARE, str(instruction.extra.op))) { return -1; }
+    mut following: Any = position + 1;
+    while (following < len(block.code) and FAT_DEAD[following]) { following += 1; }
+    if (following >= len(block.code)) { return -1; }
+    let next: Any = block.code[following];
+    if (next.op != IR_FALSE and next.op != IR_TRUE) { return -1; }
+    let interval: Any = FAT_INTERVALS[instruction.result.slot];
+    if (next.arg1 != 0 and next.arg1.slot == instruction.result.slot and interval.uses == 1 and interval.definitions == 1) { return following; }
+    return -1;
+}
+
 fun fat_ir(ctx: Any, block: Any) -> Any {
-    for instruction: Any in block.code {
+    mut position: Any = 0;
+    while (position < len(block.code)) {
+        let instruction: Any = block.code[position];
+        position += 1;
+        if (FAT_DEAD[position - 1]) { continue; }
         let op: Any = instruction.op;
         let payload: Any = instruction.extra;
+        if (instruction.result != 0 and FAT_FORWARDABLE[instruction.result.slot] > 0 and fat_forward(ctx, instruction)) { continue; }
+        let fused: Any = fat_fusable(block, position - 1);
+        if (fused >= 0) {
+            let branch: Any = block.code[fused];
+            position = fused + 1;
+            fat_branch_compare(ctx, payload, branch.extra, branch.op == IR_TRUE);
+            continue;
+        }
         if (op == IR_LABEL) { placelab(ctx, payload); fat_forget(); }
         else if (op == IR_JUMP) { jmp(ctx, payload); }
         else if (op == IR_COPY) { fat_get(ctx, instruction.arg1); }
@@ -824,16 +1403,30 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
         else if (op == S_SETIDX) { fat_index_set(ctx, payload); } else if (op == S_SETPROP) {
             fat_field_set(ctx, payload.object, payload.value, payload.cache, payload.span.source, payload.start, payload.length);
         } else { fat_operation(ctx, payload); }
-        if (instruction.result != 0) { fat_put(ctx, instruction.result); }
+        // A result nothing reads (lsra counts readers, never too few) needs no store.
+        if (instruction.result != 0 and FAT_INTERVALS[instruction.result.slot].uses > 0) { fat_put(ctx, instruction.result); }
     }
     return 0;
 }
 
 // push rbp; mov rbp, rsp; sub rsp, imm32. Returns the immediate's offset.
+// The registers of the function's homes, saved below its slots (#96).
+fun fat_home_registers() -> Any {
+    let registers: Any = [];
+    for name: Any in FAT_HOME_ORDER { for register: Any in FAT_HOME_NAMES[name] { push(registers, register); } }
+    return registers;
+}
+
 fun fat_prologue(ctx: Any) -> Any {
     e8(ctx, 85); e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);
     e8(ctx, 72); e8(ctx, 129); e8(ctx, 236);
     let fp: Any = ctx.code.length; e32(ctx, 0);
+    // mov [rbp - disp32], reg; fat_epilogue fills in the displacements.
+    FAT_SAVES = [];
+    for register: Any in fat_home_registers() {
+        e8(ctx, if (register >= 8) { 76 } else { 72 }); e8(ctx, 137); e8(ctx, 133 + (register % 8) * 8);
+        push(FAT_SAVES, ctx.code.length); e32(ctx, 0);
+    }
     return fp;
 }
 
@@ -841,8 +1434,17 @@ fun fat_prologue(ctx: Any) -> Any {
 fun fat_epilogue(ctx: Any, fp: Any) -> Any {
     fat_set(ctx, 0, 0);
     placelab(ctx, ctx.returnLabel);
+    let slots: Any = 16 * (ctx.fatBase + ctx.maxLocals);
+    let registers: Any = fat_home_registers();
+    for index: Any in 0..len(registers) {
+        let displacement: Any = slots + 8 * (index + 1);
+        store32(ctx.code.data + FAT_SAVES[index], 0 - displacement);
+        x86_load_register(ctx, registers[index], displacement);
+    }
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 236); e8(ctx, 93); e8(ctx, 195);     // mov rsp, rbp; pop rbp; ret
-    store32(ctx.code.data + fp, 16 * (ctx.fatBase + ctx.maxLocals));
+    // Saves round up to whole 16-byte slots, keeping the stack aligned.
+    store32(ctx.code.data + fp, slots + 16 * ((len(registers) + 1) / 2));
+    fat_emit_deferred(ctx);
     return 0;
 }
 
@@ -851,6 +1453,7 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
     loc_reset(ctx);
     bx_use_list(ctx, boxed);
     ctx.fatBase = fat_plan_slots(block); fat_forget(); FAT_APPLY_LOCAL = -1;
+    FAT_HOME_NAMES = {}; FAT_HOME_ORDER = []; FAT_HOMES = [];
     ctx.envCount = 0; ctx.envCaptures = [];
     return 0;
 }
@@ -958,7 +1561,8 @@ fun fat_foreign(ctx: Any, rec: Any) -> Any {
 fun fat_func(ctx: Any, rec: Any) -> Any {
     if (rec.foreign == true) { return fat_foreign(ctx, rec); }
     fat_begin(ctx, rec.ir, rec.boxed);
-    for i: Any in 0..rec.pc { loc_add(ctx, rec.parr[i].name, rec.parr[i].length); }
+    fat_plan_homes(ctx, rec.ir, rec.parr, rec.pc);
+    for i: Any in 0..rec.pc { fat_declare(ctx, rec.parr[i].name, rec.parr[i].length); }
     ctx.envCaptures = rec.caparr; ctx.envCount = rec.cc;
     if (rec.cc > 0) { ctx.envSlot = loc_add(ctx, addr("0env"), 4); }
     placelab(ctx, rec.lab);
@@ -981,6 +1585,7 @@ fun fat_func(ctx: Any, rec: Any) -> Any {
 // Top-level statements (label 1), called from _start.
 fun fat_main(ctx: Any) -> Any {
     fat_begin(ctx, ctx.mainIR, ctx.mainBoxed);
+    fat_plan_homes(ctx, ctx.mainIR, [], 0);
     placelab(ctx, 1);
     let fp: Any = fat_prologue(ctx);
     call_rt0(ctx, addr("rt_init"), len("rt_init"));
