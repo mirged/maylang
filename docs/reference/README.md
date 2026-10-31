@@ -9,7 +9,7 @@
 - Scope: strict self-hosted `mayc` is the default. Legacy syntax and limitations are labeled. Dynamic `Any` annotations in source are reproduced rather than replaced with invented static contracts.
 - Format: every nonblank line of every documentation page is a top-level Markdown bullet. Examples are inline code; pages contain no tables, standalone prose, headings or fenced code blocks.
 - API entries document actual source signatures, behavior and explicit fault strings where present. Private declarations are included for completeness and marked unavailable to importers.
-- The compatibility native copy is detailed in [native](stdlib/native.md); active injected definitions live in `compiler/mayc/native.may`. Portable APIs live in [core](../../frozen/docs/reference/stdlib/core.md) and common helpers in [prelude](stdlib/prelude.md); explicitly imported library modules have individual pages.
+- The compatibility native copy is detailed in [native](stdlib/native.md); active injected definitions live in `compiler/mayc/native.may`. Common helpers live in [prelude](stdlib/prelude.md); explicitly imported library modules have individual pages.
 - Sources: [strict guide](../guide/STRICT.md), [compiler implementation](../../compiler/mayc/main.may), [standard library](../../stdlib/), [editor catalog](../../tools/maylsp/docs/reference.json), and the source links on each module page.
 - Maintain curated API descriptions in [descriptions.json](descriptions.json); edit language/tooling/examples pages directly.
 - Regenerate the syntax catalog, module pages, index and inventory from the repository root: `python3 docs/reference/generate.py`.

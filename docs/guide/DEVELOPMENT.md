@@ -1,7 +1,6 @@
 # Development setup
 
 Compiler development requires Linux x86-64, including x86-64 WSL 2 on Windows.
-A compiler that emits Windows or macOS programs still runs on Linux.
 For everyday installation, use the [one-line interactive installer](INSTALL.md).
 The commands below are for contributors working on the compiler.
 
@@ -72,7 +71,6 @@ python3 scripts/doctor.py --profile package
 | Window testing | `xvfb`, `xauth`, `xdotool` |
 | Editor | Node.js and npm; CI uses Node 22 |
 | Package verification | Python 3.12+, base build and UI dependencies for extracted scaffold tests |
-| Core emulation | Unicorn in a Python virtual environment; see compiler tests |
 
 
 The [UI guide](../../stdlib/ui/README.md) has full commands. Socket/window tests may skip when unavailable;

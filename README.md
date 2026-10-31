@@ -48,8 +48,8 @@ may run
 The installer prints the activation command for your current terminal too.
 [Installation options](docs/guide/INSTALL.md) cover unattended setup, plain menus,
 updates, uninstall and offline downloads. Your tools live in `~/.maylang`,
-independently of any source checkout. Compiler hosts are Linux x86-64;
-native macOS, Windows and ARM64 host bundles are not available yet.
+independently of any source checkout. Maylang currently supports only
+Linux x86-64 (including WSL 2).
 
 ## Compiler development
 
@@ -109,24 +109,15 @@ Start with the [strict guide](docs/guide/STRICT.md) and
 [runnable examples](docs/reference/EXAMPLES.md). The
 [legacy tour](docs/history/LEGACY_TOUR.md) documents older syntax for `--legacy` mode.
 
-The compiler emits native executables without an external assembler or linker.
-Compiler **host** support and emitted **program targets** are separate:
+The compiler emits native x86-64 Linux ELF executables itself, with no
+assembler, linker or LLVM. Programs use the full runtime (garbage
+collector, files, processes, sockets, C calls) or, with `--raw`, compile to
+plain machine words with no runtime.
 
-| Program target | Format | Runtime |
-| --- | --- | --- |
-| `x86_64-linux` | ELF64 | Full, core, raw |
-| `x86_64-nodeos` | NXF | Full, core, raw; the compiler also runs on NodeOS |
-| `arm64-linux` | ELF64 | Core, raw |
-| `riscv64-linux` | ELF64 (RV64IM) | Core, raw |
-| `arm64-macos` | Mach-O | Core, raw; signing required |
-| `x86_64-windows` | PE32+ | Core, raw |
-
-Use `mayc --list-targets` for discovery and see the
-[compiler guide](compiler/mayc/README.md#cross-compilation) for feature limits.
-mayc writes these executables itself, with no assembler, linker or LLVM. Native Windows and
-macOS program execution is covered by the [native target suite](frozen/docs/internals/NATIVE_TARGETS.md).
-[NodeOS](frozen/docs/internals/NODEOS.md), a capability microkernel, runs Maylang
-programs and the compiler itself, which rebuilds itself there byte-identically.
+For now Linux x86-64 is the only supported host and target. The ARM64,
+RISC-V, macOS, Windows and NodeOS targets and the portable core runtime are
+[frozen](frozen/README.md): kept in the repository, but not built, tested or
+maintained ([why](docs/design/LINUX_X86_64_FOCUS.md)).
 
 ## Find your way around
 

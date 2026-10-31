@@ -134,9 +134,8 @@ detected. A failed compilation never runs the previous executable.
 }
 ```
 
-`target` is `host` or a target accepted by `mayc`, such as `x86_64-linux`,
-`x86_64-nodeos`, `arm64-linux`, `riscv64-linux`, `arm64-macos` or `x86_64-windows`.
-`runtime` is `auto`, `full`, `core` or `none`; `strict` selects strict or legacy
+`target` is `host` or a target accepted by `mayc`; currently only
+`x86_64-linux`. `runtime` is `auto`, `full` or `none` (`core` is frozen); `strict` selects strict or legacy
 checking. Optional `flags` supports `--time` and `--debug`. Invalid JSON and
 invalid configuration fail without replacing the manifest.
 
@@ -178,5 +177,4 @@ watchers run with bounded subprocess timeouts and process-group shutdown checks.
 
 maypkg uses the native primitives `read_dir`, `mkdir`, `exec`, `wait`, `system`
 and `sleep`. `build`/`run`/`dev` require a usable `mayc`, a POSIX shell and
-`sha256sum` (coreutils). The tool currently runs on Linux x86-64 with the full
-runtime; cross-target output does not make the project manager portable.
+`sha256sum` (coreutils). The tool runs on Linux x86-64 with the full runtime.

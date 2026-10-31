@@ -3,36 +3,24 @@
 - Bootstrap from the repository root: `sh compiler/rust/build.sh`.
 - Compiler launcher: `compiler/mayc/mayc_new`; the launcher builds and caches the compiler on first use. Keep runtime/prelude/native sidecars and the runtime directory with the compiler.
 - Compile: `compiler/mayc/mayc_new examples/hello.may -o /tmp/maylang-hello`; run: `/tmp/maylang-hello`.
-- Default output removes a final `.may` suffix; other suffixes receive `.out`. For x86_64-nodeos the output is named `<source>.nxf`.
+- Default output removes a final `.may` suffix; other suffixes receive `.out`.
 - `-h`, `--help` — print command-line help and exit.
 - `-V`, `--version` — print the compiler identity/version.
-- `--list-targets` — list supported target names, executable formats and default runtimes without a source file; compiler hosts are Linux x86-64 and NodeOS.
+- `--list-targets` — list the supported target, its executable format and default runtime without a source file; the compiler host is Linux x86-64.
 - `-o PATH`, `--output PATH` — select output path.
 - `--check` — expand imports, parse, strictly check and resolve names without producing an executable.
 - `--strict` — enable strict checking, the default.
-- `--debug` — instrument full/core user functions with declaration/source frames; uncaught faults print a trace and caught errors expose `err.stack`.
+- `--debug` — instrument user functions with declaration/source frames; uncaught faults print a trace and caught errors expose `err.stack`.
 - `--legacy` — disable the strict pass for legacy untyped sources; name resolution and mutability checks still apply.
 - `--raw` — omit runtime, native library and prelude.
 - `--no-code-align` — emit raw x86-64 code without the NOP padding that aligns function bodies and loop heads; for layout experiments.
-- `--runtime full|core|none` — select runtime; none is equivalent to raw; full defaults on x86_64-linux and x86_64-nodeos, core on other native targets.
+- `--runtime full|none` — select the runtime; full is the default and none is equivalent to `--raw`. `--runtime core` is frozen and rejected.
 - `--time` — report compilation-stage timings to stderr.
-- `--target TARGET` — select one of the supported targets listed below. The default is x86_64-linux, or x86_64-nodeos when the compiler runs on NodeOS.
+- `--target TARGET` — only `x86_64-linux`, the default, is accepted. `x86_64-nodeos`, `arm64-linux`, `riscv64-linux`, `arm64-macos` and `x86_64-windows` are [frozen](../../frozen/README.md) and fail with an error.
 - `--dump-expanded` — print import-expanded source and exit.
-- `x86_64-linux` — default ELF64 target with full, core or raw runtime.
-- `x86_64-nodeos` — NodeOS NXF image with full, core or raw runtime; `syscall` keeps Linux numbering through an in-process personality, and C externs are rejected. See [NodeOS target](../../frozen/docs/internals/NODEOS.md).
-- `arm64-linux` — ELF64 with core or raw runtime.
-- `riscv64-linux` — ELF64 RV64IM with core or raw runtime.
-- `arm64-macos` — macOS 11+ Mach-O ARM64 PIE, loaded through dyld with core/raw runtime; ad-hoc signing required on macOS: `codesign --force --sign - output`.
-- `x86_64-windows` — PE32+ with core kernel32 imports or raw output.
-- mayc emits every target's machine code and executable container itself, with no assembler, linker, C compiler or LLVM. The experimental `clang-llvm` target and `--emit-llvm` were removed and now fail with an explanation.
-- Cross-target emission does not make the compiler itself run on another host; NodeOS is the exception, where a compiler built with `--target x86_64-nodeos` runs and rebuilds itself. The [native target suite](../../frozen/docs/internals/NATIVE_TARGETS.md) runs signed macOS ARM64 and Windows x86-64 fixtures through real loaders; emulator checks separately cover all five direct targets.
+- `x86_64-linux` — ELF64 with the full runtime or raw output.
+- mayc emits the machine code and executable container itself, with no assembler, linker, C compiler or LLVM. The experimental `clang-llvm` target and `--emit-llvm` were removed and now fail with an explanation.
 - Full runtime supports integers, boxed floats, UTF-8 strings, lists, maps, records, closures, structured errors, fibers and native C interfaces on Linux x86-64.
-- The core runtime uses the same fat values, runtime code ([fat.may](../../compiler/mayc/runtime/fat.may)) and library (`prelude.may`, `native.may`) as the full runtime, with a host for every target instead of the collector and operating-system functions ([fat_core.may](../../frozen/compiler/mayc/runtime/fat_core.may)).
-- Core-only helpers are `alloc`, the arena functions, `core_heap_retained`, `memcpy`, `gcd` and `lcm` ([fat_corelib.may](../../frozen/compiler/mayc/runtime/fat_corelib.may)).
-- Core allocation retains heap chunks of at least 1 MiB until process exit, with a 256 MiB cap and no individual free/GC. [Explicit scratch arenas](../../frozen/docs/internals/CORE_MEMORY.md) reclaim capacity on reset, invalidating their returned pointers. Overflow and division by zero print a diagnostic and exit 70.
-- Core supports maps, records, structs, enums, closures, shared captures, callback helpers, recoverable faults, debug traces and cooperative fibers; compilation diagnoses unsupported floats and FFI before output is written.
-- ARM64/RISC-V raw subsets support integer/literal-string operations, globals/locals, direct calls, tail self-calls, loops, addresses, memory loads/stores, exit and target syscalls. Function arguments beyond eight use the stack; frames are limited to 2000 bytes and syscalls accept six arguments.
-- Syscall numbers belong to the selected target; Linux ARM64/RISC-V use write=64, mmap=222, exit=93. Windows raw rejects syscall and exit; its entry returns to the loader.
 - Diagnostics contain source excerpts and caret spans; fix type/name/mutability errors before running the output.
 - Migrate an older source: `python3 compiler/mayc/tools/migrate_strict.py old.may --write`; review added Any types and explicit returns before relying on the result.
 - Language server implementation: [Maylang maylsp](../../tools/maylsp/README.md); protocol/reference: [LSP guide](../guide/LSP.md).

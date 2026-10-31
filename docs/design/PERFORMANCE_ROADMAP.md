@@ -78,8 +78,8 @@ Further measurements behind the diagnosis:
   Each pass gets oracle tests against unoptimized output.
 - **Keep the toolchain green.** Bootstrap fixpoint (`make test-bootstrap`).
   Only Linux x86-64 is in scope while the other targets are frozen
-  ([LINUX_X86_64_FOCUS.md](LINUX_X86_64_FOCUS.md)); until that freeze lands,
-  keep the existing target suites and the NodeOS 4 MiB image limit passing.
+  ([LINUX_X86_64_FOCUS.md](LINUX_X86_64_FOCUS.md)); there is no image size
+  budget.
 - **Fix algorithms before code generation.** An O(n) map lookup cannot be
   rescued by a better register allocator.
 

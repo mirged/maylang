@@ -10,8 +10,11 @@ code disagree, trust the code and fix this file.
 ## What this repository is
 
 Maylang is an experimental, self-hosted language. The compiler `mayc` is
-written in Maylang (`compiler/mayc/`) and emits native executables directly
-(ELF, NXF, Mach-O and PE) without an assembler or linker. It is its own
+written in Maylang (`compiler/mayc/`) and emits x86-64 Linux ELF executables
+directly, without an assembler or linker. For now Linux x86-64 is the only
+supported host and target; the other targets, the core runtime, NodeOS and
+the platform experiments are frozen in `frozen/`
+([docs/design/LINUX_X86_64_FOCUS.md](docs/design/LINUX_X86_64_FOCUS.md)). It is its own
 toolchain: do not add backends that go through LLVM, an external assembler
 or a C compiler (an experimental `clang-llvm` target was removed for this
 reason). A small Rust crate
@@ -76,8 +79,7 @@ that span components. Relative imports between siblings use
   testing the old compiler.
 - **Runtime sidecars are read at compile time and need no rebuild:**
   `compiler/mayc/native.may`, the `compiler/mayc/runtime/` files
-  (`fat.may`, `fat_linux.may`, `fat_core.may`, `fat_corelib.may`, `math.may`,
-  `nodeos.may`) and `stdlib/prelude.may` are
+  (`fat.may`, `fat_linux.may`, `math.may`) and `stdlib/prelude.may` are
   symlinked beside the cached binary, so edits apply to the next program you
   compile. They are still compiled into the compiler itself, so a sidecar
   change that the compiler relies on also needs a rebuild and a bootstrap
@@ -94,21 +96,15 @@ that span components. Relative imports between siblings use
   directory. Outside a checkout, missing
   sidecars are an error. `runtime/math.may` (shared float parsing, display and
   transcendentals) is loaded by every runtime with a library prelude.
-- `--target x86_64-nodeos` routes every `syscall` site through a gate into
-  `runtime/nodeos.may`, a Linux-syscall personality written in the raw subset
-  ([docs/internals/NODEOS.md](frozen/docs/internals/NODEOS.md)). Its globals must be
-  zero-initialized (runtime initializers never run) and it must not allocate
-  from the Maylang heap. Running NodeOS images needs a NodeOS checkout:
-  `make test-maylang` there boots them, and the compiler, in QEMU.
 - `make build` additionally builds the tools into `build/dev/` and writes
   `build/dev/env.sh` (sets `PATH`, `MAYC`, `MAYLANG_STDLIB`). `make tools`
   rebuilds only the tools with `$(MAYC)`.
 - Useful compiler flags: `--check` (parse, type and name checks with no output),
   `--dump-expanded` (source after import expansion), `--time` (stage timings),
   `--diagnostics json`, `--debug` (source traces), `--legacy` (untyped mode),
-  `--target x86_64-nodeos|arm64-linux|riscv64-linux|arm64-macos|x86_64-windows`,
-  `--runtime full|core|none`, and `--raw`. See
-  [compiler/mayc/README.md](compiler/mayc/README.md) for the capability matrix.
+  `--runtime full|none`, and `--raw`. `--target x86_64-linux` is accepted;
+  other targets and `--runtime core` fail as frozen. See
+  [compiler/mayc/README.md](compiler/mayc/README.md).
 - **A failed compile leaves any previous output file in place** (deliberately,
   as with GCC). Check the compiler's exit status before running the binary;
   a pipeline such as `mayc x.may -o x | head && ./x` hides the failure and runs
@@ -121,7 +117,7 @@ that span components. Relative imports between siblings use
 | `make check` | Markdown link check, JSON/Python syntax, generated-reference freshness. Fast; run it for every change. |
 | `make test` | `check` plus Rust, compiler, compliance, docs and distribution suites |
 | `make test-rust` | `cargo test --offline --locked --workspace` |
-| `make test-compiler` | `compiler/mayc/tests/verify.py --compiler $(MAYC)`: fixtures, diagnostics, CLI, strict types, modules, backends, regalloc, core runtime, GC, stdlib contracts, all example entry points, ELF checks |
+| `make test-compiler` | `compiler/mayc/tests/verify.py --compiler $(MAYC)`: fixtures, diagnostics, CLI, strict types, modules, backends, regalloc, GC, stdlib contracts, all example entry points, ELF checks |
 | `make test-bootstrap` | `compiler/rust/test.py`: full source-only chain and byte-identical stages 2 and 3 (bootstrap fixpoint). Slow; run it for compiler or runtime changes. |
 | `make test-compliance` | `tests/compliance/run.py`: runtime and coercion boundary cases |
 | `make test-tools` | `may`, `mayfmt`, `maypkg` and `maylsp` suites |
@@ -142,7 +138,7 @@ Socket and window tests skip when unavailable; say so in your report.
 | --- | --- |
 | Anything | `make check` |
 | Compiler frontend, IR, sema or strict checker | rebuild, `make test-rust test-compiler test-compliance`; `make test-bootstrap` before merging |
-| Backend or code generation | the above plus `python3 compiler/mayc/tests/raw_codegen.py --compiler compiler/mayc/mayc_new`, and core-target harnesses (`backends.py`, `core_runtime.py`; add `--require-emulation` when Unicorn is installed) |
+| Backend or code generation | the above plus `python3 compiler/mayc/tests/raw_codegen.py --compiler compiler/mayc/mayc_new` and `backends.py` |
 | `native.may`, `prelude.may`, `runtime/` | `make test-compiler test-compliance` and the bootstrap fixpoint (`make test-bootstrap`) |
 | `compiler/rust/**` | `make test-rust test-bootstrap` |
 | `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui` |
@@ -217,15 +213,13 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   `Float` (write `0.0` or convert with `to_float`). On `Any` values `==` across
   types is `false`, `!=` is `true`, and ordering raises a `type` fault, so
   `Any`-typed numeric code must normalize with `to_float` before comparing.
-- Values are fat on every runtime and target (16 bytes: a type word and a
-  payload; [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md)), so `Int`
-  is signed 64-bit. `compiler/mayc/runtime/fat.may` is shared; its hosts are
-  `fat_linux.may` (full runtime: collector, files, processes) and
-  `fat_core.may` (core runtime, every target). Dynamic code is lowered by
-  `src/backend/x86_64_fat.may` on x86-64 and `src/backend/raw_fat.may` on
-  ARM64/RISC-V; runtime functions are raw code (`raw.may`, the x86-64 code
-  generator) and take two words per value, returning the type word in
-  `RTAG`. Raw mode uses native 64-bit words. On x86-64, all-`Int`/`Ptr`/`Bool`
+- Values are fat (16 bytes: a type word and a payload;
+  [docs/design/FAT_VALUES.md](docs/design/FAT_VALUES.md)), so `Int` is signed
+  64-bit. The runtime is `compiler/mayc/runtime/fat.may` with its Linux host
+  `fat_linux.may` (collector, files, processes). Dynamic code is lowered by
+  `src/backend/x86_64_fat.may`; runtime functions are raw code (compiled by
+  `src/backend/x86_64.may`) and take two words per value, returning the type
+  word in `RTAG`. Raw mode uses native 64-bit words. All-`Int`/`Ptr`/`Bool`
   functions (`compiler/mayc/src/words.may`) compile as native-word functions
   and bitwise expressions are outlined into them. Overflow and division by
   zero raise catchable `arithmetic` faults (uncaught faults exit 70). `/`
@@ -242,13 +236,7 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   `from "algo" import zip;`. Paths resolve relative to the importer first and
   then the stdlib. The same resolved file expands only once. A module that
   marks any declaration `pub` exports only its `pub` names.
-- Maps, records, structs, enums and closures work in the core runtime on every
-  native target, including recoverable faults, debug traces and cooperative
-  fibers. Core supports Float/Float32 arithmetic, conversions, rounding,
-  square roots, transcendentals and floating powers (pure binary64, identical
-  bits on every target). Float display is shortest round-trip and parsing is
-  correctly rounded everywhere. FFI and OS libraries still need the full x86-64
-  Linux runtime.
+- Float display is shortest round-trip and parsing is correctly rounded.
 - Many older files (and much of the compiler) use `Any`-typed signatures.
   Follow the style of the file you are editing; write new code with concrete
   types.
@@ -363,10 +351,9 @@ tag, then packages and publishes. CI uses Ubuntu 24.04 and Node 22.
   workload may be this bug rather than your change, so reproduce it before
   blaming the change.
 - **Heap tests rewrite one line:** harnesses shrink the full runtime's heap
-  by replacing `mut sz: Any = 268435456;` in `runtime/fat_linux.may`, and
-  the core heap limit by replacing `CORE_RETAINED + size > 268435456` in
-  `runtime/fat_core.may`. Keep those exact texts unique; the reservation
-  (four times `sz`, so the collection threshold can grow) is derived from it.
+  by replacing `mut sz: Any = 268435456;` in `runtime/fat_linux.may`. Keep
+  that exact text unique; the reservation (four times `sz`, so the collection
+  threshold can grow) is derived from it.
 - **Source size limits:** each source file is limited to 1 MiB and the
   expanded import closure to 4 MiB; both are rejected with an error, not
   truncated (#37, #38). The 256 MiB source arena is bounded and can be resized
