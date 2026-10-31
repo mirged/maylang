@@ -1,0 +1,5 @@
+let parts: List<Str> = [];
+mut total: Int = 0;
+mut i: Int = 0;
+while (i < 300000) { let s: Str = "item-" + str(i) + ";"; total += len(s); push(parts, s); i += 1; }
+print(total, len(parts));

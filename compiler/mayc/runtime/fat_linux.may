@@ -241,6 +241,31 @@ fun rt_alloc_kind(n: Any, kind: Any) -> Any {
     if (HP > HEAPDIRTY) { HEAPDIRTY = HP; }
     return H + 16;
 }
+// Grow the allocation at payload `p` by `extra` bytes (a multiple of 16)
+// in place, when it is the newest block and the reservation has room (#99).
+// Growing live data past the collection threshold raises the threshold with
+// headroom (the grown block's size, at least 64 MiB), as rt_alloc_kind grows
+// it after a collection frees too little; a collection right away would find
+// the block live. The new bytes are zero. Returns 1 on success and 0 when the
+// caller must copy.
+fun rt_grow_in_place(p: Any, extra: Any) -> Any {
+    let block: Any = p - 16;
+    let size: Any = load64(block);
+    if (block + size != HP or HP + extra > HEAPLIMIT) { return 0; }
+    if (HP + extra > HEAPEND) {
+        mut room: Any = size + extra;
+        if (room < 67108864) { room = 67108864; }
+        HEAPEND = HP + extra + room;
+        if (HEAPEND > HEAPLIMIT) { HEAPEND = HEAPLIMIT; }
+    }
+    if (HP < HEAPDIRTY) {
+        if (HP + extra < HEAPDIRTY) { rt_zero(HP, extra); } else { rt_zero(HP, HEAPDIRTY - HP); }
+    }
+    store64(block, size + extra);
+    HP = HP + extra;
+    if (HP > HEAPDIRTY) { HEAPDIRTY = HP; }
+    return 1;
+}
 fun rt_write(p: Any, n: Any) -> Any {
     syscall(1, 1, p, n);
     return 0;

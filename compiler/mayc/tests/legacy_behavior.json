@@ -109,6 +109,11 @@
     "stdout": "W1sxLCAyLCAzXSwgWzQsIDUsIDZdLCBbNywgOCwgOV1dCjYKWzEsIDQsIDddClsxLCAyLCAzLCA0LCA1LCA2LCA3LCA4LCA5XQozIDMKW1s5OSwgMiwgM10sIFs0LCA1LCA2XSwgWzcsIDgsIDldXQpbWzAsIDAsIDBdLCBbMCwgMCwgN11dCg==",
     "stderr": ""
   },
+  "lists_strings.may": {
+    "exit": 0,
+    "stdout": "YSwgYmIsIGNjYyAgMW5pbHRydWUgeArDqcK3w7wgMyBbMSwgMl07eyJhIjogMX0gMS41fC0wLjAKYS1iLWMgYTdiICAsCjEwODg4OSAwLDEsMiwzLDQsNSwgMTk5OTgsMTk5OTkKMTAwMDAwIDQ5OTk5NTAwMDAgdjAgdjQ5OTkgNDMyMSA1MDAwClswLCAib25lIiwgWzJdXQpbImludmFsaWQgbGlzdCBhc3NpZ25tZW50IiwgImludmFsaWQgbGlzdCBhc3NpZ25tZW50IiwgImludmFsaWQgbGlzdCBhc3NpZ25tZW50Il0geyJhIjogMSwgImIiOiAyfQowIDcgLTcgMTAgLTEwMDAwMDAgOTIyMzM3MjAzNjg1NDc3NTgwNyAtOTIyMzM3MjAzNjg1NDc3NTgwOAowIDcgOCA5IDE2IDggMTEgMTYK",
+    "stderr": ""
+  },
   "logical.may": {
     "exit": 0,
     "stdout": "dHJ1ZSBmYWxzZSB0cnVlIGZhbHNlCnRydWUgdHJ1ZQpkZWZhdWx0IHZhbHVlCm5pbAowIAo=",

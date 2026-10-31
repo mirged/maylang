@@ -1,0 +1,45 @@
+// Runtime list and string paths changed by #99: join, in-place list growth,
+// inline list stores, integer text and code-point length.
+
+// join over Lists, non-string parts, separators, and a string receiver.
+print(join(["a", "bb", "ccc"], ", "), join([], "-"), join([1, nil, true], ""), join(["x"], "--"));
+print(join(["é", "ü"], "·"), len(join(["é", "ü"], "·")), join([[1, 2], {"a": 1}], ";"), join([1.5, -0.0], "|"));
+print(join("abc", "-"), join(["a", "b"], 7), join([""], ","), join(["", ""], ","));
+let many: List<Str> = [];
+mut i: Int = 0;
+while (i < 20000) { push(many, str(i)); i += 1; }
+let joined: Str = join(many, ",");
+print(len(joined), substring(joined, 0, 12), substring(joined, len(joined) - 11, 11));
+
+// Growth in place (nothing allocated between pushes) and by copying (each
+// push also allocates, so the buffer is not the newest block).
+let grown: List<Int> = [];
+i = 0;
+while (i < 100000) { push(grown, i); i += 1; }
+let mixed: List<Str> = [];
+let other: List<List<Int>> = [];
+i = 0;
+while (i < 5000) { push(mixed, "v" + str(i)); push(other, [i]); i += 1; }
+mut check: Int = 0;
+i = 0;
+while (i < len(grown)) { check += grown[i]; i += 1; }
+print(len(grown), check, mixed[0], mixed[4999], other[4321][0], len(other));
+
+// Inline stores, and the runtime's errors for anything else.
+let xs: List<Any> = [0, 1, 2];
+xs[1] = "one";
+xs[2] = [2];
+xs[0] = xs[0];
+print(xs);
+let fails: List<Str> = [];
+may { xs[3] = 9; } otherwise { push(fails, str(err.message)); }
+may { xs[0 - 1] = 9; } otherwise { push(fails, str(err.message)); }
+let dynamic: Any = xs;
+may { dynamic["k"] = 1; } otherwise { push(fails, str(err.message)); }
+let table: Any = {"a": 1};
+table["b"] = 2;
+print(fails, table);
+
+// Integer text at the extremes, and code points around 8-byte boundaries.
+print(str(0), str(7), str(-7), str(10), str(-1000000), str(9223372036854775807), str(-9223372036854775807 - 1));
+print(len(""), len("abcdefg"), len("abcdefgh"), len("abcdefghi"), len("abcdefghijklmnop"), len("abcdefgé"), len("éabcdefghij"), len("日本語のテキスト12345678"));

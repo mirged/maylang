@@ -19,6 +19,7 @@
 - **__op_div** — `fun __op_div(a: Any, b: Any) -> Any` — Internal map/record `/` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.
 - **str_concat** — `fun str_concat(a: Any, b: Any) -> Any` — Concatenate through the dynamic `+` operator.
 - **__native_utf8_width** — `fun __native_utf8_width(byte: Any) -> Any` — Native prelude helper: return the byte width of a valid UTF-8 leading byte.
+- **__native_copy_bytes** — `fun __native_copy_bytes(destination: Int, source: Int, count: Int) -> Int` — Native prelude helper: copy a byte count between raw addresses and return the count.
 - **__native_string_bytes** — `fun __native_string_bytes(s: Any, start: Any, count: Any) -> Any` — Native prelude helper: copy an in-range UTF-8 byte slice into a fresh string; the caller must preserve codepoint boundaries.
 - **substring** — `fun substring(s: Any, start: Any, count: Any) -> Any` — Return a string starting at codepoint index start and containing count codepoints; require indices within the source string.
 - **is_space_code** — `fun is_space_code(c: Any) -> Any` — True for ASCII space, tab, LF and CR character codes.
@@ -37,6 +38,7 @@
 - **replace** — `fun replace(s: Any, needle: Any, replacement: Any) -> Any` — Replace non-overlapping occurrences; an empty needle returns the original string.
 - **chars** — `fun chars(s: Any) -> Any` — Return Unicode codepoints as one-character strings.
 - **repeat** — `fun repeat(s: Any, n: Any) -> Any` — Return a string repeated n times; nonpositive counts produce an empty string.
+- **__join_list** — `fun __join_list(xs: Any, separator: Any) -> Any` — Native prelude helper: join a list's display texts with a string separator in one allocation; the full runtime compiles calls to it as rt_join.
 - **join** — `fun join(xs: Any, sep: Any) -> Any` — Convert items to strings and combine them with a separator between neighboring items.
 - **int** — `fun int(x: Any) -> Any` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
 - `int` explicit fault strings: `"runtime"`; runtime/callback faults can also propagate.

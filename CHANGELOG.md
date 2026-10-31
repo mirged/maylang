@@ -171,6 +171,15 @@
   and mayc compiles itself in half the time. Records are still maps, so
   printing, `keys`, equality and dynamic access are unchanged
   ([report](compiler/mayc/tests/backend/struct-fields.md)).
+- Speed up lists, strings and `join`
+  ([#99](https://github.com/mirged/maylang/issues/99)). `join` measures the
+  total length and copies each part once instead of concatenating pairwise;
+  a list buffer at the top of the heap grows in place; `xs[i] = v` on a list
+  is stored inline; and raw runtime functions that make no calls are
+  compiled with the RAW optimizations in dynamic programs too. The issue's
+  sieve falls from 1 085 ms and 420 MiB to 613 ms and 160 MiB, the strings
+  workload from 277 ms and 262 MiB to 90 ms and 66 MiB, and mayc compiles
+  itself 13% faster ([report](compiler/mayc/tests/backend/lists-strings.md)).
 
 ## MayOS
 

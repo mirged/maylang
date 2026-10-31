@@ -238,11 +238,21 @@ fun utf8_seq(b: Any) -> Any {
     return 4;
 }
 
+// Code points in a string: eight ASCII bytes at a time, otherwise one
+// sequence at a time.
 fun utf8_cplen(s: Any) -> Any {
     let n: Any = load64(s);
+    let high: Any = (1 << 63) | (1 << 55) | (1 << 47) | (1 << 39) | (1 << 31) | (1 << 23) | (1 << 15) | (1 << 7);
     mut i: Any = 0;
     mut c: Any = 0;
-    while (i < n) { i = i + utf8_seq(load8(s + 8 + i)); c = c + 1; }
+    while (i < n) {
+        if (i + 8 <= n and (load64(s + 8 + i) & high) == 0) { i = i + 8; c = c + 8; }
+        else {
+            let b: Any = load8(s + 8 + i);
+            if (b < 128) { i = i + 1; } else { i = i + utf8_seq(b); }
+            c = c + 1;
+        }
+    }
     return c;
 }
 
@@ -261,25 +271,25 @@ fun utf8_char(s: Any, off: Any) -> Any {
     return rt_from(s + 8 + off, n);
 }
 
-// Decimal text of a signed 64-bit integer, including -2^63.
+// Decimal text of a signed 64-bit integer, including -2^63. Digits are
+// counted first and written backwards into the result, with no scratch block.
 fun rt_int_text(n: Any) -> Any {
-    let tmp: Any = rt_alloc_bytes(32);
-    mut x: Any = n;
-    mut d: Any = 0;
-    if (x == 0) { store8(tmp, 48); d = 1; }
-    while (x != 0) {
-        mut digit: Any = x % 10;
-        if (digit < 0) { digit = 0 - digit; }
-        store8(tmp + d, digit + 48);
-        x = x / 10;
-        d = d + 1;
-    }
+    mut d: Any = 1;
+    mut x: Any = n / 10;
+    while (x != 0) { x = x / 10; d = d + 1; }
     mut o: Any = 0;
     if (n < 0) { o = 1; }
     let s: Any = rt_strnew(d + o);
     if (n < 0) { store8(s + 8, 45); }
-    mut k: Any = 0;
-    while (k < d) { store8(s + 8 + o + k, load8(tmp + (d - 1 - k))); k = k + 1; }
+    x = n;
+    mut k: Any = d + o - 1;
+    while (k >= o) {
+        mut digit: Any = x % 10;
+        if (digit < 0) { digit = 0 - digit; }
+        store8(s + 8 + k, digit + 48);
+        x = x / 10;
+        k = k - 1;
+    }
     return s;
 }
 
@@ -383,6 +393,38 @@ fun rt_float_text(bits: Any) -> Any {
 
 fun rt_str_of(t: Any, v: Any) -> Any { return rt_display(t, v, 0); }
 
+// join for a List (#99, native.may __join_list): the display text of each
+// element, kept in a scanned scratch block, then one allocation of the total
+// length and one copy of each part. `s` is the separator's Str payload.
+fun rt_join(lt: Any, l: Any, st: Any, s: Any) -> Any {
+    let n: Any = load64(l);
+    let d: Any = load64(l + 16);
+    let sl: Any = load64(s);
+    let texts: Any = rt_alloc(n * 8 + 8);
+    mut total: Any = 0;
+    mut i: Any = 0;
+    while (i < n) {
+        mut text: Any = load64(d + i * 16 + 8);
+        if (load64(d + i * 16) != 4) { text = rt_display(load64(d + i * 16), text, 0); }
+        store64(texts + i * 8, text);
+        total = total + load64(text);
+        i = i + 1;
+    }
+    if (n > 1) { total = total + sl * (n - 1); }
+    let out: Any = rt_strnew(total);
+    mut at: Any = out + 8;
+    i = 0;
+    while (i < n) {
+        if (i > 0) { rt_copy(at, s + 8, sl); at = at + sl; }
+        let text: Any = load64(texts + i * 8);
+        rt_copy(at, text + 8, load64(text));
+        at = at + load64(text);
+        i = i + 1;
+    }
+    RTAG = 4;
+    return out;
+}
+
 fun rt_to_str(t: Any, v: Any) -> Any {
     let s: Any = rt_display(t, v, 0);
     RTAG = 4;
@@ -421,9 +463,13 @@ fun rt_list_add(l: Any, t: Any, v: Any) -> Any {
     if (n >= cap) {
         mut nc: Any = cap * 2;
         if (nc < 4) { nc = 4; }
-        let nd: Any = rt_alloc_values(nc);
-        rt_copy(nd, load64(l + 16), n * 16);
-        store64(l + 16, nd);
+        // A buffer that is the newest heap block grows in place (#99), as in
+        // a push loop; otherwise it moves and the old one becomes garbage.
+        if (rt_grow_in_place(load64(l + 16), (nc - cap) * 16) == 0) {
+            let nd: Any = rt_alloc_values(nc);
+            rt_copy(nd, load64(l + 16), n * 16);
+            store64(l + 16, nd);
+        }
         store64(l + 8, nc);
     }
     let d: Any = load64(l + 16);

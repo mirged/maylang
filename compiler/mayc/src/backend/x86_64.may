@@ -319,13 +319,36 @@ fun x86_single_literal(block: Any, intervals: Any, value: Any) -> Any {
     return if (definition.op == E_INT) { definition.extra.value } else { nil };
 }
 
+// Raw functions in a dynamic program normally skip local registers and the
+// other RAW optimizations: a heap pointer held only in a register across a
+// call that allocates would be invisible to the conservative collector. A
+// leaf function makes no calls, so no collection can run while it does, and
+// it is optimized as in RAW programs (#99).
+let X86_LEAF_OPS: Any = [E_INT, E_STR, E_STRB, E_VAR, E_BIN, E_UN, E_AND, E_OR, IR_COPY, IR_LABEL,
+    IR_JUMP, IR_FALSE, IR_TRUE, IR_ISNIL, IR_NONNULL, IR_BOOL, IR_NIL, IR_RETURN, IR_TAILCALL, S_LET, S_ASSIGN];
+let X86_LEAF_CALLS: Any = ["load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64",
+    "__fbits", "__sp", "ptr", "syscall"];
+
+fun x86_leaf_block(block: Any) -> Any {
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        if (op == E_CALL) {
+            let callee: Any = instruction.extra;
+            if (not has(X86_LEAF_CALLS, symbol_name(callee.name, callee.length))) { return false; }
+        } else if (not has(X86_LEAF_OPS, op)) { return false; }
+    }
+    return true;
+}
+
+fun x86_optimized(ctx: Any) -> Any { return ctx.dynamic == 0 or ctx.leaf == true; }
+
 fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
     ctx.tempBase = len(ctx.locals);
     let planned: Any = x86_raw_allocation_block(ctx, block);
-    if (ctx.dynamic == 0) { x86_discard_unused(planned); }
+    if (x86_optimized(ctx)) { x86_discard_unused(planned); }
     // Rank locals before address planning absorbs their reads.
-    let locals: Any = if (ctx.dynamic == 0) { x86_plan_local_registers(ctx, planned) } else { 0 };
-    let addresses: Any = if (ctx.dynamic == 0) { x86_address_plan(ctx, planned) } else { {} };
+    let locals: Any = if (x86_optimized(ctx)) { x86_plan_local_registers(ctx, planned) } else { 0 };
+    let addresses: Any = if (x86_optimized(ctx)) { x86_address_plan(ctx, planned) } else { {} };
     ctx.allocation = if (locals != 0) { lsra_plan_calls(planned, locals.temporaries, true, locals.volatile, locals.calls) }
         else { lsra_plan(planned, [12, 13, 14, 15], true) };
     ctx.allocation.addresses = addresses;
@@ -382,7 +405,7 @@ fun x86_move_register(ctx: Any, target: Any, source: Any) -> Any {
 }
 
 fun x86_local_register(ctx: Any, p: Any, length: Any) -> Any {
-    if (ctx.dynamic != 0 or len(ctx.allocation.localRegisters) == 0) { return -1; }
+    if (not x86_optimized(ctx) or len(ctx.allocation.localRegisters) == 0) { return -1; }
     let name: Any = symbol_name(p, length);
     if (has(ctx.allocation.localRegisters, name)) { return ctx.allocation.localRegisters[name]; }
     return -1;
@@ -466,7 +489,7 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
     ctx.allocation.accumulator = -1;
     // RAW code after an unconditional jump or return is unreachable until the
     // next label (#87); only labels are jump targets.
-    let raw: Any = ctx.dynamic == 0;
+    let raw: Any = x86_optimized(ctx);
     let loopHeads: Any = if (raw and X86_LOOP_ALIGN > 1) { x86_loop_heads(block) } else { {} };
     mut unreachable: Any = false;
     for instruction: Any in block.code {
@@ -553,7 +576,7 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
         else { cg_operation(ctx, payload); }
         if (instruction.result != 0) {
             if (ctx.allocation.locations[instruction.result.slot].uses > 0) {
-                if (ctx.dynamic != 0 or not x86_accumulator_only(ctx, block, instruction)) {
+                if (not x86_optimized(ctx) or not x86_accumulator_only(ctx, block, instruction)) {
                     x86_put_temp(ctx, instruction.result);
                 }
             }
@@ -756,7 +779,7 @@ fun x86_signed_power_divide(ctx: Any, divisor: Any, shift: Any, remainder: Any) 
 // Facts belong to single-definition snapshots. Mutable locals require the
 // separate inductive proof below; their allocation and private homes stay fixed.
 fun x86_unsigned_ranges(ctx: Any, block: Any) -> Any {
-    let recurrences: Any = if (ctx.dynamic == 0) { x86_local_recurrences(ctx, block) } else { {} };
+    let recurrences: Any = if (x86_optimized(ctx)) { x86_local_recurrences(ctx, block) } else { {} };
     let shadowed: Any = {};
     for local: Any in ctx.locals { shadowed[symbol_name(local[0], local[1])] = true; }
     for instruction: Any in block.code {
@@ -1083,7 +1106,7 @@ fun x86_local_reader(ctx: Any, block: Any, value: Any, visits: Any) -> Any {
 // register. Observable intermediate values and every intervening effect retain
 // snapshots. Branch predicates may compare that register without a rax copy.
 fun x86_local_operation(ctx: Any, block: Any, instruction: Any) -> Any {
-    if (ctx.dynamic != 0 or instruction.op != E_VAR) { return -1; }
+    if (not x86_optimized(ctx) or instruction.op != E_VAR) { return -1; }
     let name: Any = instruction.extra;
     let register: Any = x86_local_register(ctx, name.name, name.length);
     if (register < 0) { return -1; }
@@ -1170,7 +1193,7 @@ fun x86_omitted_instruction(ctx: Any, block: Any, instruction: Any) -> Any {
         if (location.definitions == 0 and location.uses == 0) { return true; }
         if (location.literal != nil or location.address != nil) { return true; }
         if (op == E_STR and location.uses == 0) { return true; }
-        if (op == E_VAR and location.uses == 0 and ctx.dynamic == 0) {
+        if (op == E_VAR and location.uses == 0 and x86_optimized(ctx)) {
             let name: Any = instruction.extra;
             if (is_boxed(ctx, name.name, name.length) == 0 and
                 (loc_find(ctx, name.name, name.length) >= 0 or glob_find(ctx, name.name, name.length) >= 0)) { return true; }
@@ -1182,7 +1205,7 @@ fun x86_omitted_instruction(ctx: Any, block: Any, instruction: Any) -> Any {
 }
 
 fun x86_borrow_operand(ctx: Any, block: Any, instruction: Any) -> Any {
-    if (ctx.dynamic != 0) { return false; }
+    if (not x86_optimized(ctx)) { return false; }
     let location: Any = ctx.allocation.locations[instruction.result.slot];
     if (location.definitions != 1 or location.uses != 2 or location.end != location.start + 1) { return false; }
     let definition: Any = block.code[location.start];
@@ -1260,7 +1283,7 @@ fun x86_branch_comparison_at(ctx: Any, block: Any, instruction: Any, position: A
 // Signed n % 2^k is zero exactly when n's low k bits are zero, including
 // negative n and INT64_MIN. The remainder itself must remain unobservable.
 fun x86_remainder_branch(ctx: Any, block: Any, instruction: Any) -> Any {
-    if (ctx.dynamic != 0 or instruction.op != E_BIN or instruction.extra.op != TK_PCT) { return -1; }
+    if (not x86_optimized(ctx) or instruction.op != E_BIN or instruction.extra.op != TK_PCT) { return -1; }
     let payload: Any = instruction.extra;
     if (x86_compact_divisor_shift(payload.right) < 0) { return -1; }
     if (ctx.allocation.locations[payload.right.slot].literal != payload.right.value) { return -1; }
@@ -1763,7 +1786,7 @@ fun x86_select_owns_labels(ctx: Any, block: Any, start: Any, end: Any) -> Any {
 // Try one top-level diamond whose predicate starts at `start`. Returns the
 // last consumed position, or -1 with no bytes emitted.
 fun x86_select_region(ctx: Any, block: Any, start: Any) -> Any {
-    if (ctx.dynamic != 0 or len(ctx.allocation.localRegisters) == 0) { return -1; }
+    if (not x86_optimized(ctx) or len(ctx.allocation.localRegisters) == 0) { return -1; }
     let first: Any = block.code[start].op;
     if (first != E_VAR and first != E_INT and first != E_BIN) { return -1; }
     let origin: Any = ctx.code.length;
@@ -2574,8 +2597,9 @@ fun x86_native_raise(ctx: Any, kind: Any) -> Any {
 // ------------------------------------------------------------------ driver
 
 fun cg_func(ctx: Any, rec: Any) -> Any {
-    if (FAT_VALUES and rec.mode != 1 and rec.native != true) { return fat_func(ctx, rec); }
+    if (FAT_VALUES and rec.mode != 1 and rec.native != true) { ctx.leaf = false; return fat_func(ctx, rec); }
     ctx.native = ctx.dynamic == 1 and rec.native == true;
+    ctx.leaf = ctx.dynamic == 1 and x86_leaf_block(rec.ir);
     ctx.nativeFaults = [0, 0, 0, 0, 0];
     // Raw runtime functions and native-word bodies; dynamic code took fat_func.
     ctx.mode = 0;

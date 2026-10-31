@@ -1,0 +1,5 @@
+let parts: List<Str> = [];
+mut i: Int = 0;
+while (i < 300000) { push(parts, "item;"); i += 1; }
+let joined: Str = join(parts, ",");
+print(len(joined));

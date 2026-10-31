@@ -10,7 +10,7 @@
 - [io.may](stdlib/io.md) — Text, line, JSON, CSV and key-value file helpers. 11 declarations.
 - [iter.may](stdlib/iter.md) — Eager list iteration, scans, windows and keyed reductions. 14 declarations.
 - [math.may](stdlib/math.md) — Arithmetic, number theory and geometric helpers. 14 declarations.
-- [native.may](stdlib/native.md) — Automatically available full-runtime helpers; a byte-identical mirror of the injected sidecar compiler/mayc/native.may. 110 declarations.
+- [native.may](stdlib/native.md) — Automatically available full-runtime helpers; a byte-identical mirror of the injected sidecar compiler/mayc/native.may. 112 declarations.
 - [net.may](stdlib/net.md) — Synchronous IPv4 TCP/UDP sockets for full Linux x86-64 runtimes. 41 declarations.
 - [path.may](stdlib/path.md) — Lexical path operations without filesystem access. 9 declarations.
 - [prelude.may](stdlib/prelude.md) — Automatically loaded small convenience functions in full-runtime builds. 7 declarations.

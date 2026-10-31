@@ -42,10 +42,17 @@ fun __native_utf8_width(byte: Any) -> Any {
     if (byte < 240) { return 3; }
     return 4;
 }
+// Copy `count` bytes. Its Int-only signature makes the full runtime compile
+// it as a native-word loop; the source bootstrap ignores the types.
+fun __native_copy_bytes(destination: Int, source: Int, count: Int) -> Int {
+    mut i: Int = 0;
+    while (i + 8 <= count) { store64(destination + i, load64(source + i)); i += 8; }
+    while (i < count) { store8(destination + i, load8(source + i)); i += 1; }
+    return count;
+}
 fun __native_string_bytes(s: Any, start: Any, count: Any) -> Any {
     let out: Any = repeat("\0", count);
-    let source: Any = addr(s); let destination: Any = addr(out);
-    for i: Any in 0..count { store8(destination + i, load8(source + start + i)); }
+    __native_copy_bytes(addr(out), addr(s) + start, count);
     return out;
 }
 fun substring(s: Any, start: Any, count: Any) -> Any {
@@ -179,24 +186,42 @@ fun repeat(s: Any, n: Any) -> Any {
     return out;
 }
 
+// join of a List with a Str separator. The full runtime compiles calls to
+// it as rt_join (x86_64_fat.may fat_call); this body serves the source
+// bootstrap: one allocation of the total byte length, one copy per part.
+fun __join_list(xs: Any, separator: Any) -> Any {
+    let n: Any = len(xs);
+    let parts: Any = [];
+    let separatorBytes: Any = load64(addr(separator) - 8);
+    mut total: Any = 0;
+    if (n > 1) { total = separatorBytes * (n - 1); }
+    mut i: Any = 0;
+    while (i < n) {
+        let part: Any = str(xs[i]);
+        push(parts, part);
+        total += load64(addr(part) - 8);
+        i += 1;
+    }
+    let out: Any = repeat("\0", total);
+    mut at: Any = addr(out);
+    i = 0;
+    while (i < n) {
+        if (i > 0) { at += __native_copy_bytes(at, addr(separator), separatorBytes); }
+        let part: Any = parts[i];
+        at += __native_copy_bytes(at, addr(part), load64(addr(part) - 8));
+        i += 1;
+    }
+    return out;
+}
+
 fun join(xs: Any, sep: Any) -> Any {
+    if (value_tag(xs) == 5) { return __join_list(xs, str(sep)); }
     let n: Any = len(xs);
     if (n == 0) { return ""; }
-    mut parts: Any = [];
-    for i: Any in 0..n { push(parts, str(xs[i])); }
-    // Pairwise concatenation bounds copying without assuming a string layout,
-    // so this also works in the source bootstrap's different runtime.
-    while (len(parts) > 1) {
-        let next: Any = [];
-        mut i: Any = 0;
-        while (i < len(parts)) {
-            if (i + 1 < len(parts)) { push(next, parts[i] + sep + parts[i + 1]); }
-            else { push(next, parts[i]); }
-            i += 2;
-        }
-        parts = next;
-    }
-    return parts[0];
+    let parts: Any = [];
+    mut i: Any = 0;
+    while (i < n) { push(parts, xs[i]); i += 1; }
+    return __join_list(parts, str(sep));
 }
 
 fun int(x: Any) -> Any {

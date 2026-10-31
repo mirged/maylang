@@ -1,0 +1,4 @@
+let flags: List<Bool> = [];
+mut i: Int = 0;
+while (i < 10000000) { push(flags, true); i += 1; }
+print(len(flags));
