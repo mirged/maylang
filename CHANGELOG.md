@@ -153,6 +153,16 @@
   ([#91](https://github.com/mirged/maylang/issues/91)).
 - Support bitwise operators on the experimental `clang-llvm` target, which
   previously rejected them ([#91](https://github.com/mirged/maylang/issues/91)).
+- Cache struct and record field access per site
+  ([#98](https://github.com/mirged/maylang/issues/98)). Each `x.f` checks
+  inline whether the entry where it last found `f` still holds the
+  program's shared `"f"` key and loads it directly, for typed and `Any`
+  receivers alike, instead of a string-keyed map lookup. Struct constructors
+  and map literals allocate their entries at the final size. A field read
+  drops from about 65 ns to 2 ns; n-body runs 11× faster, binary trees 5×,
+  and mayc compiles itself in half the time. Records are still maps, so
+  printing, `keys`, equality and dynamic access are unchanged
+  ([report](compiler/mayc/tests/backend/struct-fields.md)).
 
 ## MayOS
 

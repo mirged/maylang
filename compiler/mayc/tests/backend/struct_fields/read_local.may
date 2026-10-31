@@ -1,0 +1,5 @@
+let v: Float = 1.5;
+mut s: Float = 0.0;
+mut i: Int = 0;
+while (i < 5000000) { s += v; i += 1; }
+print(s);

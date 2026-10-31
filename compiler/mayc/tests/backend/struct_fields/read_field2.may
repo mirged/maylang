@@ -1,0 +1,6 @@
+struct P { a: Float, b: Float }
+let p: P = P(0.5, 1.5);
+mut s: Float = 0.0;
+mut i: Int = 0;
+while (i < 5000000) { s += p.b; i += 1; }
+print(s);

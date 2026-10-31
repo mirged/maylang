@@ -118,9 +118,14 @@ struct-bound ones, and no map operation is worse than amortized O(1).
 
 ## Phase 2: object layout
 
-- [#98](https://github.com/mirged/maylang/issues/98): structs as a header
-  plus fixed fat slots. A typed field access becomes one type-identity check
-  plus a load at a constant offset. `Any` receivers keep the dynamic lookup.
+- [#98](https://github.com/mirged/maylang/issues/98): field access caches
+  (done). Structs stay maps, but every `x.f` site caches the entry where it
+  last found `f` and checks it inline against the program's shared key
+  object, for typed and `Any` receivers alike; struct constructors allocate
+  their entries at the final size
+  ([report](../../compiler/mayc/tests/backend/struct-fields.md)). A struct
+  as a header plus fixed fat slots would still cut each record's memory and
+  allocations; it changes how records are observed and needs its own design.
 - Enum variants and payloads with the same layout, so `match` reads payloads
   by offset.
 - Specialized list storage for homogeneous element types (`List<Int>`,

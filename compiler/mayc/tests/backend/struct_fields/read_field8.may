@@ -1,0 +1,6 @@
+struct Q { a: Float, b: Float, c: Float, d: Float, e: Float, f: Float, g: Float, h: Float }
+let q: Q = Q(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.5);
+mut s: Float = 0.0;
+mut i: Int = 0;
+while (i < 5000000) { s += q.h; i += 1; }
+print(s);

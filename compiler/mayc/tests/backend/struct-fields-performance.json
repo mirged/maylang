@@ -1,0 +1,491 @@
+{
+  "date_utc": "2026-10-31T10:19:47Z",
+  "revision": "63e5aad58f2eacc486e615ba2c8a2bbb413ae063",
+  "status": "M compiler/mayc/runtime/fat.may\n M compiler/mayc/src/backend/x86_64_fat.may\n M compiler/mayc/src/ir.may\n M compiler/mayc/tests/legacy_behavior.json\n?? compiler/mayc/tests/backend/struct_fields/\n?? compiler/mayc/tests/field_cache.may\n?? compiler/mayc/tests/field_cache/",
+  "compiler_sha256": {
+    "before": "9ced8934b336d00c9bd0c478d656a3b4cfd57033e993aab94d505c1bb63237ff",
+    "after": "e1a793f87479205fc13d7815e1195428cdaae8ceb8316b0c6765edff8fd1506d"
+  },
+  "runtime_sha256": {
+    "before": "603dac5c253965b780a4aa8ad00c1164d7c74ebd966bfb0de9462dd4645680c8",
+    "after": "806ba1266194910e7672eb53048a2df4770937904af6f53cf60615f670cac364"
+  },
+  "uname": "Linux debian 6.12.113+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.113-1 (2026-10-15) x86_64 ",
+  "loadavg": [
+    2.72314453125,
+    3.060546875,
+    3.00048828125
+  ],
+  "rounds": 5,
+  "results": [
+    {
+      "workload": "construct",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 0.8159144569999626,
+          "cpu_s": 0.815105
+        },
+        {
+          "wall_s": 0.7106145739999192,
+          "cpu_s": 0.710263
+        },
+        {
+          "wall_s": 0.7001951769998414,
+          "cpu_s": 0.699804
+        },
+        {
+          "wall_s": 0.7598543340009201,
+          "cpu_s": 0.759388
+        },
+        {
+          "wall_s": 0.7276042390003568,
+          "cpu_s": 0.726876
+        }
+      ],
+      "median_wall_ms": 727.6,
+      "median_cpu_ms": 726.88,
+      "output": "false"
+    },
+    {
+      "workload": "construct",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 0.566289045999838,
+          "cpu_s": 0.565792
+        },
+        {
+          "wall_s": 0.4841701479999756,
+          "cpu_s": 0.483944
+        },
+        {
+          "wall_s": 0.439811400000508,
+          "cpu_s": 0.439447
+        },
+        {
+          "wall_s": 0.5419326960000035,
+          "cpu_s": 0.541369
+        },
+        {
+          "wall_s": 0.5080930060012179,
+          "cpu_s": 0.507636
+        }
+      ],
+      "median_wall_ms": 508.09,
+      "median_cpu_ms": 507.64,
+      "output": "false"
+    },
+    {
+      "workload": "nbody",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 6.152051502000177,
+          "cpu_s": 6.151269
+        },
+        {
+          "wall_s": 6.366049462000774,
+          "cpu_s": 6.365549000000001
+        },
+        {
+          "wall_s": 6.444076808000318,
+          "cpu_s": 6.4420969999999995
+        },
+        {
+          "wall_s": 7.415493963000699,
+          "cpu_s": 7.413360999999999
+        },
+        {
+          "wall_s": 6.619783054999061,
+          "cpu_s": 6.618607
+        }
+      ],
+      "median_wall_ms": 6444.08,
+      "median_cpu_ms": 6442.1,
+      "output": "-0.16907516382852447\n-0.16908371256962418"
+    },
+    {
+      "workload": "nbody",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 0.5587368910000805,
+          "cpu_s": 0.558377
+        },
+        {
+          "wall_s": 0.5827018820000376,
+          "cpu_s": 0.582392
+        },
+        {
+          "wall_s": 0.5828795919996992,
+          "cpu_s": 0.582615
+        },
+        {
+          "wall_s": 0.8405879299989465,
+          "cpu_s": 0.839985
+        },
+        {
+          "wall_s": 0.607159760000286,
+          "cpu_s": 0.606853
+        }
+      ],
+      "median_wall_ms": 582.88,
+      "median_cpu_ms": 582.62,
+      "output": "-0.16907516382852447\n-0.16908371256962418"
+    },
+    {
+      "workload": "read_field2",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 0.3853745699998399,
+          "cpu_s": 0.384964
+        },
+        {
+          "wall_s": 0.37616672399963136,
+          "cpu_s": 0.37540399999999996
+        },
+        {
+          "wall_s": 0.3754519989997789,
+          "cpu_s": 0.37517999999999996
+        },
+        {
+          "wall_s": 0.4553033060001326,
+          "cpu_s": 0.454934
+        },
+        {
+          "wall_s": 0.37832981000065047,
+          "cpu_s": 0.37805099999999997
+        }
+      ],
+      "median_wall_ms": 378.33,
+      "median_cpu_ms": 378.05,
+      "output": "7500000.0"
+    },
+    {
+      "workload": "read_field2",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 0.0632036919996608,
+          "cpu_s": 0.062944
+        },
+        {
+          "wall_s": 0.07296456800031592,
+          "cpu_s": 0.07265999999999999
+        },
+        {
+          "wall_s": 0.06295413600037136,
+          "cpu_s": 0.062596
+        },
+        {
+          "wall_s": 0.07518454199998814,
+          "cpu_s": 0.074838
+        },
+        {
+          "wall_s": 0.06625693699970725,
+          "cpu_s": 0.06598699999999999
+        }
+      ],
+      "median_wall_ms": 66.26,
+      "median_cpu_ms": 65.99,
+      "output": "7500000.0"
+    },
+    {
+      "workload": "read_field8",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 0.29581786200014903,
+          "cpu_s": 0.29545299999999997
+        },
+        {
+          "wall_s": 0.32813960800012865,
+          "cpu_s": 0.327733
+        },
+        {
+          "wall_s": 0.3150682240002425,
+          "cpu_s": 0.31476699999999996
+        },
+        {
+          "wall_s": 0.38313667600050394,
+          "cpu_s": 0.38270499999999996
+        },
+        {
+          "wall_s": 0.3097157030006201,
+          "cpu_s": 0.309429
+        }
+      ],
+      "median_wall_ms": 315.07,
+      "median_cpu_ms": 314.77,
+      "output": "7500000.0"
+    },
+    {
+      "workload": "read_field8",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 0.05890120799995202,
+          "cpu_s": 0.058594
+        },
+        {
+          "wall_s": 0.06398058800004947,
+          "cpu_s": 0.063571
+        },
+        {
+          "wall_s": 0.07224066900016624,
+          "cpu_s": 0.071932
+        },
+        {
+          "wall_s": 0.1112605899998016,
+          "cpu_s": 0.110635
+        },
+        {
+          "wall_s": 0.06207281600109127,
+          "cpu_s": 0.061519
+        }
+      ],
+      "median_wall_ms": 63.98,
+      "median_cpu_ms": 63.57,
+      "output": "7500000.0"
+    },
+    {
+      "workload": "read_list",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 0.0722895779999817,
+          "cpu_s": 0.072042
+        },
+        {
+          "wall_s": 0.06375896900044609,
+          "cpu_s": 0.06335199999999999
+        },
+        {
+          "wall_s": 0.08118662900051277,
+          "cpu_s": 0.080798
+        },
+        {
+          "wall_s": 0.15325870100059547,
+          "cpu_s": 0.15276
+        },
+        {
+          "wall_s": 0.06463819000055082,
+          "cpu_s": 0.064235
+        }
+      ],
+      "median_wall_ms": 72.29,
+      "median_cpu_ms": 72.04,
+      "output": "7500000.0"
+    },
+    {
+      "workload": "read_list",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 0.05820362699978432,
+          "cpu_s": 0.057942999999999995
+        },
+        {
+          "wall_s": 0.06287653199979104,
+          "cpu_s": 0.062511
+        },
+        {
+          "wall_s": 0.07505283299997245,
+          "cpu_s": 0.074571
+        },
+        {
+          "wall_s": 0.12064912800087768,
+          "cpu_s": 0.12009699999999998
+        },
+        {
+          "wall_s": 0.07195223700000497,
+          "cpu_s": 0.071667
+        }
+      ],
+      "median_wall_ms": 71.95,
+      "median_cpu_ms": 71.67,
+      "output": "7500000.0"
+    },
+    {
+      "workload": "read_local",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 0.046373200999369146,
+          "cpu_s": 0.04609
+        },
+        {
+          "wall_s": 0.05182260999936261,
+          "cpu_s": 0.051501
+        },
+        {
+          "wall_s": 0.05341148000024987,
+          "cpu_s": 0.05310499999999999
+        },
+        {
+          "wall_s": 0.08924795399980212,
+          "cpu_s": 0.08852299999999999
+        },
+        {
+          "wall_s": 0.05396603300141578,
+          "cpu_s": 0.053328
+        }
+      ],
+      "median_wall_ms": 53.41,
+      "median_cpu_ms": 53.1,
+      "output": "7500000.0"
+    },
+    {
+      "workload": "read_local",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 0.04808825700001762,
+          "cpu_s": 0.047736
+        },
+        {
+          "wall_s": 0.05735143699985201,
+          "cpu_s": 0.05705
+        },
+        {
+          "wall_s": 0.05496947900064697,
+          "cpu_s": 0.054682999999999995
+        },
+        {
+          "wall_s": 0.06466108899985556,
+          "cpu_s": 0.06403
+        },
+        {
+          "wall_s": 0.056008416999247856,
+          "cpu_s": 0.055656
+        }
+      ],
+      "median_wall_ms": 56.01,
+      "median_cpu_ms": 55.66,
+      "output": "7500000.0"
+    },
+    {
+      "workload": "trees",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 24.718650456999967,
+          "cpu_s": 24.661914
+        },
+        {
+          "wall_s": 33.56945297099992,
+          "cpu_s": 33.557358
+        },
+        {
+          "wall_s": 29.955913761000375,
+          "cpu_s": 29.951145999999998
+        },
+        {
+          "wall_s": 29.448232450999058,
+          "cpu_s": 29.445521
+        },
+        {
+          "wall_s": 26.95379495599991,
+          "cpu_s": 26.952518
+        }
+      ],
+      "median_wall_ms": 29448.23,
+      "median_cpu_ms": 29445.52,
+      "output": "14592688 131071"
+    },
+    {
+      "workload": "trees",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 5.120014027999787,
+          "cpu_s": 5.119371
+        },
+        {
+          "wall_s": 7.554881621999812,
+          "cpu_s": 7.502508
+        },
+        {
+          "wall_s": 7.056466596000973,
+          "cpu_s": 7.054405
+        },
+        {
+          "wall_s": 5.319488107001234,
+          "cpu_s": 5.318642
+        },
+        {
+          "wall_s": 5.879102192000573,
+          "cpu_s": 5.878012
+        }
+      ],
+      "median_wall_ms": 5879.1,
+      "median_cpu_ms": 5878.01,
+      "output": "14592688 131071"
+    },
+    {
+      "workload": "self_compile",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 11.031130405000113,
+          "cpu_s": 11.029959999999999
+        },
+        {
+          "wall_s": 11.646726246000071,
+          "cpu_s": 11.645439999999999
+        },
+        {
+          "wall_s": 14.592600179999863,
+          "cpu_s": 14.587159
+        },
+        {
+          "wall_s": 12.154207518000476,
+          "cpu_s": 12.153020999999999
+        },
+        {
+          "wall_s": 12.047209407999617,
+          "cpu_s": 12.045109
+        }
+      ],
+      "median_wall_ms": 12047.21,
+      "median_cpu_ms": 12045.11,
+      "output": ""
+    },
+    {
+      "workload": "self_compile",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 5.0543797500004075,
+          "cpu_s": 5.042969
+        },
+        {
+          "wall_s": 5.067053393000606,
+          "cpu_s": 5.065037
+        },
+        {
+          "wall_s": 7.189078642999448,
+          "cpu_s": 7.171166
+        },
+        {
+          "wall_s": 6.940415745999417,
+          "cpu_s": 6.939145
+        },
+        {
+          "wall_s": 5.995995232000496,
+          "cpu_s": 5.9953330000000005
+        }
+      ],
+      "median_wall_ms": 5996.0,
+      "median_cpu_ms": 5995.33,
+      "output": ""
+    }
+  ],
+  "cpu": "13th Gen Intel(R) Core(TM) i5-13500H",
+  "compilers": {
+    "before": "compiler/mayc/build/bin/mayc_new built at 63e5aad (main), with main's runtime sidecars",
+    "after": "this branch, rebuilt with compiler/rust/build.sh"
+  }
+}
