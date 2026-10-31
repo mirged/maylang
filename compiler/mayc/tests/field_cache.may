@@ -1,0 +1,66 @@
+// Field access caches (#98): each `x.f` site remembers where it last found
+// `f`, and must fall back correctly whenever that guess is wrong.
+import "field_cache/geometry.may" as geometry;
+
+struct Body { x: Float, y: Float, vx: Float, vy: Float, mass: Float }
+
+// Typed reads, writes and compound assignment.
+let b: Body = Body(1.0, 2.0, 0.5, -0.5, 10.0);
+mut step: Int = 0;
+while (step < 4) { b.x += b.vx; b.y = b.y + b.vy; step += 1; }
+print(b.x, b.y, b.mass);
+
+// An imported struct, constructed in its module and read here.
+let p: geometry.Point = geometry.shifted(geometry.Point(1, 2), 10);
+p.y = p.y * 3;
+print(p.x, p.y);
+
+// One site sees maps where `name` sits at different entries, maps without
+// it, maps whose keys were built at run time, and values that are not maps.
+fun name_of(v: Any) -> Any { return v.name; }
+let shapes: Any = [
+    {"name": "first"},
+    {"id": 1, "name": "second"},
+    {"a": 1, "b": 2, "c": 3, "name": "fourth"},
+    {"id": 2},
+    {("na" + "me"): "built"},
+    42,
+    nil,
+    {"name": "first again"}
+];
+for shape: Any in shapes { print(name_of(shape)); }
+
+// The same site writes through every shape; a missing field is appended.
+fun rename(v: Any, value: Any) -> Nil { v.name = value; return; }
+for shape: Any in shapes { rename(shape, "renamed"); }
+print(shapes[0], shapes[2], shapes[3], shapes[4]);
+
+// A record copy without a field, and dynamic additions to a struct value.
+let a: Any = Body(0.0, 0.0, 1.0, 1.0, 2.0);
+let lighter: Any = remove(a, "x");
+print(lighter.x, lighter.mass, a.x);
+a.extra = "added";
+print(a.extra, len(keys(a)));
+
+// Enum payloads are maps with a tag; reads go through the same caches.
+enum Shape { Circle(radius: Float), Rect(w: Float, h: Float) }
+fun area(s: Shape) -> Float {
+    match (s) {
+        Circle(r) => { return 3.0 * r * r; },
+        Rect(w, h) => { return w * h; }
+    }
+    return 0.0;
+}
+let items: List<Shape> = [Circle(1.0), Rect(2.0, 3.0), Circle(2.0)];
+mut total: Float = 0.0;
+for item: Shape in items { total += area(item); }
+let any_item: Any = items[1];
+print(total, any_item.tag, any_item.h);
+
+// Many objects through one site, as a loop over a list of structs does.
+let bodies: List<Body> = [];
+mut i: Int = 0;
+while (i < 1000) { push(bodies, Body(to_float(i), 0.0, 0.0, 0.0, 1.0)); i += 1; }
+mut sum: Float = 0.0;
+for body: Body in bodies { sum += body.x * body.mass; }
+print(sum);

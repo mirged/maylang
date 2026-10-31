@@ -1,0 +1,5 @@
+struct Node { left: Any, right: Any }
+mut i: Int = 0;
+mut keep: Any = nil;
+while (i < 2000000) { keep = Node(nil, nil); i += 1; }
+print(keep == nil);
