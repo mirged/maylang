@@ -138,6 +138,31 @@ compiler. Step 7 repeats these measurements.
 | CI `maybrowser.yml` (run 41107159309) | 1 min 26 s |
 | CI `native-targets.yml` (last success, run 40927832675) | 1 min 31 s |
 
+## After freezing
+
+Measured 2026-10-31 on the same machine and in the same way as the
+[baseline](#baseline), at the end of the series (step 6 plus the step 5
+package-test fix). One run each.
+
+| Measurement | Baseline | After | Change |
+| --- | ---: | ---: | ---: |
+| Compiler source (`main.may` and `src/`) | 12 823 lines | 10 891 lines | −15% |
+| Runtime sidecars | 4 501 lines | 3 401 lines | −24% |
+| Compiler executable | 3 191 456 bytes | 2 668 064 bytes | −16% |
+| `sh compiler/rust/build.sh` | 40 s | 30 s | −26% |
+| `make test` | 677 s | 506 s | −25% |
+| `make test-bootstrap` | 70 s | 64 s | −8% |
+| CI `bootstrap.yml`, wall time (run 41147646805) | 14 min 53 s | 11 min 45 s | −21% |
+| — `bootstrap` job | 13 min 29 s | 11 min 42 s | −13% |
+| — `core-emulation` job | 1 min 15 s | removed | |
+| CI `maybrowser.yml` | 1 min 26 s | removed | |
+| CI `native-targets.yml` | 1 min 31 s | removed | |
+
+`frozen/` holds 8 545 lines of Maylang that no longer need upkeep. x86-64
+Linux output did not change: every example and compiler fixture compiles to
+the same bytes as before (step 5). Single runs on a desktop machine vary by
+a few percent; the `make test` and size changes are well outside that.
+
 ## What "better" means meanwhile
 
 With the scope reduced, work goes to the language on Linux x86-64, in this
@@ -167,4 +192,4 @@ order:
 | 4 Compiler seams | done: `backend/portable.may`, `formats/portable.may`, `backend/x86_64_nodeos.may`; `raw.may` and `raw_float.may` turned out to be portable-only, so no `riscv.may` split was needed |
 | 5 Freeze targets | done |
 | 6 Documentation | done |
-| 7 Measure again | not started |
+| 7 Measure again | done: [after freezing](#after-freezing) |
