@@ -1,7 +1,7 @@
 // render.may — console and DOT rendering for maypkg.
 
-import "fs.may" as fs;
-import "graph.may" as graph;
+import "../../shared/fs.may" as fs;
+import "../../shared/imports.may" as graph;
 
 pub fun banner(title: Any) -> Any {
     let line: Any = repeat("-", 64);

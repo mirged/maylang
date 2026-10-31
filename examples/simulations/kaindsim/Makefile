@@ -8,7 +8,7 @@ build: $(MAYPKG)
 	PATH="$(abspath ../../../compiler/mayc):$$PATH" sh build/maypkg.build.sh
 	PWD="$(CURDIR)" $(MAYPKG) lock
 
-build/maypkg: ../../../tools/maypkg/main.may ../../../tools/maypkg/src/*.may
+build/maypkg: ../../../tools/maypkg/main.may ../../../tools/maypkg/src/*.may ../../../tools/shared/*.may
 	mkdir -p build
 	$(MAYC) ../../../tools/maypkg/main.may -o $@
 

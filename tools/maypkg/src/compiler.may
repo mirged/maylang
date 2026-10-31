@@ -1,5 +1,5 @@
 // Compiler selection, shell arguments and build identity in one place.
-import "fs.may" as fs;
+import "../../shared/fs.may" as fs;
 import "checksum.may" as hash;
 
 pub fun quote(value: Any) -> Any { return "'" + replace(value, "'", "'\"'\"'") + "'"; }

@@ -1,7 +1,6 @@
-// graph.may — the import graph: scanning, path resolution and traversal.
+// imports.may — the import graph: scanning, path resolution and traversal.
 //
-// This is the part of a package manager that actually understands a project.
-// It reads the entry module, finds every `import "..."` / `from "..." import`
+// Shared by `maypkg` and `may` (consumers are listed in README.md). It reads the entry module, finds every `import "..."` / `from "..." import`
 // directive (ignoring strings and comments), resolves each one exactly like the
 // compiler does (relative to the importing file, then across the stdlib search
 // path), and walks the graph depth-first — producing a topological build order,

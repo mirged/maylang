@@ -1,7 +1,7 @@
 import "src/workspace.may" as workspace;
 import "src/process.may" as proc;
 import "src/build.may" as build;
-import "../maypkg/src/fs.may" as fs;
+import "../shared/fs.may" as fs;
 import "../shared/format.may" as formatting;
 
 fun usage() -> Nil {

@@ -82,6 +82,32 @@ def mirrors():
     return []
 
 
+IMPORT = re.compile(r'^\s*(?:import|from)\s+"([^"]+)"', re.M)
+
+
+def tool_boundaries(paths):
+    # A tool's src/ directory is private to that tool. Code used by several
+    # tools lives in tools/shared/ (tools/shared/README.md), so changing one
+    # tool cannot silently break another or the installer.
+    errors = []
+    tools = (ROOT / 'tools').resolve()
+    for path in paths:
+        if path.suffix != '.may' or not path.is_file():
+            continue
+        for target in IMPORT.findall(path.read_text(errors='replace')):
+            resolved = (path.parent / target).resolve()
+            try:
+                parts = resolved.relative_to(tools).parts
+            except ValueError:
+                continue
+            if len(parts) > 2 and parts[1] == 'src':
+                owner = tools / parts[0]
+                if owner not in path.resolve().parents:
+                    errors.append(f'{path.relative_to(ROOT)}: imports {target}, which is private to '
+                                  f'tools/{parts[0]}; move shared code to tools/shared/')
+    return errors
+
+
 def checked(names):
     # frozen/ holds code that is kept but not maintained (frozen/README.md),
     # so its links and syntax are not checked.
@@ -92,10 +118,10 @@ def main():
     names = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
                                     cwd=ROOT).decode().split('\0')
     paths = checked(names)
-    errors = problems(paths) + mirrors()
+    errors = problems(paths) + mirrors() + tool_boundaries(paths)
     for error in errors:
         print(error, file=sys.stderr)
-    print(f'{"FAIL" if errors else "PASS"} repository links, JSON and Python syntax, native mirror ({len(paths)} files)')
+    print(f'{"FAIL" if errors else "PASS"} repository links, JSON and Python syntax, native mirror, tool boundaries ({len(paths)} files)')
     return bool(errors)
 
 

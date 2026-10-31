@@ -1,4 +1,4 @@
-import "../tools/maypkg/src/fs.may" as fs;
+import "../tools/shared/fs.may" as fs;
 import "terminal.may" as ui;
 
 let TOOLS: List<Str> = ["mayc", "may", "mayfmt", "maypkg", "maylsp"];

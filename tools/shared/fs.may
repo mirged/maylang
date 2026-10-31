@@ -1,9 +1,9 @@
-// fs.may — filesystem and path helpers for maypkg.
+// fs.may — filesystem and path helpers shared by the developer tools.
 //
-// Maylang gives us read_file / write_file / file_exists, env and args, but no
-// directory listing and no process spawning. maypkg therefore works from a
-// declared entry point and its import graph instead of walking directories,
-// and emits shell scripts for the steps the language cannot perform itself.
+// Path math, mkdir -p, directory listing, atomic publication and the stdlib
+// search path, built on read_file / write_file / file_exists and raw syscalls.
+// Consumers are listed in README.md; keep this file free of tool-specific
+// policy so that `may`, `maypkg` and the installer can all depend on it.
 
 pub fun cwd() -> Any {
     let buffer: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
