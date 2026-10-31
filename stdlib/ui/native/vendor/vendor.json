@@ -1,0 +1,51 @@
+{
+    "vendored": [
+        {
+            "file": "sokol_app.h",
+            "repository": "https://github.com/floooh/sokol",
+            "revision": "5e94d1291fea504ed911090338cf35bd9ef49a06",
+            "path": "sokol_app.h",
+            "license": "Zlib",
+            "sha256": "b7ddb3218026eae84cec65e6a1efd37a16cfb00c30c7036f0688f52d65067ea9",
+            "modifications": "none"
+        },
+        {
+            "file": "sokol_gfx.h",
+            "repository": "https://github.com/floooh/sokol",
+            "revision": "5e94d1291fea504ed911090338cf35bd9ef49a06",
+            "path": "sokol_gfx.h",
+            "license": "Zlib",
+            "sha256": "6af70de1a768ac3ff85f4c0a145c2e8e702abd5f101c2ad005b69ef69d5094f0",
+            "modifications": "none"
+        },
+        {
+            "file": "sokol_glue.h",
+            "repository": "https://github.com/floooh/sokol",
+            "revision": "5e94d1291fea504ed911090338cf35bd9ef49a06",
+            "path": "sokol_glue.h",
+            "license": "Zlib",
+            "sha256": "6207d08f7ea5da43154f980c7fe314429eafb75922c6b41108ce2936f8240753",
+            "modifications": "none"
+        },
+        {
+            "file": "stb_image_write.h",
+            "repository": "https://github.com/nothings/stb",
+            "revision": "6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760",
+            "path": "stb_image_write.h",
+            "version": "v1.16",
+            "license": "MIT OR Unlicense",
+            "sha256": "cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05",
+            "modifications": "none"
+        },
+        {
+            "file": "stb_truetype.h",
+            "repository": "https://github.com/nothings/stb",
+            "revision": "6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760",
+            "path": "stb_truetype.h",
+            "version": "v1.26",
+            "license": "MIT OR Unlicense",
+            "sha256": "ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab",
+            "modifications": "none"
+        }
+    ]
+}
