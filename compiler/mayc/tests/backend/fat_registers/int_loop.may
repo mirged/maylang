@@ -1,0 +1,17 @@
+// Collatz steps in a fat function: the List parameter keeps `run` out of
+// the native-word path, so its Int locals are fat values.
+fun run(limit: Int, seen: List<Int>) -> Int {
+    mut steps: Int = 0;
+    mut seed: Int = 1;
+    while (seed <= limit) {
+        mut n: Int = seed;
+        while (n > 1) {
+            if (n % 2 == 0) { n = n / 2; } else { n = n * 3 + 1; }
+            steps += 1;
+        }
+        seed += 1;
+    }
+    push(seen, steps);
+    return steps;
+}
+print(run(300000, []));

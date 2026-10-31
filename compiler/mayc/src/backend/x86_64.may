@@ -2057,6 +2057,13 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (name_eq(np, nl, addr("__ccall6"), len("__ccall6")) == 1) { cg_ccall6(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__longjmp"), len("__longjmp")) == 1) { cg_longjmp(ctx); return 1; }
     if (name_eq(np, nl, addr("__sp"), len("__sp")) == 1) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 224); return 1; }
+    // __callee_saved(k): RBX, R12, R13, R14 or R15 for k = 0..4, which fat
+    // code uses as register homes for locals (#96); rt_gc marks them.
+    if (name_eq(np, nl, addr("__callee_saved"), len("__callee_saved")) == 1) {
+        if (args == 0 or args.kind != E_INT or args.value < 0 or args.value > 4) { diagnostic(if (args == 0) { 0 } else { args.span }, "__callee_saved requires a literal 0 to 4"); }
+        x86_move_register(ctx, 0, [3, 12, 13, 14, 15][args.value]);
+        return 1;
+    }
     if (name_eq(np, nl, addr("__fbits"), len("__fbits")) == 1) { cg_fbits(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__fat_apply"), len("__fat_apply")) == 1) { cg_fat_apply(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__fib_switch"), len("__fib_switch")) == 1) {

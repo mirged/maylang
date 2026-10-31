@@ -1,0 +1,14 @@
+// Counting Int keys in a map inside a function.
+fun run(count: Int) -> Int {
+    let counts: Map<Int, Int> = {};
+    mut i: Int = 0;
+    while (i < count) {
+        let key: Int = (i * 7919) % 4096;
+        counts[key] = (counts[key] ?? 0) + 1;
+        i += 1;
+    }
+    mut total: Int = 0;
+    for key: Int in keys(counts) { total += key * (counts[key] ?? 0); }
+    return total;
+}
+print(run(8000000));
