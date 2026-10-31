@@ -6,10 +6,10 @@
 // a `mayproj.json` derived from what it found. Build/dev are incremental:
 // they compare sources against the lockfile and report exactly what is stale.
 
-import "fs.may" as fs;
+import "../../shared/fs.may" as fs;
 import "checksum.may" as hash;
 import "manifest.may" as manifest;
-import "graph.may" as graph;
+import "../../shared/imports.may" as graph;
 import "render.may" as render;
 import "project.may" as project;
 import "compiler.may" as compiler;

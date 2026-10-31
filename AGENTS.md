@@ -49,9 +49,10 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
 | `compiler/mayc/` | Self-hosted compiler: `main.may` driver, `src/` frontend/IR/backends/formats, runtime sidecars, `tests/` | `make test-compiler test-compliance` |
 | `compiler/rust/` | Source bootstrap (`build.sh`, `test.py`) and the Cargo workspace crates | `make test-rust test-bootstrap` |
 | `tools/may/` | Workspace runner (`may.json`), task graph, verified artifact cache | `make test-tools` |
-| `tools/mayfmt/`, `tools/shared/` | Formatter CLI and the formatter core shared with `may`/`maylsp` | `make test-tools` |
+| `tools/mayfmt/` | Formatter CLI | `make test-tools` |
+| `tools/shared/` | Code shared by several tools: formatter core, `fs.may`, `imports.may` ([README](tools/shared/README.md)) | `make test-tools` |
 | `tools/maylsp/` | Language server; reuses `compiler/mayc/src/` | `make test-tools` or `make -C tools/maylsp test` |
-| `tools/maypkg/` | Legacy `mayproj.json` manager; `src/fs.may` is shared by `may` and the installer | `make test-tools` |
+| `tools/maypkg/` | Legacy `mayproj.json` manager | `make test-tools` |
 | `stdlib/` | Library modules, `ui/` (native UI) | Compiler stdlib contracts, `make test-ui` |
 | `dist/` | Packaging, installers, updates; tests in `dist/tests/` | `make test-distribution` |
 | `tests/compliance/`, `tests/docs/`, `tests/ui/` | Cross-component suites only | `make test-compliance`, `test-docs`, `test-ui` |

@@ -1,4 +1,4 @@
-import "../../maypkg/src/fs.may" as fs;
+import "../../shared/fs.may" as fs;
 import "process.may" as proc;
 
 pub struct Workspace {

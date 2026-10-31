@@ -152,7 +152,10 @@ CPython's.
   types skip checks and get single-register homes
   ([report](../../compiler/mayc/tests/backend/proven-types.md)). Because
   `Any` aliases can bypass annotations, types are proven from operations,
-  not taken from the checker. Floats still move through general registers.
+  not taken from the checker. Proven Floats stay in XMM registers, and
+  functions get a body specialized for their annotated parameter types,
+  entered only when the argument type words match
+  ([report](../../compiler/mayc/tests/backend/float-registers.md)).
 - **Native Float functions:** extend `words.may` so functions over `Int`,
   `Float`, `Ptr` and `Bool` compile to machine code with `Float` in XMM
   registers (same binary64 semantics as the runtime).
@@ -233,7 +236,7 @@ stage timings).
 | 0 Measurement | baseline measured locally; suite not tracked yet |
 | 1 Runtime algorithms | #97, #99 done; runtime audit open |
 | 2 Object layout | #98 done (field caches); slot layout open |
-| 3 Type-directed code generation | #96 done; proven types done; #94 open |
+| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats and parameter versioning done |
 | 4 IR optimizer | not started |
 | 5 Allocation and collection | not started |
 | 6 Other targets | deferred (frozen) |
