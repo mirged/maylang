@@ -33,6 +33,13 @@
 
 ## Compiler
 
+- Reject a second definition of a function in the runtime and library
+  sidecars (`runtime/fat.may`, `runtime/fat_linux.may`, `prelude.may`,
+  `native.may`, `runtime/math.may`) with an error naming both locations.
+  The later definition used to replace the earlier one silently for every
+  caller. User code may still shadow library functions. The prelude's
+  `repeat` and `substring`, which `native.may` had always replaced, are
+  removed ([#114](https://github.com/mirged/maylang/issues/114)).
 - Native-word functions call `extern` functions with `Int`, `UInt`, `Ptr`
   and `Bool` signatures directly again, passing machine words to C instead
   of going through the extern's fat entry, as `docs/guide/STRICT.md`

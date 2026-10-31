@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Compiler source reads distinguish empty files, read failures and size limits."""
+"""Compiler source reads distinguish empty files, read failures and size limits;
+runtime and library sidecars reject duplicate function names."""
 import argparse
 import os
 from pathlib import Path
+import re
 import resource
+import shutil
 import subprocess
 import tempfile
 
@@ -124,6 +127,62 @@ def main():
                 assert result.returncode == 1 and result.stderr == expected, (name, options, result)
                 assert binary.read_bytes() == b'previous output'
         print('PASS aggregate import closures are bounded with the import chain in the diagnostic')
+
+        sidecar_duplicates(compiler, work)
+
+
+def definition_line(path, name):
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if re.match(rf'fun {name}\(', line):
+            return number
+    raise AssertionError(f'{name} is not defined in {path}')
+
+
+def sidecar_duplicates(compiler, work):
+    """A second definition of a runtime or library function is an error (#114)."""
+    launcher = compiler
+    built = launcher.parent / 'build/bin/mayc_new'
+    executable = built if built.exists() else launcher
+    source = work / 'duplicates.may'
+    source.write_text('print([...[1, 2], 3]);\n')
+    binary = work / 'duplicates'
+    checkout = ROOT / 'compiler/mayc'
+    cases = (
+        ('runtime/fat_linux.may', 'fun rt_extend(p: Any, extra: Any) -> Any { return 0; }\n',
+         'rt_extend', 'runtime/fat.may', 'runtime/fat_linux.may'),
+        ('native.may', 'fun inc(x: Any) -> Any { return x; }\n',
+         'inc', 'prelude.may', 'native.may'),
+        ('native.may', 'fun rt_len(t: Any, v: Any) -> Any { return 0; }\n',
+         'rt_len', 'runtime/fat.may', 'native.may'),
+    )
+    for sidecar, extra, name, first, second in cases:
+        copy = work / f'sidecars-{name}'
+        copy.mkdir()
+        shutil.copy2(executable, copy / 'mayc')
+        shutil.copytree(checkout / 'runtime', copy / 'runtime')
+        shutil.copy2(checkout / 'native.may', copy / 'native.may')
+        shutil.copy2(ROOT / 'stdlib/prelude.may', copy / 'prelude.may')
+        line = definition_line(copy / first, name)
+        with open(copy / sidecar, 'a') as handle:
+            handle.write(extra)
+        binary.write_bytes(b'previous output')
+        result = subprocess.run([str(copy / 'mayc'), str(source), '-o', str(binary)],
+                                capture_output=True, timeout=60, cwd=work)
+        error = result.stderr.decode(errors='replace')
+        assert result.returncode == 1, (name, result)
+        assert f'duplicate runtime function `{name}`; first defined at {first}:{line}' in error, (name, error)
+        assert second in error and '^' in error, (name, error)
+        assert binary.read_bytes() == b'previous output', name
+    print('PASS duplicate runtime and library functions name both definitions')
+
+    # The unmodified sidecars have no duplicates, and user code may still
+    # shadow a library function.
+    source.write_text('fun repeat(s: Any, n: Any) -> Any { return "mine"; }\nprint(repeat("a", 3), substring("hello", 1, 3), [...[1, 2], 3]);\n')
+    result = subprocess.run([str(compiler), str(source), '-o', str(binary)], capture_output=True, timeout=60)
+    assert result.returncode == 0, result
+    result = subprocess.run([str(binary)], capture_output=True, timeout=10)
+    assert result.stdout == b'mine ell [1, 2, 3]\n', result
+    print('PASS user functions shadow library functions')
 
 
 if __name__ == '__main__':
