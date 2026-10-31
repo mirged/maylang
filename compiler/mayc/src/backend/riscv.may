@@ -3,7 +3,7 @@ import "../state.may";
 import "../ast.may";
 import "../diagnostics.may";
 import "../emitter.may";
-import "../backend.may";
+import "portable.may";
 // RV64IM, no compressed instructions. ABI: a0-a7, a0 result, 16-byte SP.
 fun riscv_register(register: Any) -> Any {
     if (register == -1) { return 2; }

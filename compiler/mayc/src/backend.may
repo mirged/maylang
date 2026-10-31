@@ -7,14 +7,11 @@ import "sema.may";
 import "symbols.may";
 import "backend/x86_64.may";
 import "backend/x86_64_fat.may";
-import "backend/arm64.may";
-import "backend/riscv.may";
-import "backend/raw.may";
+import "backend/portable.may";
 
 // Target selection is independent of the host running mayc.
 struct Target { name: Any, arch: Any, os: Any, format: Any, machine: Any, alignment: Any, runtime: Any }
 struct TargetBackend { emit: Any, patch: Any }
-struct CodeEmitter { immediate: Any, move: Any, load: Any, store: Any, binary: Any, unary: Any, jump: Any, branch: Any, prologue: Any, epilogue: Any, trap: Any }
 
 fun target_select(name: Any) -> Any {
     if (name == "clang-llvm") { die_str("mayc: the clang-llvm target was removed; mayc emits native executables itself\n"); }
@@ -39,15 +36,11 @@ fun backend_validate(ctx: Any, raw: Any) -> Any {
 // Each backend implements the same IR-to-code and relocation entry points.
 fun backend_for(ctx: Any) -> Any {
     if (ctx.target.arch == "x86_64") { return TargetBackend(x86_emit, patch_all); }
-    if (ctx.target.arch == "arm64") { return TargetBackend(arm64_emit, arm64_patch); }
-    return TargetBackend(riscv_emit, riscv_patch);
+    return portable_backend(ctx);
 }
 
 // `--no-code-align` keeps RAW x86-64 code unpadded (#83).
 fun backend_disable_code_alignment() -> Any { X86_FUNCTION_ALIGN = 0; X86_LOOP_ALIGN = 0; return 0; }
-
-fun arm64_emit(ctx: Any) -> Any { return raw_program(ctx, arm64_emitter()); }
-fun riscv_emit(ctx: Any) -> Any { return raw_program(ctx, riscv_emitter()); }
 
 fun backend_emit(ctx: Any) -> Any {
     if (ctx.runtime == "core") { core_validate(ctx); }
