@@ -5,6 +5,18 @@ Priorities describe impact; they do not promise a release date. The
 [repository audit](docs/AUDIT.md) records the evidence and local validation behind
 this backlog. Completed initiatives remain in [roadmap history](docs/history/ROADMAP_HISTORY.md).
 
+## Focus: Linux x86-64
+
+[Tracking issue #102](https://github.com/mirged/maylang/issues/102) ·
+[plan](docs/design/LINUX_X86_64_FOCUS.md)
+
+For now Maylang supports only Linux x86-64. Other targets (ARM64, RISC-V,
+macOS, Windows, NodeOS), the core runtime, maybrowser, mayos and `stdlib/ml`
+move to `frozen/`, where they are kept but not built, tested or maintained.
+The effort goes into speed, correctness, ergonomics, the standard library,
+documentation and tools. Issues in frozen areas carry `status:frozen` and are
+not scheduled.
+
 ## Correctness and bounded resources
 
 [GitHub milestone](https://github.com/mirged/maylang/milestone/1)
@@ -52,6 +64,23 @@ supported capability.
 - [ ] [#45: feat(maybrowser): keep navigation cancellable during network requests](https://github.com/mirged/maylang/issues/45)
 - [ ] [#55: feat(bootstrap): define a roadmap for native ARM64 and desktop compiler hosts](https://github.com/mirged/maylang/issues/55)
 - [ ] [#56: feat(may): record native host toolchain identity for reproducible recipes](https://github.com/mirged/maylang/issues/56)
+
+## Performance
+
+[GitHub milestone](https://github.com/mirged/maylang/milestone/4) ·
+[tracking issue #101](https://github.com/mirged/maylang/issues/101) ·
+[performance roadmap](docs/design/PERFORMANCE_ROADMAP.md)
+
+Make Maylang run like a compiled language: faster than CPython on every
+benchmark and close to Java and Node on typed code. Fix runtime algorithms
+first, then object layout, type-directed code generation, an IR optimizer and
+allocation. Each step needs a measured report and oracle tests.
+
+- [ ] [#97: perf(runtime): Map hashes only Str keys; Int and other keys use a linear scan](https://github.com/mirged/maylang/issues/97)
+- [ ] [#99: perf(runtime): lists, strings and join slower than CPython with 4-8x its memory](https://github.com/mirged/maylang/issues/99)
+- [ ] [#98: perf(runtime): struct field access is a string-keyed map lookup](https://github.com/mirged/maylang/issues/98)
+- [ ] [#96: perf(codegen): register-allocated temporaries for fat x86-64 code](https://github.com/mirged/maylang/issues/96)
+- [ ] [#94: refactor(compiler): restore or remove native-word extern calls under fat values](https://github.com/mirged/maylang/issues/94)
 
 ## Propose or change priorities
 
