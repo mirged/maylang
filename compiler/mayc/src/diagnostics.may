@@ -45,10 +45,10 @@ fun diagnostics_finish() -> Any {
     return 0;
 }
 
-fun source_module(span: Any) -> Any {
+// The path of the file a span comes from, or "" without one.
+fun source_path(span: Any) -> Any {
     if (span == 0 or not has(SOURCE_FILES, span.source)) { return ""; }
     let file: Any = SOURCE_FILES[span.source];
-    mut path: Any = file.path;
     mut lo: Any = 0;
     mut hi: Any = len(file.origins);
     while (lo < hi) {
@@ -56,7 +56,12 @@ fun source_module(span: Any) -> Any {
         if (file.origins[middle].start <= span.start) { lo = middle + 1; }
         else { hi = middle; }
     }
-    if (lo > 0) { path = file.origins[lo - 1].path; }
+    if (lo > 0) { return file.origins[lo - 1].path; }
+    return file.path;
+}
+
+fun source_module(span: Any) -> Any {
+    let path: Any = source_path(span);
     if (has(MODULE_IMPORTS, path)) { return path; }
     return "";
 }

@@ -13,7 +13,7 @@
 - [native.may](stdlib/native.md) — Automatically available full-runtime helpers; a byte-identical mirror of the injected sidecar compiler/mayc/native.may. 112 declarations.
 - [net.may](stdlib/net.md) — Synchronous IPv4 TCP/UDP sockets for full Linux x86-64 runtimes. 41 declarations.
 - [path.may](stdlib/path.md) — Lexical path operations without filesystem access. 9 declarations.
-- [prelude.may](stdlib/prelude.md) — Automatically loaded small convenience functions in full-runtime builds. 7 declarations.
+- [prelude.may](stdlib/prelude.md) — Automatically loaded small convenience functions in full-runtime builds. 5 declarations.
 - [random.may](stdlib/random.md) — Explicit stateful Park–Miller pseudorandom streams. 9 declarations.
 - [result.may](stdlib/result.md) — Map-based success/failure values and composition. 10 declarations.
 - [stats.may](stdlib/stats.md) — Descriptive statistics and simple linear regression. 12 declarations.

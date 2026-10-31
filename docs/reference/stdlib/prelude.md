@@ -10,5 +10,3 @@
 - **dec** — `fun dec(x: Any) -> Any` — Return `x - 1`.
 - **truthy** — `fun truthy(x: Any) -> Any` — Convert a dynamic value to Boolean using runtime truthiness.
 - **default** — `fun default(value: Any, fallback: Any) -> Any` — Return the fallback only when the value is `nil`.
-- **repeat** — `fun repeat(s: Any, n: Any) -> Any` — Return a string repeated n times; nonpositive counts produce an empty string.
-- **substring** — `fun substring(s: Any, start: Any, count: Any) -> Any` — Return a string starting at codepoint index start and containing count codepoints; require indices within the source string.
