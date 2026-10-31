@@ -7,10 +7,10 @@
 // derive a `mayproj.json` from what it found. It also tracks which modules
 // changed since the last lock so development stays incremental.
 
-import "fs.may" as fs;
+import "../../shared/fs.may" as fs;
 import "checksum.may" as hash;
 import "manifest.may" as manifest;
-import "graph.may" as graph;
+import "../../shared/imports.may" as graph;
 import "scan.may" as scan;
 
 pub fun entry_candidates(name: Any) -> Any {

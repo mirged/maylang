@@ -213,6 +213,27 @@
   in one register, so up to five hot locals per function stay in RBX and
   R12–R15. Int loops run about 1.15× faster; other workloads are unchanged
   ([report](compiler/mayc/tests/backend/proven-types.md)).
+- Keep proven Floats in XMM registers, and specialize functions for their
+  annotated parameter types ([#101](https://github.com/mirged/maylang/issues/101)).
+  Float locals live in XMM8–XMM15, spilled around calls, and Float
+  temporaries in XMM2–XMM7, so Float arithmetic and comparisons no longer
+  move every operand through general registers and frame slots. A function
+  with `Int`, `Float` or `Bool` parameters and a loop can get a second body
+  that assumes those types; its entry checks the argument type words and
+  runs the generic body when any differs, so calls through `Any` behave as
+  before. Mandelbrot in a function runs 2.45× faster; other workloads are
+  unchanged, and the compiler grows by 1%
+  ([report](compiler/mayc/tests/backend/float-registers.md)).
+
+## UI
+
+- A truncated or corrupt `MAYUI_FONT` no longer makes the native adapter read
+  out of bounds: the font header and table directory are checked before
+  stb_truetype sees them, and a bad file falls back to the default font.
+  `ui` line and bitmap coordinates near the `Int` limits no longer overflow
+  in C. `make test-sanitize` and a CI job run the adapter on malformed
+  geometry, bitmaps, UTF-8 and fonts under ASan/UBSan
+  ([#47](https://github.com/mirged/maylang/issues/47)).
 
 ## Editor
 

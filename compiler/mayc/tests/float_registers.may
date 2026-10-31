@@ -1,0 +1,232 @@
+// Floats in XMM registers and functions versioned on their parameter types
+// (#101). Proven Float locals live in XMM8-15 and temporaries in XMM2-7,
+// spilled around every call; a function with annotated Int, Float or Bool
+// parameters may get a body specialized for them, entered only when the
+// argument type words match. The expected output was produced by the
+// compiler before both changes.
+
+fun show(label: Str, value: Any) -> Nil { print(label, value); return; }
+
+fun fault(f: () -> Any) -> Str {
+    return may { str(f()) } otherwise { "${err.kind}: ${err.message}" };
+}
+
+// ------------------------------------------------ versioned Mandelbrot
+fun mandel(size: Int, limit: Int) -> Int {
+    mut inside: Int = 0;
+    mut y: Int = 0;
+    while (y < size) {
+        let ci: Float = 2.0 * to_float(y) / to_float(size) - 1.0;
+        mut x: Int = 0;
+        while (x < size) {
+            let cr: Float = 2.0 * to_float(x) / to_float(size) - 1.5;
+            mut zr: Float = 0.0;
+            mut zi: Float = 0.0;
+            mut k: Int = 0;
+            mut escaped: Bool = false;
+            while (k < limit) {
+                let tr: Float = zr * zr - zi * zi + cr;
+                zi = 2.0 * zr * zi + ci;
+                zr = tr;
+                if (zr * zr + zi * zi > 4.0) { escaped = true; break; }
+                k += 1;
+            }
+            if (!escaped) { inside += 1; }
+            x += 1;
+        }
+        y += 1;
+    }
+    return inside;
+}
+show("mandel", mandel(60, 50));
+// Through an Any alias the annotations do not hold: the generic body runs.
+let loose_mandel: Any = mandel;
+show("mandel float size", fault(fun() -> Any { return loose_mandel(30.0, 20); }));
+show("mandel str limit", fault(fun() -> Any { return loose_mandel(4, "x"); }));
+
+// ------------------------------------------------ parameters of each type
+fun scaled(x: Float, n: Int, flip: Bool) -> List<Any> {
+    mut acc: Float = 0.0;
+    mut i: Int = 0;
+    while (i < n) {
+        acc = acc * 0.5 + x;
+        if (flip) { acc = -acc; }
+        i += 1;
+    }
+    return [acc, i, flip];
+}
+show("scaled", scaled(3.0, 10, false));
+show("scaled flip", scaled(1.25, 7, true));
+let loose_scaled: Any = scaled;
+show("scaled int x", fault(fun() -> Any { return loose_scaled(3, 10, false); }));
+show("scaled str x", fault(fun() -> Any { return loose_scaled("a", 2, false); }));
+show("scaled float n", fault(fun() -> Any { return loose_scaled(2.0, 3.0, false); }));
+show("scaled int flip", fault(fun() -> Any { return loose_scaled(2.0, 3, 1); }));
+show("scaled nil", fault(fun() -> Any { return loose_scaled(nil, 3, true); }));
+
+// A parameter reassigned with another type is not specialized for.
+fun reassigned(x: Int, n: Int) -> Any {
+    mut total: Any = 0;
+    mut i: Int = 0;
+    while (i < n) { total = total + x; i += 1; }
+    return total;
+}
+show("reassigned", reassigned(4, 5));
+let loose_reassigned: Any = reassigned;
+show("reassigned str", fault(fun() -> Any { return loose_reassigned("ab", 3); }));
+
+// A tail call stores new arguments in place; such a function has one body.
+fun tail_sum(x: Float, n: Int) -> Float {
+    if (n == 0) { return x; }
+    mut i: Int = 0;
+    mut y: Float = x;
+    while (i < 2) { y = y * 1.5 + 0.25; i += 1; }
+    return tail_sum(y / 4.0, n - 1);
+}
+show("tail sum", tail_sum(1.0, 6));
+let loose_tail: Any = tail_sum;
+show("tail sum int", fault(fun() -> Any { return loose_tail(2, 3); }));
+
+// ------------------------------------------------ homes across calls
+fun noise(x: Float) -> Float {
+    // Its own XMM homes reuse the caller's registers.
+    mut a: Float = x; mut b: Float = x * 2.0; mut c: Float = 0.5;
+    mut i: Int = 0;
+    while (i < 4) { a = a * c + b; b = b - a * 0.125; c = c + 0.25; i += 1; }
+    return a + b + c;
+}
+
+fun across_calls(n: Int) -> List<Any> {
+    mut p: Float = 1.0; mut q: Float = 2.0; mut r: Float = 3.0;
+    mut parts: List<Str> = [];
+    mut i: Int = 0;
+    while (i < n) {
+        p = p * 1.0625 + noise(q);
+        q = q - r * 0.5 + to_float(len(parts));
+        push(parts, str(p));
+        let f: (Float) -> Float = fun(v: Float) -> Float { return noise(v) * 0.5; };
+        r = r + f(p) * 0.001;
+        i += 1;
+    }
+    return [p, q, r, len(parts), parts[0]];
+}
+show("across calls", across_calls(6));
+
+// An operator on a map calls the function stored under it, from the
+// out-of-line path of an unproven operation.
+fun overloaded(n: Int) -> List<Any> {
+    let op: Any = {"+": fun(a: Any, b: Any) -> Any { return noise(to_float(b)); }};
+    mut s: Float = 0.5; mut t: Float = 0.25;
+    mut out: List<Any> = [];
+    mut i: Int = 0;
+    while (i < n) {
+        let v: Any = op + i;
+        s = s * 2.0 + t;
+        t = t + 0.5;
+        push(out, [v, s, t]);
+        i += 1;
+    }
+    return out;
+}
+show("overloaded", overloaded(3));
+
+// ------------------------------------------------ register pressure
+fun many(n: Int) -> List<Float> {
+    mut a: Float = 1.0; mut b: Float = 2.0; mut c: Float = 3.0; mut d: Float = 4.0; mut e: Float = 5.0;
+    mut f: Float = 6.0; mut g: Float = 7.0; mut h: Float = 8.0; mut j: Float = 9.0; mut k: Float = 10.0;
+    mut i: Int = 0;
+    while (i < n) {
+        a = a + b * 0.5; b = b - c * 0.25; c = c + d * 0.125; d = d - e * 0.0625; e = e + f * 0.5;
+        f = f - g * 0.25; g = g + h * 0.125; h = h - j * 0.0625; j = j + k * 0.5; k = k - a * 0.25;
+        i += 1;
+    }
+    return [a, b, c, d, e, f, g, h, j, k];
+}
+show("many", many(12));
+
+fun wide(x: Float, n: Int) -> Float {
+    // Eight temporaries live at once, more than XMM2-7.
+    mut acc: Float = 0.0;
+    mut i: Int = 0;
+    while (i < n) {
+        acc = acc + ((x * 1.5 + x * 2.5) * (x * 3.5 + x * 4.5)) - ((x * 5.5 + x * 6.5) * (x * 7.5 - x * 8.5)) + (x * 9.5) * (x * 10.5 - acc * 0.01);
+        x = x * 0.75 + 0.125;
+        i += 1;
+    }
+    return acc;
+}
+show("wide", wide(1.0, 9));
+
+// ------------------------------------------------ comparisons
+fun compare(values: List<Float>) -> List<Any> {
+    let out: List<Any> = [];
+    for a: Float in values {
+        for b: Float in values {
+            mut x: Float = a * 1.0;
+            mut y: Float = b * 1.0;
+            mut i: Int = 0;
+            mut fused: List<Bool> = [];
+            while (i < 1) {
+                if (x < y) { push(fused, true); } else { push(fused, false); }
+                if (x <= y) { push(fused, true); } else { push(fused, false); }
+                if (x > y) { push(fused, true); } else { push(fused, false); }
+                if (x >= y) { push(fused, true); } else { push(fused, false); }
+                if (x == y) { push(fused, true); } else { push(fused, false); }
+                if (x != y) { push(fused, true); } else { push(fused, false); }
+                i += 1;
+            }
+            push(out, [x < y, x <= y, x > y, x >= y, x == y, x != y, fused]);
+        }
+    }
+    return out;
+}
+let big: Float = 1.0e308;
+let nan: Float = big * 10.0 - big * 10.0;
+show("compare", compare([1.0, -0.0, 0.0, nan, big * 10.0, 0.0 - big * 10.0]));
+
+fun float_faults(n: Int) -> Any {
+    mut x: Float = 1.0;
+    mut d: Float = 2.0;
+    mut i: Int = 0;
+    while (i < n) { x = x / d + x * d; d = d - 1.0; i += 1; }
+    return x;
+}
+show("float div", float_faults(2));
+show("float div zero", fault(fun() -> Any { return float_faults(3); }));
+
+// ------------------------------------------------ handlers and fibers
+fun guarded(n: Int) -> List<Any> {
+    mut x: Float = 0.75;
+    let out: List<Any> = [];
+    mut i: Int = 0;
+    while (i < n) {
+        x = x * 3.0 - 1.0;
+        let r: Any = may { 10.0 / (x - x) } otherwise { "caught ${err.kind}" };
+        push(out, [x, r]);
+        i += 1;
+    }
+    return out;
+}
+show("guarded", guarded(3));
+
+fun drifting(id: Int) -> Nil {
+    mut a: Float = to_float(id);
+    mut b: Float = 0.5;
+    mut i: Int = 0;
+    while (i < 3) {
+        a = a * 1.5 + b; b = b * 0.5 - a * 0.125;
+        print("fiber", id, i, a, b);
+        yield();
+        i += 1;
+    }
+    return;
+}
+spawn(fun() -> Nil { drifting(1); return; });
+spawn(fun() -> Nil { drifting(2); return; });
+run();
+
+// ------------------------------------------------ top level
+mut top: Float = 0.25;
+mut top_i: Int = 0;
+while (top_i < 20) { top = top * 1.5 - 0.125 + top * top * 0.001; top_i += 1; }
+show("top", top);

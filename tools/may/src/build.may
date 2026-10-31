@@ -1,7 +1,7 @@
 import "workspace.may" as workspace;
 import "process.may" as proc;
-import "../../maypkg/src/fs.may" as fs;
-import "../../maypkg/src/graph.may" as imports;
+import "../../shared/fs.may" as fs;
+import "../../shared/imports.may" as imports;
 
 pub fun log(message: Str) -> Nil {
     let line: Str = message + "\n";

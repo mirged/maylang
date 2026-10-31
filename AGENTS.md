@@ -49,9 +49,10 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
 | `compiler/mayc/` | Self-hosted compiler: `main.may` driver, `src/` frontend/IR/backends/formats, runtime sidecars, `tests/` | `make test-compiler test-compliance` |
 | `compiler/rust/` | Source bootstrap (`build.sh`, `test.py`) and the Cargo workspace crates | `make test-rust test-bootstrap` |
 | `tools/may/` | Workspace runner (`may.json`), task graph, verified artifact cache | `make test-tools` |
-| `tools/mayfmt/`, `tools/shared/` | Formatter CLI and the formatter core shared with `may`/`maylsp` | `make test-tools` |
+| `tools/mayfmt/` | Formatter CLI | `make test-tools` |
+| `tools/shared/` | Code shared by several tools: formatter core, `fs.may`, `imports.may` ([README](tools/shared/README.md)) | `make test-tools` |
 | `tools/maylsp/` | Language server; reuses `compiler/mayc/src/` | `make test-tools` or `make -C tools/maylsp test` |
-| `tools/maypkg/` | Legacy `mayproj.json` manager; `src/fs.may` is shared by `may` and the installer | `make test-tools` |
+| `tools/maypkg/` | Legacy `mayproj.json` manager | `make test-tools` |
 | `stdlib/` | Library modules, `ui/` (native UI) | Compiler stdlib contracts, `make test-ui` |
 | `dist/` | Packaging, installers, updates; tests in `dist/tests/` | `make test-distribution` |
 | `tests/compliance/`, `tests/docs/`, `tests/ui/` | Cross-component suites only | `make test-compliance`, `test-docs`, `test-ui` |
@@ -123,6 +124,7 @@ that span components. Relative imports between siblings use
 | `make test-tools` | `may`, `mayfmt`, `maypkg` and `maylsp` suites |
 | `make test-docs` | Compiles and runs the snippets in `docs/reference/EXAMPLES.md` and `docs/guide/STRICT.md` |
 | `make test-ui` | Native UI checks (X11/OpenGL; see the doctor profiles) |
+| `make test-sanitize` | `tests/ui/sanitize.py`: the native UI adapter (`stdlib/ui/native/draw.c`) on malformed geometry, bitmaps, UTF-8 and fonts under ASan/UBSan |
 | `make test-limits` | GC pressure, capacity and codegen reports |
 | `make test-all` | Everything, including optional integrations |
 | `make editor` | `npm ci && npm run compile` in `editors/vscode` |
@@ -142,7 +144,7 @@ Socket and window tests skip when unavailable; say so in your report.
 | Backend or code generation | the above plus `python3 compiler/mayc/tests/raw_codegen.py --compiler compiler/mayc/mayc_new` and `backends.py` |
 | `native.may`, `prelude.may`, `runtime/` | `make test-compiler test-compliance` and the bootstrap fixpoint (`make test-bootstrap`) |
 | `compiler/rust/**` | `make test-rust test-bootstrap` |
-| `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui` |
+| `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui`, plus `make test-sanitize` for `stdlib/ui/native` |
 | `tools/**` | `make test-tools` |
 | `dist/**`, `scripts/**`, installer | `make test-distribution test-installer`; `make package` for bundle changes |
 | `editors/vscode/**` | `make editor test-editor` |

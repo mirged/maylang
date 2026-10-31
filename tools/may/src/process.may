@@ -1,4 +1,4 @@
-import "../../maypkg/src/fs.may" as fs;
+import "../../shared/fs.may" as fs;
 struct KernelVector { pointer: Ptr, size: Int, copies: List<Ptr> }
 
 fun vector(values: List<Str>) -> KernelVector {

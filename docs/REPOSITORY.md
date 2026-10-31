@@ -20,8 +20,8 @@ frozen/      kept but unmaintained code for other targets and experiments
 | `tools/may/` | Workspace graphs, processes and verified artifact cache | `make test-tools` |
 | `tools/mayfmt/` | Shared command-line/editor formatter | `make test-tools` |
 | `tools/maylsp/` | Active Maylang language server | `make test-tools` |
-| `tools/maypkg/` | Legacy manager and shared filesystem/import helpers | `make test-tools` |
-| `tools/shared/` | Formatter core shared by `may`, `mayfmt` and `maylsp` | `make test-tools` |
+| `tools/maypkg/` | Legacy `mayproj.json` manager | `make test-tools` |
+| `tools/shared/` | Formatter core, filesystem helpers and import scanner shared by the tools and installer | `make test-tools` |
 | `stdlib/` | Public libraries and UI | Compiler contracts and `make test-ui` |
 | `dist/` | Packaging, installers and Bash migration; tests in `dist/tests/` | `make test-distribution package` |
 | `tests/compliance/` | Legacy runtime/coercion and boundary regressions | `make test-compliance` |

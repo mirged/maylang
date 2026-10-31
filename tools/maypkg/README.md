@@ -150,11 +150,13 @@ without modifying them; cleanup preserves other files in `build/`.
 
 ## Modules
 
-* `fs.may` — path math, `mkdirs` (mkdir -p), `list`, and the stdlib search path.
+* [`../shared/fs.may`](../shared/fs.may) — path math, `mkdirs` (mkdir -p), `list`,
+  and the stdlib search path (shared with `may` and the installer).
 * `scan.may` — recursive `.may` discovery via `read_dir`.
 * `manifest.may` — manifest discovery and `mayproj.json` parsing/defaults.
-* `graph.may` — comment/string-aware import scanner, resolution, DFS (topological
-  order, missing imports, cycles, brace balance).
+* [`../shared/imports.may`](../shared/imports.may) — comment/string-aware import
+  scanner, resolution, DFS (topological order, missing imports, cycles, brace
+  balance); shared with `may`.
 * `project.may` — auto-location/discovery, inventory (build vs orphans) and
   incremental state (digests, dirty set, affected set, manifest derivation).
 * `checksum.may` — FNV-1a source digests for locks and status.

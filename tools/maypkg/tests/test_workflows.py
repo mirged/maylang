@@ -133,7 +133,7 @@ out.chmod(0o755)
         # Exercise the actual publication helper under concurrent readers and
         # a failed rename; a process-local temporary file must be cleaned up.
         helper = work/'atomic.may'
-        helper.write_text(f'import "{ROOT / "tools/maypkg/src/fs.may"}" as fs;\n'
+        helper.write_text(f'import "{ROOT / "tools/shared/fs.may"}" as fs;\n'
                           'let content = read_file(args()[2]);\n'
                           'for i in 0..30 { fs.write_atomic(args()[1], content); }\n')
         executable = work/'atomic'

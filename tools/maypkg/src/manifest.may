@@ -5,7 +5,7 @@
 //     "target": "host", "output": "hello", "dependencies": { }
 //   }
 
-import "fs.may" as fs;
+import "../../shared/fs.may" as fs;
 
 let FILENAME: Any = "mayproj.json";
 let LOCKFILE: Any = "mayproj.lock";
