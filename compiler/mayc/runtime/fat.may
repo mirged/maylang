@@ -203,6 +203,7 @@ fun rt_concat(a: Any, b: Any) -> Any {
 }
 
 fun rt_str_eq(a: Any, b: Any) -> Any {
+    if (a == b) { return 1; }
     let la: Any = load64(a);
     if (la != load64(b)) { return 0; }
     mut i: Any = 0;
@@ -512,6 +513,16 @@ fun rt_map_new() -> Any {
     return rt_map_new_raw();
 }
 
+// A map literal or struct constructor with `n` keyed entries (#98): the
+// entry array is allocated at its final size instead of growing.
+fun rt_map_new_sized(t: Any, n: Any) -> Any {
+    let p: Any = rt_alloc(40);
+    store64(p + 16, rt_alloc_values(n * 2));
+    store64(p + 8, n * 2);
+    RTAG = 6;
+    return p;
+}
+
 fun rt_key_hash(k: Any) -> Any {
     let n: Any = load64(k);
     mut h: Any = 5381;
@@ -612,6 +623,31 @@ fun rt_map_set(mt: Any, m: Any, kt: Any, k: Any, t: Any, v: Any) -> Any {
 fun rt_map_get(mt: Any, m: Any, kt: Any, k: Any) -> Any {
     if (mt != 6) { RTAG = 0; return 0; }
     return rt_map_lookup(m, kt, k);
+}
+
+// Field access caches (#98). Every `x.f` site owns a data word holding the
+// byte offset of the entry where it last found `f`. The compiled fast path
+// uses it when x is a map with that entry and the entry's key is the
+// program's one string object for "f" (constructors and literals share it);
+// otherwise it calls these, which behave as rt_map_get / rt_map_set and
+// refresh the cache.
+fun rt_field_get(mt: Any, m: Any, kt: Any, k: Any, ct: Any, cache: Any) -> Any {
+    if (mt != 6) { RTAG = 0; return 0; }
+    let index: Any = rt_map_find(m, kt, k);
+    if (index < 0) { RTAG = 0; return 0; }
+    store64(cache, index * 32);
+    let e: Any = load64(m + 16) + index * 32;
+    RTAG = load64(e + 16);
+    return load64(e + 24);
+}
+
+fun rt_field_set(mt: Any, m: Any, kt: Any, k: Any, t: Any, v: Any, ct: Any, cache: Any) -> Any {
+    RTAG = t;
+    if (mt != 6) { return v; }
+    rt_map_put(m, kt, k, t, v);
+    store64(cache, rt_map_find(m, kt, k) * 32);
+    RTAG = t;
+    return v;
 }
 
 // Remove a key in place, keeping insertion order.

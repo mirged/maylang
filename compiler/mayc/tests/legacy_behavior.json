@@ -59,6 +59,11 @@
     "stdout": "dyAxIDAKdyAyIDAKdyAxIDEKdyAyIDEKdyAxIDIKdyAyIDIKZG9uZQo=",
     "stderr": ""
   },
+  "field_cache.may": {
+    "exit": 0,
+    "stdout": "My4wIDAuMCAxMC4wCjExIDYKZmlyc3QKc2Vjb25kCmZvdXJ0aApuaWwKYnVpbHQKbmlsCm5pbApmaXJzdCBhZ2Fpbgp7Im5hbWUiOiAicmVuYW1lZCJ9IHsiYSI6IDEsICJiIjogMiwgImMiOiAzLCAibmFtZSI6ICJyZW5hbWVkIn0geyJpZCI6IDIsICJuYW1lIjogInJlbmFtZWQifSB7Im5hbWUiOiAicmVuYW1lZCJ9Cm5pbCAyLjAgMC4wCmFkZGVkIDYKMjEuMCBSZWN0IDMuMAo0OTk1MDAuMAo=",
+    "stderr": ""
+  },
   "files.may": {
     "exit": 0,
     "stdout": "dHJ1ZQpoZWxsbwp3b3JsZAoxMQpmYWxzZQo=",

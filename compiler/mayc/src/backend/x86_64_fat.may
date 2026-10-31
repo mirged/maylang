@@ -196,6 +196,87 @@ fun fat_rt(ctx: Any, name: Any, args: Any) -> Any {
     return fat_rt_call(ctx, name, count * 2);
 }
 
+// One data object per distinct literal text, so that struct constructors,
+// map literals and field accesses share their key strings (#98). Strings
+// are immutable, so sharing is not observable through equality.
+mut FAT_KEYS: Any = {};
+fun fat_key(ctx: Any, source: Any, start: Any, length: Any) -> Any {
+    let text: Any = symbol_name(source + start, length);
+    let known: Any = FAT_KEYS[text];
+    if (known != nil) { return known; }
+    let off: Any = intern_obj(ctx, source, start, length);
+    FAT_KEYS[text] = off;
+    return off;
+}
+
+// The inline field cache check (#98): with the map's type word in `t` and
+// payload in `p` (registers 2/0 or 10/11), leave the cached entry's address
+// in RCX, or jump to `miss` unless the value is a map holding the site's
+// key object at that entry. Clobbers R8.
+fun fat_field_probe(ctx: Any, register: Any, cache: Any, key: Any, miss: Any) -> Any {
+    let high: Any = register >= 8;
+    let rex: Any = if (high) { 73 } else { 72 };
+    let length: Any = if (high) { [77, 139, 3] } else { [76, 139, 0] };
+    let entries: Any = if (high) { [73, 3, 75, 16] } else { [72, 3, 72, 16] };
+    for byte: Any in [rex, 131, 250, 6] { e8(ctx, byte); }                             // cmp rdx/r10, 6
+    jcc(ctx, 133, miss);
+    fat_abs(ctx, 139, 12, cache);                                                      // mov rcx, [cache]
+    for byte: Any in length { e8(ctx, byte); }                                         // mov r8, [rax/r11]
+    for byte: Any in [73, 193, 224, 5, 76, 57, 193] { e8(ctx, byte); }                 // shl r8, 5; cmp rcx, r8
+    jcc(ctx, 131, miss);                                                               // jae: past the entries
+    for byte: Any in entries { e8(ctx, byte); }                                        // add rcx, [rax/r11 + 16]
+    for byte: Any in [72, 131, 57, 4] { e8(ctx, byte); }                               // cmp qword [rcx], 4
+    jcc(ctx, 133, miss);
+    x86_relocated_immediate(ctx, 8, 1, key);                                           // mov r8, key
+    for byte: Any in [76, 57, 65, 8] { e8(ctx, byte); }                                // cmp [rcx + 8], r8
+    jcc(ctx, 133, miss);
+    return 0;
+}
+
+// Push the site's key and cache address as two values.
+fun fat_field_operands(ctx: Any, cache: Any, key: Any) -> Any {
+    e8(ctx, 106); e8(ctx, 4); x86_relocated_immediate(ctx, 0, 1, key); e8(ctx, 80);      // push 4; push key
+    e8(ctx, 106); e8(ctx, 2); x86_relocated_immediate(ctx, 0, 1, cache); e8(ctx, 80);    // push 2; push cache
+    return 0;
+}
+
+// `object.name` through the site's cache (a writable word reserved by
+// ir_field_cache), else rt_field_get.
+fun fat_field_get(ctx: Any, object: Any, cache: Any, source: Any, start: Any, length: Any) -> Any {
+    let key: Any = fat_key(ctx, source, start, length);
+    let miss: Any = newlab(ctx); let done: Any = newlab(ctx);
+    fat_get(ctx, object);
+    fat_field_probe(ctx, 2, cache, key, miss);
+    for byte: Any in [72, 139, 81, 16, 72, 139, 65, 24] { e8(ctx, byte); }             // mov rdx, [rcx + 16]; mov rax, [rcx + 24]
+    jmp(ctx, done);
+    placelab(ctx, miss);
+    fat_push(ctx);
+    fat_field_operands(ctx, cache, key);
+    fat_rt_call(ctx, "rt_field_get", 6);
+    placelab(ctx, done);
+    return 0;
+}
+
+// `object.name = value` through the site's cache, else rt_field_set.
+fun fat_field_set(ctx: Any, object: Any, value: Any, cache: Any, source: Any, start: Any, length: Any) -> Any {
+    let key: Any = fat_key(ctx, source, start, length);
+    let miss: Any = newlab(ctx); let done: Any = newlab(ctx);
+    fat_get(ctx, object);
+    for byte: Any in [73, 137, 210, 73, 137, 195] { e8(ctx, byte); }                   // mov r10, rdx; mov r11, rax
+    fat_field_probe(ctx, 10, cache, key, miss);
+    fat_get(ctx, value);
+    for byte: Any in [72, 137, 81, 16, 72, 137, 65, 24] { e8(ctx, byte); }             // mov [rcx + 16], rdx; mov [rcx + 24], rax
+    jmp(ctx, done);
+    placelab(ctx, miss);
+    for byte: Any in [65, 82, 65, 83] { e8(ctx, byte); }                               // push r10; push r11
+    e8(ctx, 106); e8(ctx, 4); x86_relocated_immediate(ctx, 0, 1, key); e8(ctx, 80);      // push 4; push key
+    fat_get(ctx, value); fat_push(ctx);
+    e8(ctx, 106); e8(ctx, 2); x86_relocated_immediate(ctx, 0, 1, cache); e8(ctx, 80);    // push 2; push cache
+    fat_rt_call(ctx, "rt_field_set", 8);
+    placelab(ctx, done);
+    return 0;
+}
+
 // The literal string `text` as a value in RDX/RAX.
 fun fat_literal(ctx: Any, off: Any) -> Any {
     x86_mov_immediate(ctx, 2, 4); x86_relocated_immediate(ctx, 0, 1, off);
@@ -506,7 +587,7 @@ fun fat_call(ctx: Any, n: Any) -> Any {
 fun fat_operation(ctx: Any, n: Any) -> Any {
     let k: Any = n.kind;
     if (k == E_INT) { return fat_set(ctx, 2, n.value); }
-    if (k == E_STR) { return fat_literal(ctx, intern_obj(ctx, n.span.source, n.start, n.length)); }
+    if (k == E_STR) { return fat_literal(ctx, fat_key(ctx, n.span.source, n.start, n.length)); }
     if (k == E_STRB) { return fat_literal(ctx, intern_obj2(ctx, n.address, n.length)); }
     if (k == E_FLOAT) {
         let bits: Any = float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)));
@@ -518,11 +599,7 @@ fun fat_operation(ctx: Any, n: Any) -> Any {
     if (k == E_CAPVAR) { fat_env_cell(ctx, n.index); return fat_cell_load(ctx); }
     if (k == E_CLOSURE) { return fat_closure(ctx, n); }
     if (k == E_INDEX) { return fat_index(ctx, n); }
-    if (k == E_GET) {
-        fat_get(ctx, n.object); fat_push(ctx);
-        fat_literal(ctx, intern_obj(ctx, n.span.source, n.start, n.length)); fat_push(ctx);
-        return fat_rt_call(ctx, "rt_map_get", 4);
-    }
+    if (k == E_GET) { return fat_field_get(ctx, n.object, n.cache, n.span.source, n.start, n.length); }
     if (k == E_ICALL) { fat_get(ctx, n.callee); return fat_apply(ctx, n.args); }
     if (k == E_RANGE) {
         fat_get(ctx, n.start); fat_push(ctx); fat_get(ctx, n.end); fat_push(ctx);
@@ -721,10 +798,7 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
             fat_get(ctx, payload.value); fat_push(ctx);
             fat_rt_call(ctx, "rt_index_set", 6);
         } else if (op == S_SETPROP) {
-            fat_get(ctx, payload.object); fat_push(ctx);
-            fat_literal(ctx, intern_obj(ctx, payload.span.source, payload.start, payload.length)); fat_push(ctx);
-            fat_get(ctx, payload.value); fat_push(ctx);
-            fat_rt_call(ctx, "rt_map_set", 6);
+            fat_field_set(ctx, payload.object, payload.value, payload.cache, payload.span.source, payload.start, payload.length);
         } else { fat_operation(ctx, payload); }
         if (instruction.result != 0) { fat_put(ctx, instruction.result); }
     }

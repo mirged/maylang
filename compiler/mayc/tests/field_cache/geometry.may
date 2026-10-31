@@ -1,0 +1,4 @@
+// Imported by ../field_cache.may: a struct declared in another module.
+pub struct Point { x: Int, y: Int }
+
+pub fun shifted(p: Point, dx: Int) -> Point { return Point(p.x + dx, p.y); }
