@@ -576,6 +576,8 @@ fun fat_call(ctx: Any, n: Any) -> Any {
     if (loc_find(ctx, p, l) < 0 and glob_find(ctx, p, l) < 0) {
         let name: Any = symbol_name(p, l);
         if (name == "__math_high" or name == "__math_low" or name == "__math_bits") { return fat_math_bits(ctx, name, n.args); }
+        // native.may's portable join body, replaced by the runtime's (#99).
+        if (name == "__join_list") { return fat_rt(ctx, "rt_join", n.args); }
         let rec: Any = backend_find_func(ctx, p, l);
         if (rec != 0 and rec.mode != 1) { return fat_direct(ctx, rec, n.args); }
         return fat_builtin(ctx, symbol_name(p, l), n.args);
@@ -719,6 +721,32 @@ fun fat_binary(ctx: Any, n: Any) -> Any {
 }
 
 // List elements in range load inline; everything else calls rt_index_get.
+// `object[index] = value`: a List with an in-range Int index is stored
+// inline (#99); anything else calls rt_index_set, which also reports errors.
+fun fat_index_set(ctx: Any, n: Any) -> Any {
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
+    fat_get(ctx, n.object);
+    for byte: Any in [73, 137, 210, 73, 137, 195] { e8(ctx, byte); }         // mov r10, rdx; mov r11, rax
+    fat_get(ctx, n.index);
+    for byte: Any in [73, 131, 250, 5] { e8(ctx, byte); }                    // cmp r10, 5
+    jcc(ctx, 133, slow);
+    for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                    // cmp rdx, 2
+    jcc(ctx, 133, slow);
+    for byte: Any in [73, 139, 11, 72, 57, 200] { e8(ctx, byte); }           // mov rcx, [r11]; cmp rax, rcx
+    jcc(ctx, 131, slow);                                                      // jae (also negative)
+    for byte: Any in [73, 139, 75, 16, 72, 193, 224, 4, 72, 1, 193] { e8(ctx, byte); } // mov rcx, [r11 + 16]; shl rax, 4; add rcx, rax
+    fat_get(ctx, n.value);
+    for byte: Any in [72, 137, 17, 72, 137, 65, 8] { e8(ctx, byte); }        // mov [rcx], rdx; mov [rcx + 8], rax
+    jmp(ctx, done);
+    placelab(ctx, slow);
+    for byte: Any in [65, 82, 65, 83] { e8(ctx, byte); }                     // push r10; push r11
+    fat_push(ctx);
+    fat_get(ctx, n.value); fat_push(ctx);
+    fat_rt_call(ctx, "rt_index_set", 6);
+    placelab(ctx, done);
+    return 0;
+}
+
 fun fat_index(ctx: Any, n: Any) -> Any {
     let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
     fat_operands(ctx, n.object, n.index);
@@ -793,11 +821,7 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
         else if (op == S_LET) { fat_let(ctx, payload); }
         else if (op == S_ASSIGN) { fat_assign(ctx, payload); }
         else if (op == S_CASSIGN) { fat_get(ctx, payload.value); fat_env_cell(ctx, payload.index); fat_cell_store(ctx); }
-        else if (op == S_SETIDX) {
-            fat_get(ctx, payload.object); fat_push(ctx); fat_get(ctx, payload.index); fat_push(ctx);
-            fat_get(ctx, payload.value); fat_push(ctx);
-            fat_rt_call(ctx, "rt_index_set", 6);
-        } else if (op == S_SETPROP) {
+        else if (op == S_SETIDX) { fat_index_set(ctx, payload); } else if (op == S_SETPROP) {
             fat_field_set(ctx, payload.object, payload.value, payload.cache, payload.span.source, payload.start, payload.length);
         } else { fat_operation(ctx, payload); }
         if (instruction.result != 0) { fat_put(ctx, instruction.result); }
