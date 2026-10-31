@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check Markdown links, JSON/Python syntax and the native.may mirror without optional packages."""
 import ast
+import runpy
 import json
 from pathlib import Path
 import re
@@ -118,10 +119,13 @@ def main():
     names = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
                                     cwd=ROOT).decode().split('\0')
     paths = checked(names)
-    errors = problems(paths) + mirrors() + tool_boundaries(paths)
+    vendor = runpy.run_path(str(ROOT / 'scripts/vendor.py'))
+    errors = (problems(paths) + mirrors() + tool_boundaries(paths) +
+              [e for d in vendor['DIRECTORIES'] for e in vendor['check'](d)])
     for error in errors:
         print(error, file=sys.stderr)
-    print(f'{"FAIL" if errors else "PASS"} repository links, JSON and Python syntax, native mirror, tool boundaries ({len(paths)} files)')
+    print(f'{"FAIL" if errors else "PASS"} repository links, JSON and Python syntax, native mirror, '
+          f'tool boundaries, vendored checksums ({len(paths)} files)')
     return bool(errors)
 
 

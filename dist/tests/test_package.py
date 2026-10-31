@@ -64,6 +64,9 @@ def main():
         rows=[line.split() for line in lines if line.startswith(('fish ','red ','blue '))]
         assert rows==[['fish','3','###'],['red','2','##'],['blue','1','#']],rows
         assert (bundle / 'stdlib/ui/native/draw.c').is_file()
+        vendored = subprocess.run(['python3', str(ROOT / 'scripts/vendor.py'), 'check',
+                                   str(bundle / 'stdlib/ui/native/vendor')], capture_output=True, timeout=60)
+        assert vendored.returncode == 0, vendored
         run(str(bundle / 'bin/may'), 'new', 'desktop', '--ui')
         result = subprocess.run([str(bundle / 'bin/may'), 'build'], cwd=project / 'desktop',
                                 env=env, capture_output=True, timeout=180)
@@ -98,7 +101,7 @@ def main():
         assert result.returncode == 0 and b'PASS emulator.test.may' in result.stdout, result
         print('PASS bundled May NES executes a real cartridge, synthesizes audio and renders its framebuffer')
         print('PASS bundled Mayboard renders a demo PNG and its model tests pass')
-        print('PASS extracted checksums, version, standalone compilation, stdlib, workspace/formatter, legacy maypkg and LSP initialization')
+        print('PASS extracted checksums, version, standalone compilation, stdlib, vendored-header provenance, workspace/formatter, legacy maypkg and LSP initialization')
         print('PASS installed UI scaffold builds and a headless application renders PNG')
         print('PASS installed compiler builds and runs the typed textstats application')
 
