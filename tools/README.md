@@ -9,10 +9,10 @@ keeps its own tests and build files.
 | [mayfmt](mayfmt/README.md) | Shared CLI and editor formatter | `mayfmt/main.may` |
 | [maylsp](maylsp/README.md) | Native language server and editor features | `maylsp/main.may` + `maylsp/src/` |
 | [maypkg](maypkg/README.md) | Project discovery, dependency checks, lock files, and build scripts | `maypkg/main.may` + `maypkg/src/` |
-| `shared/` | Formatter core imported by `may`, `mayfmt` and `maylsp` | `shared/format.may` |
+| [shared](shared/README.md) | Formatter core, filesystem helpers and import scanner used by several tools | `shared/` |
 
 `maylsp` reuses the compiler frontend from `../../compiler/mayc/src/`, and
-`may` and the installer reuse `maypkg/src/fs.may`.
+`may`, `maypkg` and the installer share `shared/fs.may` and `shared/imports.may`.
 
 ## Build and test
 
