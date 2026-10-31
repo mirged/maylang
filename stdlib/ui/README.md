@@ -20,7 +20,11 @@ Xi, Xcursor and OpenGL development libraries, and a readable TrueType font.
 Interactive windows need X11 or XWayland and OpenGL 4.3 (Mesa software rendering
 also works). Debian/Ubuntu:
 `sudo apt-get install build-essential libx11-dev libxi-dev libxcursor-dev libgl-dev fonts-dejavu-core`.
-`MAYUI_FONT` selects a trusted local font; DejaVu Sans is the default.
+`MAYUI_FONT` selects a trusted local font; DejaVu Sans is the default. A file
+whose font header or table directory is truncated or corrupt is skipped in
+favour of the default, but glyph data inside a well-formed directory is not
+validated, so do not point it at untrusted fonts. `make test-sanitize` runs
+the adapter on malformed input under ASan/UBSan.
 
 The native target compiles `draw.c` and `sokol.c` into `libmayui.so` and links
 `-lX11 -lXi -lXcursor -lGL -ldl -pthread -lm`. Sokol headers are pinned and

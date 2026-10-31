@@ -124,6 +124,7 @@ that span components. Relative imports between siblings use
 | `make test-tools` | `may`, `mayfmt`, `maypkg` and `maylsp` suites |
 | `make test-docs` | Compiles and runs the snippets in `docs/reference/EXAMPLES.md` and `docs/guide/STRICT.md` |
 | `make test-ui` | Native UI checks (X11/OpenGL; see the doctor profiles) |
+| `make test-sanitize` | `tests/ui/sanitize.py`: the native UI adapter (`stdlib/ui/native/draw.c`) on malformed geometry, bitmaps, UTF-8 and fonts under ASan/UBSan |
 | `make test-limits` | GC pressure, capacity and codegen reports |
 | `make test-all` | Everything, including optional integrations |
 | `make editor` | `npm ci && npm run compile` in `editors/vscode` |
@@ -142,7 +143,7 @@ Socket and window tests skip when unavailable; say so in your report.
 | Backend or code generation | the above plus `python3 compiler/mayc/tests/raw_codegen.py --compiler compiler/mayc/mayc_new` and `backends.py` |
 | `native.may`, `prelude.may`, `runtime/` | `make test-compiler test-compliance` and the bootstrap fixpoint (`make test-bootstrap`) |
 | `compiler/rust/**` | `make test-rust test-bootstrap` |
-| `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui` |
+| `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui`, plus `make test-sanitize` for `stdlib/ui/native` |
 | `tools/**` | `make test-tools` |
 | `dist/**`, `scripts/**`, installer | `make test-distribution test-installer`; `make package` for bundle changes |
 | `editors/vscode/**` | `make editor` |

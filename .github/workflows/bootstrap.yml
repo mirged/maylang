@@ -155,6 +155,25 @@ jobs:
             /tmp/workspace-benchmark.json
             /tmp/gc-codegen-limits/
           if-no-files-found: ignore
+  sanitizers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install a sanitizer toolchain and font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc fonts-dejavu-core
+          gcc --version
+      - name: Run the native UI adapter on malformed input under ASan/UBSan
+        run: python3 tests/ui/sanitize.py --cc gcc --reports /tmp/sanitizer-reports
+      - name: Upload sanitizer reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-reports
+          path: /tmp/sanitizer-reports/
+          if-no-files-found: ignore
   editor:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
