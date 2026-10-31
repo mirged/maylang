@@ -108,6 +108,28 @@ fun load_math(a0: Any, a0l: Any) -> Any {
 
 // Append a runtime file (`extraLength` bytes named `name`) to the runtime
 // source already in SRC, keeping each file's own line numbers for diagnostics.
+// The runtime and library sidecars must not define a function twice: the
+// later definition would silently replace the earlier one for every caller
+// (#114). User code may still shadow library functions.
+let SIDECAR_LIBRARY: Any = ["prelude.may", "native.may", "runtime/math.may"];
+
+fun check_sidecar_functions() -> Any {
+    let seen: Any = {};
+    for rec: Any in FUNC_HEAD {
+        if (rec.nested != 0 or rec.body == 0 or rec.body == nil) { continue; }
+        let span: Any = rec.body.span;
+        if (rec.mode != 1 and not has(SIDECAR_LIBRARY, source_path(span))) { continue; }
+        let name: Any = symbol_name(rec.p, rec.l);
+        let first: Any = seen[name];
+        if (first != nil) {
+            let where: Any = diagnostic_record(first, "");
+            diagnostic(span, "duplicate runtime function `${name}`; first defined at ${where.file}:${where.range.start.line}");
+        }
+        seen[name] = span;
+    }
+    return 0;
+}
+
 fun append_runtime(extra: Any, extraLength: Any, name: Any) -> Any {
     let base: Any = SRC; let baseLength: Any = SRCLEN;
     let file: Any = SOURCE_FILES[base];
@@ -289,10 +311,8 @@ fun main2() -> Any {
     if (runtimeName == "none") { rawflag = 1; }
     ctx.runtime = if (rawflag == 1) { "none" } else { runtimeName };
     profile_begin();
-    // Programs with a runtime use fat values (#92, docs/design/FAT_VALUES.md);
-    // --raw code computes with machine words.
-    FAT_VALUES = rawflag == 0;
-    if (checkflag == 0 and dumpflag == 0 and expandedflag == 0) { backend_validate(ctx, rawflag); }
+    // Programs with a runtime (DYNMODE 1) use fat values (#92,
+    // docs/design/FAT_VALUES.md); --raw code computes with machine words.
     if (rawflag == 1) {
         PARSE_RAW = 1;
         DYNMODE = 0;
@@ -371,6 +391,7 @@ fun main2() -> Any {
         }
         DIAGNOSTIC_STAGE = "lex"; lex_all();
         DIAGNOSTIC_STAGE = "parse"; parse_program(ctx);
+        check_sidecar_functions();
         profile_mark("parse");
         DIAGNOSTIC_STAGE = "type"; strict_program(ctx);
         profile_mark("types");

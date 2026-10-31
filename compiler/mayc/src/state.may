@@ -25,9 +25,6 @@ mut STRICT_TYPES: Any = true;
 mut BEHAVIOR_CALLABLES: Any = false;
 mut BEHAVIOR_CALLABLE_SPAN: Any = 0;
 mut DEBUG_TRACES: Any = false;
-// `--values fat` (#92, docs/design/FAT_VALUES.md): 16-byte values with a
-// separate type word, using runtime/fat.may. Experimental, x86-64 Linux only.
-mut FAT_VALUES: Any = false;
 
 // The source arena defaults to 256 MiB; MAYC_ARENA_BYTES overrides it.
 fun arena_size() -> Any {

@@ -2915,28 +2915,6 @@
     "status": "supported"
   },
   {
-    "module": "prelude.may",
-    "name": "repeat",
-    "kind": "fun",
-    "signature": "fun repeat(s: Any, n: Any) -> Any",
-    "line": 11,
-    "exported": true,
-    "runtime": "full",
-    "platform": "Linux x86-64",
-    "status": "supported"
-  },
-  {
-    "module": "prelude.may",
-    "name": "substring",
-    "kind": "fun",
-    "signature": "fun substring(s: Any, start: Any, count: Any) -> Any",
-    "line": 17,
-    "exported": true,
-    "runtime": "full",
-    "platform": "Linux x86-64",
-    "status": "supported"
-  },
-  {
     "module": "random.may",
     "name": "RANDOM_MODULUS",
     "kind": "let",

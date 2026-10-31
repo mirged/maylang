@@ -1778,6 +1778,14 @@ fun fat_foreign(ctx: Any, rec: Any) -> Any {
     jmp(ctx, ctx.returnLabel);
     ctx.maxLocals = rec.pc;
     fat_epilogue(ctx, fp);
+    // Native-word callers (#94) pass machine words straight to C.
+    if (rec.wordForeign == true) {
+        ctx.nativeFaults = [0, 0, 0, 0, 0];
+        x86_foreign_native(ctx, rec);
+        for kind: Any in 0..len(ctx.nativeFaults) {
+            if (ctx.nativeFaults[kind] != 0) { placelab(ctx, ctx.nativeFaults[kind]); x86_native_raise(ctx, kind); }
+        }
+    }
     return 0;
 }
 
