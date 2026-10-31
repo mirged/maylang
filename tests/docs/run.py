@@ -18,7 +18,7 @@ def snippets():
                 'Match': 'two\n', 'Pipeline': '12\n', 'Math': '12\n',
                 'Algorithms': '1\n', 'Collections': 'May\n',
                 'CSV': '[["a", "b,c"]]\n', 'Random': None, 'Statistics': '1.5\n',
-                'Result': '0\n', 'Tensor': '10.0\n', 'Validation': None}
+                'Result': '0\n', 'Validation': None}
     imports = {}
     seen = set()
     for line in (ROOT / 'docs/reference/EXAMPLES.md').read_text().splitlines():

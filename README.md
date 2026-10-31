@@ -134,14 +134,14 @@ programs and the compiler itself, which rebuilds itself there byte-identically.
 | --- | --- |
 | [compiler/](compiler/README.md) | Self-hosted `mayc` compiler and the Rust source bootstrap |
 | [tools/](tools/README.md) | Workspace runner, formatter, language server, legacy package manager |
-| [platform/](platform/README.md) | Browser and operating-system experiments |
-| [stdlib/](stdlib/README.md) | Standard library, UI and experimental ML modules |
+| [stdlib/](stdlib/README.md) | Standard library and native UI |
 | [dist/](dist/README.md) | Release packaging, installers, environment migration |
 | [tests/](tests/README.md) | Cross-component compliance, documentation and UI suites |
 | [examples/](examples/README.md) | Small language examples plus complete apps, games and simulations |
 | [docs/](docs/README.md) | Guides, internals, design notes, history and the generated [reference](docs/reference/README.md) |
 | [editors/vscode/](editors/vscode/README.md) | VS Code extension |
 | [scripts/](scripts/README.md) | Checkout setup, prerequisite checks, repository validation |
+| [frozen/](frozen/README.md) | Kept but unmaintained code outside the Linux x86-64 focus |
 
 The [repository map](docs/REPOSITORY.md) lists component boundaries, their
 checks, and where paths from the earlier `toolchain/` layout moved.

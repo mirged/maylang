@@ -35,13 +35,13 @@
 *~
 
 # Generated OS disk and editor packages
-/platform/mayos/data/*.img
+/frozen/platform/mayos/data/*.img
 *.vsix
 
 # Ephemeral verification logs and simulation checkpoints
 /tests/compliance/*.log
 /tests/compliance/verification.json
 /compiler/mayc/tests/verification.json
-/examples/simulations/ecosystem/results/*.log
-/examples/simulations/ecosystem/results/*.progress
-/examples/simulations/ecosystem/results/*.checkpoint.json
+/frozen/examples/simulations/ecosystem/results/*.log
+/frozen/examples/simulations/ecosystem/results/*.progress
+/frozen/examples/simulations/ecosystem/results/*.checkpoint.json

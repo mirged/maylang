@@ -24,21 +24,6 @@ checker = module('check_repository')
 
 
 class DeveloperTests(unittest.TestCase):
-    def test_browser_profile_requires_libcurl_development_files(self):
-        for code in (0, 1):
-            with self.subTest(code=code), \
-                    patch.object(doctor.shutil, 'which', return_value='/usr/bin/cc'), \
-                    patch.object(doctor, 'probe_c_compiler', return_value=(True, 'cc')), \
-                    patch.object(doctor.subprocess, 'run',
-                                 return_value=subprocess.CompletedProcess([], code)) as run:
-                checks = doctor.inspect('browser')
-                curl = next(entry for entry in checks if entry[0] == 'libcurl development files')
-                self.assertEqual(curl[1], code == 0)
-                self.assertIn('libcurl4-openssl-dev', curl[2])
-                self.assertTrue(any('-lcurl' in call.args[0] and
-                                    '#include <curl/curl.h>' in call.kwargs.get('input', '')
-                                    for call in run.call_args_list))
-
     def test_missing_tools_fail_with_instructions(self):
         with patch.object(doctor.shutil, 'which', return_value=None):
             checks = doctor.inspect('build')

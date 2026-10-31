@@ -47,7 +47,7 @@ print(lines);
             result = subprocess.run([compiler, '--target', target, str(ROOT/'compiler/mayc/tests/library/boundaries.may'), '-o', str(binary)], capture_output=True, timeout=120)
             assert result.returncode == 0, result.stderr.decode()
             result = subprocess.run([str(binary)], capture_output=True, timeout=10)
-            assert result.returncode == 0 and result.stdout == b'PASS collection/string/path/numeric/experimental ML boundaries\n' and not result.stderr, result
+            assert result.returncode == 0 and result.stdout == b'PASS collection/string/path/numeric boundaries\n' and not result.stderr, result
             print('PASS library boundaries on '+target, flush=True)
         for code in ['let n: Str = result.unwrap(result.ok(1));', 'io.io_read_text(1);', 'io.io_write_lines("x", [1]);']:
             source.write_text(imports + code)

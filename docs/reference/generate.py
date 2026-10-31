@@ -83,7 +83,7 @@ def render_module(path, module=None):
     ds = declarations(path)
     explicit = any(d['public'] for d in ds)
     out = ['- **' + module + '** — ' + DESCRIPTIONS['modules'][module],
-           '- Availability: ' + ('portable core on all five direct targets; auto-loaded with `--runtime core`.' if module == 'core' else 'full Linux x86-64 runtime; experimental API.' if module.startswith('ml/') else 'full Linux x86-64 runtime.'),
+           '- Availability: ' + ('portable core on all five direct targets; auto-loaded with `--runtime core`.' if module == 'core' else 'full Linux x86-64 runtime.'),
            '- Import: ' + ('automatically injected; do not import the sidecar.' if module == 'core' else inline('import "' + module.removesuffix('.may') + '" as library;') + '.'),
            '- Signatures below reproduce the source, including dynamic `Any` boundaries; parameter order and types are the call contract.',
            '- Visibility: ' + ('only declarations marked `pub` are exported.' if explicit else 'all top-level declarations are exported because this module has no `pub` declarations.'),
@@ -172,7 +172,7 @@ def main():
                               exported=d['public'] or not explicit,
                               runtime='core' if module == 'core' else 'full',
                               platform='all five direct targets' if module == 'core' else 'Linux x86-64',
-                              status='experimental' if module.startswith('ml/') else 'supported') for d in ds)
+                              status='supported') for d in ds)
     out = ['- **Standard library index** — all top-level functions, records, enums and bindings, including private helpers explicitly labeled on their module pages.',
            '- The active full-runtime sidecar is `compiler/mayc/native.may`; `stdlib/native.may` is a byte-identical mirror, checked by `make check`, that the language server and these pages read. `prelude.may` is auto-loaded; ordinary modules are imported explicitly. Core has a separate auto-loaded library.',
            '- Prefer namespace or selective imports when a helper shares a name with the native library.',

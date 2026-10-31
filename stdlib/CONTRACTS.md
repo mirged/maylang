@@ -86,21 +86,11 @@ same path and require matching roots; different drives or mixed relative/
 absolute inputs raise `relative paths must have the same root`. Filesystem
 existence and OS-specific reserved names are not checked.
 
-## Experimental ML
-
-All `ml/` APIs are experimental. Model and tensor shapes, parameter counts and
-numeric assumptions are part of their inputs; this is not a BLAS/GPU runtime.
-Training/inference mutate model caches where documented. Fixed inference
-validates dimensions, scales, weights and row widths, uses integer softsign,
-and returns a new output list; its parameters remain caller-owned mutable data.
-See [ML module contracts](ml/README.md).
-
-`examples/ml_xor.may`, `examples/stdlib_tour.may` and
-`examples/stdlib_expanded.may` are compiled and run by compiler verification.
-The focused [library suite](../compiler/mayc/tests/stdlib_contracts.py) runs
-typed Result/I/O and [boundary cases](../compiler/mayc/tests/library/boundaries.may)
-natively, including successful fixed inference and invalid parameter
-counts. Numeric, map, file and network suites cover the corresponding runtime
+`examples/stdlib_tour.may` and `examples/stdlib_expanded.may` are compiled
+and run by compiler verification. The focused
+[library suite](../compiler/mayc/tests/stdlib_contracts.py) runs typed
+Result/I/O and [boundary cases](../compiler/mayc/tests/library/boundaries.may)
+natively. Numeric, map, file and network suites cover the corresponding runtime
 primitives. The [core suite](../compiler/mayc/tests/core_runtime.py) covers the
 portable library and [arena lifetimes](../docs/internals/CORE_MEMORY.md). These tests are
 contracts for exercised boundaries, not exhaustive validation of every `Any`

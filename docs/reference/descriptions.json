@@ -18,14 +18,6 @@
     "string.may": "String transformations and simple delimiter helpers.",
     "test.may": "Counting assertions and a final test report.",
     "validate.may": "Input predicates and structured rule/field validation.",
-    "ml/classical.may": "kNN, k-means, linear and logistic regression.",
-    "ml/data.may": "Encoding, splitting, batching and feature normalization.",
-    "ml/fixed.may": "Typed fixed-point dense neural inference with softsign activation.",
-    "ml/loss.may": "Losses, gradients and classification metrics.",
-    "ml/model.may": "Minibatch training, evaluation and JSON weight persistence.",
-    "ml/nn.may": "Dense neural layers, inference, backpropagation and snapshots.",
-    "ml/optim.may": "SGD, momentum and Adam optimizer state and updates.",
-    "ml/tensor.may": "Dense row-major tensors, broadcasting, reductions and matrix operations.",
     "core": "Core-runtime additions to the shared library: raw allocation, typed scratch arenas, the retained heap size, gcd and lcm. The core runtime also loads prelude.may and native.may.",
     "ui.may": "Native Linux desktop widget trees, themes, antialiased GPU shapes/text, layout, Unicode inputs, focus, scrolling, virtual lists and software PNG snapshots; requires the May UI Sokol adapter."
   },
@@ -404,32 +396,6 @@
       "Sockets share descriptor ownership through aliases. Close explicitly or use with_socket; no automatic finalizer.",
       "Binary payloads may contain NUL and invalid UTF-8. TCP receive allocation is at most 16 MiB; UDP payload is at most 65507 bytes.",
       "Errors have kind network, message, operation and positive Linux errno. Timeout=110, invalid input=22, closed socket=9, oversize UDP=90, early exact-read EOF=0."
-    ],
-    "ml/tensor.may": [
-      "Tensors use row-major flat numeric data and a copied shape list. Arithmetic allocates new tensors; constructor and reshape retain input data references.",
-      "Strict equal-shape operations and broadcasting operations have separate names; matrix multiplication is tensor_matmul."
-    ],
-    "ml/nn.may": [
-      "Layers contain weights, bias, activation, input/output dimensions, forward caches and gradients. Training mutates these maps.",
-      "Supported dense activations are linear, relu, sigmoid, tanh and row-wise softmax.",
-      "nn_predict updates caches; nn_predict_one performs cache-free single-row inference."
-    ],
-    "ml/model.may": [
-      "Loss names are mse, binary_cross_entropy and cross_entropy. Construct the network before loading compatible saved layer states.",
-      "Training requires matching nonempty feature/label rows, nonnegative epochs and positive batch size."
-    ],
-    "ml/optim.may": [
-      "Optimizer state is mutable and belongs to a particular network shape. Update only after computing gradients."
-    ],
-    "ml/fixed.may": [
-      "Parameters are output-major weights followed by biases for each layer. Inputs, parameters and outputs use the chosen integer scale."
-    ],
-    "ml/classical.may": [
-      "These algorithms use pure Maylang loops, without GPU or BLAS support. Keep feature rows rectangular and predictions compatible with the trained width."
-    ],
-    "ml/loss.may": [
-      "Use matching nonempty rectangular prediction/target rows with valid probability outputs; validation is incomplete in several gradient/BCE helpers.",
-      "Confusion matrix rows are actual classes and columns are predicted classes. Binary single-output labels use threshold 0.5 only when class_count is 2."
     ],
     "core": [
       "See [arena ownership and allocation growth](../../internals/CORE_MEMORY.md). Core has no collector; ordinary strings/lists and the arena itself retain process-lifetime storage."

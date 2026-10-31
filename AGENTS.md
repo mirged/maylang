@@ -17,8 +17,7 @@ or a C compiler (an experimental `clang-llvm` target was removed for this
 reason). A small Rust crate
 (`compiler/rust/crates/may_bootstrap`) compiles the compiler to C, which builds
 the first native generation, so no binary compiler is checked in. Tools (`may`,
-`mayfmt`, `maylsp`, `maypkg`), the standard library and the platform
-experiments are also Maylang. The current version is in `RELEASE.json`.
+`mayfmt`, `maylsp`, `maypkg`) and the standard library are also Maylang. The current version is in `RELEASE.json`.
 
 Compiler development needs Linux x86-64 (WSL 2 works), Rust/Cargo, GCC or
 Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
@@ -32,8 +31,6 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
 - Do not commit generated output: `build/`, `target/`, `.may/`, compiled
   binaries, `node_modules/`, `__pycache__/` or machine-specific reports. The
   exception is a deliberately recorded measurement (see Performance work).
-  `platform/maybrowser/maybrowser` is a tracked shell launcher, not a build
-  artifact.
 - Keep runtime sidecars with any copied compiler executable (see below).
 - Report validation honestly: list the commands you ran, their results, and
   anything you skipped because a dependency was missing.
@@ -52,8 +49,7 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
 | `tools/mayfmt/`, `tools/shared/` | Formatter CLI and the formatter core shared with `may`/`maylsp` | `make test-tools` |
 | `tools/maylsp/` | Language server; reuses `compiler/mayc/src/` | `make test-tools` or `make -C tools/maylsp test` |
 | `tools/maypkg/` | Legacy `mayproj.json` manager; `src/fs.may` is shared by `may` and the installer | `make test-tools` |
-| `stdlib/` | Library modules, `ui/` (native UI), experimental `ml/` | Compiler stdlib contracts, `make test-ui` |
-| `platform/maybrowser/`, `platform/mayos/` | Browser and OS experiments | `make test-browser`; mayos Makefile |
+| `stdlib/` | Library modules, `ui/` (native UI) | Compiler stdlib contracts, `make test-ui` |
 | `dist/` | Packaging, installers, updates; tests in `dist/tests/` | `make test-distribution` |
 | `tests/compliance/`, `tests/docs/`, `tests/ui/` | Cross-component suites only | `make test-compliance`, `test-docs`, `test-ui` |
 | `examples/` | Single-file examples and complete projects | Run by `compiler/mayc/tests/verify.py` |
@@ -130,14 +126,14 @@ that span components. Relative imports between siblings use
 | `make test-compliance` | `tests/compliance/run.py`: runtime and coercion boundary cases |
 | `make test-tools` | `may`, `mayfmt`, `maypkg` and `maylsp` suites |
 | `make test-docs` | Compiles and runs the snippets in `docs/reference/EXAMPLES.md` and `docs/guide/STRICT.md` |
-| `make test-ui`, `make test-browser` | Native UI/browser checks (X11/OpenGL/libcurl/duktape; see the doctor profiles) |
+| `make test-ui` | Native UI checks (X11/OpenGL; see the doctor profiles) |
 | `make test-limits` | GC pressure, capacity and codegen reports |
 | `make test-all` | Everything, including optional integrations |
 | `make editor` | `npm ci && npm run compile` in `editors/vscode` |
 | `make package` | Builds a release bundle and installers, then tests the extracted bundle |
 
 `MAYC=/abs/path/to/mayc make test-...` tests a specific compiler. Check optional
-requirements with `python3 scripts/doctor.py --profile test|ui|browser|editor|package`.
+requirements with `python3 scripts/doctor.py --profile test|ui|editor|package`.
 Socket and window tests skip when unavailable; say so in your report.
 
 ## Choosing checks
@@ -152,7 +148,6 @@ Socket and window tests skip when unavailable; say so in your report.
 | `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui` |
 | `tools/**` | `make test-tools` |
 | `dist/**`, `scripts/**`, installer | `make test-distribution test-installer`; `make package` for bundle changes |
-| `platform/maybrowser/**` | `make test-browser` |
 | `editors/vscode/**` | `make editor` |
 | Docs only | `make check test-docs` |
 | An example project | build and run it, then `make test-compiler` if `verify.py` lists it |
@@ -357,8 +352,7 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 `make test-distribution` as a quick `repository` job, then the source-only
 bootstrap, Rust tests, compiler verification, UI under X11, compliance,
 packaging and the editor; it also has optional core-emulation and performance
-jobs. `native-targets.yml` runs real Windows/macOS loaders. `maybrowser.yml`
-runs the browser suite under Xvfb. `release.yml` runs `bootstrap.yml` on a
+jobs. `native-targets.yml` runs real Windows/macOS loaders. `release.yml` runs `bootstrap.yml` on a
 tag, then packages and publishes. CI uses Ubuntu 24.04 and Node 22.
 
 ## Known hazards
