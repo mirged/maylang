@@ -310,7 +310,7 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
     if (kind == E_STRB) { return ir_operation(kind, {"address": node.address, "length": node.length}, span); }
     if (kind == E_VAR) {
         // Fat globals keep the word itself as their payload (x86_64.may cg_var).
-        if (FAT_VALUES and ir_word_global(node)) { return ir_operation(kind, {"name": node.name, "length": node.length, "fatWord": node.wordGlobal}, span); }
+        if (DYNMODE == 1 and ir_word_global(node)) { return ir_operation(kind, {"name": node.name, "length": node.length, "fatWord": node.wordGlobal}, span); }
         let variable: Any = ir_operation(kind, {"name": node.name, "length": node.length}, span);
         if (ir_word_global(node)) {
             // Native-word code reads a tagged global: untag an Int, test a Bool.
@@ -415,7 +415,7 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
     }
     if (kind == S_ASSIGN) {
         let value: Any = ir_node(ctx, node.value);
-        if (FAT_VALUES and ir_word_global(node)) {
+        if (DYNMODE == 1 and ir_word_global(node)) {
             ir_emit(kind, 0, value, 0, {"name": node.name, "length": node.length, "value": value, "fatWord": node.wordGlobal}, span);
             return value;
         }
@@ -636,7 +636,7 @@ fun ir_program(ctx: Any) -> Any {
     for rec: Any in FUNC_HEAD {
         if (rec.mode == 1 or symbol_name(rec.p, rec.l) == "str") { ir_reachable(rec, live, queue); }
         // Fat values lower ln/log2/log10/exp to the portable kernels (x86_64_fat.may).
-        else if (FAT_VALUES and has(["__math_ln", "__math_log2", "__math_log10", "__math_exp"], symbol_name(rec.p, rec.l))) { ir_reachable(rec, live, queue); }
+        else if (DYNMODE == 1 and has(["__math_ln", "__math_log2", "__math_log10", "__math_exp"], symbol_name(rec.p, rec.l))) { ir_reachable(rec, live, queue); }
     }
     ir_dependencies(IR_MAIN, names, labels, live, queue);
     mut next: Any = 0;

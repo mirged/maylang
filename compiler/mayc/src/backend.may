@@ -22,11 +22,6 @@ fun target_select(name: Any) -> Any {
     return 0;
 }
 
-fun backend_validate(ctx: Any, raw: Any) -> Any {
-    if (FAT_VALUES and raw == 1) { die_str("mayc: --values fat requires a runtime; --raw code uses machine words\n"); }
-    return 0;
-}
-
 // Each backend implements the same IR-to-code and relocation entry points.
 fun backend_for(ctx: Any) -> Any { return TargetBackend(x86_emit, patch_all); }
 
