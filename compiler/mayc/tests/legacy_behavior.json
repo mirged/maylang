@@ -114,6 +114,11 @@
     "stdout": "NTUKNTUKYWJjCmxpIDEwCmxpIDIwCmxpIDMwClsiYSIsICJiIl0KdyAxCncgMwp3IDQKdyA1CjUKMwpuIDAgMApuIDAgMgpuIDEgMApuIDEgMgpuIDIgMApuIDIgMgo=",
     "stderr": ""
   },
+  "map_hash_keys.may": {
+    "exit": 0,
+    "stdout": "MTggaW50IHN0ciBmbG9hdCBib29sIG5pbCBuZWdhdGl2ZSBsYXJnZQpuZWdhdGl2ZSB6ZXJvIG5pbCBuaWwgbmlsIHRydWUgZmFsc2UKbGlzdCBhIG5pbCBmYWxzZQoxNyBuaWwgc3RyIGZsb2F0IG5pbCA0IDE5IGludAppbnQgYWdhaW4gMQpbLTEwLCA3LCA0LCAxLCAtMiwgLTUsIC04LCA5LCA2LCAzLCAwLCAtMywgLTYsIC05LCA4LCA1LCAyLCAtMSwgLTQsIC03XQo1MDAwIDUwMDAgMTI0OTc1MDAKNDkwMCBuaWwgMSAtOTk5Mwo=",
+    "stderr": ""
+  },
   "map_ops.may": {
     "exit": 0,
     "stdout": "MTAgMjUgODEKWyIwIiwgIjEiLCAiMiIsICIzIiwgIjQiLCAiNSIsICI2IiwgIjciLCAiOCIsICI5Il0KWzIsIDFdCnsiYSI6IDMsICJiIjogMiwgImMiOiAxfQo=",
