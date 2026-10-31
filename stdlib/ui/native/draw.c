@@ -63,6 +63,27 @@ static void color(float out[4], long rgb, long opacity) {
     out[2] = (float)(rgb & 255) / 255;
     out[3] = clamp01((float)opacity / 255);
 }
+static size_t big32(const unsigned char *p) {
+    return (size_t)p[0] << 24 | (size_t)p[1] << 16 | (size_t)p[2] << 8 | p[3];
+}
+/* stb_truetype trusts its input. Check the sfnt header and table directory
+ * first, so a truncated or corrupt MAYUI_FONT is skipped instead of being read
+ * out of bounds. Offsets inside individual tables are still stb's to trust. */
+static int font_offset(const unsigned char *data, size_t size) {
+    size_t offset = 0;
+    if (size >= 16 && !memcmp(data, "ttcf", 4)) offset = big32(data + 12);
+    if (offset > size || size - offset < 12) return -1;
+    const unsigned char *header = data + offset;
+    if (memcmp(header, "\0\1\0\0", 4) && memcmp(header, "true", 4) && memcmp(header, "OTTO", 4) &&
+        memcmp(header, "typ1", 4) && memcmp(header, "1\0\0\0", 4)) return -1;
+    size_t tables = (size_t)header[4] << 8 | header[5];
+    if (tables > (size - offset - 12) / 16) return -1;
+    for (size_t i = 0; i < tables; i++) {
+        size_t start = big32(header + 12 + 16 * i + 8), length = big32(header + 12 + 16 * i + 12);
+        if (start > size || length > size - start) return -1;
+    }
+    return (int)offset;
+}
 static int init_font(void) {
     if (ready) return 1;
     const char *paths[] = {getenv("MAYUI_FONT"),
@@ -82,7 +103,7 @@ static int init_font(void) {
             free(font_data); font_data = NULL; fclose(file); continue;
         }
         fclose(file);
-        int offset = stbtt_GetFontOffsetForIndex(font_data, 0);
+        int offset = font_offset(font_data, (size_t)size);
         if (offset >= 0 && stbtt_InitFont(&font, font_data, offset)) { ready = 1; return 1; }
         free(font_data); font_data = NULL;
     }
@@ -210,7 +231,7 @@ long mui_bitmap_upload(const unsigned char *rgba, long w, long h) {
 }
 void mui_bitmap(long x, long y, long w, long h) {
     if (!bitmap || w < 1 || h < 1) return;
-    Command c = {.x0=x, .y0=y, .x1=x+w, .y1=y+h, .cx=x, .cy=y,
+    Command c = {.x0=(float)x, .y0=(float)y, .x1=(float)((double)x+w), .y1=(float)((double)y+h), .cx=(float)x, .cy=(float)y,
         .basis_x=(float)bitmap_width/w, .basis_y=(float)bitmap_height/h, .kind=4};
     color(c.color, 16777215, 255); append(c);
 }
@@ -247,11 +268,13 @@ void mui_shadow(long x, long y, long w, long h, long radius, long blur, long rgb
 }
 void mui_line(long ax, long ay, long bx, long by, long thickness, long rgb, long opacity) {
     if (thickness < 1 || thickness > 256) return;
-    float dx = (float)(bx - ax), dy = (float)(by - ay), length = sqrtf(dx * dx + dy * dy), r = thickness * .5f;
+    /* Endpoints may be any long, so differences and midpoints use doubles. */
+    double dx = (double)bx - (double)ax, dy = (double)by - (double)ay, length = sqrt(dx * dx + dy * dy);
+    float r = thickness * .5f;
     Command c = {.x0 = fminf(ax, bx) - r - 1, .y0 = fminf(ay, by) - r - 1,
         .x1 = fmaxf(ax, bx) + r + 1, .y1 = fmaxf(ay, by) + r + 1,
-        .cx = (ax + bx) * .5f, .cy = (ay + by) * .5f, .hx = length * .5f + r, .hy = r,
-        .radius = r, .basis_x = length > 0 ? dx / length : 1, .basis_y = length > 0 ? dy / length : 0};
+        .cx = (float)(((double)ax + bx) * .5), .cy = (float)(((double)ay + by) * .5), .hx = (float)(length * .5) + r, .hy = r,
+        .radius = r, .basis_x = length > 0 ? (float)(dx / length) : 1, .basis_y = length > 0 ? (float)(dy / length) : 0};
     color(c.color, rgb, opacity); append(c);
 }
 long mui_measure(const char *text, long px) {
@@ -291,7 +314,7 @@ void mui_text(long x, long y, const char *text, long px, long rgb) {
                 .cx = gx, .cy = gy, .u0 = (float)g->atlas_x, .v0 = (float)g->atlas_y, .kind = 1};
             color(cmd.color, rgb, 255); append(cmd);
         } else if (!g || (g->w > 0 && g->atlas_x < 0)) {
-            rectangle(pen + 1, y + 2, px / 2, px - 4, 1, 1, 0, rgb, 255);
+            rectangle(pen + 1, (float)y + 2, px / 2, px - 4, 1, 1, 0, rgb, 255);
         }
         int advance, bearing;
         if (g) advance = g->advance; else stbtt_GetCodepointHMetrics(&font, (int)c, &advance, &bearing);

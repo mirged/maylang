@@ -214,6 +214,16 @@
   R12–R15. Int loops run about 1.15× faster; other workloads are unchanged
   ([report](compiler/mayc/tests/backend/proven-types.md)).
 
+## UI
+
+- A truncated or corrupt `MAYUI_FONT` no longer makes the native adapter read
+  out of bounds: the font header and table directory are checked before
+  stb_truetype sees them, and a bad file falls back to the default font.
+  `ui` line and bitmap coordinates near the `Int` limits no longer overflow
+  in C. `make test-sanitize` and a CI job run the adapter on malformed
+  geometry, bitmaps, UTF-8 and fonts under ASan/UBSan
+  ([#47](https://github.com/mirged/maylang/issues/47)).
+
 ## MayOS
 
 - Pass native words through `__ccall6` without tag compensation, and always
