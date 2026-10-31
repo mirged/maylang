@@ -82,10 +82,16 @@ def mirrors():
     return []
 
 
+def checked(names):
+    # frozen/ holds code that is kept but not maintained (frozen/README.md),
+    # so its links and syntax are not checked.
+    return [ROOT / name for name in names if name and not name.startswith('frozen/')]
+
+
 def main():
     names = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
                                     cwd=ROOT).decode().split('\0')
-    paths = [ROOT / name for name in names if name]
+    paths = checked(names)
     errors = problems(paths) + mirrors()
     for error in errors:
         print(error, file=sys.stderr)

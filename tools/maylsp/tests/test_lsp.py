@@ -110,6 +110,8 @@ def run(binary, work):
     main = work / "main.may"
     text = 'import "lib" as math;\nlet amount = math.add(1, 2);\nfun local(amount) {\n    let nested = amount;\n    nested\n}\nprint(amount);\n'
     main.write_text(text)
+    (work / "frozen").mkdir()
+    (work / "frozen" / "old.may").write_text('pub fun add_frozen(a: Int) -> Int { a }\n')
     uri = main.as_uri()
     doc = {"textDocument": {"uri": uri}}
     def pos(line, character, **extra):
@@ -145,6 +147,7 @@ def run(binary, work):
         assert symbols[1]["children"][0]["name"] == "nested"
         workspace = c.result("workspace/symbol", {"query": "add"})
         assert any(s["location"]["uri"] == lib.as_uri() for s in workspace)
+        assert not any("/frozen/" in s["location"]["uri"] for s in workspace), workspace
         print("PASS hover, navigation, document links and symbols", flush=True)
 
         references = c.result("textDocument/references", pos(1, 5, context={"includeDeclaration": True}))

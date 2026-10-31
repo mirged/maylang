@@ -72,7 +72,7 @@ The established GitHub label convention uses:
 - One primary `type:*`: bug, feature, enhancement, refactor, docs, test, or performance.
 - One `priority:*`: p0 for crashes/corruption, p1 for major defects, p2 for ordinary work, p3 for polish.
 - Relevant `area:*` labels for affected components.
-- One current `status:*`; use `needs-triage` initially and `confirmed` after reproduction or source validation.
+- One current `status:*`; use `needs-triage` initially and `confirmed` after reproduction or source validation. Issues for code in `frozen/` get `status:frozen` and no milestone.
 
 Apply `help-wanted`, `good-first-issue`, `regression`, `compatibility`,
 `breaking-change`, or `design:discussion` when applicable. Priority is a triage

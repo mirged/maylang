@@ -11,6 +11,7 @@ examples/    single-file examples and complete apps, games, simulations
 docs/        guides, internals, design, history and generated reference
 editors/     VS Code extension
 scripts/     checkout setup, prerequisite and repository checks
+frozen/      kept but unmaintained code for other targets and experiments
 ```
 
 | Boundary | Purpose | Validation |
@@ -33,6 +34,7 @@ scripts/     checkout setup, prerequisite and repository checks
 | `docs/reference/` | Generated API/language documentation | `make check test-docs` |
 | `editors/vscode/` | Extension, grammar and snippets | `make editor` |
 | `scripts/` | Checkout setup, dependency and repository checks | `make test-distribution` |
+| `frozen/` | Code moved out of the supported Linux x86-64 scope; see its [README](../frozen/README.md) | None: not built or tested |
 | `.github/` | CI, contribution forms, PR template and labels | Repository checks and GitHub CI |
 
 Component tests stay beside their implementation; `tests/` holds only suites

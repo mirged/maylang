@@ -116,6 +116,28 @@ Each step is one PR, green on its own (`make check test`, and
    budget from the [performance roadmap](PERFORMANCE_ROADMAP.md).
 7. **Measure again.** Same numbers as step 1, recorded in this document.
 
+## Baseline
+
+Recorded 2026-10-30 at `2ec1b1a` before anything was frozen, on an Intel Core
+i5-13500H (16 threads), one run each, with `MAYC` set to the checkout
+compiler. Step 7 repeats these measurements.
+
+| Measurement | Value |
+| --- | ---: |
+| Compiler source (`main.may` and `src/`) | 12 823 lines |
+| Runtime sidecars (`native.may`, `runtime/`, `prelude.may`) | 4 501 lines |
+| Target-only compiler and runtime files (listed under [Why](#why)) | 2 265 lines |
+| `platform/` and `stdlib/ml/` Maylang | 4 582 lines |
+| Compiler executable (`build/bin/mayc_new`) | 3 191 456 bytes |
+| `sh compiler/rust/build.sh` (Rust → C → stage 1 → stage 2) | 40 s |
+| `make test` | 677 s |
+| `make test-bootstrap` | 70 s |
+| CI `bootstrap.yml` on `main` (run 41107159389), wall time | 14 min 53 s |
+| — `bootstrap` job | 13 min 29 s |
+| — `core-emulation` job | 1 min 15 s |
+| CI `maybrowser.yml` (run 41107159309) | 1 min 26 s |
+| CI `native-targets.yml` (last success, run 40927832675) | 1 min 31 s |
+
 ## What "better" means meanwhile
 
 With the scope reduced, work goes to the language on Linux x86-64, in this
@@ -139,7 +161,7 @@ order:
 
 | Step | State |
 | --- | --- |
-| 1 Baseline and triage | not started |
+| 1 Baseline and triage | done: [baseline](#baseline), `frozen/README.md`, checks skip `frozen/` |
 | 2 Platform experiments and ML | not started |
 | 3 CI and distribution | not started |
 | 4 Compiler seams | not started |
