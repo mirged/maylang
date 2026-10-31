@@ -126,6 +126,7 @@ that span components. Relative imports between siblings use
 | `make test-limits` | GC pressure, capacity and codegen reports |
 | `make test-all` | Everything, including optional integrations |
 | `make editor` | `npm ci && npm run compile` in `editors/vscode` |
+| `make test-editor` | Extension-host lifecycle tests on a pinned VS Code (downloaded to `editors/vscode/.vscode-test/`; uses `xvfb-run` without a display) |
 | `make package` | Builds a release bundle and installers, then tests the extracted bundle |
 
 `MAYC=/abs/path/to/mayc make test-...` tests a specific compiler. Check optional
@@ -144,7 +145,7 @@ Socket and window tests skip when unavailable; say so in your report.
 | `stdlib/**` | `make test-compiler` (stdlib contracts), regenerate docs (below), `make test-ui` for `stdlib/ui` |
 | `tools/**` | `make test-tools` |
 | `dist/**`, `scripts/**`, installer | `make test-distribution test-installer`; `make package` for bundle changes |
-| `editors/vscode/**` | `make editor` |
+| `editors/vscode/**` | `make editor test-editor` |
 | Docs only | `make check test-docs` |
 | An example project | build and run it, then `make test-compiler` if `verify.py` lists it |
 

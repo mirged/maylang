@@ -6,3 +6,6 @@ tsconfig.json
 .eslintrc*
 .gitignore
 .vscodeignore
+out/test/**
+test-fixtures/**
+.vscode-test/**
