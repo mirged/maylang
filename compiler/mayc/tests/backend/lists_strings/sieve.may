@@ -1,0 +1,18 @@
+let n: Int = 10000000;
+let flags: List<Bool> = [];
+mut i: Int = 0;
+while (i < n) { push(flags, true); i += 1; }
+flags[0] = false;
+flags[1] = false;
+i = 2;
+while (i * i < n) {
+    if (flags[i]) {
+        mut j: Int = i * i;
+        while (j < n) { flags[j] = false; j += i; }
+    }
+    i += 1;
+}
+mut count: Int = 0;
+i = 0;
+while (i < n) { if (flags[i]) { count += 1; } i += 1; }
+print(count);
