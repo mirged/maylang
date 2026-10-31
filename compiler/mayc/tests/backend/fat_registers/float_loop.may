@@ -1,0 +1,28 @@
+// Mandelbrot membership on a 600x600 grid in a function.
+fun run(size: Int) -> Int {
+    mut inside: Int = 0;
+    mut y: Int = 0;
+    while (y < size) {
+        let ci: Float = 2.0 * to_float(y) / to_float(size) - 1.0;
+        mut x: Int = 0;
+        while (x < size) {
+            let cr: Float = 2.0 * to_float(x) / to_float(size) - 1.5;
+            mut zr: Float = 0.0;
+            mut zi: Float = 0.0;
+            mut k: Int = 0;
+            mut escaped: Bool = false;
+            while (k < 100) {
+                let tr: Float = zr * zr - zi * zi + cr;
+                zi = 2.0 * zr * zi + ci;
+                zr = tr;
+                if (zr * zr + zi * zi > 4.0) { escaped = true; break; }
+                k += 1;
+            }
+            if (!escaped) { inside += 1; }
+            x += 1;
+        }
+        y += 1;
+    }
+    return inside;
+}
+print(run(600));

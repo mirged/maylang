@@ -1,0 +1,81 @@
+struct Body { x: Float, y: Float, z: Float, vx: Float, vy: Float, vz: Float, mass: Float }
+
+let pi: Float = 3.141592653589793;
+let solar_mass: Float = 4.0 * pi * pi;
+let dpy: Float = 365.24;
+
+fun energy(bodies: List<Body>) -> Float {
+    mut e: Float = 0.0;
+    let n: Int = len(bodies);
+    mut i: Int = 0;
+    while (i < n) {
+        let b: Body = bodies[i];
+        e += 0.5 * b.mass * (b.vx * b.vx + b.vy * b.vy + b.vz * b.vz);
+        mut j: Int = i + 1;
+        while (j < n) {
+            let c: Body = bodies[j];
+            let dx: Float = b.x - c.x;
+            let dy: Float = b.y - c.y;
+            let dz: Float = b.z - c.z;
+            e -= b.mass * c.mass / sqrt(dx * dx + dy * dy + dz * dz);
+            j += 1;
+        }
+        i += 1;
+    }
+    return e;
+}
+
+fun advance(bodies: List<Body>, dt: Float) -> Nil {
+    let n: Int = len(bodies);
+    mut i: Int = 0;
+    while (i < n) {
+        let b: Body = bodies[i];
+        mut j: Int = i + 1;
+        while (j < n) {
+            let c: Body = bodies[j];
+            let dx: Float = b.x - c.x;
+            let dy: Float = b.y - c.y;
+            let dz: Float = b.z - c.z;
+            let d2: Float = dx * dx + dy * dy + dz * dz;
+            let mag: Float = dt / (d2 * sqrt(d2));
+            b.vx -= dx * c.mass * mag;
+            b.vy -= dy * c.mass * mag;
+            b.vz -= dz * c.mass * mag;
+            c.vx += dx * b.mass * mag;
+            c.vy += dy * b.mass * mag;
+            c.vz += dz * b.mass * mag;
+            j += 1;
+        }
+        i += 1;
+    }
+    for b: Body in bodies {
+        b.x += dt * b.vx;
+        b.y += dt * b.vy;
+        b.z += dt * b.vz;
+    }
+    return;
+}
+
+let bodies: List<Body> = [
+    Body(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, solar_mass),
+    Body(4.84143144246472090e+00, -1.16032004402742839e+00, -1.03622044471123109e-01, 1.66007664274403694e-03 * dpy, 7.69901118419740425e-03 * dpy, -6.90460016972063023e-05 * dpy, 9.54791938424326609e-04 * solar_mass),
+    Body(8.34336671824457987e+00, 4.12479856412430479e+00, -4.03523417114321381e-01, -2.76742510726862411e-03 * dpy, 4.99852801234917238e-03 * dpy, 2.30417297573763929e-05 * dpy, 2.85885980666130812e-04 * solar_mass),
+    Body(1.28943695621391310e+01, -1.51111514016986312e+01, -2.23307578892655734e-01, 2.96460137564761618e-03 * dpy, 2.37847173959480950e-03 * dpy, -2.96589568540237556e-05 * dpy, 4.36624404335156298e-05 * solar_mass),
+    Body(1.53796971148509165e+01, -2.59193146099879641e+01, 1.79258772950371181e-01, 2.68067772490389322e-03 * dpy, 1.62824170038242295e-03 * dpy, -9.51592254519715870e-05 * dpy, 5.15138902046611451e-05 * solar_mass)
+];
+mut px: Float = 0.0;
+mut py: Float = 0.0;
+mut pz: Float = 0.0;
+for b: Body in bodies {
+    px += b.vx * b.mass;
+    py += b.vy * b.mass;
+    pz += b.vz * b.mass;
+}
+let sun: Body = bodies[0];
+sun.vx = 0.0 - px / solar_mass;
+sun.vy = 0.0 - py / solar_mass;
+sun.vz = 0.0 - pz / solar_mass;
+print(energy(bodies));
+mut step: Int = 0;
+while (step < 200000) { advance(bodies, 0.01); step += 1; }
+print(energy(bodies));

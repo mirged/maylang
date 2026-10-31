@@ -141,7 +141,10 @@ CPython's.
 ## Phase 3: type-directed code generation
 
 - [#96](https://github.com/mirged/maylang/issues/96): register-allocated
-  temporaries and loop-carried locals in fat x86-64 code.
+  temporaries and loop-carried locals in fat x86-64 code. Done: forwarded
+  constants and variable reads, fused compare-and-branch, immediates,
+  inline Float paths and two callee-saved register pairs for hot locals
+  ([report](../../compiler/mayc/tests/backend/fat-registers.md)).
 - Use static types: when the checker proves both operands are `Int` or
   `Float`, emit the operation without loading or testing type words, and
   keep such locals as single machine words, materializing a fat value only
@@ -226,7 +229,7 @@ stage timings).
 | 0 Measurement | baseline measured locally; suite not tracked yet |
 | 1 Runtime algorithms | #97, #99 open |
 | 2 Object layout | #98 open |
-| 3 Type-directed code generation | #96, #94 open |
+| 3 Type-directed code generation | #96 done; #94 open |
 | 4 IR optimizer | not started |
 | 5 Allocation and collection | not started |
 | 6 Other targets | deferred (frozen) |

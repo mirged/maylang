@@ -180,6 +180,17 @@
   sieve falls from 1 085 ms and 420 MiB to 613 ms and 160 MiB, the strings
   workload from 277 ms and 262 MiB to 90 ms and 66 MiB, and mayc compiles
   itself 13% faster ([report](compiler/mayc/tests/backend/lists-strings.md)).
+- Keep fat temporaries and hot locals in registers
+  ([#96](https://github.com/mirged/maylang/issues/96)). Constants and
+  unchanged variable reads load straight into the registers that use them,
+  comparisons that steer a branch jump directly, Int constants become
+  immediates (powers of two divide by shifting), Float operations on
+  statically `Float` operands run inline, slow paths move out of line, and
+  up to two loop-hot locals per function live in callee-saved register
+  pairs, which the collector now marks. Int and Float loops run about 3×
+  faster, n-body and list loops 2×, closure calls 1.5×, and the compiler
+  binary shrinks from 3.02 MB to 2.42 MB
+  ([report](compiler/mayc/tests/backend/fat-registers.md)).
 
 ## MayOS
 

@@ -1,0 +1,18 @@
+// Calls through closure values in a loop.
+fun compose(f: (Int) -> Int, g: (Int) -> Int) -> (Int) -> Int {
+    return fun(x: Int) -> Int { return f(g(x)); };
+}
+fun run(count: Int) -> Int {
+    let step: Int = 3;
+    let add: (Int) -> Int = fun(x: Int) -> Int { return x + step; };
+    let half: (Int) -> Int = fun(x: Int) -> Int { return x / 2; };
+    let both: (Int) -> Int = compose(add, half);
+    mut total: Int = 0;
+    mut i: Int = 0;
+    while (i < count) {
+        total = (total + both(i)) % 1000000007;
+        i += 1;
+    }
+    return total;
+}
+print(run(20000000));
