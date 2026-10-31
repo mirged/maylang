@@ -114,30 +114,6 @@ jobs:
             tests/compliance/build/verify-*/**/*.stderr
             tests/compliance/build/fuzz/**
           if-no-files-found: ignore
-  core-emulation:
-    needs: bootstrap
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: maylang-linux-x86_64
-          path: /tmp/maylang-archive
-      - name: Verify and extract the tested toolchain
-        working-directory: /tmp/maylang-archive
-        run: |
-          sha256sum -c maylang.tar.gz.sha256
-          mkdir /tmp/maylang-toolchain
-          tar -xzf maylang.tar.gz -C /tmp/maylang-toolchain
-      - name: Execute portable core on all targets
-        run: |
-          python3 -m venv /tmp/maylang-validation
-          /tmp/maylang-validation/bin/python -m pip install unicorn==2.1.4
-          set -- /tmp/maylang-toolchain/maylang-*/bin/mayc
-          /tmp/maylang-validation/bin/python compiler/mayc/tests/core_runtime.py --compiler "$1" --require-emulation
-          /tmp/maylang-validation/bin/python compiler/mayc/tests/portable_values.py --compiler "$1" --require-emulation
   performance:
     if: github.event_name == 'workflow_dispatch'
     needs: bootstrap

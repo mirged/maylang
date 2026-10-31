@@ -163,7 +163,7 @@ order:
 | --- | --- |
 | 1 Baseline and triage | done: [baseline](#baseline), `frozen/README.md`, checks skip `frozen/` |
 | 2 Platform experiments and ML | done; the ML examples (`ml_xor.may`, the ecosystem simulation) are frozen too |
-| 3 CI and distribution | not started |
+| 3 CI and distribution | done |
 | 4 Compiler seams | not started |
 | 5 Freeze targets | not started |
 | 6 Documentation | not started |

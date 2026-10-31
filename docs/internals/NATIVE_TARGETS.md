@@ -1,7 +1,7 @@
 # Native core target verification
 
-The [Native core targets workflow](../../.github/workflows/native-targets.yml)
-builds the compiler from source on Linux x86-64 and cross-emits checksummed
+The [Native core targets workflow](../../frozen/.github/workflows/native-targets.yml),
+frozen since #102, built the compiler from source on Linux x86-64 and cross-emits checksummed
 ARM64 Mach-O and x86-64 PE fixtures. Separate jobs execute them with the real
 loaders on Apple Silicon macOS 14/15 and Windows Server 2022/2025. The compiler
 itself is still hosted on Linux x86-64; these jobs verify emitted core programs.

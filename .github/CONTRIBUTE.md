@@ -16,7 +16,7 @@ See the [active roadmap](../ROADMAP.md) and [audit evidence](../docs/AUDIT.md).
 
 Use the PR template, keep work in a topic branch, and report actual checks.
 The `repository` job in `bootstrap.yml` runs quick link/reference/distribution
-validation independently of the compiler, browser and native-target jobs. Branch workflows cancel
+validation independently of the compiler job. Branch workflows cancel
 superseded runs; a tagged release reruns `bootstrap.yml` before it publishes.
 
 Maintainers can inspect the live state with:

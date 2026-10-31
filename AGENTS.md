@@ -351,8 +351,8 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 `.github/workflows/`: `bootstrap.yml` runs `make check` and
 `make test-distribution` as a quick `repository` job, then the source-only
 bootstrap, Rust tests, compiler verification, UI under X11, compliance,
-packaging and the editor; it also has optional core-emulation and performance
-jobs. `native-targets.yml` runs real Windows/macOS loaders. `release.yml` runs `bootstrap.yml` on a
+packaging and the editor; it also has an optional performance job.
+`release.yml` runs `bootstrap.yml` on a
 tag, then packages and publishes. CI uses Ubuntu 24.04 and Node 22.
 
 ## Known hazards

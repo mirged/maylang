@@ -17,7 +17,6 @@ See the [one-line install command](../docs/guide/INSTALL.md).
 | `terminal.may` | Arrow-key selectors, tool checkboxes, progress, plain menus and terminal restoration |
 | `bootstrap.c` | Template for the standalone host-cc launcher and embedded Maylang installer |
 | `build_installer.py` | Generate self-contained C/shell artifacts from a complete bundle |
-| `install.ps1` | Run the Linux installer inside the default WSL distribution |
 | `update.py` | Migrate older Bash-managed installations |
 | `auto_update.py` | Verify and install newer stable releases for managed prefixes |
 | `systemd/` | Optional hourly user timer and service for automatic updates |
@@ -52,8 +51,7 @@ checks. `make package` also tests an extracted toolchain. Tagged packaging uses
 `--release-tag v<version>` and requires a clean checkout at that exact tag;
 see [releasing](../docs/guide/RELEASING.md).
 
-The tagged workflow also publishes standalone `install.sh` and `install.ps1`
-assets so release users need no checkout. Older releases can use the
+The tagged workflow also publishes a standalone `install.sh` asset so release users need no checkout. Older releases can use the
 compatibility installers in this repository.
 
 `--installer-output DIR` also produces the prebuilt `maylang-init-x86_64-linux`,

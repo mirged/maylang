@@ -416,10 +416,9 @@ and reports are stored there as well.
 
 The source-only workflow keeps source convergence, compiler/library checks,
 project workflows, LSP, extracted installation and compliance in `bootstrap`.
-Editor packaging runs in `editor`. Cross-target execution runs separately in
-the optional `core-emulation` job using the checksummed bootstrap artifact.
-The separate `Native core targets` workflow runs required real-loader checks
-on Windows Server 2022/2025 and Apple Silicon macOS 14/15.
+Editor packaging runs in `editor`. Cross-target emulation and the real-loader
+checks on Windows and macOS are no longer run in CI; they are frozen with the
+other targets (#102).
 Both optional jobs use `continue-on-error`; a failing emulator installation or
 performance measurement does not fail the required checks. Native core checks
 remain in compiler verification. Branch protection can require `bootstrap` and
