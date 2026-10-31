@@ -91,8 +91,9 @@ print(may {{ unsigned64(bad); "bad" }} otherwise {{ str(err.kind) }});
             result = run([binary])
             assert (result.returncode, result.stdout, result.stderr) == (0, expected, b''), (target, result)
             print(f'PASS {target}: scalar C ABI, stack arguments, function values and guards', flush=True)
-        # Native-word functions (#92) call integer externs with machine words:
-        # results keep bit 61 and above, and only UInt ranges are checked.
+        # Native-word functions (#92) call integer externs directly with
+        # machine words (#94): results keep bit 61 and above, and only UInt
+        # ranges are checked, with the fat entry's fault messages.
         c_source.write_text('#include <stdbool.h>\n#include <stdint.h>\n'
                             'int64_t high(int64_t n) { return n << 61; }\n'
                             'uint64_t ident(uint64_t n) { return n; }\n'

@@ -171,6 +171,10 @@ fun rt_badop(os: Any, ol: Any, at: Any, bt: Any) -> Any {
 fun rt_native_fault(kind: Any) -> Any {
     if (kind == 1) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
     if (kind == 2) { return rt_failarith(rt_from(addr("shift count out of range"), 24)); }
+    // A word extern's UInt argument or result (x86_foreign_native), with
+    // the messages of the fat entry (rt_ffi_arg, rt_ffi_result).
+    if (kind == 3) { return rt_failarith(rt_from(addr("unsigned argument out of range"), 30)); }
+    if (kind == 4) { return rt_failarith(rt_from(addr("C result exceeds Int range"), 26)); }
     return rt_overflow();
 }
 

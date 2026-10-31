@@ -33,6 +33,11 @@
 
 ## Compiler
 
+- Native-word functions call `extern` functions with `Int`, `UInt`, `Ptr`
+  and `Bool` signatures directly again, passing machine words to C instead
+  of going through the extern's fat entry, as `docs/guide/STRICT.md`
+  describes. UInt range faults keep the fat entry's messages
+  ([#94](https://github.com/mirged/maylang/issues/94)).
 - **Breaking:** remove the experimental `clang-llvm` target and
   `--emit-llvm`. mayc is its own toolchain and writes every executable
   itself; both now fail with an explanation. `make test-llvm`, the doctor's

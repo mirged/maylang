@@ -39,8 +39,7 @@ fun word_builtin(scan: Any, node: Any, name: Any) -> Any {
 // contracts, which keep their users tagged. Only targets with a native extern
 // bridge (x86-64 Linux ELF), at most six arguments.
 fun word_foreign(ctx: Any, rec: Any) -> Any {
-    // Fat values call externs through their fat entry (x86_64_fat.may) for now.
-    if (rec.foreign != true or rec.pc > 6 or DYNMODE == 1) { return false; }
+    if (rec.foreign != true or rec.pc > 6) { return false; }
     if (not (ctx.target.arch == "x86_64" and ctx.target.os == "linux")) { return false; }
     for kind: Any in rec.ffiArgs { if (not has([0, 1, 6, 8], kind)) { return false; } }
     return has([0, 1, 6, 8, 9], rec.ffiResult);
