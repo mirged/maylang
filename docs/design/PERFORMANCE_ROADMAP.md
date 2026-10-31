@@ -145,10 +145,14 @@ CPython's.
   constants and variable reads, fused compare-and-branch, immediates,
   inline Float paths and two callee-saved register pairs for hot locals
   ([report](../../compiler/mayc/tests/backend/fat-registers.md)).
-- Use static types: when the checker proves both operands are `Int` or
-  `Float`, emit the operation without loading or testing type words, and
-  keep such locals as single machine words, materializing a fat value only
-  at `Any` boundaries, calls into dynamic code and handlers.
+- Use static types: when both operands are known to be `Int` or `Float`,
+  emit the operation without loading or testing type words, and keep such
+  locals as single machine words, materializing a fat value only at `Any`
+  boundaries, calls into dynamic code and handlers. Partly done: proven
+  types skip checks and get single-register homes
+  ([report](../../compiler/mayc/tests/backend/proven-types.md)). Because
+  `Any` aliases can bypass annotations, types are proven from operations,
+  not taken from the checker. Floats still move through general registers.
 - **Native Float functions:** extend `words.may` so functions over `Int`,
   `Float`, `Ptr` and `Bool` compile to machine code with `Float` in XMM
   registers (same binary64 semantics as the runtime).
@@ -227,9 +231,9 @@ stage timings).
 | Phase | State |
 | --- | --- |
 | 0 Measurement | baseline measured locally; suite not tracked yet |
-| 1 Runtime algorithms | #97, #99 open |
-| 2 Object layout | #98 open |
-| 3 Type-directed code generation | #96 done; #94 open |
+| 1 Runtime algorithms | #97, #99 done; runtime audit open |
+| 2 Object layout | #98 done (field caches); slot layout open |
+| 3 Type-directed code generation | #96 done; proven types done; #94 open |
 | 4 IR optimizer | not started |
 | 5 Allocation and collection | not started |
 | 6 Other targets | deferred (frozen) |

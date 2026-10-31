@@ -31,7 +31,7 @@ before expanding related capabilities.
 - [x] [#40: fix(may): include declared environment inputs in native cache identity](https://github.com/mirged/maylang/issues/40)
 - [x] [#41: fix(may): skip non-executable entries during PATH lookup](https://github.com/mirged/maylang/issues/41)
 - [x] [#42: fix(may): bound child shutdown and escalate after SIGTERM](https://github.com/mirged/maylang/issues/42)
-- [ ] [#89: fix(runtime): fault on out-of-range Float to Int conversions](https://github.com/mirged/maylang/issues/89)
+- [x] [#89: fix(runtime): fault on out-of-range Float to Int conversions](https://github.com/mirged/maylang/issues/89)
 - [x] [#43: fix(distribution): reject archive links that escape the toolchain bundle](https://github.com/mirged/maylang/issues/43)
 - [x] [#44: feat(maybrowser): enforce network and decoded-image resource budgets](https://github.com/mirged/maylang/issues/44)
 
@@ -76,10 +76,10 @@ benchmark and close to Java and Node on typed code. Fix runtime algorithms
 first, then object layout, type-directed code generation, an IR optimizer and
 allocation. Each step needs a measured report and oracle tests.
 
-- [ ] [#97: perf(runtime): Map hashes only Str keys; Int and other keys use a linear scan](https://github.com/mirged/maylang/issues/97)
-- [ ] [#99: perf(runtime): lists, strings and join slower than CPython with 4-8x its memory](https://github.com/mirged/maylang/issues/99)
-- [ ] [#98: perf(runtime): struct field access is a string-keyed map lookup](https://github.com/mirged/maylang/issues/98)
-- [ ] [#96: perf(codegen): register-allocated temporaries for fat x86-64 code](https://github.com/mirged/maylang/issues/96)
+- [x] [#97: perf(runtime): Map hashes only Str keys; Int and other keys use a linear scan](https://github.com/mirged/maylang/issues/97)
+- [x] [#99: perf(runtime): lists, strings and join slower than CPython with 4-8x its memory](https://github.com/mirged/maylang/issues/99)
+- [x] [#98: perf(runtime): struct field access is a string-keyed map lookup](https://github.com/mirged/maylang/issues/98)
+- [x] [#96: perf(codegen): register-allocated temporaries for fat x86-64 code](https://github.com/mirged/maylang/issues/96)
 - [ ] [#94: refactor(compiler): restore or remove native-word extern calls under fat values](https://github.com/mirged/maylang/issues/94)
 
 ## Propose or change priorities

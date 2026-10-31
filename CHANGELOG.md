@@ -203,6 +203,16 @@
   faster, n-body and list loops 2×, closure calls 1.5×, and the compiler
   binary shrinks from 3.02 MB to 2.42 MB
   ([report](compiler/mayc/tests/backend/fat-registers.md)).
+- Prove value types in fat code and use them to drop type checks and halve
+  register homes ([#101](https://github.com/mirged/maylang/issues/101)).
+  A forward analysis proves a type only from operations whose result type
+  the runtime guarantees (literals, comparisons, Int and Float arithmetic
+  on proven operands, `len`, `str`, `to_float`) and from variables whose
+  every binding is proven, never from annotations alone. Proven operands
+  skip their type-word checks, and proven locals keep only their payload
+  in one register, so up to five hot locals per function stay in RBX and
+  R12–R15. Int loops run about 1.15× faster; other workloads are unchanged
+  ([report](compiler/mayc/tests/backend/proven-types.md)).
 
 ## MayOS
 
