@@ -13,51 +13,132 @@
 - **Err** — `fun Err(error: Any) -> Any` — Return a failure map `{ok: false, value: nil, error}`.
 - **Some** — `fun Some(value: Any) -> Any` — Return the same success-map representation as `Ok`.
 - **None** — `fun None() -> Any` — Return `nil`; invoke as a zero-argument function.
-- **__op_add** — `fun __op_add(a: Any, b: Any) -> Any` — Internal map/record `+` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.
-- **__op_sub** — `fun __op_sub(a: Any, b: Any) -> Any` — Internal map/record `-` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.
-- **__op_mul** — `fun __op_mul(a: Any, b: Any) -> Any` — Internal map/record `*` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.
-- **__op_div** — `fun __op_div(a: Any, b: Any) -> Any` — Internal map/record `/` hook dispatch; call the left operand's method with `(self, other)` or return `nil` when unavailable.
+- **__op_add** — `fun __op_add(a: Any, b: Any) -> Any` — Dispatch a map/record `+` operator hook: call the left operand's method with `(self, other)`, or return `nil` when it has none.
+- **__op_sub** — `fun __op_sub(a: Any, b: Any) -> Any` — Dispatch a map/record `-` operator hook: call the left operand's method with `(self, other)`, or return `nil` when it has none.
+- **__op_mul** — `fun __op_mul(a: Any, b: Any) -> Any` — Dispatch a map/record `*` operator hook: call the left operand's method with `(self, other)`, or return `nil` when it has none.
+- **__op_div** — `fun __op_div(a: Any, b: Any) -> Any` — Dispatch a map/record `/` operator hook: call the left operand's method with `(self, other)`, or return `nil` when it has none.
 - **str_concat** — `fun str_concat(a: Any, b: Any) -> Any` — Concatenate through the dynamic `+` operator.
-- **__native_utf8_width** — `fun __native_utf8_width(byte: Any) -> Any` — Native prelude helper: return the byte width of a valid UTF-8 leading byte.
-- **__native_copy_bytes** — `fun __native_copy_bytes(destination: Int, source: Int, count: Int) -> Int` — Native prelude helper: copy a byte count between raw addresses and return the count.
-- **__native_string_bytes** — `fun __native_string_bytes(s: Any, start: Any, count: Any) -> Any` — Native prelude helper: copy an in-range UTF-8 byte slice into a fresh string; the caller must preserve codepoint boundaries.
-- **substring** — `fun substring(s: Any, start: Any, count: Any) -> Any` — Return a string starting at codepoint index start and containing count codepoints; require indices within the source string.
-- **is_space_code** — `fun is_space_code(c: Any) -> Any` — True for ASCII space, tab, LF and CR character codes.
-- **is_upper_code** — `fun is_upper_code(c: Any) -> Any` — True for ASCII uppercase letter codes 65..90.
-- **is_lower_code** — `fun is_lower_code(c: Any) -> Any` — True for ASCII lowercase letter codes 97..122.
+- **__native_utf8_width** — `fun __native_utf8_width(byte: Any) -> Any` — Return the byte width of a valid UTF-8 leading byte; native prelude helper.
+- **__native_copy_bytes** — `fun __native_copy_bytes(destination: Int, source: Int, count: Int) -> Int` — Copy `count` bytes from `source` to `destination` and return the count; native prelude helper.
+- `__native_copy_bytes`: Its Int-only signature makes the full runtime compile it as a native-word loop; the source bootstrap ignores the types.
+- **__native_string_bytes** — `fun __native_string_bytes(s: Any, start: Any, count: Any) -> Any` — Copy an in-range UTF-8 byte slice into a fresh string; native prelude helper.
+- `__native_string_bytes`: The caller must preserve code point boundaries.
+- **substring** — `fun substring(s: Any, start: Any, count: Any) -> Any` — Copy `count` code points of `s`, starting at code point index `start`.
+- `substring`: The third argument is a count, not an end index, and the range must lie within `s`.
+- `substring` parameter `s`: The input string.
+- `substring` parameter `start`: The zero-based starting character index.
+- `substring` parameter `count`: The number of characters to copy.
+- `substring` returns: A string.
+- `substring` example: `print(substring("hello", 1, 3));`.
+- **is_space_code** — `fun is_space_code(c: Any) -> Any` — Report whether a character code is ASCII space, tab, LF or CR.
+- **is_upper_code** — `fun is_upper_code(c: Any) -> Any` — Report whether a character code is an ASCII uppercase letter (65..90).
+- **is_lower_code** — `fun is_lower_code(c: Any) -> Any` — Report whether a character code is an ASCII lowercase letter (97..122).
 - **trim** — `fun trim(s: Any) -> Any` — Remove whitespace from the beginning and end of a string.
-- **__native_ascii_case** — `fun __native_ascii_case(s: Any, low: Any, delta: Any) -> Any` — Native prelude helper: copy a string, shifting the 26 ASCII letters starting at `low` by `delta`; other bytes are unchanged.
+- `trim` parameter `s`: The input string.
+- `trim` returns: A string.
+- `trim` example: `print(trim("  hello  "));`.
+- **__native_ascii_case** — `fun __native_ascii_case(s: Any, low: Any, delta: Any) -> Any` — Copy `s`, shifting the 26 ASCII letters starting at `low` by `delta`; native prelude helper.
+- `__native_ascii_case`: Every other byte, including all bytes of multi-byte code points, is copied unchanged.
 - **to_lower** — `fun to_lower(s: Any) -> Any` — Return an ASCII-lowercased string; other character codes pass through.
 - **to_upper** — `fun to_upper(s: Any) -> Any` — Return an ASCII-uppercased string; other character codes pass through.
-- **__native_find** — `fun __native_find(s: Any, sub: Any, offset: Any) -> Any` — Native prelude helper: return the byte offset of the first `sub` in `s` at or after byte `offset`, or -1.
+- **__native_find** — `fun __native_find(s: Any, sub: Any, offset: Any) -> Any` — Return the byte offset of the first `sub` in `s` at or after byte `offset`, or -1; native prelude helper.
+- `__native_find`: Valid UTF-8 needles only match at code point boundaries.
 - **index_of** — `fun index_of(s: Any, sub: Any) -> Any` — Return the first substring index or `-1`; an empty needle returns zero.
-- **contains** — `fun contains(s: Any, sub: Any) -> Any` — True when `index_of` is nonnegative.
-- **starts_with** — `fun starts_with(s: Any, prefix: Any) -> Any` — True when the string begins with the supplied prefix.
-- **ends_with** — `fun ends_with(s: Any, suffix: Any) -> Any` — True when the string ends with the supplied suffix.
-- **split** — `fun split(s: Any, delim: Any) -> Any` — Split by a literal delimiter, preserving empty fields; an empty delimiter returns a one-element list containing the original string.
+- **contains** — `fun contains(s: Any, sub: Any) -> Any` — Report whether the string contains the substring (`index_of` is nonnegative).
+- **starts_with** — `fun starts_with(s: Any, prefix: Any) -> Any` — Report whether the string begins with the supplied prefix.
+- **ends_with** — `fun ends_with(s: Any, suffix: Any) -> Any` — Report whether the string ends with the supplied suffix.
+- **split** — `fun split(s: Any, delim: Any) -> Any` — Split `s` at each occurrence of the literal `delim`, keeping empty fields.
+- `split`: An empty delimiter returns a one-element list containing `s`.
+- `split` parameter `s`: The input string.
+- `split` parameter `delim`: The separator string.
+- `split` returns: A list of string segments.
+- `split` example: `print(split("a,b,c", ","));`.
 - **replace** — `fun replace(s: Any, needle: Any, replacement: Any) -> Any` — Replace non-overlapping occurrences; an empty needle returns the original string.
+- `replace`: The matches are the same leftmost, non-overlapping ones that `split` finds.
 - **chars** — `fun chars(s: Any) -> Any` — Return Unicode codepoints as one-character strings.
-- **repeat** — `fun repeat(s: Any, n: Any) -> Any` — Return a string repeated n times; nonpositive counts produce an empty string.
-- **__join_list** — `fun __join_list(xs: Any, separator: Any) -> Any` — Native prelude helper: join a list's display texts with a string separator in one allocation; the full runtime compiles calls to it as rt_join.
+- **repeat** — `fun repeat(s: Any, n: Any) -> Any` — Concatenate `n` copies of `s`; a nonpositive count gives an empty string.
+- `repeat` parameter `s`: The string to repeat.
+- `repeat` parameter `n`: The number of copies.
+- `repeat` returns: The repeated string.
+- `repeat` example: `print(repeat("ab", 3));`.
+- **__join_list** — `fun __join_list(xs: Any, separator: Any) -> Any` — Join a list's display texts with a string separator; native prelude helper.
+- `__join_list`: The full runtime compiles calls to it as `rt_join` (`x86_64_fat.may` `fat_call`); this body serves the source bootstrap with one allocation of the total byte length and one copy per part.
 - **join** — `fun join(xs: Any, sep: Any) -> Any` — Convert items to strings and combine them with a separator between neighboring items.
+- `join` parameter `xs`: The values to combine.
+- `join` parameter `sep`: The text inserted between items.
+- `join` returns: The combined string.
+- `join` example: `print(join(["a", "b"], ","));`.
 - **int** — `fun int(x: Any) -> Any` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
+- `int` parameter `x`: A number or a trimmed decimal string with optional sign.
+- `int` returns: An integer.
 - `int` explicit fault strings: `"runtime"`; runtime/callback faults can also propagate.
+- `int` example: `print(int(" 42 ")); print(int(3.9));`.
 - **float** — `fun float(x: Any) -> Any` — Convert a number or numeric string to a floating-point value.
+- `float` parameter `x`: A number or numeric string.
+- `float` returns: A floating-point number.
 - `float` explicit fault strings: `"runtime"`; runtime/callback faults can also propagate.
+- `float` example: `print(float("3.5"));`.
 - **float_str** — `fun float_str(f: Any) -> Any` — Format a boxed float with the shortest digits that parse back to the same value; spell nonfinite values nan, inf and -inf and keep the sign of negative zero.
 - **reverse** — `fun reverse(x: Any) -> Any` — Build a list with the input items in reverse order.
-- **range** — `fun range(a: Any, b: Any) -> Any` — Return an eager list of integers from inclusive a to exclusive b; the full-runtime source function takes exactly two arguments.
+- `reverse` parameter `x`: The input list.
+- `reverse` returns: A new list.
+- `reverse` example: `print(reverse([1, 2, 3]));`.
+- **range** — `fun range(a: Any, b: Any) -> Any` — Build the list of integers from `a` (inclusive) to `b` (exclusive).
+- `range`: The function takes exactly two arguments; use `range_step` for other steps.
+- `range` parameter `a`: The inclusive starting value.
+- `range` parameter `b`: The exclusive stop value.
+- `range` returns: A list of integers.
+- `range` example: `print(range(1, 4));`.
 - **sum** — `fun sum(xs: Any) -> Any` — Add the numeric values in a list.
+- `sum` parameter `xs`: A list of numbers.
+- `sum` returns: The total; zero for an empty list.
+- `sum` example: `print(sum([1, 2, 3]));`.
 - **min** — `fun min(a: Any, b: Any) -> Any` — Return the lesser of two comparable values.
+- `min` parameter `a`: The first value.
+- `min` parameter `b`: The second value.
+- `min` returns: One of the two values.
+- `min` example: `print(min(3, 8));`.
 - **max** — `fun max(a: Any, b: Any) -> Any` — Return the greater of two comparable values.
+- `max` parameter `a`: The first value.
+- `max` parameter `b`: The second value.
+- `max` returns: One of the two values.
+- `max` example: `print(max(3, 8));`.
 - **abs** — `fun abs(x: Any) -> Any` — Return the nonnegative magnitude of a number.
+- `abs` parameter `x`: The input number.
+- `abs` returns: A numeric absolute value.
+- `abs` example: `print(abs(-4));`.
 - **sort** — `fun sort(xs: Any) -> Any` — Return the items in ascending order using the standard comparison function. The input list is preserved.
+- `sort` parameter `xs`: A list of comparable values.
+- `sort` returns: A new sorted list.
+- `sort` example: `print(sort([3, 1, 2]));`.
 - **keys** — `fun keys(m: Any) -> Any` — Collect the keys of a map.
+- `keys` parameter `m`: The input map.
+- `keys` returns: A list of keys.
+- `keys` example: `print(keys({"a": 1}));`.
 - **values** — `fun values(m: Any) -> Any` — Collect the values of a map.
-- **has** — `fun has(x: Any, key: Any) -> Any` — Membership: maps use key lookup, lists scan by value, strings scan for a substring (matching the language's `has`).
+- `values` parameter `m`: The input map.
+- `values` returns: A list of values.
+- `values` example: `print(values({"a": 1}));`.
+- **has** — `fun has(x: Any, key: Any) -> Any` — Report whether `x` contains `key`: maps look up keys, lists scan for an equal item and strings search for a substring.
+- `has`: This is the function behind the language's `has`.
+- `has` parameter `x`: The map, list, or string to search.
+- `has` parameter `key`: The key, item, or substring to find.
+- `has` returns: A boolean.
+- `has` example: `print(has({"name": "Ada"}, "name"));`.
 - **merge** — `fun merge(a: Any, b: Any) -> Any` — Combine two maps into a new map. Entries from the second map replace matching keys from the first.
+- `merge` parameter `a`: The first map.
+- `merge` parameter `b`: The second map, which takes precedence.
+- `merge` returns: A new combined map.
+- `merge` example: `print(merge({"a": 1}, {"a": 2, "b": 3}));`.
 - **remove** — `fun remove(m: Any, key: Any) -> Any` — Copy a map while omitting one key. The original map is preserved.
+- `remove` parameter `m`: The input map.
+- `remove` parameter `key`: The key to omit.
+- `remove` returns: A new map.
+- `remove` example: `let m: Any = {"a": 1, "b": 2}; let smaller: Any = remove(m, "a");`.
 - **str** — `fun str(x: Any) -> Any` — Convert a value to its textual representation.
+- `str` parameter `x`: The value to format.
+- `str` returns: A string.
+- `str` example: `print(str(42));`.
 - **make_error** — `fun make_error(kind: Any, message: Any) -> Any` — Build the structured error object exposed to `otherwise` as `err`.
 - **raise_error** — `fun raise_error(kind: Any, message: Any) -> Any` — Construct and raise a structured runtime error; does not return normally.
 - **fail_list** — `fun fail_list(items: Any) -> Any` — Build and raise a fail-category error from displayable message items.
@@ -75,17 +156,24 @@
 - `raise_overflow` explicit fault strings: `"arithmetic"`; runtime/callback faults can also propagate.
 - **raise_io_error** — `fun raise_io_error(message: Any) -> Any` — Raise an I/O-category error with the supplied message.
 - `raise_io_error` explicit fault strings: `"io"`; runtime/callback faults can also propagate.
-- **ptr** — `fun ptr(n: Any) -> Any` — A raw pointer is just an integer holding a machine address.
+- **ptr** — `fun ptr(n: Any) -> Any` — Return a raw pointer, which is just an integer holding a machine address.
 - **print_error** — `fun print_error(e: Any) -> Any` — Print a structured error's category/message and available stack text.
 - **concat_lists** — `fun concat_lists(a: Any, b: Any) -> Any` — Return a shallow concatenation of two lists.
-- **string_repr** — `fun string_repr(v: Any) -> Any` — The VM's `repr` as a string: strings are quoted when nested.
+- **string_repr** — `fun string_repr(v: Any) -> Any` — Format a value like the VM's `repr`: strings are quoted when nested.
 - **bool** — `fun bool(x: Any) -> Any` — Convert a value to its truth value. Only `nil` and `false` are false; zero, empty strings, and empty collections are true.
+- `bool` parameter `x`: The value whose truthiness is tested.
+- `bool` returns: `true` or `false`.
+- `bool` example: `print(bool(0));`.
 - **type** — `fun type(x: Any) -> Any` — Return the native runtime type name.
 - **sign** — `fun sign(x: Any) -> Any` — Return -1, 0 or 1 according to comparison with zero.
 - **parse_int** — `fun parse_int(x: Any) -> Any` — Parse a trimmed integer string with range checking; propagate conversion faults.
 - `parse_int` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
 - **parse_float** — `fun parse_float(x: Any) -> Any` — Parse a trimmed floating-point string through native conversion.
-- **env** — `fun env(name: Any) -> Any` — Read an environment variable (Linux: via `/proc/self/environ`).
+- **env** — `fun env(name: Any) -> Any` — Look up an environment variable of the current process.
+- `env`: On Linux the value is read from `/proc/self/environ`.
+- `env` parameter `name`: The environment variable name.
+- `env` returns: The variable’s string value, or `nil` if missing.
+- `env` example: `print(env("HOME") ?? "unset");`.
 - **pi** — `fun pi() -> Any` — Return the binary64 approximation of π, 3.141592653589793.
 - **e** — `fun e() -> Any` — Return the binary64 approximation of Euler's number, 2.718281828459045.
 - **round** — `fun round(x: Any) -> Any` — Round to the nearest integral Float; halfway values round toward positive infinity (`round(-2.5)` is `-2.0`).
@@ -95,32 +183,43 @@
 - **tanh** — `fun tanh(x: Any) -> Any` — Compute `(exp(2*x) - 1) / (exp(2*x) + 1)`; large inputs may overflow the exponential.
 - **hypot** — `fun hypot(x: Any, y: Any) -> Any` — Return `sqrt(x*x + y*y)` without an overflow-resistant scaling algorithm.
 - **cbrt** — `fun cbrt(x: Any) -> Any` — Return a sign-preserving cube root computed with fractional powers.
-- **jd_is_space** — `fun jd_is_space(c: Any) -> Any` — Internal JSON whitespace predicate for space, tab, LF and CR.
-- **jd_skip** — `fun jd_skip(s: Any, i: Any) -> Any` — Internal JSON parser: skip whitespace from index `i` and return the next index.
-- **jd_hex** — `fun jd_hex(c: Any) -> Any` — Internal JSON parser: decode one hexadecimal character or raise a parse fault.
+- **jd_is_space** — `fun jd_is_space(c: Any) -> Any` — Report whether a code is JSON whitespace (space, tab, LF or CR); JSON parser helper.
+- **jd_skip** — `fun jd_skip(s: Any, i: Any) -> Any` — Skip JSON whitespace from index `i` and return the next index.
+- **jd_hex** — `fun jd_hex(c: Any) -> Any` — Decode one hexadecimal character or raise a parse fault; JSON parser helper.
 - `jd_hex` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
-- **jd_string** — `fun jd_string(s: Any, i: Any) -> Any` — Internal JSON parser: decode a quoted string and return the parsed value and next position.
+- **jd_string** — `fun jd_string(s: Any, i: Any) -> Any` — Decode a quoted JSON string and return the parsed value and next position.
 - `jd_string` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
-- **jd_number** — `fun jd_number(s: Any, i: Any) -> Any` — Internal JSON parser: read a number and return the parsed value and next position.
-- **jd_array** — `fun jd_array(s: Any, i: Any) -> Any` — Internal JSON parser: read an array and return the parsed list and next position.
-- **jd_object** — `fun jd_object(s: Any, i: Any) -> Any` — Internal JSON parser: read an object and return the parsed map and next position.
-- **jd_value** — `fun jd_value(s: Any, i: Any) -> Any` — Internal JSON parser: dispatch by the next token and return the value and next position.
+- **jd_number** — `fun jd_number(s: Any, i: Any) -> Any` — Read a JSON number and return the parsed value and next position.
+- **jd_array** — `fun jd_array(s: Any, i: Any) -> Any` — Read a JSON array and return the parsed list and next position.
+- **jd_object** — `fun jd_object(s: Any, i: Any) -> Any` — Read a JSON object and return the parsed map and next position.
+- **jd_value** — `fun jd_value(s: Any, i: Any) -> Any` — Parse the JSON value at the next token and return the value and next position.
 - `jd_value` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
 - **json_parse** — `fun json_parse(s: Any) -> Any` — Decode a JSON string into Maylang strings, numbers, booleans, lists, maps, and `nil`.
-- `json_parse` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
 - `json_parse`: Returns dynamic maps/lists/scalars; rejects trailing content and malformed strings. See the implementation for supported Unicode escape behavior.
-- **jq_escape** — `fun jq_escape(s: Any) -> Any` — Internal JSON serializer: quote/escape a string including control characters.
+- `json_parse` parameter `s`: The JSON text.
+- `json_parse` returns: The decoded value.
+- `json_parse` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
+- `json_parse` example: `let value: Any = json_parse("{\"name\":\"Ada\"}"); print(value.name);`.
+- **jq_escape** — `fun jq_escape(s: Any) -> Any` — Quote and escape a string for JSON, including control characters.
 - **json_stringify** — `fun json_stringify(v: Any) -> Any` — Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.
 - `json_stringify`: Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values.
+- `json_stringify` parameter `v`: The value to encode.
+- `json_stringify` returns: A JSON string.
+- `json_stringify` example: `print(json_stringify({"name": "Ada", "ready": true}));`.
 - **clamp** — `fun clamp(x: Any, lo: Any, hi: Any) -> Any` — Return `max(lo, min(x, hi))`.
 - **chr** — `fun chr(n: Any) -> Any` — Return a one-character string from a character code.
 - **ord** — `fun ord(s: Any) -> Any` — Return the first character's codepoint; require a nonempty string.
-- **even** — `fun even(n: Any) -> Any` — True when `n % 2 == 0`.
-- **odd** — `fun odd(n: Any) -> Any` — True when `n % 2 != 0`.
+- **even** — `fun even(n: Any) -> Any` — Report whether `n` is even (`n % 2 == 0`).
+- **odd** — `fun odd(n: Any) -> Any` — Report whether `n` is odd (`n % 2 != 0`).
 - **product** — `fun product(xs: Any) -> Any` — Multiply a numeric list, starting at one.
 - **count** — `fun count(xs: Any, x: Any) -> Any` — Return the count of values equal to the supplied value.
 - **find** — `fun find(xs: Any, x: Any) -> Any` — Return the first element satisfying the unary predicate, or `nil`.
 - **slice** — `fun slice(xs: Any, start: Any, stop: Any) -> Any` — Copy a contiguous section of a list. Bounds are clamped to the list length; the stop index is exclusive.
+- `slice` parameter `xs`: The input list.
+- `slice` parameter `start`: The zero-based inclusive starting index.
+- `slice` parameter `stop`: The exclusive ending index.
+- `slice` returns: A new list; empty if stop is not greater than start.
+- `slice` example: `print(slice([10, 20, 30, 40], 1, 3));`.
 - **enumerate** — `fun enumerate(xs: Any) -> Any` — Return `[index, value]` pairs in input order.
 - **zip** — `fun zip(a: Any, b: Any) -> Any` — Return paired elements, stopping at the shorter list.
 - **flatten** — `fun flatten(xss: Any) -> Any` — Return a one-level concatenation of nested lists.
@@ -130,15 +229,34 @@
 - **pad_left** — `fun pad_left(s: Any, width: Any, ch: Any) -> Any` — Prepend whole padding strings until the code-point width is reached; empty padding faults when more text is needed.
 - **pad_right** — `fun pad_right(s: Any, width: Any, ch: Any) -> Any` — Append whole padding strings until the code-point width is reached; empty padding faults when more text is needed.
 - **split_lines** — `fun split_lines(s: Any) -> Any` — Split on LF, preserving empty fields.
-- **get** — `fun get(m: Any, key: Any, fallback: Any) -> Any` — Map lookup with a default for missing keys.
+- **get** — `fun get(m: Any, key: Any, fallback: Any) -> Any` — Look up `key` in a map, returning `fallback` when it is missing.
 - `get`: The implementation treats a nil lookup as absent, so a present nil value returns the fallback.
 - **times** — `fun times(n: Any, f: Any) -> Any` — Call unary `f(i)` over integers `0..n`; return `nil`.
 - **each** — `fun each(xs: Any, f: Any) -> Any` — Call unary `f(x)` for every input element; return `nil`.
 - **assert_eq** — `fun assert_eq(a: Any, b: Any) -> Any` — Raise an assertion error if actual and expected values differ.
 - `assert_eq` explicit fault strings: `"assert"`; runtime/callback faults can also propagate.
 - **ccall** — `fun ccall(fn: Any, args: Any) -> Any` — Call machine code at a raw address with up to six integer arguments using the native calling convention.
+- `ccall` parameter `fn`: The native function address.
+- `ccall` parameter `args`: A list of at most six integer arguments.
+- `ccall` returns: The native integer return value.
+- `ccall` example: `let result: Any = ccall(fn, [1, 2]);`.
 - **extern_c** — `fun extern_c(fn: Any) -> Any` — Wrap a native function address as a callable Maylang function accepting six integer arguments.
 - `extern_c`: The wrapper has six positional parameters and returns a raw integer C result; use ccall for a list of up to six integer arguments.
-- **sin** — `fun sin(value: Any) -> Any` — Return the sine of an angle in radians, reducing any finite argument exactly. Within one ulp.
-- **cos** — `fun cos(value: Any) -> Any` — Return the cosine of an angle in radians, reducing any finite argument exactly. Within one ulp.
-- **tan** — `fun tan(value: Any) -> Any` — Return the tangent of an angle in radians, reducing any finite argument exactly. Within one ulp.
+- `extern_c` parameter `fn`: The native function address.
+- `extern_c` returns: A callable wrapper.
+- `extern_c` example: `let call: Any = extern_c(fn); let result: Any = call(1, 2, 0, 0, 0, 0);`.
+- **sin** — `fun sin(value: Any) -> Any` — Return the sine of `value`, an angle in radians.
+- `sin`: Any finite argument is reduced exactly, and the result is within one ulp.
+- `sin` parameter `value`: The angle in radians.
+- `sin` returns: A floating-point result.
+- `sin` example: `print(sin(0.0));`.
+- **cos** — `fun cos(value: Any) -> Any` — Return the cosine of `value`, an angle in radians.
+- `cos`: Any finite argument is reduced exactly, and the result is within one ulp.
+- `cos` parameter `value`: The angle in radians.
+- `cos` returns: A floating-point result.
+- `cos` example: `print(cos(0.0));`.
+- **tan** — `fun tan(value: Any) -> Any` — Return the tangent of `value`, an angle in radians.
+- `tan`: Any finite argument is reduced exactly, and the result is within one ulp.
+- `tan` parameter `value`: The angle in radians.
+- `tan` returns: A floating-point result.
+- `tan` example: `print(tan(0.0));`.

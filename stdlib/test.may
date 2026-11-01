@@ -1,8 +1,12 @@
 // test.may — a minimal assertion / test harness.
 
+/// Mutable module-wide count of successful recorded assertions, initially zero.
 mut __passed: Any = 0;
+/// Mutable module-wide count of failed recorded assertions, initially zero.
 mut __failed: Any = 0;
 
+/// Increment passed/failed counters and print `FAIL: label` for false conditions; continue running
+/// the suite.
 fun check(condition: Any, label: Any) -> Any {
     return if (condition) {
         __passed = __passed + 1;
@@ -12,8 +16,10 @@ fun check(condition: Any, label: Any) -> Any {
     };
 }
 
+/// Record the supplied condition through `check`.
 fun assert_true(condition: Any, label: Any) -> Any { return check(condition, label); }
 
+/// Record equality; include actual/expected display values in a failure label.
 fun assert_equal(actual: Any, expected: Any, label: Any) -> Any {
     return check(
         actual == expected,
@@ -21,19 +27,23 @@ fun assert_equal(actual: Any, expected: Any, label: Any) -> Any {
     );
 }
 
+/// Record inequality against the unexpected value.
 fun assert_not_equal(actual: Any, unexpected: Any, label: Any) -> Any {
     return check(actual != unexpected, label);
 }
 
+/// Record membership through `has`.
 fun assert_contains(haystack: Any, needle: Any, label: Any) -> Any {
     return check(has(haystack, needle), label);
 }
 
+/// Record whether absolute numeric difference is at most tolerance.
 fun assert_near(actual: Any, expected: Any, tolerance: Any, label: Any) -> Any {
     let delta: Any = abs(actual - expected);
     return check(delta <= tolerance, label + " (delta " + str(delta) + ")");
 }
 
+/// Print totals and raise `fail` if any recorded assertion failed.
 fun test_summary() -> Any {
     print("tests:", __passed, "passed,", __failed, "failed");
     return if (__failed > 0) { fail("test suite failed"); };

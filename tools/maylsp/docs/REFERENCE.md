@@ -1,6 +1,6 @@
 # Maylang editor reference
 
-Generated from `reference.json`; edit the catalog and run `python3 docs/generate.py` from `tools/maylsp`. These descriptions also appear in hover, completion, and signature help. Signatures describe the public API; dynamic values may have several types.
+Generated from `reference.json` and, for functions defined in the standard library, their `///` comments; edit those and run `python3 docs/generate.py` from `tools/maylsp`. These descriptions also appear in hover, completion, and signature help. Signatures describe the public API; dynamic values may have several types.
 
 ## Keywords
 
@@ -939,13 +939,13 @@ print(len("héllo")); // 5
 ### `str`
 
 ```may
-str(value)
+str(x)
 ```
 
 Convert a value to its textual representation.
 
 **Parameters**
-- `value`: The value to format.
+- `x`: The value to format.
 
 **Returns:** A string.
 
@@ -957,13 +957,13 @@ print(str(42));
 ### `int`
 
 ```may
-int(value)
+int(x)
 ```
 
 Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
 
 **Parameters**
-- `value`: A number or a trimmed decimal string with optional sign.
+- `x`: A number or a trimmed decimal string with optional sign.
 
 **Returns:** An integer.
 
@@ -976,13 +976,13 @@ print(int(3.9));
 ### `float`
 
 ```may
-float(value)
+float(x)
 ```
 
 Convert a number or numeric string to a floating-point value.
 
 **Parameters**
-- `value`: A number or numeric string.
+- `x`: A number or numeric string.
 
 **Returns:** A floating-point number.
 
@@ -1012,13 +1012,13 @@ print(to_float(3));
 ### `bool`
 
 ```may
-bool(value)
+bool(x)
 ```
 
 Convert a value to its truth value. Only `nil` and `false` are false; zero, empty strings, and empty collections are true.
 
 **Parameters**
-- `value`: The value whose truthiness is tested.
+- `x`: The value whose truthiness is tested.
 
 **Returns:** `true` or `false`.
 
@@ -1258,13 +1258,13 @@ print(sort([3, 1, 2]));
 ### `reverse`
 
 ```may
-reverse(xs)
+reverse(x)
 ```
 
 Build a list with the input items in reverse order.
 
 **Parameters**
-- `xs`: The input list.
+- `x`: The input list.
 
 **Returns:** A new list.
 
@@ -1335,7 +1335,9 @@ print(values({"a": 1}));
 has(x, key)
 ```
 
-Check for a map key, a matching list item, or a substring within a string.
+Report whether `x` contains `key`: maps look up keys, lists scan for an equal item and strings search for a substring.
+
+This is the function behind the language's `has`.
 
 **Parameters**
 - `x`: The map, list, or string to search.
@@ -1510,6 +1512,8 @@ json_parse(s)
 
 Decode a JSON string into Maylang strings, numbers, booleans, lists, maps, and `nil`.
 
+Returns dynamic maps/lists/scalars; rejects trailing content and malformed strings. See the implementation for supported Unicode escape behavior.
+
 **Parameters**
 - `s`: The JSON text.
 
@@ -1528,6 +1532,8 @@ json_stringify(v)
 ```
 
 Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.
+
+Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values.
 
 **Parameters**
 - `v`: The value to encode.
@@ -1581,9 +1587,9 @@ clock()
 
 Read the wall clock as fractional seconds since the Unix epoch.
 
-**Returns:** A floating-point timestamp.
-
 This is a wall clock, so clock adjustments can change elapsed-time measurements.
+
+**Returns:** A floating-point timestamp.
 
 **Example**
 ```may
@@ -1951,6 +1957,8 @@ extern_c(fn)
 
 Wrap a native function address as a callable Maylang function accepting six integer arguments.
 
+The wrapper has six positional parameters and returns a raw integer C result; use ccall for a list of up to six integer arguments.
+
 **Parameters**
 - `fn`: The native function address.
 
@@ -2020,13 +2028,15 @@ print(ceil(2.1));
 ### `sin`
 
 ```may
-sin(x)
+sin(value)
 ```
 
-Compute the sine of an angle in radians.
+Return the sine of `value`, an angle in radians.
+
+Any finite argument is reduced exactly, and the result is within one ulp.
 
 **Parameters**
-- `x`: The number to evaluate; trigonometric angles use radians.
+- `value`: The angle in radians.
 
 **Returns:** A floating-point result.
 
@@ -2038,13 +2048,15 @@ print(sin(0.0));
 ### `cos`
 
 ```may
-cos(x)
+cos(value)
 ```
 
-Compute the cosine of an angle in radians.
+Return the cosine of `value`, an angle in radians.
+
+Any finite argument is reduced exactly, and the result is within one ulp.
 
 **Parameters**
-- `x`: The number to evaluate; trigonometric angles use radians.
+- `value`: The angle in radians.
 
 **Returns:** A floating-point result.
 
@@ -2056,13 +2068,15 @@ print(cos(0.0));
 ### `tan`
 
 ```may
-tan(x)
+tan(value)
 ```
 
-Compute the tangent of an angle in radians.
+Return the tangent of `value`, an angle in radians.
+
+Any finite argument is reduced exactly, and the result is within one ulp.
 
 **Parameters**
-- `x`: The number to evaluate; trigonometric angles use radians.
+- `value`: The angle in radians.
 
 **Returns:** A floating-point result.
 
@@ -2077,7 +2091,9 @@ print(tan(0.0));
 env(name)
 ```
 
-Look up an environment variable in the current process.
+Look up an environment variable of the current process.
+
+On Linux the value is read from `/proc/self/environ`.
 
 **Parameters**
 - `name`: The environment variable name.
@@ -2110,7 +2126,9 @@ print(args());
 substring(s, start, count)
 ```
 
-Copy a section of a string using Unicode character indices. The third argument is a count, not an ending index.
+Copy `count` code points of `s`, starting at code point index `start`.
+
+The third argument is a count, not an end index, and the range must lie within `s`.
 
 **Parameters**
 - `s`: The input string.
@@ -2127,14 +2145,16 @@ print(substring("hello", 1, 3)); // ell
 ### `split`
 
 ```may
-split(s, sep)
+split(s, delim)
 ```
 
-Separate a string at occurrences of a separator.
+Split `s` at each occurrence of the literal `delim`, keeping empty fields.
+
+An empty delimiter returns a one-element list containing `s`.
 
 **Parameters**
 - `s`: The input string.
-- `sep`: The separator string.
+- `delim`: The separator string.
 
 **Returns:** A list of string segments.
 
@@ -2186,11 +2206,11 @@ print(trim("  hello  "));
 repeat(s, n)
 ```
 
-Concatenate copies of a string.
+Concatenate `n` copies of `s`; a nonpositive count gives an empty string.
 
 **Parameters**
 - `s`: The string to repeat.
-- `n`: The nonnegative number of copies.
+- `n`: The number of copies.
 
 **Returns:** The repeated string.
 
@@ -2205,7 +2225,9 @@ print(repeat("ab", 3)); // ababab
 range(a, b)
 ```
 
-Build a list of consecutive integers from the start up to, but excluding, the stop value.
+Build the list of integers from `a` (inclusive) to `b` (exclusive).
+
+The function takes exactly two arguments; use `range_step` for other steps.
 
 **Parameters**
 - `a`: The inclusive starting value.

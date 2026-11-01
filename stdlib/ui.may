@@ -43,9 +43,9 @@ struct Rect { x: Int, y: Int, w: Int, h: Int }
 struct Hit { item: Widget, rect: Rect, full: Rect, limit: Int }
 /// Color palette shared by default controls. Custom style colors take precedence.
 pub struct Theme { background: Int, surface: Int, soft: Int, text: Int, muted: Int, accent: Int, on_accent: Int, border: Int }
-/// Light neutral surfaces with a violet accent.
+/// Return the light theme: neutral surfaces with a violet accent.
 pub fun light_theme() -> Theme { return Theme(16119803, 16777215, 15594231, 1517112, 6583690, 7167740, 16777215, 14476783); }
-/// Dark neutral surfaces with a lavender accent.
+/// Return the dark theme: neutral surfaces with a lavender accent.
 pub fun dark_theme() -> Theme { return Theme(1053983, 1778481, 2436928, 15594231, 9675962, 10325247, 1380646, 3424596); }
 /// Persistent window interaction state. Keep it while rebuilding views.
 pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Hit>, root: Any, active: Bool, cursor: Int, theme: Theme, pressed: Str, keyboard_focus: Bool }
@@ -55,11 +55,11 @@ pub struct Event { kind: Str, id: Str, text: Str, width: Int, height: Int }
 fun node(kind: Str, id: Str, text: Str, children: List<Widget>) -> Widget {
     return Widget(kind, id, text, "", children, 0, 0, 0, 0, 10, -1, -1, 16, 10, false, plain_decoration);
 }
-/// Single-line text, clipped to available width.
+/// Make a single-line text widget, clipped to the available width.
 pub fun label(text: Str) -> Widget { return node("label", "", text, []); }
-/// Clickable action with a stable, unique identifier.
+/// Make a clickable action widget with a stable, unique identifier.
 pub fun button(id: Str, text: Str) -> Widget { let item: Widget = node("button", id, text, []); item.height = 40; item.pad = 14; item.background = -2; return item; }
-/// Unicode text input; applications apply edit events to their model.
+/// Make a Unicode text input; applications apply edit events to their model.
 pub fun entry(id: Str, text: Str) -> Widget { let item: Widget = node("entry", id, text, []); item.height = 44; item.pad = 12; item.background = -2; item.width = 220; return item; }
 /// Copy packed RGBA8 pixels into the surface's single dynamic framebuffer.
 pub fun upload_rgba(pixels: Ptr, width: Int, height: Int) -> Nil {
@@ -76,19 +76,19 @@ pub fun framebuffer(source_width: Int, source_height: Int, integer_scale: Bool) 
 pub fun key_down(window: Window, key: Int) -> Bool { return window.active and not window.headless and mui_window_key_down(key) != 0; }
 /// Consume one key press, including short taps between polls; auto-repeat is excluded.
 pub fun key_pressed(window: Window, key: Int) -> Bool { return window.active and not window.headless and mui_window_key_pressed(key) != 0; }
-/// Whether the native window owns keyboard focus.
+/// Report whether the native window owns keyboard focus.
 pub fun focused(window: Window) -> Bool { return window.active and not window.headless and mui_window_focused() != 0; }
 /// Set an entry hint shown only while its value is empty.
 pub fun placeholder(item: Widget, hint: Str) -> Widget { if (item.kind != "entry") { fail("ui: placeholder requires an entry"); } item.hint = hint; return item; }
-/// Boolean action; toggle events report the next value as true or false.
+/// Make a Boolean toggle; toggle events report the next value as true or false.
 pub fun checkbox(id: Str, text: Str, checked: Bool) -> Widget { let item: Widget = node("checkbox", id, text, []); item.height = 40; item.checked = checked; return item; }
-/// Horizontal container; flexible children share remaining width.
+/// Lay children out horizontally; flexible children share the remaining width.
 pub fun row(children: List<Widget>) -> Widget { return node("row", "", "", children); }
-/// Vertical container; flexible children share remaining height.
+/// Lay children out vertically; flexible children share the remaining height.
 pub fun column(children: List<Widget>) -> Widget { return node("column", "", "", children); }
-/// Empty fixed space, or flexible space when used with flex.
+/// Make empty fixed space, or flexible space when used with flex.
 pub fun spacer(size: Int) -> Widget { let item: Widget = node("spacer", "", "", []); item.width = size; item.height = size; return item; }
-/// Vertical viewport; scroll offset belongs to the stable identifier.
+/// Make a vertical viewport whose scroll offset belongs to the stable identifier.
 pub fun scroller(id: Str, child: Widget) -> Widget { let item: Widget = node("scroll", id, "", [child]); item.grow = 1; return item; }
 /// Set requested dimensions; zero uses the measured content size.
 pub fun size(item: Widget, width: Int, height: Int) -> Widget { if (width < 0 or height < 0) { fail("ui: negative widget size"); } item.width = width; item.height = height; return item; }
@@ -115,7 +115,7 @@ pub fun elevated(item: Widget, level: Int) -> Widget {
 }
 /// Disable interaction while retaining the control's position in layout.
 pub fun enabled(item: Widget, value: Bool) -> Widget { let d: Decoration = item.decoration; item.decoration = Decoration(d.border_color, d.border_width, d.elevation, not value); return item; }
-/// A themed surface with a fine border and a soft elevation shadow.
+/// Wrap `item` in a themed surface with a fine border and a soft elevation shadow.
 pub fun card(item: Widget) -> Widget {
     item.background = -2; item.radius = 14; item.decoration = Decoration(-2, 1, 1, item.decoration.disabled); return item;
 }
@@ -252,7 +252,7 @@ fun draw(window: Window, item: Widget, rect: Rect, viewport: Rect, ids: Map<Str,
     } else { mui_text(tx, ty, item.text, item.font, foreground); }
     return;
 }
-/// Paint/layout a view, replacing hit regions but retaining focus and scroll state.
+/// Lay out and paint a view, replacing hit regions but keeping focus and scroll state.
 pub fun present(window: Window, root: Widget) -> Nil {
     if (not window.active) { fail("ui: window is closed"); }
     if (mui_surface(window.width, window.height) == 0) { fail("ui: surface resize failed"); }
@@ -388,9 +388,9 @@ pub fun snapshot(window: Window, path: Str) -> Nil { if (not window.active or mu
 /// Read a raster RGB value, or -1 outside the surface, for rendering tests.
 pub fun pixel(window: Window, x: Int, y: Int) -> Int { if (not window.active) { fail("ui: window is closed"); } return mui_pixel(x, y); }
 
-/// Renderer and graphics driver; headless windows explicitly report software rendering.
+/// Return the renderer and graphics driver; headless windows report software rendering.
 pub fun renderer(window: Window) -> Str { return if (window.headless) { "CPU / headless" } else { mui_window_renderer() }; }
-/// Last recorded frame geometry and cumulative glyph-cache counters.
+/// Return the last recorded frame geometry and cumulative glyph-cache counters.
 pub fun render_stats(window: Window) -> Map<Str, Int> {
     if (not window.active) { fail("ui: window is closed"); }
     return {"commands": mui_draw_stat(0), "vertices": mui_draw_stat(1), "glyph_cache_hits": mui_draw_stat(2), "glyph_cache_misses": mui_draw_stat(3), "atlas_bytes": mui_draw_stat(4), "draw_calls": if (window.headless) { 0 } else if (mui_draw_stat(1) > 0) { 1 } else { 0 }};

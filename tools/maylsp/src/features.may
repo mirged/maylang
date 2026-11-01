@@ -12,16 +12,46 @@ fun ls_doc_param(p: Any) -> Any {
     if (doc == nil) { fail("document not found"); } return doc;
 }
 fun ls_target(doc: Any, p: Any) -> Any { return ls_resolve(doc, ls_token_index(doc, p.position)); }
+// Render the standard doc comment sections (docs/guide/DOCSTRINGS.md) like
+// the generated catalog entries; fenced code passes through unchanged.
+fun ls_render_docs(text: Any) -> Any {
+    let out: Any = []; mut fenced: Any = false;
+    for line: Any in ls_split(text, "\n") {
+        mut shown: Any = line;
+        if (ls_starts(ls_trim(line), "```")) { fenced = not fenced; }
+        else if (not fenced) {
+            if (line == "Params:") { shown = "**Parameters**"; }
+            else if (line == "Example:") { shown = "**Example**"; }
+            else {
+                for section: Any in ["Returns:", "Faults:"] {
+                    if (ls_starts(line, section)) { shown = "**" + section + "**" + ls_slice(line, ls_bytes(section), ls_bytes(line)); }
+                }
+            }
+        }
+        push(out, shown);
+    }
+    return join(out, "\n");
+}
 fun ls_definition_docs(d: Any) -> Any {
-    if (d.docs != nil and d.docs != "") { return d.docs; }
+    if (d.docs != nil and d.docs != "") { return ls_render_docs(d.docs); }
     if (has(ls_builtin_uris(), d.uri) and LS_REFERENCE[d.name] != nil) { return LS_REFERENCE[d.name].docs; }
     return "";
 }
 fun ls_parameter_docs(d: Any, entry: Any, parameter: Any, index: Any) -> Any {
     if (d != nil and d.docs != nil and d.docs != "") {
-        let prefix: Any = "@param " + parameter;
-        for line: Any in ls_split(d.docs, "\n") {
-            let text: Any = ls_trim(line);
+        // Signature labels carry annotations ("factor: Int"); docs name the parameter.
+        let colon: Any = ls_find(parameter, ":");
+        let name: Any = if (colon >= 0) { ls_trim(ls_slice(parameter, 0, colon)) } else { parameter };
+        let prefix: Any = "@param " + parameter; let item: Any = "- `" + name + "`: ";
+        let lines: Any = ls_split(d.docs, "\n");
+        for i: Any in 0..len(lines) {
+            let line: Any = lines[i]; let text: Any = ls_trim(line);
+            if (ls_starts(line, item)) {
+                // A Params: item continues on following lines indented by two spaces.
+                mut found: Any = ls_trim(ls_slice(line, ls_bytes(item), ls_bytes(line))); mut next: Any = i + 1;
+                while (next < len(lines) and ls_starts(lines[next], "  ") and ls_trim(lines[next]) != "") { found = found + " " + ls_trim(lines[next]); next += 1; }
+                return found;
+            }
             if (ls_starts(text, prefix)) {
                 mut at: Any = ls_bytes(prefix);
                 if (ls_byte(text, at) == 58) { at += 1; }

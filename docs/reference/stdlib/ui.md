@@ -15,29 +15,29 @@
 - **Hit** — `struct Hit { item: Widget, rect: Rect, full: Rect, limit: Int }` — Internal input region retaining its concrete widget and rectangles.
 - `Hit`: private implementation helper; unavailable to importing modules.
 - **Theme** — `pub struct Theme { background: Int, surface: Int, soft: Int, text: Int, muted: Int, accent: Int, on_accent: Int, border: Int }` — Color palette shared by default controls. Custom style colors take precedence.
-- **light_theme** — `pub fun light_theme() -> Theme` — Light neutral surfaces with a violet accent.
-- **dark_theme** — `pub fun dark_theme() -> Theme` — Dark neutral surfaces with a lavender accent.
+- **light_theme** — `pub fun light_theme() -> Theme` — Return the light theme: neutral surfaces with a violet accent.
+- **dark_theme** — `pub fun dark_theme() -> Theme` — Return the dark theme: neutral surfaces with a lavender accent.
 - **Window** — `pub struct Window { width: Int, height: Int, headless: Bool, focus: Str, caret: Int, selected: Bool, mouse_x: Int, mouse_y: Int, scroll: Map<Str, Int>, hits: List<Hit>, root: Any, active: Bool, cursor: Int, theme: Theme, pressed: Str, keyboard_focus: Bool }` — Persistent window interaction state. Keep it while rebuilding views.
 - **Event** — `pub struct Event { kind: Str, id: Str, text: Str, width: Int, height: Int }` — Action kind is click, toggle, edit, submit, close, resize, repaint or idle.
 - **node** — `fun node(kind: Str, id: Str, text: Str, children: List<Widget>) -> Widget` — Construct an internal widget with shared defaults.
 - `node`: private implementation helper; unavailable to importing modules.
-- **label** — `pub fun label(text: Str) -> Widget` — Single-line text, clipped to available width.
-- **button** — `pub fun button(id: Str, text: Str) -> Widget` — Clickable action with a stable, unique identifier.
-- **entry** — `pub fun entry(id: Str, text: Str) -> Widget` — Unicode text input; applications apply edit events to their model.
+- **label** — `pub fun label(text: Str) -> Widget` — Make a single-line text widget, clipped to the available width.
+- **button** — `pub fun button(id: Str, text: Str) -> Widget` — Make a clickable action widget with a stable, unique identifier.
+- **entry** — `pub fun entry(id: Str, text: Str) -> Widget` — Make a Unicode text input; applications apply edit events to their model.
 - **upload_rgba** — `pub fun upload_rgba(pixels: Ptr, width: Int, height: Int) -> Nil` — Copy packed RGBA8 pixels into the surface's single dynamic framebuffer.
 - `upload_rgba` explicit fault strings: `"ui: invalid RGBA framebuffer or allocation failed"`; runtime/callback faults can also propagate.
 - **framebuffer** — `pub fun framebuffer(source_width: Int, source_height: Int, integer_scale: Bool) -> Widget` — Aspect-fit the shared framebuffer with nearest sampling; optionally use integer scaling.
 - `framebuffer` explicit fault strings: `"ui: framebuffer dimensions must be positive"`; runtime/callback faults can also propagate.
 - **key_down** — `pub fun key_down(window: Window, key: Int) -> Bool` — Query a held key using Sokol codes: ASCII uppercase letters; arrows 262..265.
 - **key_pressed** — `pub fun key_pressed(window: Window, key: Int) -> Bool` — Consume one key press, including short taps between polls; auto-repeat is excluded.
-- **focused** — `pub fun focused(window: Window) -> Bool` — Whether the native window owns keyboard focus.
+- **focused** — `pub fun focused(window: Window) -> Bool` — Report whether the native window owns keyboard focus.
 - **placeholder** — `pub fun placeholder(item: Widget, hint: Str) -> Widget` — Set an entry hint shown only while its value is empty.
 - `placeholder` explicit fault strings: `"ui: placeholder requires an entry"`; runtime/callback faults can also propagate.
-- **checkbox** — `pub fun checkbox(id: Str, text: Str, checked: Bool) -> Widget` — Boolean action; toggle events report the next value as true or false.
-- **row** — `pub fun row(children: List<Widget>) -> Widget` — Horizontal container; flexible children share remaining width.
-- **column** — `pub fun column(children: List<Widget>) -> Widget` — Vertical container; flexible children share remaining height.
-- **spacer** — `pub fun spacer(size: Int) -> Widget` — Empty fixed space, or flexible space when used with flex.
-- **scroller** — `pub fun scroller(id: Str, child: Widget) -> Widget` — Vertical viewport; scroll offset belongs to the stable identifier.
+- **checkbox** — `pub fun checkbox(id: Str, text: Str, checked: Bool) -> Widget` — Make a Boolean toggle; toggle events report the next value as true or false.
+- **row** — `pub fun row(children: List<Widget>) -> Widget` — Lay children out horizontally; flexible children share the remaining width.
+- **column** — `pub fun column(children: List<Widget>) -> Widget` — Lay children out vertically; flexible children share the remaining height.
+- **spacer** — `pub fun spacer(size: Int) -> Widget` — Make empty fixed space, or flexible space when used with flex.
+- **scroller** — `pub fun scroller(id: Str, child: Widget) -> Widget` — Make a vertical viewport whose scroll offset belongs to the stable identifier.
 - **size** — `pub fun size(item: Widget, width: Int, height: Int) -> Widget` — Set requested dimensions; zero uses the measured content size.
 - `size` explicit fault strings: `"ui: negative widget size"`; runtime/callback faults can also propagate.
 - **flex** — `pub fun flex(item: Widget, weight: Int) -> Widget` — Set a positive share of a container's remaining space.
@@ -52,7 +52,7 @@
 - **elevated** — `pub fun elevated(item: Widget, level: Int) -> Widget` — Add a soft shadow, from zero (flat) to three (floating).
 - `elevated` explicit fault strings: `"ui: elevation must be 0..3"`; runtime/callback faults can also propagate.
 - **enabled** — `pub fun enabled(item: Widget, value: Bool) -> Widget` — Disable interaction while retaining the control's position in layout.
-- **card** — `pub fun card(item: Widget) -> Widget` — A themed surface with a fine border and a soft elevation shadow.
+- **card** — `pub fun card(item: Widget) -> Widget` — Wrap `item` in a themed surface with a fine border and a soft elevation shadow.
 - **set_theme** — `pub fun set_theme(window: Window, theme: Theme) -> Nil` — Replace the palette for subsequent presentations.
 - `set_theme` explicit fault strings: `"ui: invalid theme color"`; runtime/callback faults can also propagate.
 - **mix_color** — `fun mix_color(a: Int, b: Int, percent: Int) -> Int` — Blend two RGB colors by an integer percentage.
@@ -74,7 +74,7 @@
 - **draw** — `fun draw(window: Window, item: Widget, rect: Rect, viewport: Rect, ids: Map<Str, Bool>) -> Nil` — Lay out and paint one subtree, recording visible input regions.
 - `draw`: private implementation helper; unavailable to importing modules.
 - `draw` explicit fault strings: `"ui: duplicate widget id: "`, `"ui: interactive widgets need an id"`; runtime/callback faults can also propagate.
-- **present** — `pub fun present(window: Window, root: Widget) -> Nil` — Paint/layout a view, replacing hit regions but retaining focus and scroll state.
+- **present** — `pub fun present(window: Window, root: Widget) -> Nil` — Lay out and paint a view, replacing hit regions but keeping focus and scroll state.
 - `present` explicit fault strings: `"ui: window is closed"`, `"ui: surface resize failed"`, `"ui: software surface allocation failed"`; runtime/callback faults can also propagate.
 - **virtual_list** — `pub fun virtual_list(window: Window, id: Str, count: Int, row_height: Int, make: Fn(Int) -> Widget) -> Widget` — Render only visible fixed-height rows and spacers within a vertical scroller.
 - `virtual_list` explicit fault strings: `"ui: invalid virtual list dimensions"`; runtime/callback faults can also propagate.
@@ -90,6 +90,6 @@
 - `snapshot` explicit fault strings: `"ui: PNG snapshot failed: "`; runtime/callback faults can also propagate.
 - **pixel** — `pub fun pixel(window: Window, x: Int, y: Int) -> Int` — Read a raster RGB value, or -1 outside the surface, for rendering tests.
 - `pixel` explicit fault strings: `"ui: window is closed"`; runtime/callback faults can also propagate.
-- **renderer** — `pub fun renderer(window: Window) -> Str` — Renderer and graphics driver; headless windows explicitly report software rendering.
-- **render_stats** — `pub fun render_stats(window: Window) -> Map<Str, Int>` — Last recorded frame geometry and cumulative glyph-cache counters.
+- **renderer** — `pub fun renderer(window: Window) -> Str` — Return the renderer and graphics driver; headless windows report software rendering.
+- **render_stats** — `pub fun render_stats(window: Window) -> Map<Str, Int>` — Return the last recorded frame geometry and cumulative glyph-cache counters.
 - `render_stats` explicit fault strings: `"ui: window is closed"`; runtime/callback faults can also propagate.

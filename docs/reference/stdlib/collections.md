@@ -12,20 +12,20 @@
 - **stack** — `fun stack() -> Any` — Create an empty stack.
 - **stack_push** — `fun stack_push(st: Any, value: Any) -> Any` — Push `value` onto `st` and return it.
 - **stack_pop** — `fun stack_pop(st: Any) -> Any` — Pop the top of `st`, or `nil` when empty.
-- **stack_peek** — `fun stack_peek(st: Any) -> Any` — The top of `st` without removing it.
-- **stack_size** — `fun stack_size(st: Any) -> Any` — Number of items on `st`.
-- **stack_empty** — `fun stack_empty(st: Any) -> Any` — Whether `st` is empty.
+- **stack_peek** — `fun stack_peek(st: Any) -> Any` — Return the top of `st` without removing it.
+- **stack_size** — `fun stack_size(st: Any) -> Any` — Count the items on `st`.
+- **stack_empty** — `fun stack_empty(st: Any) -> Any` — Report whether `st` is empty.
 - **queue** — `fun queue() -> Any` — Create an empty queue.
 - **queue_push** — `fun queue_push(q: Any, value: Any) -> Any` — Enqueue `value`.
 - **queue_pop** — `fun queue_pop(q: Any) -> Any` — Dequeue the oldest value, or `nil` when empty.
-- **queue_size** — `fun queue_size(q: Any) -> Any` — Number of queued items.
-- **queue_empty** — `fun queue_empty(q: Any) -> Any` — Whether `q` is empty.
+- **queue_size** — `fun queue_size(q: Any) -> Any` — Count the queued items.
+- **queue_empty** — `fun queue_empty(q: Any) -> Any` — Report whether `q` is empty.
 - **set_new** — `fun set_new() -> Any` — Create an empty set.
 - **set_add** — `fun set_add(s: Any, value: Any) -> Any` — Add `value` to `s` and return it.
-- **set_has** — `fun set_has(s: Any, value: Any) -> Any` — Whether `value` is in `s`.
+- **set_has** — `fun set_has(s: Any, value: Any) -> Any` — Report whether `value` is in `s`.
 - **set_remove** — `fun set_remove(s: Any, value: Any) -> Any` — Return a copy of `s` without `value`.
-- **set_values** — `fun set_values(s: Any) -> Any` — The members of `s` in sorted order.
-- **set_size** — `fun set_size(s: Any) -> Any` — Number of members.
-- **set_union** — `fun set_union(a: Any, b: Any) -> Any` — Union of two sets.
-- **set_intersect** — `fun set_intersect(a: Any, b: Any) -> Any` — Intersection of two sets.
-- **set_difference** — `fun set_difference(a: Any, b: Any) -> Any` — Elements in `a` but not in `b`.
+- **set_values** — `fun set_values(s: Any) -> Any` — Return the members of `s` in sorted order.
+- **set_size** — `fun set_size(s: Any) -> Any` — Count the members of `s`.
+- **set_union** — `fun set_union(a: Any, b: Any) -> Any` — Return the union of two sets.
+- **set_intersect** — `fun set_intersect(a: Any, b: Any) -> Any` — Return the intersection of two sets.
+- **set_difference** — `fun set_difference(a: Any, b: Any) -> Any` — Return the elements in `a` but not in `b`.

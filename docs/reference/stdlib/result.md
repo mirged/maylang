@@ -5,10 +5,10 @@
 - Visibility: all top-level declarations are exported because this module has no `pub` declarations.
 - Source: [implementation](../../../stdlib/result.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
-- **ok** — `fun ok<T>(value: T) -> Result<T, Never>` — A successful result wrapping `value`.
-- **error** — `fun error<E>(message: E) -> Result<Never, E>` — A failed result carrying `message`.
-- **is_ok** — `fun is_ok<T, E>(r: Result<T, E>) -> Bool` — Whether `r` is a success.
-- **is_err** — `fun is_err<T, E>(r: Result<T, E>) -> Bool` — Whether `r` is a failure.
+- **ok** — `fun ok<T>(value: T) -> Result<T, Never>` — Wrap `value` in a successful result.
+- **error** — `fun error<E>(message: E) -> Result<Never, E>` — Make a failed result carrying `message`.
+- **is_ok** — `fun is_ok<T, E>(r: Result<T, E>) -> Bool` — Report whether `r` is a success.
+- **is_err** — `fun is_err<T, E>(r: Result<T, E>) -> Bool` — Report whether `r` is a failure.
 - **unwrap** — `fun unwrap<T, E>(r: Result<T, E>) -> T` — Unwrap a success, or fault on a failure.
 - `unwrap` explicit fault strings: `"unwrap on error: "`; runtime/callback faults can also propagate.
 - **unwrap_or** — `fun unwrap_or<T, E>(r: Result<T, E>, fallback: T) -> T` — Unwrap a success, else return `fallback`.

@@ -367,40 +367,13 @@
       ]
     },
     "str": {
-      "signature": "str(value)",
-      "summary": "Convert a value to its textual representation.",
-      "example": "print(str(42));",
-      "returns": "A string.",
-      "parameters": [
-        {
-          "name": "value",
-          "description": "The value to format."
-        }
-      ]
+      "source": "native.may"
     },
     "int": {
-      "signature": "int(value)",
-      "summary": "Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.",
-      "example": "print(int(\" 42 \"));\nprint(int(3.9));",
-      "returns": "An integer.",
-      "parameters": [
-        {
-          "name": "value",
-          "description": "A number or a trimmed decimal string with optional sign."
-        }
-      ]
+      "source": "native.may"
     },
     "float": {
-      "signature": "float(value)",
-      "summary": "Convert a number or numeric string to a floating-point value.",
-      "example": "print(float(\"3.5\"));",
-      "returns": "A floating-point number.",
-      "parameters": [
-        {
-          "name": "value",
-          "description": "A number or numeric string."
-        }
-      ]
+      "source": "native.may"
     },
     "to_float": {
       "signature": "to_float(value)",
@@ -415,16 +388,7 @@
       ]
     },
     "bool": {
-      "signature": "bool(value)",
-      "summary": "Convert a value to its truth value. Only `nil` and `false` are false; zero, empty strings, and empty collections are true.",
-      "example": "print(bool(0)); // true",
-      "returns": "`true` or `false`.",
-      "parameters": [
-        {
-          "name": "value",
-          "description": "The value whose truthiness is tested."
-        }
-      ]
+      "source": "native.may"
     },
     "push": {
       "signature": "push(xs, value)",
@@ -507,16 +471,7 @@
       ]
     },
     "sum": {
-      "signature": "sum(xs)",
-      "summary": "Add the numeric values in a list.",
-      "example": "print(sum([1, 2, 3])); // 6",
-      "returns": "The total; zero for an empty list.",
-      "parameters": [
-        {
-          "name": "xs",
-          "description": "A list of numbers."
-        }
-      ]
+      "source": "native.may"
     },
     "any": {
       "signature": "any(xs, f)",
@@ -551,132 +506,31 @@
       ]
     },
     "min": {
-      "signature": "min(a, b)",
-      "summary": "Return the lesser of two comparable values.",
-      "example": "print(min(3, 8)); // 3",
-      "returns": "One of the two values.",
-      "parameters": [
-        {
-          "name": "a",
-          "description": "The first value."
-        },
-        {
-          "name": "b",
-          "description": "The second value."
-        }
-      ]
+      "source": "native.may"
     },
     "max": {
-      "signature": "max(a, b)",
-      "summary": "Return the greater of two comparable values.",
-      "example": "print(max(3, 8)); // 8",
-      "returns": "One of the two values.",
-      "parameters": [
-        {
-          "name": "a",
-          "description": "The first value."
-        },
-        {
-          "name": "b",
-          "description": "The second value."
-        }
-      ]
+      "source": "native.may"
     },
     "abs": {
-      "signature": "abs(x)",
-      "summary": "Return the nonnegative magnitude of a number.",
-      "example": "print(abs(-4)); // 4",
-      "returns": "A numeric absolute value.",
-      "parameters": [
-        {
-          "name": "x",
-          "description": "The input number."
-        }
-      ]
+      "source": "native.may"
     },
     "sort": {
-      "signature": "sort(xs)",
-      "summary": "Return the items in ascending order using the standard comparison function. The input list is preserved.",
-      "example": "print(sort([3, 1, 2]));",
-      "returns": "A new sorted list.",
-      "parameters": [
-        {
-          "name": "xs",
-          "description": "A list of comparable values."
-        }
-      ]
+      "source": "native.may"
     },
     "reverse": {
-      "signature": "reverse(xs)",
-      "summary": "Build a list with the input items in reverse order.",
-      "example": "print(reverse([1, 2, 3]));",
-      "returns": "A new list.",
-      "parameters": [
-        {
-          "name": "xs",
-          "description": "The input list."
-        }
-      ]
+      "source": "native.may"
     },
     "slice": {
-      "signature": "slice(xs, start, stop)",
-      "summary": "Copy a contiguous section of a list. Bounds are clamped to the list length; the stop index is exclusive.",
-      "example": "print(slice([10, 20, 30, 40], 1, 3)); // [20, 30]",
-      "returns": "A new list; empty if stop is not greater than start.",
-      "parameters": [
-        {
-          "name": "xs",
-          "description": "The input list."
-        },
-        {
-          "name": "start",
-          "description": "The zero-based inclusive starting index."
-        },
-        {
-          "name": "stop",
-          "description": "The exclusive ending index."
-        }
-      ]
+      "source": "native.may"
     },
     "keys": {
-      "signature": "keys(m)",
-      "summary": "Collect the keys of a map.",
-      "example": "print(keys({\"a\": 1}));",
-      "returns": "A list of keys.",
-      "parameters": [
-        {
-          "name": "m",
-          "description": "The input map."
-        }
-      ]
+      "source": "native.may"
     },
     "values": {
-      "signature": "values(m)",
-      "summary": "Collect the values of a map.",
-      "example": "print(values({\"a\": 1}));",
-      "returns": "A list of values.",
-      "parameters": [
-        {
-          "name": "m",
-          "description": "The input map."
-        }
-      ]
+      "source": "native.may"
     },
     "has": {
-      "signature": "has(x, key)",
-      "summary": "Check for a map key, a matching list item, or a substring within a string.",
-      "example": "print(has({\"name\": \"Ada\"}, \"name\"));",
-      "returns": "A boolean.",
-      "parameters": [
-        {
-          "name": "x",
-          "description": "The map, list, or string to search."
-        },
-        {
-          "name": "key",
-          "description": "The key, item, or substring to find."
-        }
-      ]
+      "source": "native.may"
     },
     "map_get": {
       "signature": "map_get(m, key)",
@@ -715,36 +569,10 @@
       ]
     },
     "remove": {
-      "signature": "remove(m, key)",
-      "summary": "Copy a map while omitting one key. The original map is preserved.",
-      "example": "let m: Any = {\"a\": 1, \"b\": 2};\nlet smaller: Any = remove(m, \"a\");",
-      "returns": "A new map.",
-      "parameters": [
-        {
-          "name": "m",
-          "description": "The input map."
-        },
-        {
-          "name": "key",
-          "description": "The key to omit."
-        }
-      ]
+      "source": "native.may"
     },
     "merge": {
-      "signature": "merge(a, b)",
-      "summary": "Combine two maps into a new map. Entries from the second map replace matching keys from the first.",
-      "example": "print(merge({\"a\": 1}, {\"a\": 2, \"b\": 3}));",
-      "returns": "A new combined map.",
-      "parameters": [
-        {
-          "name": "a",
-          "description": "The first map."
-        },
-        {
-          "name": "b",
-          "description": "The second map, which takes precedence."
-        }
-      ]
+      "source": "native.may"
     },
     "read_file": {
       "signature": "read_file(path)",
@@ -799,28 +627,10 @@
       ]
     },
     "json_parse": {
-      "signature": "json_parse(s)",
-      "summary": "Decode a JSON string into Maylang strings, numbers, booleans, lists, maps, and `nil`.",
-      "example": "let value: Any = json_parse(\"{\\\"name\\\":\\\"Ada\\\"}\");\nprint(value.name);",
-      "returns": "The decoded value.",
-      "parameters": [
-        {
-          "name": "s",
-          "description": "The JSON text."
-        }
-      ]
+      "source": "native.may"
     },
     "json_stringify": {
-      "signature": "json_stringify(v)",
-      "summary": "Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.",
-      "example": "print(json_stringify({\"name\": \"Ada\", \"ready\": true}));",
-      "returns": "A JSON string.",
-      "parameters": [
-        {
-          "name": "v",
-          "description": "The value to encode."
-        }
-      ]
+      "source": "native.may"
     },
     "input": {
       "signature": "input(prompt)",
@@ -1066,32 +876,10 @@
       ]
     },
     "ccall": {
-      "signature": "ccall(fn, args)",
-      "summary": "Call machine code at a raw address with up to six integer arguments using the native calling convention.",
-      "example": "// fn must be a valid native function address.\nlet result: Any = ccall(fn, [1, 2]);",
-      "returns": "The native integer return value.",
-      "parameters": [
-        {
-          "name": "fn",
-          "description": "The native function address."
-        },
-        {
-          "name": "args",
-          "description": "A list of at most six integer arguments."
-        }
-      ]
+      "source": "native.may"
     },
     "extern_c": {
-      "signature": "extern_c(fn)",
-      "summary": "Wrap a native function address as a callable Maylang function accepting six integer arguments.",
-      "example": "// fn must be a valid native function address.\nlet call: Any = extern_c(fn);\nlet result: Any = call(1, 2, 0, 0, 0, 0);",
-      "returns": "A callable wrapper.",
-      "parameters": [
-        {
-          "name": "fn",
-          "description": "The native function address."
-        }
-      ]
+      "source": "native.may"
     },
     "sqrt": {
       "signature": "sqrt(x)",
@@ -1130,52 +918,16 @@
       ]
     },
     "sin": {
-      "signature": "sin(x)",
-      "summary": "Compute the sine of an angle in radians.",
-      "example": "print(sin(0.0));",
-      "returns": "A floating-point result.",
-      "parameters": [
-        {
-          "name": "x",
-          "description": "The number to evaluate; trigonometric angles use radians."
-        }
-      ]
+      "source": "native.may"
     },
     "cos": {
-      "signature": "cos(x)",
-      "summary": "Compute the cosine of an angle in radians.",
-      "example": "print(cos(0.0));",
-      "returns": "A floating-point result.",
-      "parameters": [
-        {
-          "name": "x",
-          "description": "The number to evaluate; trigonometric angles use radians."
-        }
-      ]
+      "source": "native.may"
     },
     "tan": {
-      "signature": "tan(x)",
-      "summary": "Compute the tangent of an angle in radians.",
-      "example": "print(tan(0.0));",
-      "returns": "A floating-point result.",
-      "parameters": [
-        {
-          "name": "x",
-          "description": "The number to evaluate; trigonometric angles use radians."
-        }
-      ]
+      "source": "native.may"
     },
     "env": {
-      "signature": "env(name)",
-      "summary": "Look up an environment variable in the current process.",
-      "example": "print(env(\"HOME\") ?? \"unset\");",
-      "returns": "The variable’s string value, or `nil` if missing.",
-      "parameters": [
-        {
-          "name": "name",
-          "description": "The environment variable name."
-        }
-      ]
+      "source": "native.may"
     },
     "args": {
       "signature": "args()",
@@ -1184,100 +936,22 @@
       "returns": "A list of argument strings."
     },
     "substring": {
-      "signature": "substring(s, start, count)",
-      "summary": "Copy a section of a string using Unicode character indices. The third argument is a count, not an ending index.",
-      "example": "print(substring(\"hello\", 1, 3)); // ell",
-      "returns": "A string.",
-      "parameters": [
-        {
-          "name": "s",
-          "description": "The input string."
-        },
-        {
-          "name": "start",
-          "description": "The zero-based starting character index."
-        },
-        {
-          "name": "count",
-          "description": "The number of characters to copy."
-        }
-      ]
+      "source": "native.may"
     },
     "split": {
-      "signature": "split(s, sep)",
-      "summary": "Separate a string at occurrences of a separator.",
-      "example": "print(split(\"a,b,c\", \",\"));",
-      "returns": "A list of string segments.",
-      "parameters": [
-        {
-          "name": "s",
-          "description": "The input string."
-        },
-        {
-          "name": "sep",
-          "description": "The separator string."
-        }
-      ]
+      "source": "native.may"
     },
     "join": {
-      "signature": "join(xs, sep)",
-      "summary": "Convert items to strings and combine them with a separator between neighboring items.",
-      "example": "print(join([\"a\", \"b\"], \",\"));",
-      "returns": "The combined string.",
-      "parameters": [
-        {
-          "name": "xs",
-          "description": "The values to combine."
-        },
-        {
-          "name": "sep",
-          "description": "The text inserted between items."
-        }
-      ]
+      "source": "native.may"
     },
     "trim": {
-      "signature": "trim(s)",
-      "summary": "Remove whitespace from the beginning and end of a string.",
-      "example": "print(trim(\"  hello  \"));",
-      "returns": "A string.",
-      "parameters": [
-        {
-          "name": "s",
-          "description": "The input string."
-        }
-      ]
+      "source": "native.may"
     },
     "repeat": {
-      "signature": "repeat(s, n)",
-      "summary": "Concatenate copies of a string.",
-      "example": "print(repeat(\"ab\", 3)); // ababab",
-      "returns": "The repeated string.",
-      "parameters": [
-        {
-          "name": "s",
-          "description": "The string to repeat."
-        },
-        {
-          "name": "n",
-          "description": "The nonnegative number of copies."
-        }
-      ]
+      "source": "native.may"
     },
     "range": {
-      "signature": "range(a, b)",
-      "summary": "Build a list of consecutive integers from the start up to, but excluding, the stop value.",
-      "example": "print(range(1, 4)); // [1, 2, 3]",
-      "returns": "A list of integers.",
-      "parameters": [
-        {
-          "name": "a",
-          "description": "The inclusive starting value."
-        },
-        {
-          "name": "b",
-          "description": "The exclusive stop value."
-        }
-      ]
+      "source": "native.may"
     },
     "err": {
       "signature": "err",

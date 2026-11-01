@@ -7,17 +7,17 @@
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
 - Integer division truncates toward zero; average and even-length median on integer inputs may therefore truncate. Use floating inputs or stats_mean/stats_median for fractional results.
 - factorial/fibonacci do not reject negative arguments; their empty loops return 1 and 0 respectively.
-- **square** — `fun square(x: Any) -> Any` — `x * x`.
-- **cube** — `fun cube(x: Any) -> Any` — `x * x * x`.
+- **square** — `fun square(x: Any) -> Any` — Return `x * x`.
+- **cube** — `fun cube(x: Any) -> Any` — Return `x * x * x`.
 - **clamp** — `fun clamp(x: Any, lo: Any, hi: Any) -> Any` — Restrict `x` to the closed range `[lo, hi]`.
-- **gcd** — `fun gcd(a: Any, b: Any) -> Any` — Greatest common divisor of `a` and `b` (always non-negative).
-- **lcm** — `fun lcm(a: Any, b: Any) -> Any` — Least common multiple of `a` and `b` (`0` when either is `0`).
-- **is_prime** — `fun is_prime(n: Any) -> Any` — Whether `n` is prime. Trial division up to `sqrt(n)`.
-- **factorial** — `fun factorial(n: Any) -> Any` — `n!`. `0!` and `1!` are `1`.
-- **fibonacci** — `fun fibonacci(n: Any) -> Any` — The `n`th Fibonacci number, with `fibonacci(0) == 0`.
-- **average** — `fun average(xs: Any) -> Any` — Arithmetic mean of a list (`0` when empty).
-- **median** — `fun median(xs: Any) -> Any` — Median of a list (`nil` when empty). Sorts a copy.
+- **gcd** — `fun gcd(a: Any, b: Any) -> Any` — Return the greatest common divisor of `a` and `b` (always non-negative).
+- **lcm** — `fun lcm(a: Any, b: Any) -> Any` — Return the least common multiple of `a` and `b` (`0` when either is `0`).
+- **is_prime** — `fun is_prime(n: Any) -> Any` — Report whether `n` is prime, by trial division up to `sqrt(n)`.
+- **factorial** — `fun factorial(n: Any) -> Any` — Return `n!`; `0!` and `1!` are `1`.
+- **fibonacci** — `fun fibonacci(n: Any) -> Any` — Return the `n`th Fibonacci number, with `fibonacci(0) == 0`.
+- **average** — `fun average(xs: Any) -> Any` — Return the arithmetic mean of a list (`0` when empty).
+- **median** — `fun median(xs: Any) -> Any` — Return the median of a list (`nil` when empty), sorting a copy.
 - **degrees** — `fun degrees(radians_of: Any) -> Any` — Convert `radians` to degrees.
 - **radians** — `fun radians(degrees_of: Any) -> Any` — Convert `degrees` to radians.
-- **distance** — `fun distance(x1: Any, y1: Any, x2: Any, y2: Any) -> Any` — Euclidean distance between `(x1, y1)` and `(x2, y2)`.
-- **is_power_of_two** — `fun is_power_of_two(n: Any) -> Any` — Whether `n` is a power of two (`n > 0`).
+- **distance** — `fun distance(x1: Any, y1: Any, x2: Any, y2: Any) -> Any` — Return the Euclidean distance between `(x1, y1)` and `(x2, y2)`.
+- **is_power_of_two** — `fun is_power_of_two(n: Any) -> Any` — Report whether `n` is a power of two (`n > 0`).

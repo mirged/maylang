@@ -1,10 +1,13 @@
 // validate.may — reusable input predicates and structured validation.
 
+/// Report whether a string has non-whitespace content after trimming.
 fun validate_nonempty(s: Any) -> Any { return type(s) == "Str" && len(trim(s)) > 0; }
+/// Report whether an Int/Float lies within the inclusive bounds; false for other types.
 fun validate_in_range(x: Any, lo: Any, hi: Any) -> Any {
     if (type(x) != "Int" && type(x) != "Float") { return false; }
     return x >= lo && x <= hi;
 }
+/// Apply a simple @/domain-dot heuristic; this is not a complete email parser.
 fun validate_email(s: Any) -> Any {
     let at: Any = index_of(s, "@");
     if (at <= 0 || at >= len(s) - 3) { return false; }
@@ -12,7 +15,9 @@ fun validate_email(s: Any) -> Any {
     let dot: Any = index_of(domain, ".");
     return dot > 0 && dot < len(domain) - 1 && index_of(join(slice(chars(s), at + 1, len(s)), ""), "@") < 0;
 }
+/// Report whether a string begins with `http://` or `https://`.
 fun validate_url(s: Any) -> Any { return starts_with(s, "https://") || starts_with(s, "http://"); }
+/// Apply rules shaped `{check: unary predicate, message: string}` and return `{ok, errors, value}`.
 fun validate_all(value: Any, rules: Any) -> Any {
     mut errors: Any = [];
     for rule: Any in rules {
@@ -21,16 +26,19 @@ fun validate_all(value: Any, rules: Any) -> Any {
     }
     return {"ok": len(errors) == 0, "errors": errors, "value": value};
 }
+/// Return `{ok, missing}`; absent keys and nil-valued fields are missing.
 fun validate_required_fields(value: Any, fields: Any) -> Any {
     mut missing: Any = [];
     for field: Any in fields { if (!has(value, field) || value[field] == nil) { push(missing, field); } }
     return {"ok": len(missing) == 0, "missing": missing};
 }
+/// Check a nonempty string by attempting trimmed integer conversion and catching faults.
 fun validate_int_string(s: Any) -> Any {
     if (type(s) != "Str" || len(trim(s)) == 0) { return false; }
     let n: Any = may { int(trim(s)) } otherwise { return false; };
     return true;
 }
+/// Validate signed decimal syntax with optional dot and exponent; exponent digits are required.
 fun validate_float_string(s: Any) -> Any {
     if (type(s) != "Str" || len(trim(s)) == 0) { return false; }
     let cs: Any = chars(trim(s)); let n: Any = len(cs); mut i: Any = 0;

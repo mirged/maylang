@@ -468,7 +468,7 @@ def run_documentation(binary, work):
         client.result("initialize", {"rootUri": work.as_uri(), "initializationOptions": {"stdlibPath": str(ROOT / "stdlib")}})
         client.send("textDocument/didOpen", {"textDocument": {"uri": path.as_uri(), "text": text, "version": 1, "languageId": "maylang"}})
         for name, phrase in [("print", "standard output"), ("len", "Unicode characters"),
-                             ("map", "input list is preserved"), ("slice", "stop index is exclusive"),
+                             ("map", "input list is preserved"), ("slice", "clamped to the list length"),
                              ("let", "immutable binding"), ("Int", "64-bit"), ("??", "false")]:
             hover = client.result("textDocument/hover", {**doc, "position": position(text, name)})
             prose = hover["contents"]["value"]
@@ -489,6 +489,19 @@ def run_documentation(binary, work):
         prose = client.result("textDocument/hover", {**doc, "position": {"line": 2, "character": 1}})["contents"]["value"]
         assert "Local transformation" in prose and "input list is preserved" not in prose
         assert client.result("textDocument/diagnostic", doc)["items"] == []
+        # Standard doc comment sections render like the generated catalog.
+        text = ('/// Scale `x` by `factor`.\n///\n/// Params:\n/// - `x`: The value.\n'
+                '/// - `factor`: The multiplier, which may be\n///   negative.\n///\n'
+                '/// Returns: The product.\n///\n/// Example:\n/// ```may\n/// if (true) {\n'
+                '///     print(scale(2, 3));\n/// }\n/// ```\n'
+                'fun scale(x: Int, factor: Int) -> Int { return x * factor; }\nscale(1, 2);\n')
+        client.send("textDocument/didChange", {**doc, "textDocument": {"uri": path.as_uri(), "version": 3}, "contentChanges": [{"text": text}]})
+        prose = client.result("textDocument/hover", {**doc, "position": position(text, "scale(1")})["contents"]["value"]
+        assert "**Parameters**\n- `x`: The value." in prose and "**Returns:** The product." in prose, prose
+        assert "**Example**\n```may\nif (true) {\n    print(scale(2, 3));\n}\n```" in prose, prose
+        signature = client.result("textDocument/signatureHelp", {**doc, "position": position(text, "scale(1, ", delta=len("scale(1, "))})
+        params = signature["signatures"][0]["parameters"]
+        assert params[1].get("documentation", {}).get("value") == "The multiplier, which may be negative.", params
         client.stop()
         print("PASS generated documentation, keyword/type/operator hover, builtin signatures and local overrides", flush=True)
     finally:

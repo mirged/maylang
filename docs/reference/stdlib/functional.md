@@ -17,4 +17,4 @@
 - **pipeline** — `fun pipeline(x: Any, fs: Any) -> Any` — Run a value through a list of functions in order.
 - **compose_all** — `fun compose_all(fs: Any) -> Any` — Compose a list of functions into a single function.
 - **memoize** — `fun memoize(f: Any) -> Any` — Cache results of a single-argument function by stringified argument.
-- **partial_first** — `fun partial_first(f: Any, first: Any) -> Any` — Partial application of the first argument.
+- **partial_first** — `fun partial_first(f: Any, first: Any) -> Any` — Fix the first argument of the binary function `f`, returning a function of the second.

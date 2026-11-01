@@ -1,15 +1,23 @@
 // functional.may — higher-order helpers.
 
+/// Return the argument unchanged.
 fun identity(x: Any) -> Any { return x }
+/// Return a unary function that always returns `value`.
 fun constantly(value: Any) -> Any { return fun(_: Any) -> Any { return value } }
 
+/// Return a unary function computing `f(g(x))`.
 fun compose(f: Any, g: Any) -> Any { return fun(x: Any) -> Any { return f(g(x)) } }
+/// Return a unary function computing `f(g(h(x)))`.
 fun compose3(f: Any, g: Any, h: Any) -> Any { return fun(x: Any) -> Any { return f(g(h(x))) } }
 
+/// Return a binary function calling `f(b, a)`.
 fun flip(f: Any) -> Any { return fun(a: Any, b: Any) -> Any { return f(b, a) } }
+/// Convert a binary function into two nested unary functions.
 fun curry(f: Any) -> Any { return fun(a: Any) -> Any { return fun(b: Any) -> Any { return f(a, b) } } }
+/// Convert a curried function into one taking two arguments.
 fun uncurry(f: Any) -> Any { return fun(a: Any, b: Any) -> Any { return f(a)(b) } }
 
+/// Return the result of applying `f` to `x` `n` times; nonpositive counts leave `x` unchanged.
 fun apply_n(f: Any, x: Any, n: Any) -> Any {
     mut out: Any = x;
     for _: Any in 1..=n { out = f(out); }
@@ -35,5 +43,5 @@ fun memoize(f: Any) -> Any {
     return cached
 }
 
-/// Partial application of the first argument.
+/// Fix the first argument of the binary function `f`, returning a function of the second.
 fun partial_first(f: Any, first: Any) -> Any { return fun(rest: Any) -> Any { return f(first, rest) } }

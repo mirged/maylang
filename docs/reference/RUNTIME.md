@@ -12,24 +12,24 @@
 - `len` parameter `value`: The string, list, or map to measure.
 - `len` returns: An integer count.
 - `len` example: `print(len("héllo"));`.
-- **str** — `str(value)` — Convert a value to its textual representation.
-- `str` parameter `value`: The value to format.
+- **str** — `str(x)` — Convert a value to its textual representation.
+- `str` parameter `x`: The value to format.
 - `str` returns: A string.
 - `str` example: `print(str(42));`.
-- **int** — `int(value)` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
-- `int` parameter `value`: A number or a trimmed decimal string with optional sign.
+- **int** — `int(x)` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
+- `int` parameter `x`: A number or a trimmed decimal string with optional sign.
 - `int` returns: An integer.
 - `int` example: `print(int(" 42 ")); print(int(3.9));`.
-- **float** — `float(value)` — Convert a number or numeric string to a floating-point value.
-- `float` parameter `value`: A number or numeric string.
+- **float** — `float(x)` — Convert a number or numeric string to a floating-point value.
+- `float` parameter `x`: A number or numeric string.
 - `float` returns: A floating-point number.
 - `float` example: `print(float("3.5"));`.
 - **to_float** — `to_float(value)` — Convert a value using the native floating-point conversion helper.
 - `to_float` parameter `value`: The numeric value or string to convert.
 - `to_float` returns: A floating-point number.
 - `to_float` example: `print(to_float(3));`.
-- **bool** — `bool(value)` — Convert a value to its truth value. Only `nil` and `false` are false; zero, empty strings, and empty collections are true.
-- `bool` parameter `value`: The value whose truthiness is tested.
+- **bool** — `bool(x)` — Convert a value to its truth value. Only `nil` and `false` are false; zero, empty strings, and empty collections are true.
+- `bool` parameter `x`: The value whose truthiness is tested.
 - `bool` returns: `true` or `false`.
 - `bool` example: `print(bool(0));`.
 - **push** — `push(xs, value)` — Append one item to the existing list. All aliases of that list observe the mutation.
@@ -89,8 +89,8 @@
 - `sort` parameter `xs`: A list of comparable values.
 - `sort` returns: A new sorted list.
 - `sort` example: `print(sort([3, 1, 2]));`.
-- **reverse** — `reverse(xs)` — Build a list with the input items in reverse order.
-- `reverse` parameter `xs`: The input list.
+- **reverse** — `reverse(x)` — Build a list with the input items in reverse order.
+- `reverse` parameter `x`: The input list.
 - `reverse` returns: A new list.
 - `reverse` example: `print(reverse([1, 2, 3]));`.
 - **slice** — `slice(xs, start, stop)` — Copy a contiguous section of a list. Bounds are clamped to the list length; the stop index is exclusive.
@@ -107,10 +107,11 @@
 - `values` parameter `m`: The input map.
 - `values` returns: A list of values.
 - `values` example: `print(values({"a": 1}));`.
-- **has** — `has(x, key)` — Check for a map key, a matching list item, or a substring within a string.
+- **has** — `has(x, key)` — Report whether `x` contains `key`: maps look up keys, lists scan for an equal item and strings search for a substring.
 - `has` parameter `x`: The map, list, or string to search.
 - `has` parameter `key`: The key, item, or substring to find.
 - `has` returns: A boolean.
+- `has`: This is the function behind the language's `has`.
 - `has` example: `print(has({"name": "Ada"}, "name"));`.
 - **map_get** — `map_get(m, key)` — Look up a map entry without changing the map.
 - `map_get` parameter `m`: The input map.
@@ -153,10 +154,12 @@
 - **json_parse** — `json_parse(s)` — Decode a JSON string into Maylang strings, numbers, booleans, lists, maps, and `nil`.
 - `json_parse` parameter `s`: The JSON text.
 - `json_parse` returns: The decoded value.
+- `json_parse`: Returns dynamic maps/lists/scalars; rejects trailing content and malformed strings. See the implementation for supported Unicode escape behavior.
 - `json_parse` example: `let value: Any = json_parse("{\"name\":\"Ada\"}"); print(value.name);`.
 - **json_stringify** — `json_stringify(v)` — Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.
 - `json_stringify` parameter `v`: The value to encode.
 - `json_stringify` returns: A JSON string.
+- `json_stringify`: Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values.
 - `json_stringify` example: `print(json_stringify({"name": "Ada", "ready": true}));`.
 - **input** — `input(prompt)` — Display a prompt and read one line from standard input. The trailing newline is removed.
 - `input` parameter `prompt`: The text to display before reading; `nil` suppresses it.
@@ -251,6 +254,7 @@
 - **extern_c** — `extern_c(fn)` — Wrap a native function address as a callable Maylang function accepting six integer arguments.
 - `extern_c` parameter `fn`: The native function address.
 - `extern_c` returns: A callable wrapper.
+- `extern_c`: The wrapper has six positional parameters and returns a raw integer C result; use ccall for a list of up to six integer arguments.
 - `extern_c` example: `let call: Any = extern_c(fn); let result: Any = call(1, 2, 0, 0, 0, 0);`.
 - **sqrt** — `sqrt(x)` — Compute a number’s square root.
 - `sqrt` parameter `x`: The number to evaluate; trigonometric angles use radians.
@@ -264,35 +268,41 @@
 - `ceil` parameter `x`: The number to evaluate; trigonometric angles use radians.
 - `ceil` returns: The rounded Float; use int(ceil(x)) for an Int.
 - `ceil` example: `print(ceil(2.1));`.
-- **sin** — `sin(x)` — Compute the sine of an angle in radians.
-- `sin` parameter `x`: The number to evaluate; trigonometric angles use radians.
+- **sin** — `sin(value)` — Return the sine of `value`, an angle in radians.
+- `sin` parameter `value`: The angle in radians.
 - `sin` returns: A floating-point result.
+- `sin`: Any finite argument is reduced exactly, and the result is within one ulp.
 - `sin` example: `print(sin(0.0));`.
-- **cos** — `cos(x)` — Compute the cosine of an angle in radians.
-- `cos` parameter `x`: The number to evaluate; trigonometric angles use radians.
+- **cos** — `cos(value)` — Return the cosine of `value`, an angle in radians.
+- `cos` parameter `value`: The angle in radians.
 - `cos` returns: A floating-point result.
+- `cos`: Any finite argument is reduced exactly, and the result is within one ulp.
 - `cos` example: `print(cos(0.0));`.
-- **tan** — `tan(x)` — Compute the tangent of an angle in radians.
-- `tan` parameter `x`: The number to evaluate; trigonometric angles use radians.
+- **tan** — `tan(value)` — Return the tangent of `value`, an angle in radians.
+- `tan` parameter `value`: The angle in radians.
 - `tan` returns: A floating-point result.
+- `tan`: Any finite argument is reduced exactly, and the result is within one ulp.
 - `tan` example: `print(tan(0.0));`.
-- **env** — `env(name)` — Look up an environment variable in the current process.
+- **env** — `env(name)` — Look up an environment variable of the current process.
 - `env` parameter `name`: The environment variable name.
 - `env` returns: The variable’s string value, or `nil` if missing.
+- `env`: On Linux the value is read from `/proc/self/environ`.
 - `env` example: `print(env("HOME") ?? "unset");`.
 - **args** — `args()` — Read the process’s command-line arguments, including the executable name as the first item.
 - `args` returns: A list of argument strings.
 - `args` example: `print(args());`.
-- **substring** — `substring(s, start, count)` — Return a string starting at codepoint index start and containing count codepoints; require indices within the source string.
+- **substring** — `substring(s, start, count)` — Copy `count` code points of `s`, starting at code point index `start`.
 - `substring` parameter `s`: The input string.
 - `substring` parameter `start`: The zero-based starting character index.
 - `substring` parameter `count`: The number of characters to copy.
 - `substring` returns: A string.
+- `substring`: The third argument is a count, not an end index, and the range must lie within `s`.
 - `substring` example: `print(substring("hello", 1, 3));`.
-- **split** — `split(s, sep)` — Split by a literal delimiter, preserving empty fields; an empty delimiter returns a one-element list containing the original string.
+- **split** — `split(s, delim)` — Split `s` at each occurrence of the literal `delim`, keeping empty fields.
 - `split` parameter `s`: The input string.
-- `split` parameter `sep`: The separator string.
+- `split` parameter `delim`: The separator string.
 - `split` returns: A list of string segments.
+- `split`: An empty delimiter returns a one-element list containing `s`.
 - `split` example: `print(split("a,b,c", ","));`.
 - **join** — `join(xs, sep)` — Convert items to strings and combine them with a separator between neighboring items.
 - `join` parameter `xs`: The values to combine.
@@ -303,16 +313,17 @@
 - `trim` parameter `s`: The input string.
 - `trim` returns: A string.
 - `trim` example: `print(trim("  hello  "));`.
-- **repeat** — `repeat(s, n)` — Return a string repeated n times; nonpositive counts produce an empty string.
+- **repeat** — `repeat(s, n)` — Concatenate `n` copies of `s`; a nonpositive count gives an empty string.
 - `repeat` parameter `s`: The string to repeat.
-- `repeat` parameter `n`: The nonnegative number of copies.
+- `repeat` parameter `n`: The number of copies.
 - `repeat` returns: The repeated string.
 - `repeat` example: `print(repeat("ab", 3));`.
-- **range** — `range(a: Any, b: Any) -> Any` — Return an eager list of integers from inclusive a to exclusive b; the full-runtime source function takes exactly two arguments.
+- **range** — `range(a, b)` — Build the list of integers from `a` (inclusive) to `b` (exclusive).
 - `range` parameter `a`: The inclusive starting value.
 - `range` parameter `b`: The exclusive stop value.
 - `range` returns: A list of integers.
-- `range` example: `print(range(0, 3));` produces `[0, 1, 2]`.
+- `range`: The function takes exactly two arguments; use `range_step` for other steps.
+- `range` example: `print(range(1, 4));`.
 - **err** — handler-scoped structured error value, not a callable function; fields include kind, message and stack.
 - **mkdir** — `mkdir(path) -> Nil` — Create a directory with Linux mode 0755; raise an I/O error on failure.
 - **exec** — `exec(argv) -> Int` — Start a child using fork/execve and return its PID; argv is a nonempty list of argument strings.

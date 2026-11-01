@@ -1,16 +1,28 @@
 // io.may — safe text/JSON helpers over Maylang's small native I/O surface.
 import "csv.may";
 
+/// Read an entire text file; propagate read errors.
 fun io_read_text(path: Str) -> Str { return read_file(path); }
+/// Read text or return `fallback` on a caught runtime fault.
 fun io_read_or(path: Str, fallback: Str) -> Str { return may { read_file(path) } otherwise { fallback }; }
+/// Write `str(text)` and return the supplied path.
 fun io_write_text(path: Str, text: Any) -> Str { write_file(path, str(text)); return path; }
+/// Read a file and split on LF; a trailing newline yields a trailing empty entry.
 fun io_read_lines(path: Str) -> List<Str> { return split(read_file(path), "\n"); }
+/// Join lines with LF, write without an added final newline, and return the path.
 fun io_write_lines(path: Str, lines: List<Str>) -> Str { write_file(path, join(lines, "\n")); return path; }
+/// Read and parse JSON; propagate I/O and parse errors.
 fun io_read_json(path: Str) -> Any { return json_parse(read_file(path)); }
+/// Read and parse JSON, returning `fallback` on any caught fault.
 fun io_read_json_or(path: Str, fallback: Any) -> Any { return may { json_parse(read_file(path)) } otherwise { fallback }; }
+/// Serialize JSON, write it and return the path.
 fun io_write_json(path: Str, value: Any) -> Str { write_file(path, json_stringify(value)); return path; }
+/// Read a file and return parsed CSV rows.
 fun io_read_csv(path: Str) -> List<List<Str>> { return csv_parse(read_file(path)); }
+/// Serialize CSV rows, write them and return the path.
 fun io_write_csv(path: Str, rows: List<List<Str>>) -> Str { write_file(path, csv_stringify(rows)); return path; }
+/// Return trimmed key/value strings from `key=value` lines; skip blanks, # comments and lines
+/// without a nonempty key; later keys replace earlier keys.
 fun io_read_config(path: Str) -> Map<Str, Str> {
     let config: Map<Str, Str> = {};
     for line: Any in split(read_file(path), "\n") {

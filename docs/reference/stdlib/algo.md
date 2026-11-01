@@ -11,12 +11,12 @@
 - **quick_sort** — `fun quick_sort(xs: Any) -> Any` — Sort a list with a quicksort (pivot = first element). Returns a new list.
 - **merge_sort** — `fun merge_sort(xs: Any) -> Any` — Sort a list with a stable merge sort. Returns a new list.
 - **merge_sorted** — `fun merge_sorted(a: Any, b: Any) -> Any` — Merge two already-sorted lists into one sorted list.
-- **binary_search** — `fun binary_search(sorted: Any, target: Any) -> Any` — Index of `target` in a sorted list, or `-1`.
+- **binary_search** — `fun binary_search(sorted: Any, target: Any) -> Any` — Return the index of `target` in a sorted list, or `-1`.
 - **dedupe** — `fun dedupe(xs: Any) -> Any` — Remove duplicates, preserving the order of first appearance.
 - **zip** — `fun zip(a: Any, b: Any) -> Any` — Pair up the elements of two lists, stopping at the shorter one.
 - **flatten** — `fun flatten(xss: Any) -> Any` — Concatenate a list of lists into a single list.
-- **range_list** — `fun range_list(a: Any, b: Any) -> Any` — `[a, a+1, ..., b-1]`.
-- **take** — `fun take(xs: Any, n: Any) -> Any` — The first `n` elements (or fewer).
+- **range_list** — `fun range_list(a: Any, b: Any) -> Any` — Return the list `[a, a+1, ..., b-1]`.
+- **take** — `fun take(xs: Any, n: Any) -> Any` — Return the first `n` elements, or all of them when there are fewer.
 - **drop** — `fun drop(xs: Any, n: Any) -> Any` — Drop the first `n` elements.
 - **chunk** — `fun chunk(xs: Any, size: Any) -> Any` — Split a list into consecutive groups of `size`.
 - `chunk` explicit fault strings: `"chunk size must be positive"`; runtime/callback faults can also propagate.

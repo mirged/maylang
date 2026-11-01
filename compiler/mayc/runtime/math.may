@@ -66,7 +66,8 @@ fun __math_log_kernel(m: Any) -> Any {
     let lo: Any = ((f - hi) - hfsq) + tail;
     return [hi + lo, lo - ((hi + lo) - hi)];
 }
-/// Return the result of ln/log2/log10 for zero, negative, infinite or NaN input, or nil for positive finite input; internal math helper.
+/// Return the result of ln/log2/log10 for zero, negative, infinite or NaN input, or nil for
+/// positive finite input; internal math helper.
 fun __math_log_special(x: Any) -> Any {
     let kind: Any = __math_kind(x);
     if (kind == 3) { return x; }
@@ -279,7 +280,8 @@ fun __math_parity(y: Any) -> Any {
     if (to_float(t) != ay) { return -1; }
     return t % 2;
 }
-/// Raise one Float to another with C99 special cases for zeros, infinities, NaN and negative bases; internal math helper.
+/// Raise one Float to another with C99 special cases for zeros, infinities, NaN and negative bases;
+/// internal math helper.
 fun __math_powf(x: Any, y: Any) -> Any {
     let kx: Any = __math_kind(x); let ky: Any = __math_kind(y);
     if (ky == 0) { return 1.0; }
@@ -505,7 +507,8 @@ fun __math_big_bits(a: Any) -> Any {
     while (top > 0) { bits += 1; top = top / 2; }
     return bits;
 }
-/// Return digits * 10^scale correctly rounded to a Float, given the digits as a base-2^30 magnitude; internal math helper.
+/// Return digits * 10^scale correctly rounded to a Float, given the digits as a base-2^30
+/// magnitude; internal math helper.
 fun __math_decimal_big(digits: Any, scale: Any, negative: Any) -> Any {
     if (len(digits) == 1 and digits[0] == 0) { return __math_zero(negative); }
     if (scale > 310) { return __math_inf(negative); }
@@ -573,7 +576,8 @@ fun __math_decimal(text: Any, scale: Any, negative: Any) -> Any {
     }
     return __math_decimal_big(digits, scale, negative);
 }
-/// Parse optional sign, digits, optional fraction and optional exponent into the nearest Float, or nil when the text is not a number; internal math helper.
+/// Parse optional sign, digits, optional fraction and optional exponent into the nearest Float, or
+/// nil when the text is not a number; internal math helper.
 fun __math_parse(text: Any) -> Any {
     let n: Any = len(text);
     mut i: Any = 0; mut negative: Any = false;
@@ -617,7 +621,9 @@ fun __math_big_add(a: Any, b: Any) -> Any {
     if (carry > 0) { push(out, carry); }
     return out;
 }
-/// Format a Float with the shortest digits that parse back to the same value (Steele-White/Burger-Dybvig free-format digit generation, closest digit on ties); internal math helper.
+/// Format a Float with the shortest digits that parse back to the same value
+/// (Steele-White/Burger-Dybvig free-format digit generation, closest digit on ties); internal math
+/// helper.
 fun __math_format(value: Any) -> Any {
     let kind: Any = __math_kind(value);
     let negative: Any = __math_negative(value);
