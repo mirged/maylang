@@ -1,9 +1,9 @@
 // string.may — helpers built on the native string methods.
 
-/// Whether `s` has no characters.
+/// Report whether `s` has no characters.
 pub fun is_empty(s: Any) -> Any { return len(s) == 0; }
 
-/// `s` repeated `n` times.
+/// Repeat `s` `n` times.
 pub fun repeat(s: Any, n: Any) -> Any {
     mut out: Any = "";
     for _: Any in 1..=n { out = out + s; }
@@ -25,13 +25,13 @@ pub fun words(s: Any) -> Any {
     return filter(normalized.split(" "), |w: Any| -> Any { return len(w) > 0; });
 }
 
-/// The lines of `s`.
+/// Split `s` into lines.
 pub fun lines(s: Any) -> Any { return s.split("\n"); }
 
 /// Split a comma-separated line, trimming each field.
 pub fun csv(s: Any) -> Any { return map(s.split(","), |part: Any| -> Any { return part.trim(); }); }
 
-/// The characters of `s` in reverse order.
+/// Return the characters of `s` in reverse order.
 pub fun reverse_str(s: Any) -> Any { return reverse(s); }
 
 /// Left-pad `s` with `ch` until it is `width` characters wide.
@@ -50,7 +50,7 @@ pub fun pad_right(s: Any, width: Any, ch: Any) -> Any {
     return out;
 }
 
-/// Whether `s` begins with any of `prefixes`.
+/// Report whether `s` begins with any of `prefixes`.
 pub fun starts_with_any(s: Any, prefixes: Any) -> Any {
     return any(prefixes, |p: Any| -> Any { return s.starts_with(p); });
 }

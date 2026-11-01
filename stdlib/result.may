@@ -1,15 +1,15 @@
 // Typed Result helpers share the native {ok, value, error} representation.
 
-/// A successful result wrapping `value`.
+/// Wrap `value` in a successful result.
 fun ok<T>(value: T) -> Result<T, Never> { return Ok(value); }
 
-/// A failed result carrying `message`.
+/// Make a failed result carrying `message`.
 fun error<E>(message: E) -> Result<Never, E> { return Err(message); }
 
-/// Whether `r` is a success.
+/// Report whether `r` is a success.
 fun is_ok<T, E>(r: Result<T, E>) -> Bool { return r.ok; }
 
-/// Whether `r` is a failure.
+/// Report whether `r` is a failure.
 fun is_err<T, E>(r: Result<T, E>) -> Bool { return !r.ok; }
 
 /// Unwrap a success, or fault on a failure.

@@ -46,6 +46,7 @@ check:
 	$(PYTHON) scripts/check_repository.py
 	$(PYTHON) docs/reference/generate.py --check
 	$(PYTHON) tools/maylsp/docs/generate.py --check
+	$(PYTHON) tests/docs/docstrings.py
 
 test: check test-rust test-compiler test-compliance test-docs test-distribution
 

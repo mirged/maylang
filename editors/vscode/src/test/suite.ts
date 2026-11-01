@@ -4,8 +4,25 @@
 import * as assert from "assert";
 import * as fs from "fs";
 import * as path from "path";
-import { ConfigurationTarget, extensions, window, workspace } from "vscode";
+import { commands, ConfigurationTarget, extensions, Uri, window, workspace } from "vscode";
 import type { MaylangApi, ServerState } from "../extension";
+
+interface Token {
+  c: string;
+  t: string;
+}
+
+/** TextMate tokens for a file, from the command VS Code's colorizer tests use. */
+async function tokens(file: string, text: string): Promise<Token[]> {
+  fs.writeFileSync(file, text);
+  return (await commands.executeCommand<Token[]>("_workbench.captureSyntaxTokens", Uri.file(file))) ?? [];
+}
+
+function scopes(all: Token[], text: string): string {
+  const token = all.find((t) => t.c.replace(/`/g, "").trim() === text);
+  assert.ok(token, `token ${JSON.stringify(text)} in ${JSON.stringify(all)}`);
+  return token.t;
+}
 
 interface Event {
   event: string;
@@ -58,8 +75,56 @@ export async function run(): Promise<void> {
   assert.ok(extension, "extension maylang.maylang is installed");
   const folder = workspace.workspaceFolders?.[0];
   assert.ok(folder, "a workspace is open");
-  await window.showTextDocument(await workspace.openTextDocument(path.join(folder.uri.fsPath, "main.may")));
   const api = await extension.activate();
+
+  await step("waits for a Maylang document before starting a server", async () => {
+    // The Markdown preview activates the extension for fence highlighting.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await api.settled();
+    assert.strictEqual(api.starts(), 0);
+    assert.strictEqual(api.state(), "stopped");
+  });
+
+  await step("highlights Maylang fences in the Markdown preview", async () => {
+    const md = { options: { highlight: (code: string, lang: string) => `other:${lang}` } };
+    api.extendMarkdownIt(md);
+    const html = md.options.highlight('fun add(a: Int) -> Int { return a + 1; } // "x" <y>\nprint("${a}", nil);', "may");
+    for (const expected of [
+      '<span class="hljs-keyword">fun</span>',
+      '<span class="hljs-title function_">add</span>',
+      '<span class="hljs-type">Int</span>',
+      '<span class="hljs-number">1</span>',
+      '<span class="hljs-comment">// &quot;x&quot; &lt;y&gt;</span>',
+      '<span class="hljs-built_in">print</span>',
+      '<span class="hljs-string">&quot;${a}&quot;</span>',
+      '<span class="hljs-literal">nil</span>',
+    ]) {
+      assert.ok(html.includes(expected), `${expected} in ${html}`);
+    }
+    assert.strictEqual(md.options.highlight("x", "maylang").startsWith("<div>"), true);
+    assert.strictEqual(md.options.highlight("x", "js"), "other:js");
+    // The built-in Markdown extension loads the plugin through its contribution.
+    const rendered = await commands.executeCommand<string>("markdown.api.render", "```may\nfun go() -> Nil { return; }\n```\n");
+    assert.ok(rendered.includes('<span class="hljs-keyword">fun</span>'), rendered);
+  });
+
+  await step("scopes doc comments and fenced Maylang in Markdown", async () => {
+    const doc = await tokens(
+      path.join(folder.uri.fsPath, "doc.may"),
+      "/// Scale `amount`.\n///\n/// Returns: the product.\n// plain `y`\nfun scale(x: Int) -> Int { return x; }\n"
+    );
+    assert.match(scopes(doc, "amount"), /comment\.line\.documentation\.maylang.*markup\.inline\.raw\.string\.maylang/);
+    assert.match(scopes(doc, "Returns"), /keyword\.other\.documentation\.maylang/);
+    assert.match(scopes(doc, "// plain y"), /comment\.line\.double-slash\.maylang/);
+    const markdown = await tokens(
+      path.join(folder.uri.fsPath, "doc.md"),
+      "# Title\n\n```may\nfun scale(x: Int) -> Int { return x; }\n```\n\n```maylang\nlet n: Int = 1;\n```\n"
+    );
+    assert.match(scopes(markdown, "scale"), /meta\.embedded\.block\.maylang.*entity\.name\.function\.maylang/);
+    assert.match(scopes(markdown, "let"), /meta\.embedded\.block\.maylang/);
+  });
+
+  await window.showTextDocument(await workspace.openTextDocument(path.join(folder.uri.fsPath, "main.may")));
 
   await step("discovers the configured server and passes strict mode", async () => {
     await settle(api, "running", 1);

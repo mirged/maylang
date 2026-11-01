@@ -13,9 +13,13 @@
 // `Result` and `Option` are ordinary `{ok, value, error}` maps so the `?`
 // operator can propagate failures structurally. `None` is simply `nil`.
 
+/// Return a success map `{ok: true, value, error: nil}`.
 fun Ok(value: Any) -> Any { return {"ok": true, "value": value, "error": nil}; }
+/// Return a failure map `{ok: false, value: nil, error}`.
 fun Err(error: Any) -> Any { return {"ok": false, "value": nil, "error": error}; }
+/// Return the same success-map representation as `Ok`.
 fun Some(value: Any) -> Any { return {"ok": true, "value": value, "error": nil}; }
+/// Return `nil`; invoke as a zero-argument function.
 fun None() -> Any { return nil; }
 
 // ------------------------------------------------- operator overloading
@@ -24,37 +28,68 @@ fun None() -> Any { return nil; }
 // operand (when it is a map/struct). The method receives `(self, other)`.
 // Returning `nil` means "not handled" and falls back to numeric semantics.
 
+/// Dispatch a map/record `+` operator hook: call the left operand's method with
+/// `(self, other)`, or return `nil` when it has none.
 fun __op_add(a: Any, b: Any) -> Any { if (value_tag(a) != 7) { return nil; } let m: Any = a["+"]; if (m == nil) { return nil; } return m(a, b); }
+/// Dispatch a map/record `-` operator hook: call the left operand's method with
+/// `(self, other)`, or return `nil` when it has none.
 fun __op_sub(a: Any, b: Any) -> Any { if (value_tag(a) != 7) { return nil; } let m: Any = a["-"]; if (m == nil) { return nil; } return m(a, b); }
+/// Dispatch a map/record `*` operator hook: call the left operand's method with
+/// `(self, other)`, or return `nil` when it has none.
 fun __op_mul(a: Any, b: Any) -> Any { if (value_tag(a) != 7) { return nil; } let m: Any = a["*"]; if (m == nil) { return nil; } return m(a, b); }
+/// Dispatch a map/record `/` operator hook: call the left operand's method with
+/// `(self, other)`, or return `nil` when it has none.
 fun __op_div(a: Any, b: Any) -> Any { if (value_tag(a) != 7) { return nil; } let m: Any = a["/"]; if (m == nil) { return nil; } return m(a, b); }
 
 // ------------------------------------------------------------------ strings
 
+/// Concatenate through the dynamic `+` operator.
 fun str_concat(a: Any, b: Any) -> Any { return a + b; }
 
 // All native runtimes store the UTF-8 byte count immediately before addr(s).
 // Walk byte offsets once and copy into a fresh string; indexing s repeatedly
 // rescans every preceding codepoint and makes long paths/environments quadratic.
+
+/// Return the byte width of a valid UTF-8 leading byte; native prelude helper.
 fun __native_utf8_width(byte: Any) -> Any {
     if (byte < 128) { return 1; }
     if (byte < 224) { return 2; }
     if (byte < 240) { return 3; }
     return 4;
 }
-// Copy `count` bytes. Its Int-only signature makes the full runtime compile
-// it as a native-word loop; the source bootstrap ignores the types.
+/// Copy `count` bytes from `source` to `destination` and return the count; native prelude helper.
+///
+/// Its Int-only signature makes the full runtime compile it as a native-word loop; the source
+/// bootstrap ignores the types.
 fun __native_copy_bytes(destination: Int, source: Int, count: Int) -> Int {
     mut i: Int = 0;
     while (i + 8 <= count) { store64(destination + i, load64(source + i)); i += 8; }
     while (i < count) { store8(destination + i, load8(source + i)); i += 1; }
     return count;
 }
+/// Copy an in-range UTF-8 byte slice into a fresh string; native prelude helper.
+///
+/// The caller must preserve code point boundaries.
 fun __native_string_bytes(s: Any, start: Any, count: Any) -> Any {
     let out: Any = repeat("\0", count);
     __native_copy_bytes(addr(out), addr(s) + start, count);
     return out;
 }
+/// Copy `count` code points of `s`, starting at code point index `start`.
+///
+/// The third argument is a count, not an end index, and the range must lie within `s`.
+///
+/// Params:
+/// - `s`: The input string.
+/// - `start`: The zero-based starting character index.
+/// - `count`: The number of characters to copy.
+///
+/// Returns: A string.
+///
+/// Example:
+/// ```may
+/// print(substring("hello", 1, 3)); // ell
+/// ```
 fun substring(s: Any, start: Any, count: Any) -> Any {
     let bytes: Any = addr(s); let n: Any = load64(bytes - 8);
     mut offset: Any = 0; mut index: Any = 0;
@@ -68,10 +103,24 @@ fun substring(s: Any, start: Any, count: Any) -> Any {
     return __native_string_bytes(s, begin, offset - begin);
 }
 
+/// Report whether a character code is ASCII space, tab, LF or CR.
 fun is_space_code(c: Any) -> Any { return c == 32 || c == 9 || c == 10 || c == 13; }
+/// Report whether a character code is an ASCII uppercase letter (65..90).
 fun is_upper_code(c: Any) -> Any { return c >= 65 && c <= 90; }
+/// Report whether a character code is an ASCII lowercase letter (97..122).
 fun is_lower_code(c: Any) -> Any { return c >= 97 && c <= 122; }
 
+/// Remove whitespace from the beginning and end of a string.
+///
+/// Params:
+/// - `s`: The input string.
+///
+/// Returns: A string.
+///
+/// Example:
+/// ```may
+/// print(trim("  hello  "));
+/// ```
 fun trim(s: Any) -> Any {
     let n: Any = len(s);
     mut a: Any = 0;
@@ -81,8 +130,9 @@ fun trim(s: Any) -> Any {
     return substring(s, a, b - a);
 }
 
-// ASCII letters change case; every other byte, including all bytes of
-// multi-byte code points, is copied unchanged.
+/// Copy `s`, shifting the 26 ASCII letters starting at `low` by `delta`; native prelude helper.
+///
+/// Every other byte, including all bytes of multi-byte code points, is copied unchanged.
 fun __native_ascii_case(s: Any, low: Any, delta: Any) -> Any {
     let n: Any = load64(addr(s) - 8);
     let out: Any = __native_string_bytes(s, 0, n);
@@ -94,11 +144,15 @@ fun __native_ascii_case(s: Any, low: Any, delta: Any) -> Any {
     return out;
 }
 
+/// Return an ASCII-lowercased string; other character codes pass through.
 fun to_lower(s: Any) -> Any { return __native_ascii_case(s, 65, 32); }
+/// Return an ASCII-uppercased string; other character codes pass through.
 fun to_upper(s: Any) -> Any { return __native_ascii_case(s, 97, 0 - 32); }
 
-// Byte offset of the first `sub` in `s` at or after byte `offset`, or -1.
-// Valid UTF-8 needles only match at code point boundaries.
+/// Return the byte offset of the first `sub` in `s` at or after byte `offset`, or -1; native
+/// prelude helper.
+///
+/// Valid UTF-8 needles only match at code point boundaries.
 fun __native_find(s: Any, sub: Any, offset: Any) -> Any {
     let bytes: Any = addr(s); let needle: Any = addr(sub);
     let n: Any = load64(bytes - 8); let m: Any = load64(needle - 8);
@@ -112,6 +166,7 @@ fun __native_find(s: Any, sub: Any, offset: Any) -> Any {
     return -1;
 }
 
+/// Return the first substring index or `-1`; an empty needle returns zero.
 fun index_of(s: Any, sub: Any) -> Any {
     let at: Any = __native_find(s, sub, 0);
     if (at <= 0) { return at; }
@@ -125,20 +180,37 @@ fun index_of(s: Any, sub: Any) -> Any {
     return index;
 }
 
+/// Report whether the string contains the substring (`index_of` is nonnegative).
 fun contains(s: Any, sub: Any) -> Any { return index_of(s, sub) >= 0; }
 
+/// Report whether the string begins with the supplied prefix.
 fun starts_with(s: Any, prefix: Any) -> Any {
     let n: Any = len(prefix);
     if (n > len(s)) { return false; }
     return substring(s, 0, n) == prefix;
 }
 
+/// Report whether the string ends with the supplied suffix.
 fun ends_with(s: Any, suffix: Any) -> Any {
     let n: Any = len(suffix);
     if (n > len(s)) { return false; }
     return substring(s, len(s) - n, n) == suffix;
 }
 
+/// Split `s` at each occurrence of the literal `delim`, keeping empty fields.
+///
+/// An empty delimiter returns a one-element list containing `s`.
+///
+/// Params:
+/// - `s`: The input string.
+/// - `delim`: The separator string.
+///
+/// Returns: A list of string segments.
+///
+/// Example:
+/// ```may
+/// print(split("a,b,c", ","));
+/// ```
 fun split(s: Any, delim: Any) -> Any {
     mut out: Any = [];
     let bytes: Any = addr(s); let separator: Any = addr(delim);
@@ -161,12 +233,15 @@ fun split(s: Any, delim: Any) -> Any {
     return out;
 }
 
-// split finds the same leftmost, non-overlapping matches.
+/// Replace non-overlapping occurrences; an empty needle returns the original string.
+///
+/// The matches are the same leftmost, non-overlapping ones that `split` finds.
 fun replace(s: Any, needle: Any, replacement: Any) -> Any {
     if (load64(addr(needle) - 8) == 0) { return s; }
     return join(split(s, needle), replacement);
 }
 
+/// Return Unicode codepoints as one-character strings.
 fun chars(s: Any) -> Any {
     let out: Any = []; let bytes: Any = addr(s); let n: Any = load64(bytes - 8);
     mut offset: Any = 0;
@@ -176,6 +251,18 @@ fun chars(s: Any) -> Any {
     }
     return out;
 }
+/// Concatenate `n` copies of `s`; a nonpositive count gives an empty string.
+///
+/// Params:
+/// - `s`: The string to repeat.
+/// - `n`: The number of copies.
+///
+/// Returns: The repeated string.
+///
+/// Example:
+/// ```may
+/// print(repeat("ab", 3)); // ababab
+/// ```
 fun repeat(s: Any, n: Any) -> Any {
     mut out: Any = ""; mut part: Any = s; mut left: Any = n;
     while (left > 0) {
@@ -186,9 +273,10 @@ fun repeat(s: Any, n: Any) -> Any {
     return out;
 }
 
-// join of a List with a Str separator. The full runtime compiles calls to
-// it as rt_join (x86_64_fat.may fat_call); this body serves the source
-// bootstrap: one allocation of the total byte length, one copy per part.
+/// Join a list's display texts with a string separator; native prelude helper.
+///
+/// The full runtime compiles calls to it as `rt_join` (`x86_64_fat.may` `fat_call`); this body
+/// serves the source bootstrap with one allocation of the total byte length and one copy per part.
 fun __join_list(xs: Any, separator: Any) -> Any {
     let n: Any = len(xs);
     let parts: Any = [];
@@ -214,6 +302,18 @@ fun __join_list(xs: Any, separator: Any) -> Any {
     return out;
 }
 
+/// Convert items to strings and combine them with a separator between neighboring items.
+///
+/// Params:
+/// - `xs`: The values to combine.
+/// - `sep`: The text inserted between items.
+///
+/// Returns: The combined string.
+///
+/// Example:
+/// ```may
+/// print(join(["a", "b"], ","));
+/// ```
 fun join(xs: Any, sep: Any) -> Any {
     if (value_tag(xs) == 5) { return __join_list(xs, str(sep)); }
     let n: Any = len(xs);
@@ -224,6 +324,20 @@ fun join(xs: Any, sep: Any) -> Any {
     return __join_list(parts, str(sep));
 }
 
+/// Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero;
+/// NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text
+/// raises a catchable failure.
+///
+/// Params:
+/// - `x`: A number or a trimmed decimal string with optional sign.
+///
+/// Returns: An integer.
+///
+/// Example:
+/// ```may
+/// print(int(" 42 "));
+/// print(int(3.9));
+/// ```
 fun int(x: Any) -> Any {
     let t: Any = value_tag(x);
     if (t == 0) { return x; }
@@ -252,6 +366,17 @@ fun int(x: Any) -> Any {
     return v;
 }
 
+/// Convert a number or numeric string to a floating-point value.
+///
+/// Params:
+/// - `x`: A number or numeric string.
+///
+/// Returns: A floating-point number.
+///
+/// Example:
+/// ```may
+/// print(float("3.5"));
+/// ```
 fun float(x: Any) -> Any {
     let t: Any = value_tag(x);
     if (t == 6) { return x; }
@@ -263,11 +388,23 @@ fun float(x: Any) -> Any {
     return value;
 }
 
-/// Format a boxed float with the shortest digits that parse back to the same value; spell nonfinite values nan, inf and -inf and keep the sign of negative zero.
+/// Format a boxed float with the shortest digits that parse back to the same value; spell nonfinite
+/// values nan, inf and -inf and keep the sign of negative zero.
 fun float_str(f: Any) -> Any { return __math_format(f); }
 
 // ------------------------------------------------------------------ lists
 
+/// Build a list with the input items in reverse order.
+///
+/// Params:
+/// - `x`: The input list.
+///
+/// Returns: A new list.
+///
+/// Example:
+/// ```may
+/// print(reverse([1, 2, 3]));
+/// ```
 fun reverse(x: Any) -> Any {
     let n: Any = len(x);
     if (value_tag(x) == 1) {
@@ -278,18 +415,90 @@ fun reverse(x: Any) -> Any {
     return [x[n - 1 - i] for i: Any in 0..n];
 }
 
+/// Build the list of integers from `a` (inclusive) to `b` (exclusive).
+///
+/// The function takes exactly two arguments; use `range_step` for other steps.
+///
+/// Params:
+/// - `a`: The inclusive starting value.
+/// - `b`: The exclusive stop value.
+///
+/// Returns: A list of integers.
+///
+/// Example:
+/// ```may
+/// print(range(1, 4)); // [1, 2, 3]
+/// ```
 fun range(a: Any, b: Any) -> Any { return [i for i: Any in a..b]; }
 
+/// Add the numeric values in a list.
+///
+/// Params:
+/// - `xs`: A list of numbers.
+///
+/// Returns: The total; zero for an empty list.
+///
+/// Example:
+/// ```may
+/// print(sum([1, 2, 3])); // 6
+/// ```
 fun sum(xs: Any) -> Any {
     mut total: Any = 0;
     for x: Any in xs { total = total + x; }
     return total;
 }
 
+/// Return the lesser of two comparable values.
+///
+/// Params:
+/// - `a`: The first value.
+/// - `b`: The second value.
+///
+/// Returns: One of the two values.
+///
+/// Example:
+/// ```may
+/// print(min(3, 8)); // 3
+/// ```
 fun min(a: Any, b: Any) -> Any { return if (cmp(a, b) <= 0) { a } else { b }; }
+/// Return the greater of two comparable values.
+///
+/// Params:
+/// - `a`: The first value.
+/// - `b`: The second value.
+///
+/// Returns: One of the two values.
+///
+/// Example:
+/// ```may
+/// print(max(3, 8)); // 8
+/// ```
 fun max(a: Any, b: Any) -> Any { return if (cmp(a, b) >= 0) { a } else { b }; }
+/// Return the nonnegative magnitude of a number.
+///
+/// Params:
+/// - `x`: The input number.
+///
+/// Returns: A numeric absolute value.
+///
+/// Example:
+/// ```may
+/// print(abs(-4)); // 4
+/// ```
 fun abs(x: Any) -> Any { return if (cmp(x, 0) < 0) { 0 - x } else { x }; }
 
+/// Return the items in ascending order using the standard comparison function. The input list is
+/// preserved.
+///
+/// Params:
+/// - `xs`: A list of comparable values.
+///
+/// Returns: A new sorted list.
+///
+/// Example:
+/// ```may
+/// print(sort([3, 1, 2]));
+/// ```
 fun sort(xs: Any) -> Any {
     let a: Any = [];
     for x: Any in xs { push(a, x); }
@@ -308,11 +517,46 @@ fun sort(xs: Any) -> Any {
 
 // ------------------------------------------------------------------ maps
 
+/// Collect the keys of a map.
+///
+/// Params:
+/// - `m`: The input map.
+///
+/// Returns: A list of keys.
+///
+/// Example:
+/// ```may
+/// print(keys({"a": 1}));
+/// ```
 fun keys(m: Any) -> Any { return map_keys(m); }
+/// Collect the values of a map.
+///
+/// Params:
+/// - `m`: The input map.
+///
+/// Returns: A list of values.
+///
+/// Example:
+/// ```may
+/// print(values({"a": 1}));
+/// ```
 fun values(m: Any) -> Any { return map_values(m); }
 
-/// Membership: maps use key lookup, lists scan by value, strings scan for a
-/// substring (matching the language's `has`).
+/// Report whether `x` contains `key`: maps look up keys, lists scan for an equal item and strings
+/// search for a substring.
+///
+/// This is the function behind the language's `has`.
+///
+/// Params:
+/// - `x`: The map, list, or string to search.
+/// - `key`: The key, item, or substring to find.
+///
+/// Returns: A boolean.
+///
+/// Example:
+/// ```may
+/// print(has({"name": "Ada"}, "name"));
+/// ```
 fun has(x: Any, key: Any) -> Any {
     let t: Any = value_tag(x);
     if (t == 7) { return map_has(x, key); }
@@ -327,6 +571,19 @@ fun has(x: Any, key: Any) -> Any {
     return false;
 }
 
+/// Combine two maps into a new map. Entries from the second map replace matching keys from the
+/// first.
+///
+/// Params:
+/// - `a`: The first map.
+/// - `b`: The second map, which takes precedence.
+///
+/// Returns: A new combined map.
+///
+/// Example:
+/// ```may
+/// print(merge({"a": 1}, {"a": 2, "b": 3}));
+/// ```
 fun merge(a: Any, b: Any) -> Any {
     let out: Any = to_map([]);
     for key: Any in map_keys(a) { map_set(out, key, map_get(a, key)); }
@@ -334,6 +591,19 @@ fun merge(a: Any, b: Any) -> Any {
     return out;
 }
 
+/// Copy a map while omitting one key. The original map is preserved.
+///
+/// Params:
+/// - `m`: The input map.
+/// - `key`: The key to omit.
+///
+/// Returns: A new map.
+///
+/// Example:
+/// ```may
+/// let m: Any = {"a": 1, "b": 2};
+/// let smaller: Any = remove(m, "a");
+/// ```
 fun remove(m: Any, key: Any) -> Any {
     let out: Any = to_map([]);
     for kk: Any in map_keys(m) {
@@ -342,6 +612,17 @@ fun remove(m: Any, key: Any) -> Any {
     return out;
 }
 
+/// Convert a value to its textual representation.
+///
+/// Params:
+/// - `x`: The value to format.
+///
+/// Returns: A string.
+///
+/// Example:
+/// ```may
+/// print(str(42));
+/// ```
 fun str(x: Any) -> Any {
     if (value_tag(x) == 6) { return float_str(x); }
     return str_of(x);
@@ -359,11 +640,13 @@ fun make_error(kind: Any, message: Any) -> Any {
     return e;
 }
 
+/// Construct and raise a structured runtime error; does not return normally.
 fun raise_error(kind: Any, message: Any) -> Any {
     rt_raise(make_error(kind, message));
     return nil;
 }
 
+/// Build and raise a fail-category error from displayable message items.
 fun fail_list(items: Any) -> Any {
     mut msg: Any = "";
     let n: Any = len(items);
@@ -374,6 +657,7 @@ fun fail_list(items: Any) -> Any {
     return raise_error("fail", msg);
 }
 
+/// Return the tagged runtime type name.
 fun type_name(x: Any) -> Any {
     let t: Any = value_tag(x);
     if (t == 0) { return "Int"; }
@@ -386,33 +670,40 @@ fun type_name(x: Any) -> Any {
     return "List";
 }
 
+/// Raise an operator/type error describing both operands and the operator.
 fun raise_binop_error(a: Any, b: Any, sym: Any) -> Any {
     return raise_error("type", "cannot apply `" + sym + "` to " + type_name(a) + " and " + type_name(b));
 }
 
+/// Raise the native addition operand-type error.
 fun raise_add_error(a: Any, b: Any) -> Any {
     return raise_error("runtime", "cannot add " + type_name(a) + " and " + type_name(b));
 }
 
+/// Raise the native exponentiation operand-type error.
 fun raise_exp_error(a: Any, b: Any) -> Any {
     return raise_error("type", "cannot exponentiate " + type_name(a) + " and " + type_name(b));
 }
 
+/// Raise the arithmetic division-by-zero fault.
 fun raise_div_zero() -> Any {
     return raise_error("arithmetic", "division by zero");
 }
 
+/// Raise the arithmetic integer-overflow fault.
 fun raise_overflow() -> Any {
     return raise_error("arithmetic", "integer overflow");
 }
 
+/// Raise an I/O-category error with the supplied message.
 fun raise_io_error(message: Any) -> Any {
     return raise_error("io", message);
 }
 
-/// A raw pointer is just an integer holding a machine address.
+/// Return a raw pointer, which is just an integer holding a machine address.
 fun ptr(n: Any) -> Any { return n; }
 
+/// Print a structured error's category/message and available stack text.
 fun print_error(e: Any) -> Any {
     let k: Any = e.kind;
     if (k == nil) { return print(str(e)); }
@@ -421,6 +712,7 @@ fun print_error(e: Any) -> Any {
     return print(str(k) + ": " + str(m));
 }
 
+/// Return a shallow concatenation of two lists.
 fun concat_lists(a: Any, b: Any) -> Any {
     let out: Any = [];
     for x: Any in a { push(out, x); }
@@ -428,7 +720,7 @@ fun concat_lists(a: Any, b: Any) -> Any {
     return out;
 }
 
-/// The VM's `repr` as a string: strings are quoted when nested.
+/// Format a value like the VM's `repr`: strings are quoted when nested.
 fun string_repr(v: Any) -> Any {
     let t: Any = value_tag(v);
     if (t == 1 || t == 0 || t == 6) { return str(v); }
@@ -460,16 +752,31 @@ fun string_repr(v: Any) -> Any {
 
 // ------------------------------------------------------------------ values
 
+/// Convert a value to its truth value. Only `nil` and `false` are false; zero, empty strings, and
+/// empty collections are true.
+///
+/// Params:
+/// - `x`: The value whose truthiness is tested.
+///
+/// Returns: `true` or `false`.
+///
+/// Example:
+/// ```may
+/// print(bool(0)); // true
+/// ```
 fun bool(x: Any) -> Any { return if (x) { true } else { false }; }
 
+/// Return the native runtime type name.
 fun type(x: Any) -> Any { return type_name(x); }
 
+/// Return -1, 0 or 1 according to comparison with zero.
 fun sign(x: Any) -> Any {
     if (cmp(x, 0) > 0) { return 1; }
     if (cmp(x, 0) < 0) { return -1; }
     return 0;
 }
 
+/// Parse a trimmed integer string with range checking; propagate conversion faults.
 fun parse_int(x: Any) -> Any {
     if (value_tag(x) == 0) { return x; }
     if (value_tag(x) == 6) { return trunc(x); }
@@ -487,13 +794,26 @@ fun parse_int(x: Any) -> Any {
     return int(s);
 }
 
+/// Parse a trimmed floating-point string through native conversion.
 fun parse_float(x: Any) -> Any {
     if (value_tag(x) == 6) { return x; }
     if (value_tag(x) == 0) { return float(x); }
     return float(trim(x));
 }
 
-/// Read an environment variable (Linux: via `/proc/self/environ`).
+/// Look up an environment variable of the current process.
+///
+/// On Linux the value is read from `/proc/self/environ`.
+///
+/// Params:
+/// - `name`: The environment variable name.
+///
+/// Returns: The variable’s string value, or `nil` if missing.
+///
+/// Example:
+/// ```may
+/// print(env("HOME") ?? "unset");
+/// ```
 fun env(name: Any) -> Any {
     let blob: Any = may { read_file("/proc/self/environ") } otherwise { nil };
     if (blob == nil) { return nil; }
@@ -510,19 +830,31 @@ fun env(name: Any) -> Any {
 
 // ------------------------------------------------------------------ math
 
+/// Return the binary64 approximation of π, 3.141592653589793.
 fun pi() -> Any { return 3.141592653589793; }
+/// Return the binary64 approximation of Euler's number, 2.718281828459045.
 fun e() -> Any { return 2.718281828459045; }
 
+/// Round to the nearest integral Float; halfway values round toward positive infinity
+/// (`round(-2.5)` is `-2.0`).
+///
+/// Float return; halfway values, including negative ones, round toward positive infinity. Convert
+/// with int() where an Int is needed.
 fun round(x: Any) -> Any {
     // x - floor(x) is exact, unlike x + 0.5, which rounds 0.49999999999999994 up.
     let f: Any = to_float(x); let r: Any = floor(f);
     return if (f - r >= 0.5) { r + 1.0 } else { r };
 }
 
+/// Compute `(exp(x) - exp(-x)) / 2.0`.
 fun sinh(x: Any) -> Any { return (exp(x) - exp(0.0 - x)) / 2.0; }
+/// Compute `(exp(x) + exp(-x)) / 2.0`.
 fun cosh(x: Any) -> Any { return (exp(x) + exp(0.0 - x)) / 2.0; }
+/// Compute `(exp(2*x) - 1) / (exp(2*x) + 1)`; large inputs may overflow the exponential.
 fun tanh(x: Any) -> Any { let e2: Any = exp(2.0 * x); return (e2 - 1.0) / (e2 + 1.0); }
+/// Return `sqrt(x*x + y*y)` without an overflow-resistant scaling algorithm.
 fun hypot(x: Any, y: Any) -> Any { return sqrt(x * x + y * y); }
+/// Return a sign-preserving cube root computed with fractional powers.
 fun cbrt(x: Any) -> Any {
     if (cmp(x, 0) == 0) { return 0.0; }
     if (cmp(x, 0) < 0) { return 0.0 - exp(ln(0.0 - x) / 3.0); }
@@ -531,13 +863,16 @@ fun cbrt(x: Any) -> Any {
 
 // ------------------------------------------------------------------ json
 
+/// Report whether a code is JSON whitespace (space, tab, LF or CR); JSON parser helper.
 fun jd_is_space(c: Any) -> Any { return c == 32 || c == 9 || c == 10 || c == 13; }
+/// Skip JSON whitespace from index `i` and return the next index.
 fun jd_skip(s: Any, i: Any) -> Any {
     mut j: Any = i;
     while (j < len(s) && jd_is_space(char_at(s, j))) { j = j + 1; }
     return j;
 }
 
+/// Decode one hexadecimal character or raise a parse fault; JSON parser helper.
 fun jd_hex(c: Any) -> Any {
     if (c >= 48 && c <= 57) { return c - 48; }
     if (c >= 97 && c <= 102) { return c - 87; }
@@ -545,6 +880,7 @@ fun jd_hex(c: Any) -> Any {
     return raise_error("parse", "invalid JSON Unicode escape");
 }
 
+/// Decode a quoted JSON string and return the parsed value and next position.
 fun jd_string(s: Any, i: Any) -> Any {
     mut out: Any = "";
     mut j: Any = i;
@@ -584,6 +920,7 @@ fun jd_string(s: Any, i: Any) -> Any {
     return [out, j];
 }
 
+/// Read a JSON number and return the parsed value and next position.
 fun jd_number(s: Any, i: Any) -> Any {
     mut j: Any = i;
     if (j < len(s) && char_at(s, j) == 45) { j = j + 1; }
@@ -601,6 +938,7 @@ fun jd_number(s: Any, i: Any) -> Any {
     return [int(text), j];
 }
 
+/// Read a JSON array and return the parsed list and next position.
 fun jd_array(s: Any, i: Any) -> Any {
     mut out: Any = [];
     mut j: Any = jd_skip(s, i);
@@ -615,6 +953,7 @@ fun jd_array(s: Any, i: Any) -> Any {
     return [out, j + 1];
 }
 
+/// Read a JSON object and return the parsed map and next position.
 fun jd_object(s: Any, i: Any) -> Any {
     let out: Any = to_map([]);
     mut j: Any = jd_skip(s, i);
@@ -633,6 +972,7 @@ fun jd_object(s: Any, i: Any) -> Any {
     return [out, j + 1];
 }
 
+/// Parse the JSON value at the next token and return the value and next position.
 fun jd_value(s: Any, i: Any) -> Any {
     let j: Any = jd_skip(s, i);
     if (j >= len(s)) { return raise_error("parse", "unexpected end of JSON"); }
@@ -656,6 +996,21 @@ fun jd_value(s: Any, i: Any) -> Any {
     return raise_error("parse", "invalid JSON");
 }
 
+/// Decode a JSON string into Maylang strings, numbers, booleans, lists, maps, and `nil`.
+///
+/// Returns dynamic maps/lists/scalars; rejects trailing content and malformed strings. See the
+/// implementation for supported Unicode escape behavior.
+///
+/// Params:
+/// - `s`: The JSON text.
+///
+/// Returns: The decoded value.
+///
+/// Example:
+/// ```may
+/// let value: Any = json_parse("{\"name\":\"Ada\"}");
+/// print(value.name);
+/// ```
 fun json_parse(s: Any) -> Any {
     let r: Any = jd_value(s, 0);
     let end: Any = jd_skip(s, r[1]);
@@ -663,6 +1018,7 @@ fun json_parse(s: Any) -> Any {
     return r[0];
 }
 
+/// Quote and escape a string for JSON, including control characters.
 fun jq_escape(s: Any) -> Any {
     mut out: Any = "\"";
     for i: Any in 0..len(s) {
@@ -681,6 +1037,21 @@ fun jq_escape(s: Any) -> Any {
     return out + "\"";
 }
 
+/// Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded
+/// recursively.
+///
+/// Object keys are sorted before serialization and must be strings. Cyclic collections are not
+/// valid JSON trees; do not pass self-referential values.
+///
+/// Params:
+/// - `v`: The value to encode.
+///
+/// Returns: A JSON string.
+///
+/// Example:
+/// ```may
+/// print(json_stringify({"name": "Ada", "ready": true}));
+/// ```
 fun json_stringify(v: Any) -> Any {
     let t: Any = value_tag(v);
     if (t == 2) { return "null"; }
@@ -714,29 +1085,37 @@ fun json_stringify(v: Any) -> Any {
 
 // ------------------------------------------------------------------ extras
 
+/// Return `max(lo, min(x, hi))`.
 fun clamp(x: Any, lo: Any, hi: Any) -> Any {
     if (cmp(x, lo) < 0) { return lo; }
     if (cmp(x, hi) > 0) { return hi; }
     return x;
 }
 
+/// Return a one-character string from a character code.
 fun chr(n: Any) -> Any { return char_from(n); }
+/// Return the first character's codepoint; require a nonempty string.
 fun ord(s: Any) -> Any { return char_at(s, 0); }
+/// Report whether `n` is even (`n % 2 == 0`).
 fun even(n: Any) -> Any { return n % 2 == 0; }
+/// Report whether `n` is odd (`n % 2 != 0`).
 fun odd(n: Any) -> Any { return n % 2 != 0; }
 
+/// Multiply a numeric list, starting at one.
 fun product(xs: Any) -> Any {
     mut p: Any = 1;
     for x: Any in xs { p = p * x; }
     return p;
 }
 
+/// Return the count of values equal to the supplied value.
 fun count(xs: Any, x: Any) -> Any {
     mut c: Any = 0;
     for e: Any in xs { if (e == x) { c = c + 1; } }
     return c;
 }
 
+/// Return the first element satisfying the unary predicate, or `nil`.
 fun find(xs: Any, x: Any) -> Any {
     let n: Any = len(xs);
     mut i: Any = 0;
@@ -747,6 +1126,20 @@ fun find(xs: Any, x: Any) -> Any {
     return -1;
 }
 
+/// Copy a contiguous section of a list. Bounds are clamped to the list length; the stop index is
+/// exclusive.
+///
+/// Params:
+/// - `xs`: The input list.
+/// - `start`: The zero-based inclusive starting index.
+/// - `stop`: The exclusive ending index.
+///
+/// Returns: A new list; empty if stop is not greater than start.
+///
+/// Example:
+/// ```may
+/// print(slice([10, 20, 30, 40], 1, 3)); // [20, 30]
+/// ```
 fun slice(xs: Any, start: Any, stop: Any) -> Any {
     let n: Any = len(xs);
     let a: Any = clamp(start, 0, n);
@@ -760,6 +1153,7 @@ fun slice(xs: Any, start: Any, stop: Any) -> Any {
     return out;
 }
 
+/// Return `[index, value]` pairs in input order.
 fun enumerate(xs: Any) -> Any {
     let out: Any = [];
     let n: Any = len(xs);
@@ -767,6 +1161,7 @@ fun enumerate(xs: Any) -> Any {
     return out;
 }
 
+/// Return paired elements, stopping at the shorter list.
 fun zip(a: Any, b: Any) -> Any {
     let out: Any = [];
     let n: Any = min(len(a), len(b));
@@ -774,18 +1169,24 @@ fun zip(a: Any, b: Any) -> Any {
     return out;
 }
 
+/// Return a one-level concatenation of nested lists.
 fun flatten(xss: Any) -> Any {
     let out: Any = [];
     for xs: Any in xss { for x: Any in xs { push(out, x); } }
     return out;
 }
 
+/// Return distinct list values in first-occurrence order.
 fun unique(xs: Any) -> Any {
     let out: Any = [];
     for x: Any in xs { if (!has(out, x)) { push(out, x); } }
     return out;
 }
 
+/// Return an exclusive-end arithmetic progression in either direction; step zero returns an empty
+/// list.
+///
+/// Step zero returns an empty list; the stop is exclusive in either direction.
 fun range_step(a: Any, b: Any, step: Any) -> Any {
     let out: Any = [];
     if (step == 0) { return out; }
@@ -799,36 +1200,46 @@ fun range_step(a: Any, b: Any, step: Any) -> Any {
     return out;
 }
 
+/// Prepend whole padding strings until the code-point width is reached; empty padding faults when
+/// more text is needed.
 fun pad_left(s: Any, width: Any, ch: Any) -> Any {
     mut out: Any = s;
     while (len(out) < width) { out = ch + out; }
     return out;
 }
 
+/// Append whole padding strings until the code-point width is reached; empty padding faults when
+/// more text is needed.
 fun pad_right(s: Any, width: Any, ch: Any) -> Any {
     mut out: Any = s;
     while (len(out) < width) { out = out + ch; }
     return out;
 }
 
+/// Split on LF, preserving empty fields.
 fun split_lines(s: Any) -> Any { return split(s, "\n"); }
 
-/// Map lookup with a default for missing keys.
+/// Look up `key` in a map, returning `fallback` when it is missing.
+///
+/// The implementation treats a nil lookup as absent, so a present nil value returns the fallback.
 fun get(m: Any, key: Any, fallback: Any) -> Any {
     let v: Any = map_get(m, key);
     return if (v == nil) { fallback } else { v };
 }
 
+/// Call unary `f(i)` over integers `0..n`; return `nil`.
 fun times(n: Any, f: Any) -> Any {
     for i: Any in 0..n { f(i); }
     return nil;
 }
 
+/// Call unary `f(x)` for every input element; return `nil`.
 fun each(xs: Any, f: Any) -> Any {
     for x: Any in xs { f(x); }
     return nil;
 }
 
+/// Raise an assertion error if actual and expected values differ.
 fun assert_eq(a: Any, b: Any) -> Any {
     if (value_eq(a, b)) { return nil; }
     raise_error("assert", "assertion failed: " + str(a) + " != " + str(b));
@@ -840,6 +1251,20 @@ fun assert_eq(a: Any, b: Any) -> Any {
 // `ccall(fn, args)` invokes machine code at a raw address with up to six
 // integer arguments; `extern_c(fn)` wraps such an address as a callable value.
 
+/// Call machine code at a raw address with up to six integer arguments using the native calling
+/// convention.
+///
+/// Params:
+/// - `fn`: The native function address.
+/// - `args`: A list of at most six integer arguments.
+///
+/// Returns: The native integer return value.
+///
+/// Example:
+/// ```may
+/// // fn must be a valid native function address.
+/// let result: Any = ccall(fn, [1, 2]);
+/// ```
 fun ccall(fn: Any, args: Any) -> Any {
     let n: Any = len(args);
     let a0: Any = if (n > 0) { args[0] } else { 0 };
@@ -851,6 +1276,22 @@ fun ccall(fn: Any, args: Any) -> Any {
     return __ccall6(fn, a0, a1, a2, a3, a4, a5);
 }
 
+/// Wrap a native function address as a callable Maylang function accepting six integer arguments.
+///
+/// The wrapper has six positional parameters and returns a raw integer C result; use ccall for a
+/// list of up to six integer arguments.
+///
+/// Params:
+/// - `fn`: The native function address.
+///
+/// Returns: A callable wrapper.
+///
+/// Example:
+/// ```may
+/// // fn must be a valid native function address.
+/// let call: Any = extern_c(fn);
+/// let result: Any = call(1, 2, 0, 0, 0, 0);
+/// ```
 fun extern_c(fn: Any) -> Any {
     fun tramp(a0: Any, a1: Any, a2: Any, a3: Any, a4: Any, a5: Any) -> Any {
         return __ccall6(fn, a0, a1, a2, a3, a4, a5);
@@ -863,9 +1304,46 @@ fun extern_c(fn: Any) -> Any {
 // of pi/2, and return arguments above 2^63 unchanged. The portable reduction
 // is exact for every finite input, and results match the core runtime bit for
 // bit. Logarithms, exp and pow keep the faster x87 sequences (within one ulp).
-/// Return the sine of an angle in radians, reducing any finite argument exactly. Within one ulp.
+
+/// Return the sine of `value`, an angle in radians.
+///
+/// Any finite argument is reduced exactly, and the result is within one ulp.
+///
+/// Params:
+/// - `value`: The angle in radians.
+///
+/// Returns: A floating-point result.
+///
+/// Example:
+/// ```may
+/// print(sin(0.0));
+/// ```
 fun sin(value: Any) -> Any { return __math_trig(value, 0); }
-/// Return the cosine of an angle in radians, reducing any finite argument exactly. Within one ulp.
+/// Return the cosine of `value`, an angle in radians.
+///
+/// Any finite argument is reduced exactly, and the result is within one ulp.
+///
+/// Params:
+/// - `value`: The angle in radians.
+///
+/// Returns: A floating-point result.
+///
+/// Example:
+/// ```may
+/// print(cos(0.0));
+/// ```
 fun cos(value: Any) -> Any { return __math_trig(value, 1); }
-/// Return the tangent of an angle in radians, reducing any finite argument exactly. Within one ulp.
+/// Return the tangent of `value`, an angle in radians.
+///
+/// Any finite argument is reduced exactly, and the result is within one ulp.
+///
+/// Params:
+/// - `value`: The angle in radians.
+///
+/// Returns: A floating-point result.
+///
+/// Example:
+/// ```may
+/// print(tan(0.0));
+/// ```
 fun tan(value: Any) -> Any { return __math_trig(value, 2); }

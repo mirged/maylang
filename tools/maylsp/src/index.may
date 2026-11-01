@@ -107,8 +107,11 @@ fun ls_comment(doc: Any, start: Any) -> Any {
         while (begin > 0 and ls_byte(doc.text, begin - 1) != 10) { begin -= 1; }
         let line: Any = ls_trim(ls_slice(doc.text, begin, end));
         if (not ls_starts(line, "//")) { break; }
-        let n: Any = if (ls_starts(line, "///")) { 3 } else { 2 };
-        push(out, ls_trim(ls_slice(line, n, ls_bytes(line)))); end = begin;
+        // Keep indentation after the marker and one space: it carries fenced
+        // examples and list continuations (docs/guide/DOCSTRINGS.md).
+        mut n: Any = if (ls_starts(line, "///")) { 3 } else { 2 };
+        if (ls_byte(line, n) == 32) { n += 1; }
+        push(out, ls_slice(line, n, ls_bytes(line))); end = begin;
     }
     return join(reverse(out), "\n");
 }

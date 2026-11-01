@@ -251,7 +251,10 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
   with a final newline (`.editorconfig`). Existing `may.json` files use four
   spaces.
 - Use `snake_case` functions, variables and files, `PascalCase` types, and
-  `UPPER_CASE` constants. Use `///` doc comments directly above declarations.
+  `UPPER_CASE` constants. Use `///` doc comments directly above declarations,
+  in the form described in [docs/guide/DOCSTRINGS.md](docs/guide/DOCSTRINGS.md):
+  an imperative summary sentence, then optional `Params:`, `Returns:`,
+  `Faults:` and `Example:` sections, at most 100 columns.
 - `mayfmt` exists (`compiler/mayc/mayc_new tools/mayfmt/main.may -o /tmp/mayfmt`),
   but the repository is not mayfmt-clean; even `examples/hello.may` reports
   changes. **Do not run it over whole existing files.** Format only the code you
@@ -263,16 +266,20 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 ## Generated documentation
 
 - `docs/reference/` is mostly generated. `STDLIB.md`, `SYNTAX.md`, `RUNTIME.md`, the
-  `stdlib/*.md` module pages and `inventory.json` come from source declarations,
-  `docs/reference/descriptions.json` and `tools/maylsp/docs/reference.json`.
+  `stdlib/*.md` module pages and `inventory.json` come from source declarations
+  and their `///` comments, plus module notes in `docs/reference/descriptions.json`
+  and the keyword/type/operator/built-in catalog in
+  `tools/maylsp/docs/reference.json`.
   `LANGUAGE.md`, `TOOLCHAIN.md` and `EXAMPLES.md` are edited by
   hand.
 - Every reference page is list-only: each nonblank line is a top-level
   `- ` bullet, with no headings, tables or fenced code.
-- After adding, removing or changing a stdlib/native declaration, add its
-  description to `descriptions.json` (coverage is enforced), then run
-  `python3 docs/reference/generate.py` and `python3 tools/maylsp/docs/generate.py`
-  and commit the regenerated files. `make check` runs both with `--check`.
+- The `///` comment is the only description of a stdlib, native or prelude
+  declaration. `make check` fails when one is missing or departs from the
+  standard, or when `descriptions.json` or a source-backed `reference.json`
+  entry (`{"source": "native.may"}`) carries its own text. After changing a
+  declaration or its comment, run `python3 docs/reference/generate.py` and
+  `python3 tools/maylsp/docs/generate.py` and commit the regenerated files.
 - `scripts/check_repository.py` validates every relative Markdown link in
   tracked and untracked files, so moved files break links in other documents.
 - Update the guide or README for any user-visible behavior change.

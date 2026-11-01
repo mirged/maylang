@@ -1,6 +1,8 @@
 // csv.may — small RFC-4180-style CSV reader/writer.
 // Supports commas/newlines and escaped quotes inside quoted cells.
 
+/// Return rows of string cells; handle quoted commas/newlines, doubled quotes and CRLF; reject
+/// unterminated quotes; skip blank unquoted lines.
 fun csv_parse(text: Any) -> List<List<Str>> {
     let cs: List<Str> = chars(text); let n: Any = len(cs);
     mut rows: List<List<Str>> = []; mut row: List<Str> = []; mut cell: Str = ""; mut quoted: Any = false; mut started: Any = false; mut i: Any = 0;
@@ -24,16 +26,21 @@ fun csv_parse(text: Any) -> List<List<Str>> {
     if (started || len(row) > 0) { push(row, cell); push(rows, row); }
     return rows;
 }
+/// Stringify and quote empty cells or cells containing commas, quotes or line breaks; double
+/// embedded quotes.
 fun csv_escape(cell: Any) -> Any {
     let s: Any = str(cell);
     return if (len(s) == 0 || contains(s, ",") || contains(s, "\"") || contains(s, "\n") || contains(s, "\r")) {
         "\"" + replace(s, "\"", "\"\"") + "\""
     } else { s };
 }
+/// Serialize row lists with commas and LF between rows, without a final newline.
 fun csv_stringify(rows: Any) -> Any {
     let lines: Any = [join([csv_escape(cell) for cell: Any in row], ",") for row: Any in rows];
     return join(lines, "\n");
 }
+/// Return a list of maps keyed by headers; short rows fill with empty strings and extra cells are
+/// ignored.
 fun csv_records(headers: Any, rows: Any) -> Any {
     mut out: Any = [];
     for row: Any in rows {

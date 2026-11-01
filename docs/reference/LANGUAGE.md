@@ -2,7 +2,7 @@
 - **Program structure** — a `.may` file contains declarations and executable top-level statements; imports are expanded before type checking.
 - End declarations, assignments, returns and ordinary expression statements with `;`; use braces for blocks. A branch/block may produce a trailing expression value, but strict functions require explicit `return`.
 - Names use letters, digits and `_`, starting with a letter or `_`; names and keywords are case-sensitive.
-- Comments: `//` to end of line; `/* ... */` block comments; documentation comments use `///` immediately before a declaration.
+- Comments: `//` to end of line; `/* ... */` block comments; documentation comments use `///` immediately before a declaration, in the form given by the [doc comment standard](../guide/DOCSTRINGS.md).
 - **Literals** — integers such as `42` and `1_000`; decimal floating values such as `3.5` and `1.0e-3`; strings in double quotes; Boolean values `true`/`false`; absence `nil`.
 - Strings support escapes `\n`, `\t`, `\r`, `\0`, `\\`, `\"` and `\$`; interpolation embeds `${expression}`, for example `"answer: ${6 * 7}"`.
 - Values are fat on every runtime and target (a type word and a payload; see `docs/design/FAT_VALUES.md`), and integers are signed 64-bit, in [-9223372036854775808, 9223372036854775807]. Out-of-range literals and arithmetic overflow are errors.

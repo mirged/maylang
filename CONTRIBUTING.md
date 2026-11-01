@@ -49,6 +49,9 @@ executables, build directories, or machine-specific reports.
 Follow adjacent code. Use four spaces for Maylang, Python, and Rust, and two
 for TypeScript. Prefer `snake_case` functions/files, `PascalCase` types, typed
 Maylang signatures, and explicit returns. Rust formatting uses `cargo fmt --all`.
+Document declarations with `///` comments in the
+[doc comment standard](docs/guide/DOCSTRINGS.md); `make check` enforces it for
+the standard library.
 
 Use focused subjects such as `fix(compiler): ...`, `feat(maylsp): ...`,
 `perf(codegen): ...`, `test(runtime): ...`, or `docs: ...`. Stage specific files,

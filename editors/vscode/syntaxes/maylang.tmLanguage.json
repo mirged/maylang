@@ -38,6 +38,38 @@
     "comments": {
       "patterns": [
         {
+          "name": "comment.line.documentation.maylang",
+          "begin": "///",
+          "end": "$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.maylang"
+            }
+          },
+          "patterns": [
+            {
+              "match": "\\G\\s?(Params|Returns|Faults|Example)(:)",
+              "captures": {
+                "1": {
+                  "name": "keyword.other.documentation.maylang"
+                },
+                "2": {
+                  "name": "punctuation.separator.documentation.maylang"
+                }
+              }
+            },
+            {
+              "name": "markup.inline.raw.string.maylang",
+              "match": "(`+)[^`]+?\\1",
+              "captures": {
+                "1": {
+                  "name": "punctuation.definition.raw.maylang"
+                }
+              }
+            }
+          ]
+        },
+        {
           "name": "comment.line.double-slash.maylang",
           "match": "//.*$"
         },

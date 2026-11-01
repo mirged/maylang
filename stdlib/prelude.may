@@ -2,9 +2,14 @@
 //
 // Disable with MAYLANG_NO_PRELUDE=1 if you would rather start from nothing.
 
+/// Return `x` unchanged.
 fun id(x: Any) -> Any { return x; }
+/// Return `x + 1`.
 fun inc(x: Any) -> Any { return x + 1; }
+/// Return `x - 1`.
 fun dec(x: Any) -> Any { return x - 1; }
+/// Convert a dynamic value to Boolean using runtime truthiness.
 fun truthy(x: Any) -> Any { return bool(x); }
+/// Return the fallback only when the value is `nil`.
 fun default(value: Any, fallback: Any) -> Any { return value ?? fallback; }
 

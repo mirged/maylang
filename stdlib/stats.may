@@ -1,10 +1,13 @@
 // stats.may — descriptive statistics and simple regression.
 
+/// Return the floating arithmetic mean, or `nil` for empty input.
 fun stats_mean(xs: Any) -> Any {
     if (len(xs) == 0) { return nil; }
     return sum(xs) / (1.0 * len(xs));
 }
+/// Return the sum of squared values, starting at `0.0`.
 fun stats_sum_squares(xs: Any) -> Any { return reduce(xs, |acc: Any, x: Any| -> Any { return acc + x * x; }, 0.0); }
+/// Return population variance (divide by `n`), or `nil` when empty.
 fun stats_variance(xs: Any) -> Any {
     let n: Any = len(xs);
     if (n == 0) { return nil; }
@@ -12,17 +15,22 @@ fun stats_variance(xs: Any) -> Any {
     let d: Any = [x - mu for x: Any in xs];
     return stats_sum_squares(d) / (1.0 * n);
 }
+/// Return sample variance (divide by `n - 1`), or `nil` for fewer than two inputs.
 fun stats_sample_variance(xs: Any) -> Any {
     if (len(xs) < 2) { return nil; }
     let mu: Any = stats_mean(xs);
     return stats_sum_squares([x - mu for x: Any in xs]) / (1.0 * (len(xs) - 1));
 }
+/// Return the square root of population variance, or `nil` when empty.
 fun stats_stddev(xs: Any) -> Any { let v: Any = stats_variance(xs); return if (v == nil) { nil } else { sqrt(v) }; }
+/// Return standardized values using population deviation; empty/constant inputs produce zeros.
 fun stats_zscores(xs: Any) -> Any {
     let mu: Any = stats_mean(xs); let sd: Any = stats_stddev(xs);
     if (mu == nil || sd == 0.0) { return [0.0 for _: Any in xs]; }
     return [(x - mu) / sd for x: Any in xs];
 }
+/// Sort and linearly interpolate at `q * (n - 1)`; empty input returns `nil`; nonempty input
+/// requires `q` in `[0, 1]`.
 fun stats_quantile(xs: Any, q: Any) -> Any {
     if (len(xs) == 0) { return nil; }
     if (to_float(q) < 0.0 || to_float(q) > 1.0) { fail("quantile must be in [0, 1]"); }
@@ -30,7 +38,9 @@ fun stats_quantile(xs: Any, q: Any) -> Any {
     let lo: Any = int(floor(p)); let hi: Any = int(ceil(p));
     return s[lo] + (s[hi] - s[lo]) * (p - lo);
 }
+/// Return `stats_quantile(xs, 0.5)`.
 fun stats_median(xs: Any) -> Any { return stats_quantile(xs, 0.5); }
+/// Return a most frequent original value, or `nil`; counts use stringified keys.
 fun stats_mode(xs: Any) -> Any {
     if (len(xs) == 0) { return nil; }
     mut counts: Any = {}; mut best: Any = xs[0]; mut best_count: Any = 0;
@@ -40,6 +50,7 @@ fun stats_mode(xs: Any) -> Any {
     }
     return best;
 }
+/// Return sample covariance of the common prefix, or `nil` for fewer than two pairs.
 fun stats_covariance(xs: Any, ys: Any) -> Any {
     let n: Any = min(len(xs), len(ys));
     if (n < 2) { return nil; }
@@ -47,6 +58,8 @@ fun stats_covariance(xs: Any, ys: Any) -> Any {
     let accum: Any = sum([((xs[i] - xm) * (ys[i] - ym)) for i: Any in 0..n]);
     return accum / (1.0 * (n - 1));
 }
+/// Return covariance divided by the two sample deviations; return `nil` for insufficient/constant
+/// data. Use equal input lengths for consistent normalization.
 fun stats_correlation(xs: Any, ys: Any) -> Any {
     if (min(len(xs), len(ys)) < 2) { return nil; }
     let cov: Any = stats_covariance(xs, ys);
@@ -54,6 +67,8 @@ fun stats_correlation(xs: Any, ys: Any) -> Any {
     if (cov == nil || sx == 0.0 || sy == 0.0) { return nil; }
     return cov / (sx * sy);
 }
+/// Return `{slope, intercept, r}` using the common prefix; require at least two points and varying
+/// x values.
 fun stats_linear_regression(xs: Any, ys: Any) -> Any {
     let n: Any = min(len(xs), len(ys));
     if (n < 2) { fail("linear regression needs at least two points"); }

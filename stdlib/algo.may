@@ -39,7 +39,7 @@ fun merge_sorted(a: Any, b: Any) -> Any {
     return out;
 }
 
-/// Index of `target` in a sorted list, or `-1`.
+/// Return the index of `target` in a sorted list, or `-1`.
 fun binary_search(sorted: Any, target: Any) -> Any {
     mut lo: Any = 0;
     mut hi: Any = len(sorted) - 1;
@@ -73,10 +73,10 @@ fun zip(a: Any, b: Any) -> Any {
 /// Concatenate a list of lists into a single list.
 fun flatten(xss: Any) -> Any { return reduce(xss, |acc: Any, xs: Any| -> Any { return acc + xs; }, []); }
 
-/// `[a, a+1, ..., b-1]`.
+/// Return the list `[a, a+1, ..., b-1]`.
 fun range_list(a: Any, b: Any) -> Any { return [i for i: Any in a..b]; }
 
-/// The first `n` elements (or fewer).
+/// Return the first `n` elements, or all of them when there are fewer.
 fun take(xs: Any, n: Any) -> Any { return [xs[i] for i: Any in 0..max(0, min(n, len(xs)))]; }
 
 /// Drop the first `n` elements.

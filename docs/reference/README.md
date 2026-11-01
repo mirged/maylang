@@ -11,9 +11,9 @@
 - API entries document actual source signatures, behavior and explicit fault strings where present. Private declarations are included for completeness and marked unavailable to importers.
 - The compatibility native copy is detailed in [native](stdlib/native.md); active injected definitions live in `compiler/mayc/native.may`. Common helpers live in [prelude](stdlib/prelude.md); explicitly imported library modules have individual pages.
 - Sources: [strict guide](../guide/STRICT.md), [compiler implementation](../../compiler/mayc/main.may), [standard library](../../stdlib/), [editor catalog](../../tools/maylsp/docs/reference.json), and the source links on each module page.
-- Maintain curated API descriptions in [descriptions.json](descriptions.json); edit language/tooling/examples pages directly.
+- Describe each declaration in its `///` source comment, following the [doc comment standard](../guide/DOCSTRINGS.md); [descriptions.json](descriptions.json) holds only module summaries, module notes and runtime primitives without a source declaration. Edit language/tooling/examples pages directly.
 - Regenerate the syntax catalog, module pages, index and inventory from the repository root: `python3 docs/reference/generate.py`.
-- Check generated freshness, complete description coverage and the list-only format: `python3 docs/reference/generate.py --check`.
+- Check generated freshness, doc comment coverage and form, and the list-only format: `python3 docs/reference/generate.py --check`.
 - The generator has no third-party Python dependencies and does not edit existing documentation or language implementation files.
 - Runnable examples are checked by `python3 tests/docs/run.py`; CI compiles and executes their actual inline source and all strict-guide fenced examples.
 - The generated reference replaces the interactive guide, has no Node dependencies or lockfile, and requires only Python for generation.

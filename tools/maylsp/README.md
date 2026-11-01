@@ -134,7 +134,7 @@ src/workspace.may workspace diagnostic batches, progress and snapshot cancellati
 src/workspacecache.may bounded encoded full reports, cleared on snapshot changes
 src/docs.may      generated documentation compiled into the executable
 src/features.may  navigation and editor features
-docs/reference.json  editable documentation catalog
+docs/reference.json  editable catalog for syntax and built-ins without a source declaration
 docs/REFERENCE.md    generated readable language reference
 tests/test_lsp.py  subprocess protocol tests
 ```
@@ -222,24 +222,36 @@ values. The same catalog appears in hover, completion details and signature help
 Local and imported declarations retain their own source comments when they
 shadow a library function.
 
-Document declarations with consecutive `///` comments immediately above them.
-These comments are read from the source file and take precedence over fallback
-reference entries. `@param name: description` lines also populate parameter
-documentation in signature help.
+Document declarations with consecutive `///` comments immediately above them,
+in the [doc comment standard](../../docs/guide/DOCSTRINGS.md). These comments
+are read from the source file and take precedence over fallback reference
+entries. Hover and completion render the `Params:`, `Returns:`, `Faults:` and
+`Example:` sections like the generated catalog, and signature help takes each
+parameter's text from its `Params:` item (`@param name: description` lines
+still work).
 
 ```may
 /// Add two integers.
 ///
-/// `a` and `b` are the values to add. Returns their sum.
-/// Example: `add(2, 3)` returns `5`.
+/// Params:
+/// - `a`: The first value.
+/// - `b`: The second value.
+///
+/// Example:
+/// ```may
+/// print(add(2, 3)); // 5
+/// ```
 pub fun add(a: Int, b: Int) -> Int { return a + b; }
 ```
 
 Document Maylang functions, structs, enums and fields in their `.may` source
 files. `docs/reference.json` is the fallback catalog for language syntax and
-runtime primitives that have no source declaration. To update that catalog,
-run `python3 tools/maylsp/docs/generate.py` from the repository root, then
-rebuild. Run the generator with `--check` to check the generated reference.
+runtime primitives that have no source declaration. Its entries for functions
+that `native.may` defines only name the source file
+(`"sort": {"source": "native.may"}`); their text comes from the `///` comment.
+To update the generated catalog, run `python3 tools/maylsp/docs/generate.py`
+from the repository root, then rebuild. Run the generator with `--check` to
+check the generated reference.
 
 After rebuilding, use **Developer: Reload Window** in VS Code to restart the
 server with the new executable. The configured `maylang.serverPath` stays the

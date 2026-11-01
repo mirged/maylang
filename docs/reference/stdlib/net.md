@@ -30,7 +30,7 @@
 - **net_open** — `fun net_open(s: Socket, kind: Str) -> Int` — Validate a live descriptor and optional expected socket kind; return the descriptor.
 - `net_open`: private implementation helper; unavailable to importing modules.
 - `net_open` explicit fault strings: `"socket"`; runtime/callback faults can also propagate.
-- **byte_length** — `pub fun byte_length(data: Str) -> Int` — Number of bytes, including embedded NULs; len(Str) counts codepoints.
+- **byte_length** — `pub fun byte_length(data: Str) -> Int` — Count the bytes of `data`, including embedded NULs; `len` counts code points.
 - **net_buffer** — `fun net_buffer(size: Int) -> Str` — Allocate a NUL-filled byte string; allow 0..16777216 bytes.
 - `net_buffer`: private implementation helper; unavailable to importing modules.
 - `net_buffer` explicit fault strings: `"buffer"`; runtime/callback faults can also propagate.
@@ -73,16 +73,16 @@
 - **net_receive** — `fun net_receive(s: Socket, data: Str, offset: Int, count: Int, deadline: Float) -> Int` — Read bytes into a supplied buffer interval against the same deadline; return the syscall byte count.
 - `net_receive`: private implementation helper; unavailable to importing modules.
 - **tcp_receive** — `pub fun tcp_receive(s: Socket, max_bytes: Int) -> Str` — Read up to max_bytes; empty means orderly TCP EOF.
-- `tcp_receive` explicit fault strings: `"receive"`; runtime/callback faults can also propagate.
 - `tcp_receive`: Require 1..16777216 maximum bytes. An empty result means orderly TCP EOF.
+- `tcp_receive` explicit fault strings: `"receive"`; runtime/callback faults can also propagate.
 - **tcp_receive_exact** — `pub fun tcp_receive_exact(s: Socket, count: Int) -> Str` — Read exactly count bytes, or raise on premature EOF.
-- `tcp_receive_exact` explicit fault strings: `"receive_exact"`; runtime/callback faults can also propagate.
 - `tcp_receive_exact`: Require 0..16777216 bytes; zero returns an empty string without a read; premature EOF raises.
+- `tcp_receive_exact` explicit fault strings: `"receive_exact"`; runtime/callback faults can also propagate.
 - **tcp_shutdown** — `pub fun tcp_shutdown(s: Socket, how: Str) -> Nil` — Half-close read, write, or both sides of a TCP connection.
 - `tcp_shutdown` explicit fault strings: `"shutdown"`; runtime/callback faults can also propagate.
 - **udp_bind** — `pub fun udp_bind(host: Str, port: Int) -> Socket` — Bind a UDP socket; use host 0.0.0.0 for all interfaces and port 0 for any port.
 - **udp_send_to** — `pub fun udp_send_to(s: Socket, data: Str, destination: Address) -> Int` — Send a complete datagram and return the byte count; require nonzero destination port and payload at most 65507 bytes.
 - `udp_send_to` explicit fault strings: `"send_to"`; runtime/callback faults can also propagate.
 - **udp_receive_from** — `pub fun udp_receive_from(s: Socket, max_bytes: Int) -> Datagram` — Receive one datagram and its sender. Oversized packets raise instead of truncating silently.
-- `udp_receive_from` explicit fault strings: `"receive_from"`; runtime/callback faults can also propagate.
 - `udp_receive_from`: Require 1..65535 maximum bytes; an oversized packet is consumed and raises errno 90. Empty datagrams are valid.
+- `udp_receive_from` explicit fault strings: `"receive_from"`; runtime/callback faults can also propagate.

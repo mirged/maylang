@@ -3,12 +3,17 @@
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 CATALOG = json.loads((ROOT / 'tools/maylsp/docs/reference.json').read_text())
 DESCRIPTIONS = json.loads((HERE / 'descriptions.json').read_text())
+sys.path.insert(0, str(HERE))
+import docstrings  # noqa: E402
+
+GUIDE = 'docs/guide/DOCSTRINGS.md'
 
 
 def inline(value):
@@ -31,6 +36,7 @@ def masked(text):
 
 def declarations(path):
     source = path.read_text()
+    lines = source.split('\n')
     mask = masked(source)
     depth = [0] * (len(mask) + 1)
     for i, c in enumerate(mask):
@@ -54,28 +60,54 @@ def declarations(path):
             signature = source[m.start():opening].strip()
             if kind != 'fun':
                 signature = source[m.start():end].strip()
-        before = source[:m.start()].rstrip().splitlines()
-        comments = []
-        while before and before[-1].lstrip().startswith('///'):
-            comments.insert(0, before.pop().strip()[3:].strip())
+        line = source.count('\n', 0, m.start()) + 1
+        block, first = docstrings.comment_block(lines, line - 1)
         found.append(dict(name=m['name'], kind=kind, public=bool(m['pub']),
-                          signature=signature, body=body, comment=' '.join(comments),
-                          line=source.count('\n', 0, m.start()) + 1))
+                          signature=signature, body=body, doc=docstrings.parse(block),
+                          raw=lines[first:line - 1], line=line))
     return found
 
 
-def summary(module, d):
-    name = d['name']
-    key = module + ':' + name
-    if key in DESCRIPTIONS['symbols']:
-        return DESCRIPTIONS['symbols'][key]
-    if d['comment']:
-        return d['comment']
-    if name in DESCRIPTIONS['symbols']:
-        return DESCRIPTIONS['symbols'][name]
-    if name in CATALOG['Functions']:
-        return CATALOG['Functions'][name]['summary']
-    raise ValueError('Missing description: ' + key)
+PROSE = ('summary', 'parameters', 'returns', 'faults', 'notes', 'example')
+
+
+def catalog():
+    """The editor catalog, with source-backed entries filled from their /// comments.
+
+    An entry such as `"sort": {"source": "native.may"}` names the stdlib file
+    that defines the function; its signature, prose and example come from the
+    declaration there, so the catalog cannot drift from the source.
+    """
+    resolved = {group: dict(entries) for group, entries in CATALOG.items()}
+    sources = {}
+    for name, e in CATALOG['Functions'].items():
+        if 'source' not in e:
+            continue
+        extra = [k for k in e if k != 'source']
+        assert not extra, f'reference.json {name}: remove {extra}; write them in the /// comment in stdlib/{e["source"]} ({GUIDE})'
+        if e['source'] not in sources:
+            sources[e['source']] = {d['name']: d for d in declarations(ROOT / 'stdlib' / e['source'])}
+        d = sources[e['source']].get(name)
+        assert d and d['kind'] == 'fun', f'reference.json {name}: no function {name} in stdlib/{e["source"]}'
+        doc = d['doc']
+        assert doc['summary'] and doc['example'] is not None, f'stdlib/{e["source"]}:{d["line"]}: {name} needs a summary and an Example: section'
+        params = docstrings.parameter_names(d['signature'])
+        resolved['Functions'][name] = dict(
+            signature=name + '(' + ', '.join(params) + ')', summary=doc['summary'],
+            parameters=[dict(name=n, description=t) for n, t in doc['params']],
+            returns=doc['returns'], faults=doc['faults'], notes='\n\n'.join(doc['details']),
+            example=doc['example'], source=e['source'])
+    return resolved
+
+
+def lint(path, ds):
+    # Every documented declaration must follow the docstring standard.
+    out = []
+    rel = path.relative_to(ROOT).as_posix()
+    for d in ds:
+        for problem in docstrings.problems(d['doc'], d['kind'], d['signature'], d['raw']):
+            out.append(f'{rel}:{d["line"]}: {d["name"]}: {problem}')
+    return out
 
 
 def render_module(path, module=None):
@@ -92,18 +124,24 @@ def render_module(path, module=None):
     for note in DESCRIPTIONS.get('notes', {}).get(module, []):
         out.append('- ' + note)
     for d in ds:
-        name = d['name']
-        out.append('- **' + name + '** — ' + inline(d['signature']) + ' — ' + summary(module, d))
+        name, doc = d['name'], d['doc']
+        out.append('- **' + name + '** — ' + inline(d['signature']) + ' — ' + doc['summary'])
         if explicit and not d['public']:
             out.append('- ' + inline(name) + ': private implementation helper; unavailable to importing modules.')
+        out.extend('- ' + inline(name) + ': ' + note for note in doc['details'])
+        for p, text in doc['params']:
+            out.append('- ' + inline(name) + ' parameter ' + inline(p) + ': ' + text)
+        if doc['returns']:
+            out.append('- ' + inline(name) + ' returns: ' + doc['returns'])
+        if doc['faults']:
+            out.append('- ' + inline(name) + ' faults: ' + doc['faults'])
         if d['kind'] == 'fun':
             # Keep literal failure messages as useful, source-verifiable preconditions.
             errors = re.findall(r'\b(?:fail|raise_error|net_fault)\(\s*("(?:\\.|[^"\\])*")', d['body'])
             if errors:
                 out.append('- ' + inline(name) + ' explicit fault strings: ' + ', '.join(inline(s) for s in dict.fromkeys(errors)) + '; runtime/callback faults can also propagate.')
-        key = module + ':' + name
-        if key in DESCRIPTIONS.get('details', {}):
-            out.extend('- ' + inline(name) + ': ' + note for note in DESCRIPTIONS['details'][key])
+        if doc['example'] is not None:
+            out.append('- ' + inline(name) + ' example: ' + inline(doc['example']) + '.')
     return '\n'.join(out) + '\n', ds
 
 
@@ -127,25 +165,20 @@ def render_runtime():
            '- String method syntax forwards the receiver as the first argument: `s.trim()` = `trim(s)`, `s.split(",")` = `split(s, ",")`; the same convention applies to library helpers.',
            '- Errors: I/O, parsing, arithmetic, type, indexing and callback faults may propagate; catch recoverable failures with `may ... otherwise`.',
            '- Pointer operations use integer machine addresses; syscall results/ABI and memory validity remain the caller’s responsibility.']
-    for name, e in CATALOG['Functions'].items():
+    for name, e in catalog()['Functions'].items():
         if name == 'err':
             out.append('- **err** — handler-scoped structured error value, not a callable function; fields include kind, message and stack.')
             continue
-        signature = e['signature']
-        if name == 'range':
-            signature = 'range(a: Any, b: Any) -> Any'
-        description = DESCRIPTIONS['symbols'].get(name, e['summary'])
-        out.append('- **' + name + '** — ' + inline(signature) + ' — ' + description)
+        out.append('- **' + name + '** — ' + inline(e['signature']) + ' — ' + e['summary'])
         for p in e.get('parameters', []):
             out.append('- ' + inline(name) + ' parameter ' + inline(p['name']) + ': ' + p['description'])
         if e.get('returns'):
             out.append('- ' + inline(name) + ' returns: ' + e['returns'])
+        if e.get('faults'):
+            out.append('- ' + inline(name) + ' faults: ' + e['faults'])
         if e.get('notes'):
             out.append('- ' + inline(name) + ': ' + e['notes'])
-        if name != 'range':
-            out.append('- ' + inline(name) + ' example: ' + inline(e['example']) + '.')
-        else:
-            out.append('- `range` example: `print(range(0, 3));` produces `[0, 1, 2]`.')
+        out.append('- ' + inline(name) + ' example: ' + inline(e['example']) + '.')
     for name, (signature, description) in DESCRIPTIONS['runtime_extra'].items():
         out.append('- **' + name + '** — ' + inline(signature) + ' — ' + description)
     out.extend(['- Additional automatic helpers: [native API](stdlib/native.md) includes pi/e, hyperbolic functions, chr/ord, sign, parse_int/parse_float, range_step, Result/Option constructors, list utilities and error/JSON support.',
@@ -161,10 +194,14 @@ def main():
     args = parser.parse_args()
     outputs = {HERE / 'SYNTAX.md': render_catalog(['Keywords', 'Types', 'Operators']),
                HERE / 'RUNTIME.md': render_runtime()}
-    inventory = []
+    inventory, problems = [], []
+    allowed = {'modules', 'notes', 'runtime_extra'}
+    for key in sorted(set(DESCRIPTIONS) - allowed):
+        problems.append(f'docs/reference/descriptions.json: remove "{key}"; declarations are described by their /// comments ({GUIDE})')
     sources = [(path, path.relative_to(ROOT / 'stdlib').as_posix()) for path in sorted((ROOT / 'stdlib').rglob('*.may'))]
     for path, module in sources:
         content, ds = render_module(path, module)
+        problems.extend(lint(path, ds))
         outputs[HERE / 'stdlib' / Path(module).with_suffix('.md')] = content
         explicit = any(d['public'] for d in ds)
         inventory.extend(dict(module=module, name=d['name'], kind=d['kind'], signature=d['signature'], line=d['line'],
@@ -179,6 +216,12 @@ def main():
         count = sum(d['module'] == module for d in inventory)
         out.append('- [' + module + '](stdlib/' + str(Path(module).with_suffix('.md')) + ') — ' + DESCRIPTIONS['modules'][module] + f' {count} declarations.')
     outputs[HERE / 'STDLIB.md'] = '\n'.join(out) + '\n'
+    # The compiler loads runtime/math.may beside the native library, so its
+    # comments appear in editor hovers too.
+    math = ROOT / 'compiler/mayc/runtime/math.may'
+    problems.extend(lint(math, declarations(math)))
+    if problems:
+        sys.exit('\n'.join(problems) + f'\n{len(problems)} doc comment problems; see {GUIDE}.')
     outputs[HERE / 'inventory.json'] = json.dumps(inventory, indent=2, ensure_ascii=False) + '\n'
     for path, content in outputs.items():
         if path.suffix == '.md':

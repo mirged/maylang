@@ -1,7 +1,11 @@
 // path.may — portable, lexical path manipulation (no filesystem access).
 
+/// Return characters from inclusive `start` to exclusive `stop` as a string.
 fun path_substr(s: Any, start: Any, stop: Any) -> Any { return join(slice(chars(s), start, stop), ""); }
+/// Recognize leading `/` or a drive letter followed by `:/` or `:\`.
 fun path_is_absolute(p: Any) -> Any { return starts_with(p, "/") || (len(p) >= 3 && p[1] == ":" && (p[2] == "/" || p[2] == "\\")); }
+/// Replace backslashes with `/`, remove repeated separators and `.`, resolve lexical `..`, preserve
+/// roots; empty relative paths become `.`.
 fun path_normalize(p: Any) -> Any {
     let drive: Any = len(p) >= 3 && p[1] == ":" && (p[2] == "/" || p[2] == "\\");
     let absolute: Any = path_is_absolute(p);
@@ -20,15 +24,18 @@ fun path_normalize(p: Any) -> Any {
     else if (body == "") { "." }
     else { body };
 }
+/// Join and normalize two paths; an absolute second path replaces the first.
 fun path_join(a: Any, b: Any) -> Any {
     if (b == "") { return path_normalize(a); }
     if (path_is_absolute(b)) { return path_normalize(b); }
     return path_normalize((if (a == "") { "." } else { a }) + "/" + b);
 }
+/// Return the final component after normalization; the root `/` yields an empty string.
 fun path_basename(p: Any) -> Any {
     let s: Any = path_normalize(p); let parts: Any = split(s, "/");
     return if (len(parts) == 0) { "" } else { parts[len(parts) - 1] };
 }
+/// Return the normalized parent path, preserving roots; a lone relative component has parent `.`.
 fun path_dirname(p: Any) -> Any {
     let s: Any = path_normalize(p); let parts: Any = split(s, "/");
     if (s == "/" || (path_is_absolute(p) && len(parts) == 2 && parts[0] == "")) { return "/"; }
@@ -36,14 +43,17 @@ fun path_dirname(p: Any) -> Any {
     return if (len(parts) <= 1) { if (path_is_absolute(p)) { "/" } else { "." } }
     else { join(slice(parts, 0, len(parts) - 1), "/") };
 }
+/// Return the extension without its dot; dotfiles and trailing dots produce an empty string.
 fun path_extension(p: Any) -> Any {
     let base: Any = path_basename(p); let i: Any = index_of(reverse(base), ".");
     return if (i <= 0 || i == len(base) - 1) { "" } else { path_substr(base, len(base) - i, len(base)) };
 }
+/// Return the basename without its final extension.
 fun path_stem(p: Any) -> Any {
     let base: Any = path_basename(p); let ext: Any = path_extension(p);
     return if (ext == "") { base } else { path_substr(base, 0, len(base) - len(ext) - 1) };
 }
+/// Return a lexical relative path; equal paths produce `.` and mismatched roots raise a fault.
 fun path_relative(base_path: Any, target_path: Any) -> Any {
     let base: Any = path_normalize(base_path); let target: Any = path_normalize(target_path);
     let base_root: Any = if (path_is_absolute(base)) { if (base[0] == "/") { "/" } else { path_substr(base, 0, 2) } } else { "" };
