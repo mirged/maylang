@@ -3,6 +3,7 @@ import * as path from "path";
 import {
   ConfigurationChangeEvent,
   ExtensionContext,
+  TextDocument,
   window,
   workspace,
 } from "vscode";
@@ -12,6 +13,7 @@ import {
   ServerOptions,
   TransportKind,
 } from "vscode-languageclient/node";
+import { extendMarkdownIt, loadVocabulary, MarkdownIt } from "./highlight";
 
 /**
  * Language server lifecycle:
@@ -25,6 +27,8 @@ import {
  *   applies without a restart.
  * - Starts, restarts and stops run one at a time, in order, so rapid setting
  *   changes cannot leave two servers running.
+ * - The Markdown preview also activates the extension (for its Maylang fence
+ *   highlighting); the server then waits until a Maylang document is open.
  */
 export type ServerState = "starting" | "running" | "missing" | "failed" | "stopped";
 
@@ -35,6 +39,8 @@ export interface MaylangApi {
   settled(): Promise<void>;
   /** How many times a server process has been started. */
   starts(): number;
+  /** markdown-it plugin used by the Markdown preview. */
+  extendMarkdownIt<T extends MarkdownIt>(md: T): T;
 }
 
 const RESTART_SETTINGS = ["maylang.serverPath", "maylang.strict"];
@@ -112,9 +118,18 @@ async function stop(): Promise<void> {
 }
 
 export function activate(context: ExtensionContext): MaylangApi {
+  const vocabulary = loadVocabulary(context.asAbsolutePath("syntaxes/maylang.tmLanguage.json"));
+  let wanted = false;
+  const want = (document: TextDocument): void => {
+    if (!wanted && document.languageId === "maylang") {
+      wanted = true;
+      void enqueue(start);
+    }
+  };
+  context.subscriptions.push(workspace.onDidOpenTextDocument(want));
   context.subscriptions.push(
     workspace.onDidChangeConfiguration((event: ConfigurationChangeEvent) => {
-      if (RESTART_SETTINGS.some((section) => event.affectsConfiguration(section))) {
+      if (wanted && RESTART_SETTINGS.some((section) => event.affectsConfiguration(section))) {
         void enqueue(async () => {
           await stop();
           await start();
@@ -122,11 +137,12 @@ export function activate(context: ExtensionContext): MaylangApi {
       }
     })
   );
-  void enqueue(start);
+  workspace.textDocuments.forEach(want);
   return {
     state: () => state,
     settled: () => queue,
     starts: () => starts,
+    extendMarkdownIt: (md) => extendMarkdownIt(md, vocabulary),
   };
 }
 

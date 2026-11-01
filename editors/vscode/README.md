@@ -6,6 +6,15 @@ source and stdlib hover documentation, cross-file go-to-definition,
 references, rename, completion, signature help, document symbols, and
 formatting).
 
+Highlighting covers `.may` files, `///` doc comments (their own
+`comment.line.documentation.maylang` scope, with backtick spans and the
+`Params:`, `Returns:`, `Faults:` and `Example:` sections marked), and
+```` ```may ```` or ```` ```maylang ```` fences in hovers, in the Markdown
+editor and in the Markdown preview. The preview uses highlight.js, so the
+extension adds a markdown-it plugin for Maylang fences; opening a preview
+activates the extension without starting the language server, which waits
+for a Maylang document.
+
 ## Prerequisites
 
 Build the language server (from the repository root):

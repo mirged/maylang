@@ -20,7 +20,7 @@
     "languages": [
       {
         "id": "maylang",
-        "aliases": ["Maylang", "maylang"],
+        "aliases": ["Maylang", "maylang", "may"],
         "extensions": [".may"],
         "configuration": "./language-configuration.json"
       }
@@ -30,8 +30,17 @@
         "language": "maylang",
         "scopeName": "source.maylang",
         "path": "./syntaxes/maylang.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.maylang.codeblock",
+        "path": "./syntaxes/maylang.markdown.tmLanguage.json",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": {
+          "meta.embedded.block.maylang": "maylang"
+        }
       }
     ],
+    "markdown.markdownItPlugins": true,
     "snippets": [
       {
         "language": "maylang",
