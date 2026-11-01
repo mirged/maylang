@@ -37,7 +37,10 @@ encoded user addresses (`address * 8`) preserve the allocation returned by
 validation. Holding an `addr` into a string's interior still requires keeping
 the source string alive. The existing map suite
 also forces automatic collection in a reduced heap. Conservative retention,
-fixed heap capacity and nonmoving fragmentation remain limitations.
+fixed heap capacity and nonmoving fragmentation remain limitations. A possible
+successor, a collector that reclaims whole groups of objects predicted to die
+together, is planned (research only) in the
+[MOSAIC GC roadmap](../design/MOSAIC_GC.md).
 
 ## Repeatable stress coverage
 
