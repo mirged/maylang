@@ -2,6 +2,26 @@
 
 ## Documentation
 
+- Doc comments are the single source of API descriptions
+  ([#100](https://github.com/mirged/maylang/issues/100)). Every declaration
+  in `stdlib/`, `native.may` and `prelude.may` has a `///` comment in the new
+  [doc comment standard](docs/guide/DOCSTRINGS.md): an imperative summary and
+  optional `Params:`, `Returns:`, `Faults:` and `Example:` sections. The
+  per-symbol text in `docs/reference/descriptions.json` and the catalog entries
+  for `native.may` functions in `tools/maylsp/docs/reference.json` moved into
+  those comments, and `make check` now fails on a missing or malformed doc
+  comment or on duplicated text.
+- `maylsp` renders the doc comment sections in hover and completion, keeps
+  indentation inside comments (so fenced examples survive), and takes
+  signature-help parameter text from `Params:` items.
+- The VS Code extension highlights Maylang code in docs: `may` is a language
+  alias, so hover fences are coloured; a Markdown injection grammar and a
+  markdown-it plugin colour ```` ```may ```` and ```` ```maylang ```` fences
+  in the Markdown editor and preview; and `///` comments get their own
+  `comment.line.documentation.maylang` scope with highlighted backtick spans
+  and section names. The extension now starts the language server only once
+  a Maylang document is open.
+
 - Stop describing the closed sustained-allocation report
   ([#2](https://github.com/mirged/maylang/issues/2)) as a known crash. It does
   not reproduce on the fat runtime: 20 `gc_stress.py` seeds × 400 steps, the
