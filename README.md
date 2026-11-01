@@ -3,7 +3,7 @@
 An experimental programming language with a self-hosted compiler, strict
 checking by default, and direct native executable output.
 
-[![Maylang 0.14.0 — Elm](https://img.shields.io/badge/Maylang-0.14.0%20Elm-green)](https://github.com/mirged/maylang/releases/tag/v0.14.0)
+[![Maylang 0.15.0 — Fern](https://img.shields.io/badge/Maylang-0.15.0%20Fern-green)](https://github.com/mirged/maylang/releases/tag/v0.15.0)
 
 [Releases](https://github.com/mirged/maylang/releases) ·
 [Install](docs/guide/INSTALL.md) · [Language guide](docs/guide/STRICT.md) ·

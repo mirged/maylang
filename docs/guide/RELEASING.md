@@ -5,8 +5,8 @@ Maylang uses numeric versions for tools and nature codenames for people:
 version, so scripts and bundle paths do not need to parse a codename.
 
 Each minor series gets the next alphabetical nature name. Aster starts the
-convention; Bramble names 0.11, Clover names 0.12, Dahlia names 0.13, and
-Elm is the suggested next series. Patch releases keep
+convention; Bramble names 0.11, Clover names 0.12, Dahlia names 0.13, Elm names
+0.14, Fern names 0.15, and Gorse is the suggested next series. Patch releases keep
 their series name: 0.10.1 is still Aster. A new small feature normally advances
 the minor version; fixes advance the patch. While Maylang is below 1.0, minor
 versions can also contain breaking changes, which must be described in notes.
