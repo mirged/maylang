@@ -5,8 +5,8 @@ Maylang uses numeric versions for tools and nature codenames for people:
 version, so scripts and bundle paths do not need to parse a codename.
 
 Each minor series gets the next alphabetical nature name. Aster starts the
-convention; Bramble names 0.11, Clover names 0.12, Dahlia names 0.13, and
-Elm is the suggested next series. Patch releases keep
+convention; Bramble names 0.11, Clover names 0.12, Dahlia names 0.13, Elm names
+0.14, Fern names 0.15, and Gorse is the suggested next series. Patch releases keep
 their series name: 0.10.1 is still Aster. A new small feature normally advances
 the minor version; fixes advance the patch. While Maylang is below 1.0, minor
 versions can also contain breaking changes, which must be described in notes.
@@ -34,5 +34,9 @@ status or its documented runtime limits.
 
 Packaging checks `RELEASE.json` against the compiler and stores its metadata
 inside the bundle and its provenance. GitHub uses the codename in the release
-title and the changelog as release notes. See [installation](INSTALL.md) for
+title. The release notes are only that version's `# Maylang <version> — <codename>`
+section of `CHANGELOG.md`, extracted by `dist/release_notes.py`; the release
+fails if the section is missing, empty or duplicated, so a prerelease tag needs
+its own heading (for example `# Maylang 0.16.0-rc.1 — Gorse`). Preview the notes
+with `python3 dist/release_notes.py v<version>`. See [installation](INSTALL.md) for
 bundle layout and upgrade instructions.

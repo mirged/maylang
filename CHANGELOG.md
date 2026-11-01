@@ -1,4 +1,44 @@
-# Unreleased
+# Maylang 0.15.0 — Fern
+
+Released 2026-11-01 UTC. Maylang narrows to one host and target, Linux
+x86-64, and its values become fat: 16 bytes with a separate type word, so
+`Int` is a full signed 64-bit integer and Floats are unboxed. Generated code
+is much faster. Maps hash every key type, struct fields are cached per site,
+hot locals and temporaries stay in registers (Floats in XMM registers), and
+type proofs remove checks. Field caching alone makes n-body 11× faster,
+and mayc compiles itself in under half the time it took in 0.14 (median
+6.3 s instead of 15.4 s over five runs on the same machine). Bitwise
+operators arrive, and the UI adapter and the VS Code extension get
+sanitizer and extension-host tests.
+
+## Behavior changes
+
+- Only `--target x86_64-linux` is supported. The other targets, the core
+  runtime, NodeOS, MayOS, the browser and `stdlib/ml` are frozen in
+  `frozen/`, and selecting them fails with an explanation. The `clang-llvm`
+  target and `--emit-llvm` are removed.
+- `Int` reaches ±2^63; overflow faults only beyond that. `addr` of a Float
+  is a `type` fault, a `List<Any>` uses 16 bytes per element, and `--values`
+  fails with an explanation.
+- `&`, `|`, `^`, `~`, `<<` and `>>` work on 64-bit integers; a shift result
+  that does not fit raises `integer overflow` instead of wrapping.
+- A function defined twice across the runtime and library sidecars is a
+  compile error. The prelude's `repeat` and `substring` are removed;
+  `native.may` provides them, as before.
+- The VS Code extension restarts the language server when
+  `maylang.serverPath` or `maylang.strict` changes.
+
+## Remaining limits
+
+- The compiler host and the only target are Linux x86-64; release bundles are
+  Linux x86-64 only.
+- Long-running, allocation-heavy programs can still crash the full runtime's
+  collector ([#2](https://github.com/mirged/maylang/issues/2)).
+- Dynamic code is still well behind compiled languages; records are maps
+  with per-site caches, and the remaining work is tracked in
+  [#101](https://github.com/mirged/maylang/issues/101).
+- The compiler frontend uses mutable global state and is not re-entrant
+  ([#49](https://github.com/mirged/maylang/issues/49)).
 
 ## Scope
 

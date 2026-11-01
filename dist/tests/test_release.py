@@ -10,6 +10,9 @@ from pathlib import Path
 SPEC = importlib.util.spec_from_file_location('package', Path(__file__).parents[1] / 'package.py')
 package = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(package)
+NOTES_SPEC = importlib.util.spec_from_file_location('release_notes', Path(__file__).parents[1] / 'release_notes.py')
+release_notes = importlib.util.module_from_spec(NOTES_SPEC)
+NOTES_SPEC.loader.exec_module(release_notes)
 
 
 class ReleaseTests(unittest.TestCase):
@@ -73,6 +76,36 @@ class ReleaseTests(unittest.TestCase):
                     package.release_provenance('v1.2.4', '1.2.4', git('rev-parse', 'HEAD'))
             finally:
                 package.ROOT = previous
+
+
+class ReleaseNotesTests(unittest.TestCase):
+    CHANGELOG = (
+        '# Unreleased\n\n- next\n\n'
+        '# Maylang 0.15.0 — Fern\n\nReleased today.\n\n## Compiler\n\n- faster\n\n'
+        '# Maylang 0.14.0 — Elm\n\n- older\n'
+    )
+
+    def test_extracts_only_the_tagged_section(self):
+        body = release_notes.notes(self.CHANGELOG, 'v0.15.0')
+        self.assertEqual(body, 'Released today.\n\n## Compiler\n\n- faster\n')
+        self.assertEqual(release_notes.notes(self.CHANGELOG, '0.14.0'), '- older\n')
+
+    def test_rejects_missing_empty_and_duplicate_sections(self):
+        for changelog, tag in [
+            (self.CHANGELOG, 'v0.16.0'),
+            (self.CHANGELOG, 'v0.15'),           # no prefix matches
+            ('# Maylang 0.15.0 — Fern\n\n\n# Maylang 0.14.0 — Elm\n- x\n', 'v0.15.0'),
+            ('# Maylang 0.15.0 — Fern\n- a\n# Maylang 0.15.0 — Fern\n- b\n', 'v0.15.0'),
+        ]:
+            with self.subTest(tag=tag, changelog=changelog[:40]):
+                with self.assertRaises(ValueError):
+                    release_notes.notes(changelog, tag)
+
+    def test_repository_changelog_has_notes_for_the_current_release(self):
+        root = Path(__file__).parents[2]
+        version = json.loads((root / 'RELEASE.json').read_text())['version']
+        body = release_notes.notes((root / 'CHANGELOG.md').read_text(), version)
+        self.assertNotIn('\n# ', '\n' + body)
 
 
 if __name__ == '__main__':
