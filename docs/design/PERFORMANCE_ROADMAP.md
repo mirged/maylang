@@ -202,6 +202,11 @@ CPython.
 
 ## Phase 5: allocation and collection
 
+The [MOSAIC GC roadmap](MOSAIC_GC.md) proposes a lifetime-cohort collector
+for this phase. Its measurement, simulator and groundwork milestones (M0–M2)
+cover the items below. It replaces the conventional collector work only if
+its research gate passes on real Maylang allocation traces.
+
 - Inline bump-pointer allocation for small objects, falling back to the
   runtime when the current chunk is full.
 - Size-class free lists so the sweep reuses memory instead of growing the

@@ -8,7 +8,7 @@
 | Learn current syntax | [Strict guide](guide/STRICT.md), [grammar](guide/GRAMMAR.md), [examples](reference/EXAMPLES.md) |
 | Look up public APIs | [Reference](reference/README.md), [library contracts](../stdlib/CONTRACTS.md) |
 | Understand native compilation | [Compiler guide](../compiler/mayc/README.md), [native internals](internals/NATIVE.md) |
-| Understand runtime memory | [GC](internals/GC.md) |
+| Understand runtime memory | [GC](internals/GC.md), [MOSAIC GC roadmap](design/MOSAIC_GC.md) (research proposal) |
 | Stress GC and inspect native codegen | [Limits experiments](../compiler/mayc/tests/limits/README.md) |
 | Use networking | [Networking](guide/NETWORK.md) |
 | Configure language-server support | [LSP](guide/LSP.md), [server guide](../tools/maylsp/README.md) |
