@@ -348,11 +348,13 @@ tag, then packages and publishes. CI uses Ubuntu 24.04 and Node 22.
 
 ## Known hazards
 
-- **GC corruption under sustained allocation** ([#2](https://github.com/mirged/maylang/issues/2)).
-  Long-running, allocation-heavy programs can crash in the full runtime.
-  Prefer preallocated lists of integers in hot loops. A crash in a long
-  workload may be this bug rather than your change, so reproduce it before
-  blaming the change.
+- **Collector crashes:** the old sustained-allocation corruption report
+  ([#2](https://github.com/mirged/maylang/issues/2)) was closed as not
+  reproducible and does not reproduce on the fat runtime (20 `gc_stress.py`
+  seeds × 400 steps, repeated trees/hashmap/strings/n-body/sieve runs and
+  self-compiles, 2026-11-01). The collector is conservative, so if a long
+  workload crashes, reduce it with `compiler/mayc/tests/gc_stress.py` and the
+  heap-shrinking harnesses before blaming either the collector or your change.
 - **Heap tests rewrite one line:** harnesses shrink the full runtime's heap
   by replacing `mut sz: Any = 268435456;` in `runtime/fat_linux.may`. Keep
   that exact text unique; the reservation (four times `sz`, so the collection

@@ -21,7 +21,7 @@ not scheduled.
 
 [GitHub milestone](https://github.com/mirged/maylang/milestone/1)
 
-Retain the original sustained-GC report [#2](https://github.com/mirged/maylang/issues/2).
+The original sustained-GC report [#2](https://github.com/mirged/maylang/issues/2) is closed as not reproducible.
 Address source-reading/allocation bounds and reproduced workspace/installer failures
 before expanding related capabilities.
 
