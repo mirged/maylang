@@ -34,5 +34,9 @@ status or its documented runtime limits.
 
 Packaging checks `RELEASE.json` against the compiler and stores its metadata
 inside the bundle and its provenance. GitHub uses the codename in the release
-title and the changelog as release notes. See [installation](INSTALL.md) for
+title. The release notes are only that version's `# Maylang <version> — <codename>`
+section of `CHANGELOG.md`, extracted by `dist/release_notes.py`; the release
+fails if the section is missing, empty or duplicated, so a prerelease tag needs
+its own heading (for example `# Maylang 0.16.0-rc.1 — Gorse`). Preview the notes
+with `python3 dist/release_notes.py v<version>`. See [installation](INSTALL.md) for
 bundle layout and upgrade instructions.

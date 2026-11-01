@@ -67,7 +67,8 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_CODENAME: ${{ steps.identity.outputs.codename }}
         run: |
-          gh release create "$RELEASE_TAG" --verify-tag --draft --notes-file CHANGELOG.md --title "Maylang $RELEASE_TAG — $RELEASE_CODENAME"
+          python3 dist/release_notes.py "$RELEASE_TAG" --output /tmp/release-notes.md
+          gh release create "$RELEASE_TAG" --verify-tag --draft --notes-file /tmp/release-notes.md --title "Maylang $RELEASE_TAG — $RELEASE_CODENAME"
           gh release upload "$RELEASE_TAG" /tmp/maylang-linux-x86_64.tar.gz /tmp/maylang-linux-x86_64.tar.gz.sha256 /tmp/maylang-vscode.vsix /tmp/maylang-vscode.vsix.sha256 dist/install.sh /tmp/maylang-installers/*
           if [[ "$RELEASE_TAG" == *-* ]]; then
             gh release edit "$RELEASE_TAG" --prerelease --draft=false
