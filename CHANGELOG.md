@@ -235,6 +235,17 @@
   geometry, bitmaps, UTF-8 and fonts under ASan/UBSan
   ([#47](https://github.com/mirged/maylang/issues/47)).
 
+## Editor
+
+- The VS Code extension restarts the language server when
+  `maylang.serverPath` or `maylang.strict` changes, instead of keeping the
+  settings it read at activation. A `serverPath` that does not exist now shows
+  only the warning, without also trying to start the server. Restarts are
+  serialized, and deactivation shuts the server down cleanly. Extension-host
+  tests on VS Code 1.82.0 (`make test-editor`, plus a separate CI job) cover
+  discovery, missing and failing servers, restarts and deactivation
+  ([#52](https://github.com/mirged/maylang/issues/52)).
+
 ## MayOS
 
 - Pass native words through `__ccall6` without tag compensation, and always

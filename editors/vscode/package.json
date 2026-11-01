@@ -63,7 +63,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node ./out/test/run.js"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -71,6 +72,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.75.0",
+    "@vscode/test-electron": "^2.5.2",
     "typescript": "^5.4.0"
   }
 }
