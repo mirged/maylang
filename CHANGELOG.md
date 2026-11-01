@@ -1,3 +1,14 @@
+# Unreleased
+
+## Documentation
+
+- Stop describing the closed sustained-allocation report
+  ([#2](https://github.com/mirged/maylang/issues/2)) as a known crash. It does
+  not reproduce on the fat runtime: 20 `gc_stress.py` seeds × 400 steps, the
+  GC and limits suites, and five repeated runs of the trees, hashmap, strings,
+  n-body and sieve benchmarks and of mayc compiling itself all pass with
+  identical output. The 0.15.0 remaining limits are corrected.
+
 # Maylang 0.15.0 — Fern
 
 Released 2026-11-01 UTC. Maylang narrows to one host and target, Linux
@@ -32,8 +43,11 @@ sanitizer and extension-host tests.
 
 - The compiler host and the only target are Linux x86-64; release bundles are
   Linux x86-64 only.
-- Long-running, allocation-heavy programs can still crash the full runtime's
-  collector ([#2](https://github.com/mirged/maylang/issues/2)).
+- The collector is conservative: it scans stacks, registers and Int payloads
+  in heap values as possible pointers, so unrelated integers can keep memory
+  alive. (The old sustained-allocation crash report,
+  [#2](https://github.com/mirged/maylang/issues/2), does not reproduce; the
+  0.15.0 notes originally listed it here by mistake.)
 - Dynamic code is still well behind compiled languages; records are maps
   with per-site caches, and the remaining work is tracked in
   [#101](https://github.com/mirged/maylang/issues/101).

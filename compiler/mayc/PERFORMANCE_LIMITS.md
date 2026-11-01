@@ -89,8 +89,9 @@ terminated with their exact exhaustion diagnostic and exit 70. Heap
 exhaustion likewise produced the expected diagnostic; it was not counted
 as a corruption-free unlimited allocation run. GC time counters cover
 completed collections. Conservative roots and fragmentation affect precise
-allocation counts. These results do not resolve the older sustained-GC
-report [#2](https://github.com/mirged/maylang/issues/2).
+allocation counts. The older sustained-GC report
+[#2](https://github.com/mirged/maylang/issues/2) was later closed as not
+reproducible.
 
 ## Reproduce and continue
 

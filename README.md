@@ -143,9 +143,10 @@ This project was written mostly by multiple large language models, with human
 direction, review, and testing. It is experimental; generated code and
 documentation need the same scrutiny as other contributions.
 
-The original sustained-allocation garbage collector report remains open as
-[#2](https://github.com/mirged/maylang/issues/2). Core allocation has documented
-lifetime and capacity limits. Consult the [compiler guide](compiler/mayc/README.md)
+The full runtime's collector is conservative and has documented capacity
+limits; the old sustained-allocation report
+[#2](https://github.com/mirged/maylang/issues/2) is closed and does not
+reproduce on the current runtime. Consult the [compiler guide](compiler/mayc/README.md)
 and [library contracts](stdlib/CONTRACTS.md) before relying on a feature.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, commit conventions, and issue
