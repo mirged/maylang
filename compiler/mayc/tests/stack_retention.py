@@ -17,9 +17,17 @@ Usage:
     python3 compiler/mayc/tests/stack_retention.py --compiler compiler/mayc/mayc_new
     python3 compiler/mayc/tests/stack_retention.py --heaps 8 16 32 --json /tmp/ret.json
     python3 compiler/mayc/tests/stack_retention.py --workload trees --heaps 16 64 256
+    python3 compiler/mayc/tests/stack_retention.py --inventory compiler/mayc/build/bin/mayc_new
+
+The measurement modes used by the collector work are `--xlang` (the eight
+roadmap workloads against the instrumented runtime), `--compare` with `--env`
+NAME=VALUE (interleaved base versus tuned environment on the same binary) and
+`--pair A B` (interleaved CPU/wall comparison of two executables on a pinned
+CPU, for default-off policy changes that must not shift code layout).
 """
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -433,6 +441,67 @@ def compare_workload(compiler, bench, options, workdir, base_environment, tuned_
     return report
 
 
+
+def pair_measure(binaries, runs, cpu, overrides):
+    """Interleaved paired comparison of two executables.
+
+    Runs A and B alternately on one pinned CPU (when `cpu` is set and allowed),
+    records the child CPU time (user+system from wait4) and wall time, and
+    reports medians, means, the median ratio and how many samples each side
+    won. Pairing removes machine-load drift, which dominates absolute times on
+    a shared host.
+    """
+    import os
+    environment = probe_environment(overrides)
+    first = Path(binaries[0]).resolve()
+    second = Path(binaries[1]).resolve()
+    samples = {'a': [], 'b': []}
+    import time
+    for index in range(runs):
+        order = (('a', first), ('b', second)) if index % 2 == 0 else (('b', second), ('a', first))
+        for name, binary in order:
+            started = time.perf_counter()
+            pid = os.fork()
+            if pid == 0:  # pragma: no cover - child
+                try:
+                    if cpu is not None:
+                        os.sched_setaffinity(0, {cpu})
+                    devnull = os.open(os.devnull, os.O_WRONLY)
+                    os.dup2(devnull, 1)
+                except OSError:
+                    os._exit(127)
+                os.execve(str(binary), [str(binary)], environment)
+                os._exit(127)
+            _pid, status, usage = os.wait4(pid, 0)
+            elapsed = time.perf_counter() - started
+            code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -os.WTERMSIG(status)
+            if code != 0:
+                raise SystemExit(f'{binary}: exited {code}')
+            samples[name].append({'cpu_s': usage.ru_utime + usage.ru_stime,
+                                  'wall_s': elapsed, 'peak_rss_kib': usage.ru_maxrss})
+
+    def summary(rows):
+        cpu = sorted(row['cpu_s'] for row in rows)
+        wall = sorted(row['wall_s'] for row in rows)
+        return {'samples': rows,
+                'cpu_median_s': round(cpu[len(cpu) // 2], 6),
+                'cpu_mean_s': round(sum(cpu) / len(cpu), 6),
+                'cpu_min_s': round(cpu[0], 6),
+                'wall_median_s': round(wall[len(wall) // 2], 6),
+                'peak_rss_kib': max(row['peak_rss_kib'] for row in rows)}
+
+    a = summary(samples['a'])
+    b = summary(samples['b'])
+    wins_a = sum(1 for x, y in zip(samples['a'], samples['b']) if x['cpu_s'] < y['cpu_s'])
+    wins_b = sum(1 for x, y in zip(samples['a'], samples['b']) if y['cpu_s'] < x['cpu_s'])
+    return {'a': {'binary': str(first), **a},
+            'b': {'binary': str(second), **b},
+            'runs': runs, 'cpu': cpu,
+            'cpu_ratio_b_over_a': round(b['cpu_median_s'] / a['cpu_median_s'], 4),
+            'wall_ratio_b_over_a': round(b['wall_median_s'] / a['wall_median_s'], 4),
+            'wins_a': wins_a, 'wins_b': wins_b, 'ties': runs - wins_a - wins_b}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
@@ -454,11 +523,17 @@ def main():
                         help='nominal heap for --xlang (default 256, as in production)')
     parser.add_argument('--runs', type=int, default=1,
                         help='samples per workload for --xlang (default 1)')
+    parser.add_argument('--pair', type=Path, nargs=2, default=None, metavar=('A', 'B'),
+                        help='interleaved paired CPU/wall comparison of two executables')
+    parser.add_argument('--pair-runs', type=int, default=120,
+                        help='samples per side for --pair (default 120)')
+    parser.add_argument('--cpu', type=int, default=None,
+                        help='pin paired runs to this CPU (must be allowed)')
     options = parser.parse_args()
     if options.modes is None:
         # The large-tree probes need a heap of at least 64 MiB to collect more
         # than once; keep the defaults to the probes that fit the default heaps.
-        options.modes = [] if (options.inventory or options.workload or options.xlang) else [
+        options.modes = [] if (options.inventory or options.workload or options.xlang or options.pair) else [
             'records', 'maps', 'lists', 'tree6']
     compiler = compiler_binary(options.compiler)
     overrides = {}
@@ -559,6 +634,16 @@ def main():
                   f"time median {row['median_elapsed_s']:7.3f}s  "
                   f"peak RSS {row['peak_rss_kib'] / 1024:7.1f} MiB  "
                   f"live max {row['samples'][0]['live_max'] / 1048576:6.2f} MiB", flush=True)
+    if options.pair:
+        if options.cpu is not None and options.cpu not in os.sched_getaffinity(0):
+            raise SystemExit(f'--cpu {options.cpu} is not in the allowed affinity mask')
+        row = pair_measure(options.pair, options.pair_runs, options.cpu, overrides)
+        report['pair'] = row
+        print(f"pair {Path(row['a']['binary']).name} vs {Path(row['b']['binary']).name}: "
+              f"CPU median {row['a']['cpu_median_s']:.4f}s -> {row['b']['cpu_median_s']:.4f}s "
+              f"({(row['cpu_ratio_b_over_a'] - 1) * 100:+.2f}%), "
+              f"wall {row['wall_ratio_b_over_a']:.3f}x, "
+              f"wins A/B/ties {row['wins_a']}/{row['wins_b']}/{row['ties']}", flush=True)
     if options.json:
         Path(options.json).write_text(json.dumps(report, indent=2) + '\n')
         print(f'wrote {options.json}')
