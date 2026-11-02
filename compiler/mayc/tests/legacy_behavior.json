@@ -298,5 +298,10 @@
     "exit": 0,
     "stdout": "NjQgMCAxODkgMTIwCnRydWUgNjUgNwo2NiA0MgoyIDIuMjUKMyB0cnVlIGZhbHNlIHRydWUKNjcgMSB3aWRlCjUgdHJ1ZSB0cnVlCmZhbHNlIHRydWUgdHJ1ZSBmYWxzZSB0cnVlCjUgZmFsc2UKZmFsc2UgdHJ1ZQo=",
     "stderr": ""
+  },
+  "ir_opt.may": {
+    "exit": 0,
+    "stdout": "MgoxMgoyNQo1Nwo3OQo1CjEyMwo3CmFyaXRobWV0aWMKYXJpdGhtZXRpYwoxOQoxMDAKNDUKMgo=",
+    "stderr": ""
   }
 }

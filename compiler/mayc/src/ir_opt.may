@@ -1,0 +1,705 @@
+import "ast.may";
+import "state.may";
+import "sema.may";
+import "ir.may";
+// ir_opt.may — phase 4 passes on the shared IR (#131).
+//
+// The fat backend already forwards constants, stable variable reads and proven
+// types, and fuses compare-and-branch (x86_64_fat.may). This module removes
+// work those passes cannot see:
+//
+// - dead definitions whose result nothing reads, including the copies a
+//   straight-line window overwrites before any reader (the raw backend's
+//   x86_discard_unused is the model);
+// - dead stores of locals nothing reads in the function;
+// - copies whose every reader is inside the defining basic block (copy
+//   propagation);
+// - repeated field and element reads in one straight-line region (CSE), keyed
+//   on a value number for the object so that two reads of the same variable
+//   count as the same object;
+// - labels after a plain field read that no branch names (the lowering emits a
+//   join label for every get; a plain E_GET never branches to it).
+//
+// Every rewrite updates both the quad's arg1/arg2 fields and its payload
+// operands; the backends read operations through the payload (E_BIN keeps
+// left/right there too, E_UN and E_POW only there).
+//
+// Safety rules: evaluation order is unchanged, a removed operation is pure and
+// cannot fault, stores and calls keep executing, and nothing is removed from a
+// function with an exception region (its handler can observe values a
+// straight-line analysis does not model). IR_RAW_MODE functions are left to the
+// raw backend, which has its own DCE. --no-opt skips all of this module.
+
+// ---------------------------------------------------------------- scanning
+
+fun ir_opt_zeroes(n: Any, value: Any) -> Any {
+    let out: Any = [];
+    for i: Any in 0..n { push(out, value); }
+    return out;
+}
+
+fun ir_opt_take(uses: Any, first: Any, last: Any, value: Any, position: Any) -> Any {
+    if (value == 0 or value == nil) { return 0; }
+    let slot: Any = value.slot;
+    uses[slot] = uses[slot] + 1;
+    if (first[slot] < 0) { first[slot] = position; }
+    last[slot] = position;
+    return 0;
+}
+
+fun ir_opt_take_list(uses: Any, first: Any, last: Any, values: Any, position: Any) -> Any {
+    mut value: Any = values;
+    while (value != 0 and value != nil) {
+        ir_opt_take(uses, first, last, value, position);
+        value = value.next;
+    }
+    return 0;
+}
+
+// Record the operands one instruction reads. Operand duplication (E_BIN's
+// arg1/arg2 and payload left/right) is not counted twice: the backends read
+// the payload form.
+fun ir_opt_scan_one(instruction: Any, position: Any, uses: Any, defs: Any, first: Any, last: Any) -> Any {
+    let op: Any = instruction.op;
+    let n: Any = instruction.extra;
+    let result: Any = instruction.result;
+    if (result != 0 and result != nil) { defs[result.slot] = defs[result.slot] + 1; }
+    if (op == E_BIN or op == E_POW) {
+        ir_opt_take(uses, first, last, n.left, position);
+        ir_opt_take(uses, first, last, n.right, position);
+    } else if (op == E_UN) { ir_opt_take(uses, first, last, n.operand, position); }
+    else if (op == E_CALL) { ir_opt_take_list(uses, first, last, n.args, position); }
+    else if (op == E_ICALL) {
+        ir_opt_take(uses, first, last, n.callee, position);
+        ir_opt_take_list(uses, first, last, n.args, position);
+    } else if (op == S_LET) { ir_opt_take(uses, first, last, n.initializer, position); }
+    else if (op == S_ASSIGN or op == S_CASSIGN) { ir_opt_take(uses, first, last, n.value, position); }
+    else if (op == E_INDEX or op == S_SETIDX) {
+        ir_opt_take(uses, first, last, n.object, position);
+        ir_opt_take(uses, first, last, n.index, position);
+        if (op == S_SETIDX) { ir_opt_take(uses, first, last, n.value, position); }
+    } else if (op == E_GET or op == S_SETPROP) {
+        ir_opt_take(uses, first, last, n.object, position);
+        if (op == S_SETPROP) { ir_opt_take(uses, first, last, n.value, position); }
+    } else if (op == E_RANGE) {
+        ir_opt_take(uses, first, last, n.start, position);
+        ir_opt_take(uses, first, last, n.end, position);
+    } else if (op == IR_RUNTIME or op == IR_TAILCALL) { ir_opt_take_list(uses, first, last, instruction.arg1, position); }
+    else if (op == IR_COPY or op == IR_BOOL or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL or op == IR_RETURN) {
+        ir_opt_take(uses, first, last, instruction.arg1, position);
+    }
+    return 0;
+}
+
+fun ir_opt_scan(code: Any, uses: Any, defs: Any, first: Any, last: Any) -> Any {
+    mut position: Any = 0;
+    for instruction: Any in code {
+        ir_opt_scan_one(instruction, position, uses, defs, first, last);
+        position += 1;
+    }
+    return 0;
+}
+
+// Label ids named by a control transfer: only those labels begin a block, so
+// the no-op labels the lowering leaves after a plain field read do not split a
+// straight-line window.
+fun ir_opt_targets(code: Any) -> Any {
+    let targets: Any = {};
+    for instruction: Any in code {
+        let op: Any = instruction.op;
+        if (op == IR_JUMP or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL) {
+            targets[instruction.extra] = true;
+        }
+    }
+    return targets;
+}
+
+// Basic blocks: the first instruction, an instruction after a control transfer
+// and a label some transfer names start a block. Each entry is [start, end}.
+fun ir_opt_blocks(code: Any, targets: Any) -> Any {
+    let count: Any = len(code);
+    let leader: Any = ir_opt_zeroes(count, false);
+    if (count == 0) { return []; }
+    leader[0] = true;
+    mut position: Any = 0;
+    for instruction: Any in code {
+        let op: Any = instruction.op;
+        if (op == IR_LABEL and has(targets, instruction.extra)) { leader[position] = true; }
+        if ((op == IR_JUMP or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL or
+             op == IR_RETURN or op == IR_TAILCALL) and position + 1 < count) { leader[position + 1] = true; }
+        position += 1;
+    }
+    let blocks: Any = [];
+    mut start: Any = 0;
+    position = 0;
+    while (position < count) {
+        if (leader[position] and position > start) { push(blocks, [start, position]); start = position; }
+        position += 1;
+    }
+    push(blocks, [start, count]);
+    return blocks;
+}
+
+// ------------------------------------------------------------------- values
+
+// Every operation the lowering can emit into a fat IR block. A new operation
+// from a later change makes the pass decline the function instead of silently
+// mis-counting its operands.
+fun ir_opt_known_op(op: Any) -> Bool {
+    if (op == E_INT or op == E_STR or op == E_FLOAT or op == E_STRB or op == E_VAR or op == E_CAPVAR or
+        op == E_CLOSURE or op == E_BIN or op == E_UN or op == E_POW or op == E_CALL or op == E_ICALL or
+        op == E_INDEX or op == E_GET or op == E_RANGE) { return true; }
+    if (op == S_LET or op == S_ASSIGN or op == S_CASSIGN or op == S_SETIDX or op == S_SETPROP) { return true; }
+    if (op == IR_COPY or op == IR_LABEL or op == IR_JUMP or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or
+        op == IR_NONNULL or op == IR_BOOL or op == IR_NIL or op == IR_RUNTIME or op == IR_RETURN or
+        op == IR_TAILCALL or op == IR_TRY_END) { return true; }
+    return false;
+}
+
+fun ir_opt_discardable(instruction: Any) -> Bool {
+    let op: Any = instruction.op;
+    if (op == IR_COPY or op == IR_NIL or op == E_INT or op == E_STR or op == E_FLOAT or op == E_STRB or
+        op == E_VAR or op == IR_BOOL) { return true; }
+    return false;
+}
+
+// Drop the operand reads of an instruction that is being removed.
+fun ir_opt_drop(uses: Any, value: Any) -> Any {
+    if (value == 0 or value == nil) { return 0; }
+    uses[value.slot] = uses[value.slot] - 1;
+    return 0;
+}
+
+fun ir_opt_drop_list(uses: Any, values: Any) -> Any {
+    mut value: Any = values;
+    while (value != 0 and value != nil) {
+        uses[value.slot] = uses[value.slot] - 1;
+        value = value.next;
+    }
+    return 0;
+}
+
+fun ir_opt_drop_operands(uses: Any, instruction: Any) -> Any {
+    let op: Any = instruction.op;
+    let n: Any = instruction.extra;
+    if (op == E_BIN or op == E_POW) {
+        ir_opt_drop(uses, n.left); ir_opt_drop(uses, n.right);
+    } else if (op == E_UN) { ir_opt_drop(uses, n.operand); }
+    else if (op == E_CALL) { ir_opt_drop_list(uses, n.args); }
+    else if (op == E_ICALL) { ir_opt_drop(uses, n.callee); ir_opt_drop_list(uses, n.args); }
+    else if (op == S_LET) { ir_opt_drop(uses, n.initializer); }
+    else if (op == S_ASSIGN or op == S_CASSIGN) { ir_opt_drop(uses, n.value); }
+    else if (op == E_INDEX or op == S_SETIDX) {
+        ir_opt_drop(uses, n.object); ir_opt_drop(uses, n.index);
+        if (op == S_SETIDX) { ir_opt_drop(uses, n.value); }
+    } else if (op == E_GET or op == S_SETPROP) {
+        ir_opt_drop(uses, n.object);
+        if (op == S_SETPROP) { ir_opt_drop(uses, n.value); }
+    } else if (op == E_RANGE) {
+        ir_opt_drop(uses, n.start); ir_opt_drop(uses, n.end);
+    } else if (op == IR_RUNTIME or op == IR_TAILCALL) { ir_opt_drop_list(uses, instruction.arg1); }
+    else if (op == IR_COPY or op == IR_BOOL or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL or op == IR_RETURN) {
+        ir_opt_drop(uses, instruction.arg1);
+    }
+    return 0;
+}
+
+// ------------------------------------------------------- alias substitution
+
+fun ir_opt_subst(value: Any, alias: Any) -> Any {
+    if (value == 0 or value == nil) { return value; }
+    let to: Any = alias[value.slot];
+    if (to == nil or to == 0) { return value; }
+    return to;
+}
+
+// Replace one list element in place, keeping the list links intact.
+fun ir_opt_subst_list(values: Any, alias: Any) -> Any {
+    mut value: Any = values;
+    while (value != 0 and value != nil) {
+        let to: Any = alias[value.slot];
+        if (to != nil and to != 0) {
+            value.kind = to.kind; value.slot = to.slot; value.value = to.value;
+            value.start = to.start; value.length = to.length; value.span = to.span;
+            value.valueType = to.valueType;
+        }
+        value = value.next;
+    }
+    return 0;
+}
+
+// Rewrite every operand position of one instruction through `alias`. Both the
+// quad's arg fields and the payload copies are updated so the backends see a
+// consistent quad; E_UN and E_POW keep operands only in the payload.
+fun ir_opt_rewrite_one(instruction: Any, alias: Any) -> Any {
+    let op: Any = instruction.op;
+    let n: Any = instruction.extra;
+    if (op == E_BIN) {
+        n.left = ir_opt_subst(n.left, alias); n.right = ir_opt_subst(n.right, alias);
+        instruction.arg1 = n.left; instruction.arg2 = n.right;
+    } else if (op == E_POW) {
+        n.left = ir_opt_subst(n.left, alias); n.right = ir_opt_subst(n.right, alias);
+    } else if (op == E_UN) { n.operand = ir_opt_subst(n.operand, alias); }
+    else if (op == E_CALL) { ir_opt_subst_list(n.args, alias); }
+    else if (op == E_ICALL) {
+        n.callee = ir_opt_subst(n.callee, alias);
+        ir_opt_subst_list(n.args, alias);
+    } else if (op == S_LET) {
+        n.initializer = ir_opt_subst(n.initializer, alias); instruction.arg1 = n.initializer;
+    } else if (op == S_ASSIGN) {
+        n.value = ir_opt_subst(n.value, alias); instruction.arg1 = n.value;
+    } else if (op == S_CASSIGN) {
+        n.value = ir_opt_subst(n.value, alias); instruction.arg1 = n.value;
+    } else if (op == E_INDEX) {
+        n.object = ir_opt_subst(n.object, alias); n.index = ir_opt_subst(n.index, alias);
+    } else if (op == S_SETIDX) {
+        n.object = ir_opt_subst(n.object, alias); n.index = ir_opt_subst(n.index, alias);
+        n.value = ir_opt_subst(n.value, alias);
+        instruction.arg1 = n.object; instruction.arg2 = n.index;
+    } else if (op == E_GET) { n.object = ir_opt_subst(n.object, alias); }
+    else if (op == S_SETPROP) {
+        n.object = ir_opt_subst(n.object, alias); n.value = ir_opt_subst(n.value, alias);
+        instruction.arg1 = n.object; instruction.arg2 = n.value;
+    } else if (op == E_RANGE) {
+        n.start = ir_opt_subst(n.start, alias); n.end = ir_opt_subst(n.end, alias);
+    } else if (op == IR_RUNTIME or op == IR_TAILCALL) { ir_opt_subst_list(instruction.arg1, alias); }
+    else if (op == IR_COPY or op == IR_BOOL or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL or op == IR_RETURN) {
+        instruction.arg1 = ir_opt_subst(instruction.arg1, alias);
+    }
+    return 0;
+}
+
+fun ir_opt_rewrite_aliases(code: Any, removed: Any, alias: Any) -> Any {
+    mut position: Any = 0;
+    for instruction: Any in code {
+        if (not removed[position]) { ir_opt_rewrite_one(instruction, alias); }
+        position += 1;
+    }
+    return 0;
+}
+
+// -------------------------------------------------------------------- CSE
+
+fun ir_opt_ident(ident: Any, value: Any) -> Any {
+    if (value == 0 or value == nil) { return -1; }
+    let id: Any = ident[value.slot];
+    if (id < 0) { return value.slot; }
+    return id;
+}
+
+fun ir_opt_lookup(entries: Any, op: Any, id1: Any, id2: Any, field: Any) -> Any {
+    mut index: Any = 0;
+    while (index < len(entries)) {
+        let entry: Any = entries[index];
+        if (entry[0] == op and entry[1] == id1 and entry[2] == id2) {
+            if (op != E_GET or entry[3] == field) { return index; }
+        }
+        index += 1;
+    }
+    return -1;
+}
+
+// Drop the load entries a store may invalidate. A field store only changes that
+// field's value; a list element store changes element values. Calls and runtime
+// calls clear everything, as any object can be mutated through an alias.
+fun ir_opt_invalidate(entries: Any, op: Any, field: Any) -> Any {
+    if (op == E_CALL or op == E_ICALL or op == IR_RUNTIME or op == IR_TAILCALL or op == S_CASSIGN) { return []; }
+    let kept: Any = [];
+    for entry: Any in entries {
+        if (op == S_SETPROP and entry[0] == E_GET and entry[3] == field) { }
+        else if (op == S_SETIDX and entry[0] == E_INDEX) { }
+        else { push(kept, entry); }
+    }
+    return kept;
+}
+
+// Value numbering and CSE for one basic block. Returns the next free identity.
+// `ident` and `dirty` are reused across blocks: dirty lists the slots whose
+// identity the caller resets before the next block.
+fun ir_opt_cse_block(code: Any, start: Any, end: Any, removed: Any, defs: Any, first: Any, last: Any,
+                     ident: Any, dirty: Any, names: Any, entries: Any, alias: Any, fresh: Any) -> Any {
+    mut next: Any = fresh;
+    mut position: Any = start;
+    while (position < end) {
+        let instruction: Any = code[position];
+        let op: Any = instruction.op;
+        let n: Any = instruction.extra;
+        let result: Any = instruction.result;
+        mut slot: Any = -1;
+        if (result != 0 and result != nil) { slot = result.slot; }
+        if (slot >= 0 and (op == E_GET or op == E_INDEX)) {
+            // A duplicate may only be removed when every reader is later in
+            // this block: readers elsewhere need the definition to survive.
+            if (defs[slot] == 1 and first[slot] > position and last[slot] >= 0 and last[slot] < end) {
+                let object: Any = n.object;
+                let id1: Any = ir_opt_ident(ident, object);
+                mut id2: Any = -1;
+                mut field: Any = nil;
+                mut named: Bool = true;
+                if (op == E_GET) {
+                    if (n.span == nil or n.start == nil or n.length == nil) { named = false; }
+                    else { field = symbol_name(n.span.source + n.start, n.length); }
+                } else { id2 = ir_opt_ident(ident, n.index); }
+                if (not named) { position += 1; continue; }
+                let found: Any = ir_opt_lookup(entries, op, id1, id2, field);
+                if (found >= 0) {
+                    alias[slot] = entries[found][4];
+                    removed[position] = true;
+                } else {
+                    if (len(entries) >= 48) { entries = []; }
+                    push(entries, [op, id1, id2, field, result]);
+                }
+            }
+        }
+        if (slot >= 0) {
+            push(dirty, slot);
+            if (defs[slot] > 1) { ident[slot] = next; next += 1; }
+            else if (op == E_VAR) {
+                let name: Any = symbol_name(n.name, n.length);
+                mut known: Any = names[name];
+                if (known == nil or known == 0) { known = next; next += 1; names[name] = known; }
+                ident[slot] = known;
+            } else { ident[slot] = slot; }
+        }
+        if (op == S_LET or op == S_ASSIGN) {
+            // A rebinding invalidates the value number of the name; 0 is not a
+            // valid identity, so it marks the entry absent.
+            names[symbol_name(n.name, n.length)] = 0;
+        } else if (op == S_SETPROP) {
+            if (n.span == nil or n.start == nil or n.length == nil) { entries = []; }
+            else { entries = ir_opt_invalidate(entries, op, symbol_name(n.span.source + n.start, n.length)); }
+        } else if (op == S_SETIDX or op == E_CALL or op == E_ICALL or op == IR_RUNTIME or op == IR_TAILCALL or op == S_CASSIGN) {
+            entries = ir_opt_invalidate(entries, op, nil);
+            // A call can assign any global or boxed local.
+            if (op != S_SETIDX) { names = {}; }
+        }
+        position += 1;
+    }
+    return next;
+}
+
+fun ir_opt_cse(code: Any, blocks: Any, removed: Any, defs: Any, first: Any, last: Any, temps: Any, count: Any) -> Any {
+    let alias: Any = {};
+    mut fresh: Any = temps + count + 1;
+    let ident: Any = ir_opt_zeroes(temps, -1);
+    mut dirty: Any = [];
+    mut names: Any = {};
+    mut entries: Any = [];
+    for block: Any in blocks {
+        for slot: Any in dirty { ident[slot] = -1; }
+        dirty = [];
+        names = {};
+        entries = [];
+        fresh = ir_opt_cse_block(code, block[0], block[1], removed, defs, first, last,
+            ident, dirty, names, entries, alias, fresh);
+    }
+    return alias;
+}
+
+// ---------------------------------------------------------- copy propagation
+
+// Replace readers of a single-use copy with its source when every reader is
+// later in the same block and the source is itself defined once (so no
+// reassignment can change it between the copy and its readers).
+fun ir_opt_copy_prop_block(code: Any, start: Any, end: Any, removed: Any, defs: Any, first: Any, last: Any,
+                           alias: Any) -> Any {
+    mut position: Any = start;
+    while (position < end) {
+        let instruction: Any = code[position];
+        if (not removed[position] and instruction.op == IR_COPY) {
+            let result: Any = instruction.result;
+            let source: Any = instruction.arg1;
+            if (result != 0 and result != nil and source != 0 and source != nil) {
+                let slot: Any = result.slot;
+                if (defs[slot] == 1 and first[slot] > position and last[slot] >= 0 and last[slot] < end) {
+                    let target: Any = ir_opt_subst(source, alias);
+                    if (defs[target.slot] == 1) {
+                        alias[slot] = target;
+                        removed[position] = true;
+                    }
+                }
+            }
+        }
+        position += 1;
+    }
+    return 0;
+}
+
+fun ir_opt_copy_prop(code: Any, blocks: Any, removed: Any, defs: Any, first: Any, last: Any, alias: Any) -> Any {
+    for block: Any in blocks {
+        ir_opt_copy_prop_block(code, block[0], block[1], removed, defs, first, last, alias);
+    }
+    return 0;
+}
+
+// -------------------------------------------------------------- dead stores
+
+// Read counts by binding name: E_VAR reads, call-through-variable sites and
+// closure captures. A local declared but never read anywhere cannot be
+// observed, so its declaration and assignments are dead.
+fun ir_opt_name_reads(code: Any, removed: Any) -> Any {
+    let reads: Any = {};
+    mut position: Any = 0;
+    for instruction: Any in code {
+        if (not removed[position]) {
+            let op: Any = instruction.op;
+            let n: Any = instruction.extra;
+            if (op == E_VAR) {
+                let name: Any = symbol_name(n.name, n.length);
+                reads[name] = (reads[name] ?? 0) + 1;
+            } else if (op == E_CALL) {
+                let name: Any = symbol_name(n.name, n.length);
+                reads[name] = (reads[name] ?? 0) + 1;
+            } else if (op == E_CLOSURE) {
+                mut capture: Any = n.captures;
+                while (capture != 0 and capture != nil) {
+                    let name: Any = symbol_name(capture.name, capture.length);
+                    reads[name] = (reads[name] ?? 0) + 1;
+                    capture = capture.next;
+                }
+            }
+        }
+        position += 1;
+    }
+    return reads;
+}
+
+fun ir_opt_dead_names(code: Any, removed: Any, uses: Any) -> Any {
+    let reads: Any = ir_opt_name_reads(code, removed);
+    // Names this function declares as locals. An S_ASSIGN payload carries no
+    // global flag (the backend resolves the name while emitting), so only a
+    // name with a local declaration can be treated as a dead store.
+    let locals: Any = {};
+    for instruction: Any in code {
+        if (instruction.op == S_LET) {
+            let n: Any = instruction.extra;
+            if (n.global != 1) { locals[symbol_name(n.name, n.length)] = true; }
+        }
+    }
+    mut position: Any = 0;
+    for instruction: Any in code {
+        if (not removed[position]) {
+            let op: Any = instruction.op;
+            if (op == S_LET or op == S_ASSIGN) {
+                let n: Any = instruction.extra;
+                // Globals can be read by other functions; only locals are
+                // provably unobservable here.
+                if (n.global != 1) {
+                    let name: Any = symbol_name(n.name, n.length);
+                    let declared: Any = op == S_LET or has(locals, name);
+                    if (declared and not has(reads, name)) {
+                        removed[position] = true;
+                        let value: Any = if (op == S_LET) { n.initializer } else { n.value };
+                        ir_opt_drop(uses, value);
+                    }
+                }
+            }
+        }
+        position += 1;
+    }
+    return 0;
+}
+
+// -------------------------------------------------- overwritten dead defs
+
+fun ir_opt_touch_one(value: Any, lastDef: Any, touched: Any) -> Any {
+    if (value == 0 or value == nil) { return 0; }
+    if (lastDef[value.slot] >= 0 and not touched[value.slot]) { touched[value.slot] = true; }
+    return 0;
+}
+
+fun ir_opt_touch_list(values: Any, lastDef: Any, touched: Any) -> Any {
+    mut value: Any = values;
+    while (value != 0 and value != nil) {
+        ir_opt_touch_one(value, lastDef, touched);
+        value = value.next;
+    }
+    return 0;
+}
+
+fun ir_opt_touch_operands(instruction: Any, lastDef: Any, touched: Any) -> Any {
+    let op: Any = instruction.op;
+    let n: Any = instruction.extra;
+    if (op == E_BIN or op == E_POW) {
+        ir_opt_touch_one(n.left, lastDef, touched); ir_opt_touch_one(n.right, lastDef, touched);
+    } else if (op == E_UN) { ir_opt_touch_one(n.operand, lastDef, touched); }
+    else if (op == E_CALL) { ir_opt_touch_list(n.args, lastDef, touched); }
+    else if (op == E_ICALL) { ir_opt_touch_one(n.callee, lastDef, touched); ir_opt_touch_list(n.args, lastDef, touched); }
+    else if (op == S_LET) { ir_opt_touch_one(n.initializer, lastDef, touched); }
+    else if (op == S_ASSIGN or op == S_CASSIGN) { ir_opt_touch_one(n.value, lastDef, touched); }
+    else if (op == E_INDEX or op == S_SETIDX) {
+        ir_opt_touch_one(n.object, lastDef, touched); ir_opt_touch_one(n.index, lastDef, touched);
+        if (op == S_SETIDX) { ir_opt_touch_one(n.value, lastDef, touched); }
+    } else if (op == E_GET or op == S_SETPROP) {
+        ir_opt_touch_one(n.object, lastDef, touched);
+        if (op == S_SETPROP) { ir_opt_touch_one(n.value, lastDef, touched); }
+    } else if (op == E_RANGE) {
+        ir_opt_touch_one(n.start, lastDef, touched); ir_opt_touch_one(n.end, lastDef, touched);
+    } else if (op == IR_RUNTIME or op == IR_TAILCALL) { ir_opt_touch_list(instruction.arg1, lastDef, touched); }
+    else if (op == IR_COPY or op == IR_BOOL or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL or op == IR_RETURN) {
+        ir_opt_touch_one(instruction.arg1, lastDef, touched);
+    }
+    return 0;
+}
+
+// Within one straight-line block, a definition whose slot is written again
+// before any reader is dead: every path leaving the block passes through the
+// later write. This removes the snapshot copies the lowering emits before a
+// conditional overwrite (if results, field reads). lastDef and touched are
+// reused across blocks; the dirty lists reset them.
+fun ir_opt_dead_defs_block(code: Any, block: Any, removed: Any, uses: Any,
+                           lastDef: Any, touched: Any, dirtyDef: Any, dirtyTouched: Any) -> Any {
+    let start: Any = block[0];
+    let end: Any = block[1];
+    mut position: Any = start;
+    while (position < end) {
+        if (not removed[position]) {
+            let instruction: Any = code[position];
+            ir_opt_touch_operands(instruction, lastDef, touched);
+            let result: Any = instruction.result;
+            if (result != 0 and result != nil) {
+                let slot: Any = result.slot;
+                let previous: Any = lastDef[slot];
+                if (previous >= 0 and not touched[slot] and not removed[previous]) {
+                    let dead: Any = code[previous];
+                    if (ir_opt_discardable(dead)) {
+                        removed[previous] = true;
+                        ir_opt_drop_operands(uses, dead);
+                    }
+                }
+                if (previous < 0) { push(dirtyDef, slot); }
+                lastDef[slot] = position;
+                if (touched[slot]) { push(dirtyTouched, slot); }
+                touched[slot] = false;
+            }
+        }
+        position += 1;
+    }
+    return 0;
+}
+
+fun ir_opt_dead_defs(code: Any, blocks: Any, removed: Any, uses: Any, temps: Any) -> Any {
+    let lastDef: Any = ir_opt_zeroes(temps, -1);
+    let touched: Any = ir_opt_zeroes(temps, false);
+    mut dirtyDef: Any = [];
+    mut dirtyTouched: Any = [];
+    for block: Any in blocks {
+        for slot: Any in dirtyDef { lastDef[slot] = -1; }
+        for slot: Any in dirtyTouched { touched[slot] = false; }
+        dirtyDef = [];
+        dirtyTouched = [];
+        ir_opt_dead_defs_block(code, block, removed, uses, lastDef, touched, dirtyDef, dirtyTouched);
+    }
+    return 0;
+}
+
+// ------------------------------------------------------------ dead cascade
+
+// Definitions never read disappear, and their operands may become unread too.
+// Scanning backwards visits a removed instruction before its (earlier)
+// operands, so one pass reaches the fixpoint.
+fun ir_opt_cascade(code: Any, removed: Any, uses: Any) -> Any {
+    mut position: Any = len(code) - 1;
+    while (position >= 0) {
+        if (not removed[position]) {
+            let instruction: Any = code[position];
+            let result: Any = instruction.result;
+            if (result != 0 and result != nil and uses[result.slot] == 0 and ir_opt_discardable(instruction)) {
+                removed[position] = true;
+                ir_opt_drop_operands(uses, instruction);
+            }
+        }
+        position -= 1;
+    }
+    return 0;
+}
+
+// -------------------------------------------------------------------- entry
+
+fun ir_opt_block(block: Any) -> Any {
+    if (NO_OPT) { return 0; }
+    if (block == 0 or block == nil) { return 0; }
+    let code: Any = block.code;
+    let count: Any = len(code);
+    if (count < 2) { return 0; }
+    for instruction: Any in code {
+        if (instruction.op == IR_TRY_BEGIN) { return 0; }
+        if (not ir_opt_known_op(instruction.op)) { return 0; }
+    }
+    let temps: Any = block.temporaries;
+    let uses: Any = ir_opt_zeroes(temps, 0);
+    let defs: Any = ir_opt_zeroes(temps, 0);
+    let first: Any = ir_opt_zeroes(temps, -1);
+    let last: Any = ir_opt_zeroes(temps, -1);
+    ir_opt_scan(code, uses, defs, first, last);
+    let targets: Any = ir_opt_targets(code);
+    let blocks: Any = ir_opt_blocks(code, targets);
+    let removed: Any = ir_opt_zeroes(count, false);
+    // Shape counts: passes with nothing to do are skipped to keep compilation
+    // cheap; the compiler compiles itself with this module on every build.
+    mut loads: Any = 0;
+    mut copies: Any = 0;
+    mut decls: Any = 0;
+    for instruction: Any in code {
+        let op: Any = instruction.op;
+        if (op == E_GET or op == E_INDEX) { loads += 1; }
+        else if (op == IR_COPY) { copies += 1; }
+        else if (op == S_LET or op == S_ASSIGN) { decls += 1; }
+    }
+    mut alias: Any = {};
+    if (loads > 0) { alias = ir_opt_cse(code, blocks, removed, defs, first, last, temps, count); }
+    if (copies > 0) {
+        ir_opt_copy_prop(code, blocks, removed, defs, first, last, alias);
+    }
+    if (len(alias) > 0) { ir_opt_rewrite_aliases(code, removed, alias); }
+    // Readers moved between definitions: count again before the removal passes.
+    let liveUses: Any = ir_opt_zeroes(temps, 0);
+    let liveDefs: Any = ir_opt_zeroes(temps, 0);
+    let liveFirst: Any = ir_opt_zeroes(temps, -1);
+    let liveLast: Any = ir_opt_zeroes(temps, -1);
+    mut position: Any = 0;
+    for instruction: Any in code {
+        if (not removed[position]) {
+            ir_opt_scan_one(instruction, position, liveUses, liveDefs, liveFirst, liveLast);
+        }
+        position += 1;
+    }
+    if (decls > 0) { ir_opt_dead_names(code, removed, liveUses); }
+    if (copies > 0) { ir_opt_dead_defs(code, blocks, removed, liveUses, temps); }
+    ir_opt_cascade(code, removed, liveUses);
+    // Labels no transfer names are positions only; dropping them shrinks the
+    // emitted label table and frees the backends to share more slots.
+    position = 0;
+    for instruction: Any in code {
+        if (not removed[position] and instruction.op == IR_LABEL and not has(targets, instruction.extra)) {
+            removed[position] = true;
+        }
+        position += 1;
+    }
+    // Compact the block, dropping removed instructions.
+    let out: Any = [];
+    position = 0;
+    mut highest: Any = -1;
+    for instruction: Any in code {
+        if (not removed[position]) {
+            push(out, instruction);
+            let result: Any = instruction.result;
+            if (result != 0 and result != nil and result.slot > highest) { highest = result.slot; }
+        }
+        position += 1;
+    }
+    block.code = out;
+    if (highest + 1 < block.temporaries) { block.temporaries = highest + 1; }
+    return 0;
+}
+
+// Optimize a lower unit before the emission snapshot is consumed. Raw and
+// native-word functions keep the raw backend's own passes.
+fun ir_opt_program(ctx: Any) -> Any {
+    if (NO_OPT or DYNMODE != 1) { return 0; }
+    ir_opt_block(ctx.mainIR);
+    for rec: Any in ctx.functions {
+        if (rec.mode != 1 and rec.native != true) { ir_opt_block(rec.ir); }
+    }
+    return 0;
+}
