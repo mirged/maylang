@@ -1158,6 +1158,172 @@ fun fat_count(args: Any) -> Any {
     return count;
 }
 
+// ---------------------------------------------------- direct calls (#132)
+//
+// A call to a function known at compile time with matching arity passes its
+// arguments in registers instead of building the 16-byte argument vector:
+// argument 0 in RDX/RAX (the result registers), argument 1 in RDI/RSI and
+// argument 2 in R8/R9. A fat function with one to three parameters has one body
+// that stores its parameters from those registers; its vector entry, which
+// closures and function values use, copies the vector into the registers
+// first. A native-word body takes its payloads in the SysV argument registers.
+//
+// fat_plan_direct_calls marks the callees of such calls before emission, from
+// every direct call site in the IR, so a callee emits its register entry
+// whenever a call site uses it, regardless of emission order.
+
+let FAT_ARG_PAIRS: Any = [[2, 0], [7, 6], [8, 9]];
+let FAT_WORD_ARGUMENTS: Any = [7, 6, 2, 1, 8, 9];
+
+// One out-of-line "expected Int or Bool" fault stub per body.
+mut FAT_WORD_FAULT: Any = nil;
+
+// Whether calls to `rec` can use the register convention: a fat body with one
+// to three parameters and no closure environment. The vector entry keeps
+// working for every other caller.
+fun fat_register_callable(rec: Any) -> Bool {
+    if (NO_OPT or rec == 0) { return false; }
+    if (rec.foreign == true or rec.mode == 1 or rec.native == true or rec.cc != 0) { return false; }
+    return rec.pc >= 1 and rec.pc <= 3;
+}
+
+// The register entry of `rec`; the first user allocates the label, so a caller
+// and the callee agree on it whatever the emission order.
+fun fat_register_label(ctx: Any, rec: Any) -> Any {
+    if (rec.regLab == nil) { rec.regLab = newlab(ctx); }
+    return rec.regLab;
+}
+
+// The `expected Int or Bool` fault stub of the body being emitted.
+fun fat_word_fault(ctx: Any) -> Any {
+    if (FAT_WORD_FAULT == nil) { FAT_WORD_FAULT = newlab(ctx); }
+    return FAT_WORD_FAULT;
+}
+
+fun fat_cmp_immediate(ctx: Any, register: Any, value: Any) -> Any {
+    e8(ctx, if (register >= 8) { 73 } else { 72 }); e8(ctx, 131); e8(ctx, 248 + register % 8); e8(ctx, value);
+    return 0;
+}
+
+// Mark the callees of direct calls with matching arity that can take their
+// arguments in registers. Called once, before any body is emitted.
+fun fat_plan_direct_calls(ctx: Any) -> Any {
+    if (NO_OPT) { return 0; }
+    fat_plan_direct_block(ctx, ctx.mainIR);
+    for rec: Any in ctx.functions {
+        if (rec.mode == 1 or rec.native == true or rec.foreign == true) { continue; }
+        fat_plan_direct_block(ctx, rec.ir);
+    }
+    return 0;
+}
+
+fun fat_plan_direct_block(ctx: Any, block: Any) -> Any {
+    if (block == nil or block == 0) { return 0; }
+    for instruction: Any in block.code {
+        if (instruction.op != E_CALL) { continue; }
+        let n: Any = instruction.extra;
+        if (n == 0) { continue; }
+        let name: Any = symbol_name(n.name, n.length);
+        mut callee: Any = ctx.functionIndex[name];
+        // `ln` and friends lower to the portable math kernels (fat_builtin).
+        if (callee == nil and has(FAT_MATH, name)) { callee = ctx.functionIndex[FAT_MATH[name]]; }
+        if (callee == nil or fat_count(n.args) != callee.pc) { continue; }
+        if (fat_register_callable(callee)) { callee.regWanted = true; }
+        else if (callee.native == true and callee.pc <= 6) { callee.wordWanted = true; }
+    }
+    return 0;
+}
+
+// mov reg, [rsp + displacement], for the vector entry before the prologue.
+fun fat_incoming(ctx: Any, register: Any, displacement: Any) -> Any {
+    e8(ctx, if (register >= 8) { 76 } else { 72 }); e8(ctx, 139);
+    e8(ctx, 68 + (register % 8) * 8); e8(ctx, 36); e8(ctx, displacement);
+    return 0;
+}
+
+// Copy the argument vector at [rsp + 8] into the register convention.
+fun fat_arguments_to_registers(ctx: Any, count: Any) -> Any {
+    for index: Any in 0..count {
+        let pair: Any = FAT_ARG_PAIRS[index];
+        fat_incoming(ctx, pair[0], 8 + 16 * index);
+        fat_incoming(ctx, pair[1], 16 + 16 * index);
+    }
+    return 0;
+}
+
+// Load arguments right to left, so argument 0 is loaded last and stays in
+// RDX/RAX. A load has no effects, so the order is not observable.
+fun fat_register_arguments(ctx: Any, args: Any, index: Any) -> Any {
+    if (args == 0) { return 0; }
+    fat_register_arguments(ctx, args.next, index + 1);
+    fat_get(ctx, args);
+    if (index > 0) {
+        let pair: Any = FAT_ARG_PAIRS[index];
+        x86_move_register(ctx, pair[0], 2); x86_move_register(ctx, pair[1], 0);
+    }
+    return 0;
+}
+
+// A direct call to a known fat function: arguments travel in registers, so no
+// argument vector is built and the stack pointer is not adjusted.
+fun fat_direct_registers(ctx: Any, rec: Any, args: Any) -> Any {
+    fat_register_arguments(ctx, args, 0);
+    // The register entry is a label created after emission_begin registered the
+    // function's own label, so queue the function explicitly.
+    emission_reference(ctx, rec.lab);
+    fat_call_begin(ctx); call(ctx, fat_register_label(ctx, rec)); fat_call_end(ctx);
+    return 0;
+}
+
+// Load parameter `index` of a native-word callee: check its type word unless it
+// is proven, then move the payload into its SysV argument register.
+fun fat_native_argument(ctx: Any, rec: Any, arg: Any, index: Any) -> Any {
+    fat_get(ctx, arg);
+    let expected: Any = if (rec.nativeKinds[index] == "Bool") { 1 } else { 2 };
+    if (fat_known_type(arg) != expected) {
+        fat_cmp_immediate(ctx, 2, expected);
+        jcc(ctx, 133, fat_word_fault(ctx));
+    }
+    x86_move_register(ctx, FAT_WORD_ARGUMENTS[index], 0);
+    return 0;
+}
+
+// `wanted` is an argument index to load, or -1 for every index but 2: RDX is
+// both parameter 2's register and the scratch register of a load, so it is
+// loaded last.
+fun fat_native_arguments(ctx: Any, rec: Any, args: Any, wanted: Any) -> Any {
+    mut arg: Any = args; mut index: Any = 0;
+    while (arg != 0) {
+        if (wanted < 0) { if (index != 2) { fat_native_argument(ctx, rec, arg, index); } }
+        else if (index == wanted) { fat_native_argument(ctx, rec, arg, index); }
+        index += 1; arg = arg.next;
+    }
+    return 0;
+}
+
+// A direct call to a native-word function: payloads in the argument registers,
+// result word tagged here. Its fat entry (rec.lab) stays for closures.
+fun fat_direct_native(ctx: Any, rec: Any, args: Any) -> Any {
+    fat_native_arguments(ctx, rec, args, -1);
+    fat_native_arguments(ctx, rec, args, 2);
+    if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
+    emission_reference(ctx, rec.lab);
+    fat_call_begin(ctx); call(ctx, rec.nativeLab); fat_call_end(ctx);
+    x86_mov_immediate(ctx, 2, if (rec.nativeResult == "Bool") { 1 } else { 2 });
+    return 0;
+}
+
+// A direct call to a function known at compile time with matching arity:
+// arguments in registers where the callee has an entry for that, otherwise the
+// argument-vector path (padding, extra arguments) as before.
+fun fat_call_known(ctx: Any, rec: Any, args: Any) -> Any {
+    if (not NO_OPT and fat_count(args) == rec.pc) {
+        if (rec.regWanted == true) { return fat_direct_registers(ctx, rec, args); }
+        if (rec.wordWanted == true and rec.native == true and rec.pc <= 6) { return fat_direct_native(ctx, rec, args); }
+    }
+    return fat_direct(ctx, rec, args);
+}
+
 fun fat_direct(ctx: Any, rec: Any, args: Any) -> Any {
     let count: Any = fat_count(args);
     let size: Any = if (count > rec.pc) { count } else { rec.pc };
@@ -1417,7 +1583,7 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
     if (has(FAT_MATH, name)) {
         let kernel: Any = FAT_MATH[name];
         let rec: Any = backend_find_func(ctx, addr(kernel), len(kernel));
-        if (rec != 0) { return fat_direct(ctx, rec, args); }
+        if (rec != 0) { return fat_call_known(ctx, rec, args); }
     }
     die_str("mayc: --values fat does not support `${name}` yet\n");
     return 0;
@@ -1431,7 +1597,7 @@ fun fat_call(ctx: Any, n: Any) -> Any {
         // native.may's portable join body, replaced by the runtime's (#99).
         if (name == "__join_list") { return fat_rt(ctx, "rt_join", n.args); }
         let rec: Any = backend_find_func(ctx, p, l);
-        if (rec != 0 and rec.mode != 1) { return fat_direct(ctx, rec, n.args); }
+        if (rec != 0 and rec.mode != 1) { return fat_call_known(ctx, rec, n.args); }
         return fat_builtin(ctx, symbol_name(p, l), n.args);
     }
     fat_var(ctx, n);
@@ -2419,6 +2585,12 @@ fun fat_epilogue(ctx: Any, fp: Any) -> Any {
     // Saves round up to whole 16-byte slots, keeping the stack aligned.
     store32(ctx.code.data + fp, slots + 16 * ((len(registers) + 1) / 2));
     fat_emit_deferred(ctx);
+    // The type-fault stub of a direct call to a native-word function.
+    if (FAT_WORD_FAULT != nil) {
+        placelab(ctx, FAT_WORD_FAULT);
+        call_rt0(ctx, addr("rt_word_type_fault"), len("rt_word_type_fault"));
+        FAT_WORD_FAULT = nil;
+    }
     return 0;
 }
 
@@ -2428,7 +2600,7 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
     bx_use_list(ctx, boxed);
     ctx.fatBase = fat_plan_slots(block); fat_forget(); FAT_APPLY_LOCAL = -1;
     FAT_HOME_NAMES = {}; FAT_HOME_ORDER = []; FAT_HOMES = [];
-    FAT_XMM = []; FAT_IN_BODY = false;
+    FAT_XMM = []; FAT_IN_BODY = false; FAT_WORD_FAULT = nil;
     for interval: Any in FAT_INTERVALS { push(FAT_XMM, -1); }
     ctx.envCount = 0; ctx.envCaptures = [];
     return 0;
@@ -2598,33 +2770,56 @@ fun fat_versioned(ctx: Any, rec: Any, assumed: Any) -> Bool {
 // through `Any` aliases, so its entry compares each such argument's type
 // word with the annotation and runs the generic body when one differs;
 // otherwise it falls through to the body specialized for those types.
+//
+// A function whose callers use the register convention (#132) keeps its
+// vector entry as an adapter that copies the argument vector into registers
+// and then dispatches from them, so closures and function values still work.
 fun fat_func(ctx: Any, rec: Any) -> Any {
     if (rec.foreign == true) { return fat_foreign(ctx, rec); }
     let assumed: Any = fat_assumptions(rec);
+    let registers: Bool = rec.regWanted == true;
     if (fat_versioned(ctx, rec, assumed)) {
+        let specialized: Any = newlab(ctx);
         let generic: Any = newlab(ctx);
-        placelab(ctx, rec.lab);
+        let genericRegister: Any = newlab(ctx);
+        if (registers) {
+            placelab(ctx, rec.lab);
+            fat_arguments_to_registers(ctx, rec.pc);
+            placelab(ctx, fat_register_label(ctx, rec));
+        } else { placelab(ctx, rec.lab); }
         for index: Any in 0..rec.pc {
             if (assumed[index] > 0) {
-                let displacement: Any = 8 + 16 * index;                        // type word of argument `index`
-                if (displacement < 128) { for byte: Any in [72, 131, 124, 36, displacement] { e8(ctx, byte); } } // cmp qword [rsp + d8], type
-                else { for byte: Any in [72, 131, 188, 36] { e8(ctx, byte); } e32(ctx, displacement); }       // cmp qword [rsp + d32], type
-                e8(ctx, assumed[index]);
-                jcc(ctx, 133, generic);                                       // jne
+                if (registers) { fat_cmp_immediate(ctx, FAT_ARG_PAIRS[index][0], assumed[index]); jcc(ctx, 133, genericRegister); }
+                else {
+                    let displacement: Any = 8 + 16 * index;                    // type word of argument `index`
+                    if (displacement < 128) { for byte: Any in [72, 131, 124, 36, displacement] { e8(ctx, byte); } } // cmp qword [rsp + d8], type
+                    else { for byte: Any in [72, 131, 188, 36] { e8(ctx, byte); } e32(ctx, displacement); }       // cmp qword [rsp + d32], type
+                    e8(ctx, assumed[index]);
+                    jcc(ctx, 133, generic);                                   // jne
+                }
             }
         }
+        if (registers) { jmp(ctx, specialized); placelab(ctx, genericRegister); jmp(ctx, generic); }
         FAT_LABEL_MAP = {};
-        fat_body(ctx, rec, newlab(ctx), assumed);
+        fat_body(ctx, rec, specialized, assumed, registers);
         FAT_LABEL_MAP = nil;
-        fat_body(ctx, rec, generic, []);
-    } else { fat_body(ctx, rec, rec.lab, []); }
+        fat_body(ctx, rec, generic, [], registers);
+    } else if (registers) {
+        // The vector entry stays for closures and function values; a direct
+        // call jumps straight to the register body.
+        placelab(ctx, rec.lab);
+        fat_arguments_to_registers(ctx, rec.pc);
+        fat_body(ctx, rec, fat_register_label(ctx, rec), [], true);
+    } else { fat_body(ctx, rec, rec.lab, [], false); }
     if (rec.wordCalled == true) { fat_word_adapter(ctx, rec); }
     ctx.allocation = 0;
     return 0;
 }
 
-// One body of `rec` at `label`, relying on parameter types `assumed`.
-fun fat_body(ctx: Any, rec: Any, label: Any, assumed: Any) -> Any {
+// One body of `rec` at `label`, relying on parameter types `assumed`. With
+// `registers` the parameters arrive in the direct-call register convention
+// (fat_direct_registers) instead of the argument vector.
+fun fat_body(ctx: Any, rec: Any, label: Any, assumed: Any, registers: Bool) -> Any {
     fat_begin(ctx, rec.ir, rec.boxed);
     fat_plan_types(ctx, rec.ir, rec.parr, rec.pc, false, assumed);
     fat_plan_homes(ctx, rec.ir, rec.parr, rec.pc);
@@ -2636,10 +2831,27 @@ fun fat_body(ctx: Any, rec: Any, label: Any, assumed: Any) -> Any {
     placelab(ctx, label);
     let fp: Any = fat_prologue(ctx);
     if (rec.cc > 0) { x86_store_register(ctx, 10, fat_disp(fat_local_slot(ctx, ctx.envSlot)) - 8); }
-    for i: Any in 0..rec.pc {
-        x86_load_register(ctx, 2, 0 - (16 + 16 * i)); x86_load_register(ctx, 0, 0 - (24 + 16 * i));
-        if (is_boxed(ctx, rec.parr[i].name, rec.parr[i].length) == 1) { fat_push(ctx); fat_rt_call(ctx, "rt_cell", 2); }
-        fat_store_slot(ctx, fat_local_slot(ctx, i));
+    if (registers) {
+        // Store every parameter before boxing any: rt_cell clobbers the
+        // caller-saved argument registers.
+        for i: Any in 0..rec.pc {
+            if (i == 1) { x86_move_register(ctx, 2, 7); x86_move_register(ctx, 0, 6); }
+            else if (i == 2) { x86_move_register(ctx, 2, 8); x86_move_register(ctx, 0, 9); }
+            fat_store_slot(ctx, fat_local_slot(ctx, i));
+        }
+        for i: Any in 0..rec.pc {
+            if (is_boxed(ctx, rec.parr[i].name, rec.parr[i].length) == 1) {
+                fat_load_slot(ctx, fat_local_slot(ctx, i));
+                fat_push(ctx); fat_rt_call(ctx, "rt_cell", 2);
+                fat_store_slot(ctx, fat_local_slot(ctx, i));
+            }
+        }
+    } else {
+        for i: Any in 0..rec.pc {
+            x86_load_register(ctx, 2, 0 - (16 + 16 * i)); x86_load_register(ctx, 0, 0 - (24 + 16 * i));
+            if (is_boxed(ctx, rec.parr[i].name, rec.parr[i].length) == 1) { fat_push(ctx); fat_rt_call(ctx, "rt_cell", 2); }
+            fat_store_slot(ctx, fat_local_slot(ctx, i));
+        }
     }
     ctx.returnLabel = newlab(ctx); ctx.restartLabel = newlab(ctx);
     placelab(ctx, ctx.restartLabel); fat_forget();
@@ -2651,6 +2863,8 @@ fun fat_body(ctx: Any, rec: Any, label: Any, assumed: Any) -> Any {
 
 // Top-level statements (label 1), called from _start.
 fun fat_main(ctx: Any) -> Any {
+    // Mark direct-call callees before any body is emitted.
+    fat_plan_direct_calls(ctx);
     fat_begin(ctx, ctx.mainIR, ctx.mainBoxed);
     fat_plan_global_writes(ctx);
     fat_plan_types(ctx, ctx.mainIR, [], 0, true, []);
