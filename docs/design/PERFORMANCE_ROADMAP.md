@@ -248,17 +248,19 @@ RISC-V, the core runtime, NodeOS, macOS or Windows are revived, bring phases
 The compiler is a Maylang program, so phases 1–5 speed it up as well. Track
 self-compile time and memory with `build_benchmark.py` after each phase, and
 check that new passes keep compile time within budget (report `--time`
-stage timings).
+stage timings). Done: the baseline and the method are in
+[compiler-throughput.md](../../compiler/mayc/tests/backend/compiler-throughput.md);
+the CI performance job publishes a fresh report.
 
 ## Progress
 
 | Phase | State |
 | --- | --- |
-| 0 Measurement | tracked suite, `--no-opt` and oracle test done; GC statistics and the CI job open |
-| 1 Runtime algorithms | #97, #99 done; runtime audit open |
-| 2 Object layout | #98 done (field caches); slot layout open |
-| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning and top-level main locals done; native regions and main-as-native open |
-| 4 IR optimizer | not started |
-| 5 Allocation and collection | not started |
+| 0 Measurement | tracked suite, `--no-opt`, oracle test and the CI report job done; GC statistics done |
+| 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
+| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); struct slots, enum payloads and closure environments open |
+| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals and inline `len` done; inline `push`/string equality, native regions, native Float functions, direct calls and main-as-native open |
+| 4 IR optimizer | not started (tracked separately) |
+| 5 Allocation and collection | inline allocation, free-list return-to-OS and precise stack maps open (tracked separately) |
 | 6 Other targets | deferred (frozen) |
-| 7 Compiler throughput | not started |
+| 7 Compiler throughput | baseline recorded ([report](../../compiler/mayc/tests/backend/compiler-throughput.md)); re-measure per phase |
