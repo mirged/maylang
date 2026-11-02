@@ -1,0 +1,23 @@
+struct Node { left: Any, right: Any }
+
+fun make(depth: Int) -> Node {
+    if (depth == 0) { return Node(nil, nil); }
+    return Node(make(depth - 1), make(depth - 1));
+}
+
+fun check(node: Any) -> Int {
+    if (node.left == nil) { return 1; }
+    return 1 + check(node.left) + check(node.right);
+}
+
+let max_depth: Int = 16;
+let long_lived: Node = make(max_depth);
+mut total: Int = 0;
+mut depth: Int = 4;
+while (depth <= max_depth) {
+    let iterations: Int = 1 << (max_depth - depth + 4);
+    mut i: Int = 0;
+    while (i < iterations) { total += check(make(depth)); i += 1; }
+    depth += 2;
+}
+print(total, check(long_lived));

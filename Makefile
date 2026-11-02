@@ -5,7 +5,7 @@ INSTALL_ARGS ?=
 INSTALLER_OUTPUT ?= build/installer
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor setup install build tools check test test-rust test-compiler test-bootstrap test-compliance test-tools test-docs test-distribution test-installer test-ui test-sanitize test-limits test-all package editor test-editor
+.PHONY: help doctor setup install build tools check test test-rust test-compiler test-bootstrap test-compliance test-tools test-docs test-distribution test-installer test-ui test-sanitize test-limits bench-xlang test-all package editor test-editor
 
 help:
 	@echo 'Maylang development (Linux x86-64)'
@@ -21,6 +21,7 @@ help:
 	@echo '  make test-ui            UI checks, including X11 when available'
 	@echo '  make test-sanitize      Native UI adapter on malformed input under ASan/UBSan'
 	@echo '  make test-limits        GC pressure/capacity checks and codegen reports'
+	@echo '  make bench-xlang        Cross-language benchmark suite (slow; not a gate)'
 	@echo '  make test-all           All local suites (optional dependencies required)'
 	@echo '  make package            Build a bundle and standalone C/shell installers'
 	@echo '  make editor             Install locked npm dependencies and compile the extension'
@@ -92,6 +93,10 @@ test-sanitize:
 test-limits:
 	$(PYTHON) compiler/mayc/tests/test_limits.py
 	$(PYTHON) compiler/mayc/tests/limits.py --compiler "$(MAYC)" --self-test
+
+# Cross-language suite from the performance roadmap (#101). Not a CI gate.
+bench-xlang:
+	$(PYTHON) compiler/mayc/tests/backend/xlang.py --compiler "$(MAYC)"
 
 test-all: test test-bootstrap test-tools test-ui test-sanitize
 
