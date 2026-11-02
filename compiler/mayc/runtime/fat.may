@@ -76,11 +76,14 @@ fun rt_handler_limit() -> Any {
 // ---- mark-sweep collector -------------------------------------------------
 // Every block carries a 16-byte header: [size|mark][magic]. Stacks, registers
 // and word blocks are scanned conservatively; value blocks only trace
-// payloads whose type word is a heap type (4 through 8).
+// payloads whose type word is a heap type (4 through 8). Record blocks have a
+// 48-byte map header followed by values: the header is scanned conservatively
+// and the entries as values (see rt_struct_new).
 
 fun rt_alloc(n: Any) -> Any { return rt_alloc_kind(n, 1); }
 fun rt_alloc_bytes(n: Any) -> Any { return rt_alloc_kind(n, 2); }
 fun rt_alloc_values(n: Any) -> Any { return rt_alloc_kind(n * 16, 3); }
+fun rt_alloc_record(n: Any) -> Any { return rt_alloc_kind(48 + n * 32, 4); }
 
 fun rt_zero(p: Any, n: Any) -> Any {
     mut i: Any = 0;
@@ -728,6 +731,35 @@ fun rt_map_new_sized(t: Any, n: Any) -> Any {
     return p;
 }
 
+// A record (a struct or an enum variant) is one allocation: a 48-byte map
+// header followed by `n` 32-byte entries. The eight bytes after the 40-byte
+// map header are padding, because the collector scans a values part on a
+// 16-byte grid from the payload; entries therefore start at p + 48. The
+// entries pointer points inside the block, the hash table stays empty, and
+// the constructor fills the slots by index through rt_struct_set, so building
+// a record hashes nothing and allocates once (#134). A record that later
+// grows through a dynamic field write moves its entries out of the block and
+// behaves exactly like any other map.
+fun rt_struct_new(t: Any, n: Any) -> Any {
+    let p: Any = rt_alloc_record(n);
+    store64(p, n);
+    store64(p + 8, n * 2);
+    store64(p + 16, p + 48);
+    RTAG = 6;
+    return p;
+}
+
+// Write entry `i` of a record that rt_struct_new allocated. The count is
+// already `n`, so the entries pointer (`m + 48`) tells a fixed record from a
+// map whose entries live elsewhere; anything else takes the map path.
+fun rt_struct_set(mt: Any, m: Any, it: Any, i: Any, kt: Any, k: Any, t: Any, v: Any) -> Any {
+    RTAG = t;
+    if (mt != 6 or load64(m + 16) != m + 48 or i < 0 or i >= load64(m)) { rt_map_put(m, kt, k, t, v); return v; }
+    let e: Any = m + 48 + i * 32;
+    store64(e, kt); store64(e + 8, k); store64(e + 16, t); store64(e + 24, v);
+    return v;
+}
+
 // Map hashing (#97). Every key type is hashed consistently with rt_same.
 // Ints, Bools and strings keep nearby keys in nearby slots, which keeps
 // sequential workloads in cache: an Int folds its high words into its low
@@ -843,10 +875,14 @@ fun rt_map_put(m: Any, kt: Any, k: Any, t: Any, v: Any) -> Any {
     if (n >= cap) {
         mut nc: Any = cap * 2;
         if (nc < 4) { nc = 4; }
+        let old: Any = load64(m + 16);
         let nd: Any = rt_alloc_values(nc * 2);
-        rt_copy(nd, load64(m + 16), n * 32);
+        rt_copy(nd, old, n * 32);
         store64(m + 16, nd);
         store64(m + 8, nc * 2);
+        // A record's entries lived in its own block; clear the stale copies
+        // so the collector does not trace values that moved out.
+        if (old == m + 48) { rt_zero(old, n * 32); }
     }
     let d: Any = load64(m + 16);
     store64(d + n * 32, kt); store64(d + n * 32 + 8, k);

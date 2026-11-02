@@ -30,7 +30,7 @@ fun stress_heap_check() -> Any {
     while (pointer < HP) {
         let size: Any = load64(pointer);
         stress_assert(size >= 16 and size % 8 == 0 and pointer + size <= HP, 20);
-        // Allocation starts record their kind: 1 words, 2 bytes, 3 values.
+        // Allocation starts record their kind: 1 words, 2 bytes, 3 values, 4 records.
         let live: Any = load8(GCSTARTS + (pointer - HEAP) / 8);
         if (live != 0) {
             stress_assert(load64(pointer + 8) == 5124095576638253, 21);

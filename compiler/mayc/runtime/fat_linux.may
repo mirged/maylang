@@ -10,7 +10,8 @@ mut HEAPEND: Any = 0;
 mut HEAPDIRTY: Any = 0;
 mut HEAPLIMIT: Any = 0;
 // One byte per heap word: 0 not an allocation start, 1 words (scanned
-// conservatively), 2 bytes (never scanned), 3 values (precise).
+// conservatively), 2 bytes (never scanned), 3 values (precise), 4 records
+// (a 48-byte map header scanned as words, then values from p + 48).
 mut GCSTARTS: Any = 0;
 mut FREELIST: Any = 0;
 mut FREEBINS: Any = 0;
@@ -173,7 +174,13 @@ fun rt_gc() -> Any {
         let hdr: Any = load64(p - 16);
         let end: Any = p + hdr - (hdr % 2) - 16;
         mut a: Any = p;
-        if (kind == 3) {
+        if (kind == 3 or kind == 4) {
+            // A record's first 48 bytes are a map header (count, capacity,
+            // the in-block entries pointer, the hash table pointer and its
+            // capacity): scan them as words so a record whose entries moved
+            // out on growth keeps them and its hash table. The entries
+            // themselves start on the payload's 16-byte grid at p + 48.
+            if (kind == 4) { rt_scan_range(p, p + 48); a = p + 48; }
             while (a + 16 <= end) {
                 let t: Any = load64(a);
                 // Heap types are traced; an Int may be a Ptr from cstr or addr
