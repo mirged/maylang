@@ -1,0 +1,10 @@
+// Sum an Int list through `while (i < len(xs)) { xs[i] ... }`: the guard proves
+// the index in range every iteration, so a check-eliminating pass could drop
+// the load's bounds check. Used to size the prize.
+let xs: List<Int> = [];
+mut i: Int = 0;
+while (i < 1000000) { push(xs, i); i += 1; }
+mut total: Int = 0;
+i = 0;
+while (i < len(xs)) { total += xs[i]; i += 1; }
+print(total, len(xs));
