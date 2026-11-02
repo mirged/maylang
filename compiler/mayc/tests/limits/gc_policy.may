@@ -1,0 +1,30 @@
+// Raw runtime test: MAYC_GC_MIN and MAYC_GC_MARGIN replace the collection
+// floor and margin. A small floor/margin must collect more often and keep the
+// heap invariants, and the default policy must be unchanged.
+fun limits_policy() -> Any {
+    STACKTOP = __sp(); rt_init();
+    let keeper_root: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let keeper: Any = rt_alloc(64);
+    store64(keeper, 1);
+    store64(keeper_root, keeper);
+    rt_gc_root(keeper_root);
+    // Enough garbage for at least a few collections in a 4 MiB test heap, but
+    // bounded so the run stays inside that heap's reservation.
+    mut count: Any = LIMIT_ROUNDS * 16;
+    if (count < 1024) { count = 1024; }
+    if (count > 2048) { count = 2048; }
+    mut i: Any = 0;
+    while (i < count) {
+        let node: Any = rt_alloc(4096);
+        store64(node, i);
+        store64(node + 8, 5124095576638253);
+        i += 1;
+    }
+    stress_heap_check();
+    limits_metric("collections", GCCOUNT);
+    limits_metric("allocated_bytes", count * 4096);
+    limits_report();
+    rt_write(addr("PASS policy\n"), 12);
+    return 0;
+}
+limits_policy();

@@ -68,6 +68,15 @@ fun rt_init() -> Any {
     GCMARGIN = sz / 16;
     if (GCMARGIN < 262144) { GCMARGIN = 262144; }
     if (GCMARGIN > 8388608) { GCMARGIN = 8388608; }
+    // Experimental tuning (`MAYC_GC_MIN`, `MAYC_GC_MARGIN`, in bytes): a valid
+    // value replaces the floor or margin derived from the nominal heap, so peak
+    // memory can be traded against collection count. The accepted range is
+    // [65536, reserve / 2]; anything else keeps the default, so a typo cannot
+    // disable collection, and with both unset the policy is exactly as before.
+    let min_override: Any = rt_env_num(addr("MAYC_GC_MIN"), 11);
+    if (min_override >= 65536 and min_override <= reserve / 2) { GCMIN = min_override; }
+    let margin_override: Any = rt_env_num(addr("MAYC_GC_MARGIN"), 14);
+    if (margin_override >= 65536 and margin_override <= reserve / 2) { GCMARGIN = margin_override; }
     HEAPEND = HEAP + GCMIN;
     HP = HEAP;
     HEAPDIRTY = HEAP;
@@ -366,28 +375,54 @@ fun rt_write(p: Any, n: Any) -> Any {
 }
 
 // ---- collection statistics -------------------------------------------------
-// `MAYC_GC_STATS=1` is read once from /proc/self/environ: --raw programs set
+// The decimal value of the environment variable `name` (of `namelen` bytes),
+// or -1 when it is absent or not a plain decimal number of at most 15 digits.
+// The environment is read once from /proc/self/environ: --raw programs set
 // STACKTOP to their own frame, so the initial environment vector is not
-// available there. The probe maps a page of its own and never touches the heap.
-fun rt_gc_stats_flag() -> Any {
+// available there. The probe maps its own page and never touches the heap, so
+// it may run while rt_init is still setting the heap up.
+fun rt_env_num(name: Any, namelen: Any) -> Any {
     let fd: Any = syscall(2, addr("/proc/self/environ"), 0, 0);
-    if (fd < 0) { return 0; }
+    if (fd < 0) { return 0 - 1; }
     let b: Any = syscall(9, 0, 8192, 3, 34, 0 - 1, 0);
-    if (b < 0) { syscall(3, fd); return 0; }
+    if (b < 0) { syscall(3, fd); return 0 - 1; }
     let n: Any = syscall(0, fd, b, 8192);
     syscall(3, fd);
-    mut found: Any = 0;
+    mut result: Any = 0 - 1;
     mut i: Any = 0;
-    while (found == 0 and i < n) {
+    while (result < 0 and i < n) {
         let start: Any = i;
         while (i < n and load8(b + i) != 0) { i += 1; }
-        // "MAYC_GC_STATS=1" as four words; any other value leaves it off.
-        if (i - start == 15 and load32(b + start) == 1129922893 and load32(b + start + 4) == 1598244703
-            and load32(b + start + 8) == 1413567571 and load32(b + start + 12) == 3226963) { found = 1; }
+        let entry: Any = i - start;
+        // `name` followed by '=' and then only digits up to the NUL.
+        if (entry > namelen + 1 and load8(b + start + namelen) == 61) {
+            mut same: Any = 1;
+            mut k: Any = 0;
+            while (same == 1 and k < namelen) {
+                if (load8(b + start + k) != load8(name + k)) { same = 0; }
+                k += 1;
+            }
+            if (same == 1) {
+                mut value: Any = 0;
+                mut digits: Any = 0;
+                mut j: Any = start + namelen + 1;
+                while (j < i and load8(b + j) >= 48 and load8(b + j) <= 57) {
+                    value = value * 10 + load8(b + j) - 48;
+                    j += 1;
+                    digits += 1;
+                }
+                if (digits > 0 and digits <= 15 and j == i) { result = value; }
+            }
+        }
         i += 1;
     }
     syscall(11, b, 8192);
-    return found;
+    return result;
+}
+// `MAYC_GC_STATS=1` turns the statistics counters on.
+fun rt_gc_stats_flag() -> Any {
+    if (rt_env_num(addr("MAYC_GC_STATS"), 13) == 1) { return 1; }
+    return 0;
 }
 // Monotonic nanoseconds for pause accounting (CLOCK_MONOTONIC, no allocation).
 fun rt_gc_now() -> Any {

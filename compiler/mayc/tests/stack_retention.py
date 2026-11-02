@@ -212,6 +212,16 @@ WORKLOADS = {
 }
 
 
+def probe_environment(overrides):
+    """The child environment: inherited minus the GC tuning variables, plus the
+    requested overrides, so a shell setting cannot leak into a measurement."""
+    import os
+    environment = {name: value for name, value in os.environ.items()
+                   if not name.startswith('MAYC_GC_')}
+    environment.update(overrides)
+    return environment
+
+
 def instrument_runtime(runtime, heap_mib):
     host = (runtime / 'fat_linux.may').read_text()
     if host.count(SZ_ANCHOR) != 1:
@@ -223,7 +233,7 @@ def instrument_runtime(runtime, heap_mib):
     return host + '\n' + METER
 
 
-def run_rusage(command, output, timeout=300):
+def run_rusage(command, output, environment, timeout=300):
     """Run command, capture stdout to output, return (status, peak RSS KiB,
     elapsed, user, system) seconds."""
     import os
@@ -236,7 +246,7 @@ def run_rusage(command, output, timeout=300):
             os.dup2(fd, 1)
         except OSError:
             os._exit(127)
-        os.execv(command[0], command)
+        os.execve(command[0], command, environment)
         os._exit(127)
     _pid, status, usage = os.wait4(pid, 0)
     elapsed = time.perf_counter() - started
@@ -257,13 +267,13 @@ def parse_sweeps(text):
     return rows
 
 
-def build_and_run(compiler, source_text, name, heap_mib, extra, workdir):
+def build_and_run(compiler, source_text, name, heap_mib, extra, workdir, environment):
     runtime = ROOT / 'compiler/mayc/runtime'
     directory = workdir / f'{name}-{heap_mib}'
-    directory.mkdir(parents=True)
+    directory.mkdir(parents=True, exist_ok=True)
     binary = directory / 'mayc'
     shutil.copy2(compiler, binary)
-    shutil.copytree(runtime, directory / 'runtime')
+    shutil.copytree(runtime, directory / 'runtime', dirs_exist_ok=True)
     shutil.copy2(ROOT / 'compiler/mayc/native.may', directory / 'native.may')
     shutil.copy2(ROOT / 'stdlib/prelude.may', directory / 'prelude.may')
     (directory / 'runtime/fat_linux.may').write_text(instrument_runtime(runtime, heap_mib))
@@ -275,7 +285,7 @@ def build_and_run(compiler, source_text, name, heap_mib, extra, workdir):
         raise SystemExit(f'{name} heap {heap_mib} MiB: compile failed\n' +
                          (built.stdout + built.stderr).decode(errors='replace'))
     status, rss, elapsed, user, system = run_rusage([str(directory / 'probe')],
-                                                    directory / 'stdout.txt')
+                                                    directory / 'stdout.txt', environment)
     if status != 0:
         raise SystemExit(f'{name} heap {heap_mib} MiB: run exited {status}')
     sweeps = parse_sweeps((directory / 'stdout.txt').read_text())
@@ -372,6 +382,57 @@ def inventory(binary):
     }
     return result
 
+
+def compare_workload(compiler, bench, options, workdir, base_environment, tuned_environment):
+    """Run one xlang workload alternating base and tuned environments on the
+    same binary, so time and RSS differences are not confounded by machine
+    load. Reports medians and the per-run samples."""
+    source = ROOT / 'compiler/mayc/tests/backend/xlang/may' / f'{bench}.may'
+    rows, usage = build_and_run(compiler, source.read_text(), 'xlang-compare-' + bench,
+                                options.xlang_heap_mib, [], workdir, base_environment)
+    directory = workdir / f'xlang-compare-{bench}-{options.xlang_heap_mib}'
+    samples = {'base': [], 'tuned': []}
+    outputs = {}
+    for index in range(options.runs):
+        order = ('base', 'tuned') if index % 2 == 0 else ('tuned', 'base')
+        for which in order:
+            environment = base_environment if which == 'base' else tuned_environment
+            status, rss, elapsed, user, system = run_rusage(
+                [str(directory / 'probe')], directory / f'run-{which}-{index}.txt', environment)
+            if status != 0:
+                raise SystemExit(f'{bench} {which}: run exited {status}')
+            text = (directory / f'run-{which}-{index}.txt').read_bytes()
+            # The meter's own RET lines are diagnostics, not program output.
+            clean = b'\n'.join(line for line in text.splitlines()
+                                if not line.startswith(b'RET '))
+            outputs.setdefault(which, clean)
+            if outputs[which] != clean:
+                raise SystemExit(f'{bench} {which}: output changed between runs')
+            sweeps = parse_sweeps(text.decode(errors='replace'))
+            samples[which].append({'elapsed_s': round(elapsed, 3), 'peak_rss_kib': rss,
+                                   'collections': len(sweeps),
+                                   'live_max': max((row['live'] for row in sweeps), default=0)})
+    if outputs['base'] != outputs['tuned']:
+        raise SystemExit(f'{bench}: the policy changed the program output')
+    report = {'workload': bench, 'nominal_heap_mib': options.xlang_heap_mib,
+              'compiler': str(compiler), 'runs': options.runs,
+              'overrides': {name: value for name, value in tuned_environment.items()
+                            if name.startswith('MAYC_GC_')}}
+    for which in ('base', 'tuned'):
+        elapsed = [sample['elapsed_s'] for sample in samples[which]]
+        rss = [sample['peak_rss_kib'] for sample in samples[which]]
+        report[which] = {'samples': samples[which],
+                         'median_elapsed_s': round(sorted(elapsed)[len(elapsed) // 2], 3),
+                         'min_elapsed_s': min(elapsed),
+                         'peak_rss_kib': max(rss),
+                         'collections': max(sample['collections'] for sample in samples[which])}
+    report['elapsed_ratio'] = round(report['tuned']['median_elapsed_s'] /
+                                    report['base']['median_elapsed_s'], 3)
+    report['rss_ratio'] = round(report['tuned']['peak_rss_kib'] /
+                                report['base']['peak_rss_kib'], 3)
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--compiler', type=Path, default=ROOT / 'compiler/mayc/mayc_new')
@@ -383,13 +444,30 @@ def main():
     parser.add_argument('--json', default=None)
     parser.add_argument('--inventory', type=Path, nargs='+', default=[],
                         help='measure stack-map metadata for existing binaries')
+    parser.add_argument('--env', action='append', default=[], metavar='NAME=VALUE',
+                        help='environment override for the measured programs (repeatable)')
+    parser.add_argument('--xlang', action='store_true',
+                        help='run the eight roadmap workloads with the instrumented runtime')
+    parser.add_argument('--compare', action='store_true',
+                        help='with --xlang, interleave the base environment and the --env overrides')
+    parser.add_argument('--xlang-heap-mib', type=int, default=256,
+                        help='nominal heap for --xlang (default 256, as in production)')
+    parser.add_argument('--runs', type=int, default=1,
+                        help='samples per workload for --xlang (default 1)')
     options = parser.parse_args()
     if options.modes is None:
         # The large-tree probes need a heap of at least 64 MiB to collect more
         # than once; keep the defaults to the probes that fit the default heaps.
-        options.modes = [] if (options.inventory or options.workload) else [
+        options.modes = [] if (options.inventory or options.workload or options.xlang) else [
             'records', 'maps', 'lists', 'tree6']
     compiler = compiler_binary(options.compiler)
+    overrides = {}
+    for entry in options.env:
+        name, separator, value = entry.partition('=')
+        if separator != '=' or not name:
+            raise SystemExit(f'--env expects NAME=VALUE, got {entry!r}')
+        overrides[name] = value
+    environment = probe_environment(overrides)
     report = {'compiler': str(compiler), 'probes': [], 'workloads': [], 'inventory': []}
     for binary in options.inventory:
         row = inventory(binary)
@@ -407,7 +485,7 @@ def main():
                 total = options.iterations or 8 * heap_mib * 1024 ** 2
                 iters = max(200, total // GARBAGE[name])
                 rows, usage = build_and_run(compiler, source.replace('__ITERS__', str(iters)),
-                                            name, heap_mib, extra, workdir)
+                                            name, heap_mib, extra, workdir, environment)
                 rss = usage['peak_rss_kb']
                 row = {'probe': name, 'heap_mib': heap_mib, 'iterations': iters,
                        **usage, **retention(rows, kept, transient)}
@@ -426,7 +504,7 @@ def main():
                     raise SystemExit(f'{name}: transform anchor changed: {old!r}')
                 text = text.replace(old, new)
             for heap_mib in options.heaps:
-                rows, usage = build_and_run(compiler, text, name, heap_mib, [], workdir)
+                rows, usage = build_and_run(compiler, text, name, heap_mib, [], workdir, environment)
                 rss = usage['peak_rss_kb']
                 row = {'workload': name, 'heap_mib': heap_mib, **usage,
                        'sweeps': rows, **retention(rows, spec['kept'], spec['transient'])}
@@ -437,6 +515,50 @@ def main():
                       f"retained lower {row['retained_lower_max'] / 1048576:6.2f} MiB  "
                       f"extent max {row['extent_max'] / 1048576:6.2f} MiB  "
                       f"peak {rss / 1024:7.1f} MiB  {row['elapsed_s']:.2f}s", flush=True)
+    if options.xlang:
+        base_environment = probe_environment({})
+        for bench in ['fib', 'collatz', 'sieve', 'hashmap', 'strings', 'mandelbrot', 'nbody', 'trees']:
+            if options.compare:
+                row = compare_workload(compiler, bench, options, workdir,
+                                       base_environment, environment)
+                report.setdefault('xlang', []).append(row)
+                print(f"xlang {bench:11s} base {row['base']['median_elapsed_s']:7.3f}s / "
+                      f"tuned {row['tuned']['median_elapsed_s']:7.3f}s  "
+                      f"peak {row['base']['peak_rss_kib'] / 1024:7.1f} -> "
+                      f"{row['tuned']['peak_rss_kib'] / 1024:7.1f} MiB  "
+                      f"collections {row['base']['collections']} -> {row['tuned']['collections']}", flush=True)
+                continue
+            source = ROOT / 'compiler/mayc/tests/backend/xlang/may' / f'{bench}.may'
+            samples = []
+            output = None
+            for _ in range(options.runs):
+                rows, usage = build_and_run(compiler, source.read_text(), 'xlang-' + bench,
+                                            options.xlang_heap_mib, [], workdir, environment)
+                with open(workdir / f'xlang-{bench}-{options.xlang_heap_mib}' / 'stdout.txt', 'rb') as handle:
+                    text = handle.read()
+                if output is None:
+                    output = text
+                elif text != output:
+                    raise SystemExit(f'{bench}: output changed between runs')
+                samples.append({'usage': usage, 'last_sweep': rows[-1] if rows else None,
+                                'collections': len(rows),
+                                'live_max': max((row['live'] for row in rows), default=0),
+                                'extent_max': max((row['extent'] for row in rows), default=0),
+                                'threshold_max': max((row['threshold'] for row in rows), default=0)})
+            elapsed = [sample['usage']['elapsed_s'] for sample in samples]
+            rss = [sample['usage']['peak_rss_kb'] for sample in samples]
+            collections = [sample['collections'] for sample in samples]
+            row = {'workload': bench, 'nominal_heap_mib': options.xlang_heap_mib,
+                   'samples': samples,
+                   'median_elapsed_s': round(sorted(elapsed)[len(elapsed) // 2], 3),
+                   'min_elapsed_s': min(elapsed),
+                   'peak_rss_kib': max(rss),
+                   'collections': max(collections)}
+            report.setdefault('xlang', []).append(row)
+            print(f"xlang {bench:11s} collections {row['collections']:4d}  "
+                  f"time median {row['median_elapsed_s']:7.3f}s  "
+                  f"peak RSS {row['peak_rss_kib'] / 1024:7.1f} MiB  "
+                  f"live max {row['samples'][0]['live_max'] / 1048576:6.2f} MiB", flush=True)
     if options.json:
         Path(options.json).write_text(json.dumps(report, indent=2) + '\n')
         print(f'wrote {options.json}')

@@ -483,6 +483,72 @@ def run_gc(args, report, compiler):
             detail = '' if live is None else f', live {live / 1024**2:.2f} MiB'
             print(f'PASS {case} heap={heap} MiB seed={seed}: {row["category"]}, {metrics.get("collections", 0)} collections{detail}', flush=True)
             write_report(args, report)
+        if heap == args.heap_mib[0] and (not args.gc_case or 'gc_policy' in args.gc_case):
+            run_gc_policy(args, report, compiler, home, heap)
+            write_report(args, report)
+
+
+
+def run_gc_policy(args, report, compiler, home, heap):
+    """MAYC_GC_MIN/MAYC_GC_MARGIN: defaults unchanged, a tuned policy collects
+    more often with a lower threshold, invalid values are ignored."""
+    directory = home / f'heap-{heap}' / 'gc_policy'
+    directory.mkdir(parents=True, exist_ok=True)
+    runtime = instrument_runtime(heap)
+    selected = snapshot(compiler, directory / 'toolchain', runtime)
+    constants = f'let LIMIT_ROUNDS: Any = {args.rounds}; let LIMIT_SEED: Any = {args.seed}; let LIMIT_MARK_SLOTS: Any = {args.mark_slots};\n'
+    body = (HERE / 'gc_policy.may').read_text()
+    source = directory / 'gc_policy.may'
+    source.write_text(raw_runtime(runtime) + RAW_MATH_STUBS + INVARIANTS + constants + body)
+    compile_result = execute([selected, '--raw', '--legacy', source, '-o', directory / 'program'],
+                             directory, 'compile', args, timeout=args.compile_timeout)
+    if compile_result['exit'] != 0:
+        raise ValueError(f'GC policy compile failed: {compile_result["stderr"]}')
+    base_env = {name: value for name, value in os.environ.items()
+                if name not in ('MAYC_GC_MIN', 'MAYC_GC_MARGIN', 'MAYC_GC_STATS')}
+    variants = [
+        ('default', {}),
+        ('tuned', {'MAYC_GC_MIN': str(256 * 1024), 'MAYC_GC_MARGIN': str(64 * 1024)}),
+        ('invalid', {'MAYC_GC_MIN': 'abc', 'MAYC_GC_MARGIN': '0'}),
+        ('ignored-too-large', {'MAYC_GC_MIN': '999999999999999', 'MAYC_GC_MARGIN': '999999999999999'}),
+    ]
+    rows = {}
+    for name, overrides in variants:
+        environment = dict(base_env)
+        environment.update(overrides)
+        result = execute([directory / 'program', args.rounds, args.seed], directory,
+                         f'run-{name}', args, environment=environment)
+        text = output(result)
+        metrics = {key: int(value) for key, value in re.findall(r'^LIMIT (\w+) (-?\d+)$', text, re.M)}
+        plain = without_gc_stats(text)
+        row = {'case': 'gc_policy', 'heap_mib': heap, 'seed': args.seed, 'rounds': args.rounds,
+               'variant': name, 'overrides': overrides, 'run': result, 'metrics': metrics,
+               'passed': False}
+        passed = (result['category'] == 'exited' and result['exit'] == 0
+                  and not Path(result['stderr']).stat().st_size and plain.endswith('PASS policy\n')
+                  and metrics.get('collections', 0) > 0 and metrics.get('heap_bytes', 0) > 0)
+        row['passed'] = bool(passed)
+        rows[name] = row
+        report['gc'].append(row)
+    baseline = rows['default']['metrics'].get('collections', 0)
+    baseline_threshold = rows['default']['metrics'].get('heap_bytes', 0)
+    tuned = rows['tuned']['metrics']
+    if not all(row['passed'] for row in rows.values()):
+        raise ValueError('GC policy: a variant failed; see the report artifacts')
+    if tuned.get('collections', 0) <= baseline:
+        raise ValueError(f'GC policy: tuned floor/margin did not collect more often '
+                         f'({tuned.get("collections")} <= {baseline})')
+    if not tuned.get('heap_bytes', 1) < baseline_threshold:
+        raise ValueError(f'GC policy: tuned threshold is not lower '
+                         f'({tuned.get("heap_bytes")} >= {baseline_threshold})')
+    for name in ('invalid', 'ignored-too-large'):
+        if rows[name]['metrics'].get('collections') != baseline:
+            raise ValueError(f'GC policy: {name} values changed the default policy '
+                             f'({rows[name]["metrics"].get("collections")} != {baseline})')
+    report['passed'] += 1
+    print(f'PASS gc_policy heap={heap} MiB: default {baseline} collections, '
+          f'tuned {tuned.get("collections")} collections, threshold {baseline_threshold} -> '
+          f'{tuned.get("heap_bytes")}, invalid values ignored', flush=True)
 
 
 def write_report(args, report):
@@ -525,7 +591,7 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT / 'compiler/mayc/build/limits' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
     parser.add_argument('--backend', choices=['native'], nargs='+', default=['native'])
     parser.add_argument('--case', choices=['arithmetic', 'branches', 'calls', 'pressure', 'collections', 'contracts', 'graph'], action='append')
-    parser.add_argument('--gc-case', choices=['gc_churn', 'gc_fragmentation', 'gc_capacity', 'gc_objects', 'gc_mark_capacity', 'gc_root_capacity', 'injected_corruption'], action='append')
+    parser.add_argument('--gc-case', choices=['gc_churn', 'gc_fragmentation', 'gc_capacity', 'gc_objects', 'gc_mark_capacity', 'gc_root_capacity', 'injected_corruption', 'gc_policy'], action='append')
     parser.add_argument('--samples', type=int, default=5)
     parser.add_argument('--iterations', type=int, default=200000)
     parser.add_argument('--pressure', type=int, default=16)
