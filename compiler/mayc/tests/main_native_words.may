@@ -1,0 +1,51 @@
+// Native main, word-only (#132). Every top-level value here is an Int or Bool
+// machine word, so the top-level body compiles to native-word code; the only
+// dynamic boundary is `print`, which boxes its arguments. No string literal or
+// other dynamic value appears, which is what lets the scan take the native
+// path. The expected output was produced by the compiler before main had a
+// native path and equals the --no-opt (tagged main) output; backends.py
+// compiles a small word-only main both ways and asserts the images differ and
+// that the native path's print boxing is present.
+
+fun step(x: Int) -> Int { return x * 3 + 1; }
+fun blend(a: Int, b: Int) -> Int { return a * b - 1; }
+
+mut steps: Int = 0;
+mut seed: Int = 1;
+while (seed <= 3000) {
+    mut n: Int = seed;
+    while (n > 1) {
+        if (n % 2 == 0) { n = n / 2; } else { n = step(n); }
+        steps += 1;
+    }
+    seed += 1;
+}
+print(steps);
+
+mut total: Int = 0;
+for i: Int in 0..10 { total += i; }
+for j: Int in 0..=5 { total += j; }
+print(total);
+
+mut k: Int = 0;
+mut evens: Int = 0;
+let small: Bool = total < 1000;
+while (k < 20) {
+    k += 1;
+    if (k % 2 == 0) { evens += 1; }
+    if (k == 13) { continue; }
+    if (k == 18) { break; }
+    total += k;
+}
+print(total, evens, small, !small, small and evens > 5, small or k > 100);
+
+print(7 / 3, -7 / 3, 7 % 3, -7 % 3);
+print(total << 2, total >> 1, total & 255, total | 4096, total ^ 12345);
+print(-total, ~total);
+
+print(step(10), blend(6, 7), blend(step(2), step(blend(2, 3))));
+print(total > 200, total == 200, total <= 200, steps != total);
+
+mut big: Int = 0;
+big += steps;
+print(big, big > 100000, big == steps);

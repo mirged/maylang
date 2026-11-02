@@ -6,6 +6,7 @@ frozen/compiler/mayc/tests/backends.py.
 """
 import argparse
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
@@ -157,6 +158,32 @@ def main():
         assert tag_slot not in listings['no-opt'] and payload_slot2 not in listings['no-opt'], \
             'enum match payload slots are read by offset under --no-opt'
         print('PASS enum match payloads load from their fixed slot only when optimized', flush=True)
+        # Native main (#132): a top-level body whose values are all machine
+        # words compiles as native code, and `print` boxes each argument by
+        # pushing its fat type word as an immediate. --no-opt keeps the tagged
+        # main, so the boxing sequence and the image must differ.
+        native_main = work / 'main-native.may'
+        native_main.write_text('mut i: Int = 0;\nmut acc: Int = 0;\n'
+                               'while (i < 10) { acc += i * 3; i += 1; }\n'
+                               'print(acc);\nprint(acc > 100);\n')
+        images = {}
+        listings = {}
+        for label, options in [('optimized', ()), ('no-opt', ('--no-opt',))]:
+            binary = work / f'main-native-{label}'
+            images[label] = compile_source(compiler, native_main, binary, *options)
+            run = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            assert run.returncode == 0 and run.stdout == b'135\ntrue\n', run
+            disassembly = subprocess.check_output(
+                ['objdump', '-d', '-Mintel', '--no-show-raw-insn', str(binary)], text=True)
+            body = re.sub(r'^\s*[0-9a-f]+:\s*', '', disassembly, flags=re.M)
+            listings[label] = ' '.join(body.split())
+        assert images['optimized'] != images['no-opt'], \
+            'the native main produced the same image as the tagged main'
+        assert 'push 0x2 push rax' in listings['optimized'] and 'push 0x1 push rax' in listings['optimized'], \
+            'the optimized build does not box print arguments from a native main'
+        assert 'push 0x2 push rax' not in listings['no-opt'] and 'push 0x1 push rax' not in listings['no-opt'], \
+            'the tagged main boxes print arguments with an immediate type word'
+        print('PASS native main boxes word arguments and differs from --no-opt', flush=True)
         for args, message in [(['--target', 'bogus'], b'unknown target'),
                               (['--target'], b'requires a target name'),
                               (['--target', 'arm64-linux'], b'target arm64-linux is frozen'),

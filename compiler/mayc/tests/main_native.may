@@ -1,9 +1,10 @@
-// Native main (#132). Top-level statements compile to native-word code when
-// every binding they use was demoted to a main local (#101) and every value
-// and operation is a machine word. The tagged main remains the general
-// fallback (strings, lists, maps, structs, closures, Float, handlers and
-// globals keep it), and --no-opt keeps it as well. Words are the fat Int, Bool
-// and Ptr payloads themselves; only `print` boxes them for the runtime.
+// Main's tagged fallback (#132). This fixture deliberately does NOT take the
+// native main path: its string-literal prints are a dynamic boundary, so the
+// scan leaves main tagged. That is the point: it pins the tagged main's
+// behavior (including a word-compatible tagged callee reached through its word
+// adapter) against the compiler before the native path existed, and against
+// --no-opt. tests/main_native_words.may is the companion that does take the
+// native path, and backends.py asserts that path is really taken.
 //
 // The expected output was produced by the compiler before main had a native
 // path, so it is an oracle for the tagged main. The final division by zero

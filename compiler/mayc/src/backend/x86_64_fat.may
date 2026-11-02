@@ -3082,8 +3082,8 @@ fun fat_body(ctx: Any, rec: Any, label: Any, assumed: Any, registers: Bool) -> A
 
 // Top-level statements (label 1), called from _start.
 fun fat_main(ctx: Any) -> Any {
-    // Mark direct-call callees before any body is emitted.
-    fat_plan_direct_calls(ctx);
+    // The direct-call prepass already ran in cg_program, before it chose
+    // between this tagged main and the native one.
     fat_begin(ctx, ctx.mainIR, ctx.mainBoxed);
     fat_plan_global_writes(ctx);
     fat_plan_types(ctx, ctx.mainIR, [], 0, true, []);

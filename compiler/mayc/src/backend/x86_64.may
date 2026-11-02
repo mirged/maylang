@@ -3268,6 +3268,9 @@ fun x86_native_main(ctx: Any) -> Any {
     x86_save_registers(ctx);
     xor_eax(ctx);
     x86_word_runtime_call(ctx, "rt_init", 0);
+    // The scan rejected every global main names, but ctx.globals is not
+    // empty: the runtime's own state and any user binding a function still
+    // reads or writes live there, and both must be roots in dynamic mode.
     for gi: Any in 0..len(ctx.globals) {
         addr_of(ctx, glob_off(ctx, gi));
         e8(ctx, 80);                                                         // push address

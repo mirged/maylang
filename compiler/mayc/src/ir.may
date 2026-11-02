@@ -815,6 +815,11 @@ fun ir_main_locals(ctx: Any, functions: Any) -> Any {
     let called: Any = {};
     for rec: Any in functions {
         if (rec.ir == nil or rec.ir == 0) { continue; }
+        // A bitwise expression is outlined into a synthetic __wordN function
+        // whose parameters are named after the names it reads. The body's
+        // E_VAR names resolve to those parameters, not to main's bindings, so
+        // counting them as function uses would leave every operand global.
+        if (rec.native == true and starts_with(symbol_name(rec.p, rec.l), "__word")) { continue; }
         for instruction: Any in rec.ir.code {
             let op: Any = instruction.op;
             if (op == S_LET or op == S_ASSIGN or op == E_VAR or op == E_CALL) {
