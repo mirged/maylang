@@ -14,6 +14,18 @@
   to 182 ms (-24.1%); the sieve and string controls are unchanged (their
   executables are byte-identical). Both paths are off under `--no-opt`, and
   `tests/map_probe.may` plus the oracle test cover them.
+- Direct calls with register arguments ([report](compiler/mayc/tests/backend/direct-calls.md)):
+  a call to a function known at compile time with matching arity passes up to
+  three fat arguments in the register pairs RDX/RAX, RDI/RSI and R8/R9, and a
+  native-word callee's payloads in the SysV argument registers, instead of
+  building the 16-byte argument vector; a proven argument also skips its type
+  check. Call-bound microbenchmarks drop 16-27%, the compiler image shrinks
+  2.5% and its self-compile is 1.7% faster. fib is unchanged because its
+  recursive calls are already native-word calls, and binary trees and n-body
+  move 1-2% because their time is allocation and map probes. Closures,
+  function values, a mismatched arity and `--no-opt` keep the argument vector;
+  `tests/direct_calls.may`, `tests/direct_calls.py` and the oracle test cover
+  both paths.
 - Inline `push` and string equality ([report](compiler/mayc/tests/backend/inline-paths.md)):
   a push into a list with spare capacity stores the element at its kind's width
   and bumps the count, falling back to `rt_push` for growth, a widening element

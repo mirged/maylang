@@ -58,17 +58,26 @@ pointer `addr` returns. The `address * 8` decoding disappears.
 
 ## Calling conventions
 
-- Compiled functions receive a pointer to their argument values and the
-  argument count, plus the closure environment, and return the payload in
-  the first return register and the type word in the second.
+- A compiled function's tagged entry finds argument `i` above the return
+  address: its type word at `[rsp + 8 + 16 i]` and its payload 8 bytes above
+  that vector. A call site that knows the callee and passes exactly its arity
+  does not build the vector: it passes up to three arguments as register pairs,
+  in RDX/RAX, RDI/RSI and R8/R9, and the callee stores its parameters from
+  those registers. The callee's vector entry adapts the vector into the same
+  registers first, so closures, function values and a legacy arity mismatch
+  keep using it. The closure environment stays in R10 and the result leaves
+  the payload in the first return register and the type word in the second.
 - Runtime functions are written in the raw subset. Each value argument
   becomes two word parameters, type word first; a value result returns its
   payload and leaves its type word in the `RTAG` global, which the caller
   reads immediately after the call. Raw code calls compiled closures with
   `__fat_apply(closure, argv, argc)` and computes on Float bits with
   `__fbits(op, a, b)`.
-- Native-word functions keep their machine-word ABI. Their tagged entry
-  becomes a fat entry that checks the type words and needs no shifts.
+- Native-word functions keep their machine-word ABI. A direct call from
+  dynamic code passes their payloads in the SysV argument registers and tags
+  the result, checking a type word only when it is not proven; their fat entry
+  checks every type word and needs no shifts, for closures and function
+  values.
 
 ## Migration
 

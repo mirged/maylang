@@ -1,0 +1,8 @@
+// A call-bound fat function with one parameter: the call is the loop's work,
+// so the register convention shows up directly (#132).
+fun id(x: Any) -> Any { return x; }
+
+mut i: Int = 0;
+mut acc: Any = 0;
+while (i < 20000000) { acc = id(i); i += 1; }
+print(acc);

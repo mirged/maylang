@@ -188,7 +188,11 @@ CPython's.
   that a top-level loop still loses to the same loop in an all-`Int` function
   sits.
 - **Direct calls:** calls to known functions with matching arity skip the
-  argument vector and count checks and pass arguments in registers.
+  argument vector and count checks and pass arguments in registers. Done: a
+  fat function with one to three parameters keeps one body, fed from registers
+  by a direct call and from its argument-vector entry by closures, and a
+  native-word direct call passes payloads in the SysV argument registers
+  ([report](../../compiler/mayc/tests/backend/direct-calls.md)).
 - Inline fast paths for common runtime calls: `len` of lists, `push` with
   spare capacity, string equality on length mismatch, `??` on present map
   values. Done: `push` with spare capacity (all four element kinds, with the
@@ -281,7 +285,7 @@ the CI performance job publishes a fresh report.
 | 0 Measurement | tracked suite, `--no-opt`, oracle test and the CI report job done; GC statistics done |
 | 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
 | 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots and enum payloads designed ([design](STRUCT_LAYOUT.md)) but not implemented; a prototype was reverted after it destabilised the compiler build (see the design note), [#134](https://github.com/mirged/maylang/issues/134) |
-| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push` and string equality done ([report](../../compiler/mayc/tests/backend/inline-paths.md)); native regions, native Float functions, direct calls and main-as-native in [#132](https://github.com/mirged/maylang/issues/132); `??` on present map values still open in [#133](https://github.com/mirged/maylang/issues/133) |
+| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push`, string equality and direct calls with register arguments done ([report](../../compiler/mayc/tests/backend/direct-calls.md)); native regions, native Float functions and main-as-native in [#132](https://github.com/mirged/maylang/issues/132); `??` on present map values still open in [#133](https://github.com/mirged/maylang/issues/133) |
 | 4 IR optimizer | leaf-function inlining tried and measured (no win, not merged); propagation, DCE, CSE, LICM, check elimination, escape analysis and monomorphization open in [#131](https://github.com/mirged/maylang/issues/131) |
 | 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation, returned pages and precise stack maps in [#135](https://github.com/mirged/maylang/issues/135) |
 | 6 Other targets | deferred (frozen) |

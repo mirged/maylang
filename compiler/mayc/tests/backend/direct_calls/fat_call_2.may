@@ -1,0 +1,7 @@
+// A call-bound fat function with two parameters.
+fun second(a: Any, b: Any) -> Any { return b; }
+
+mut i: Int = 0;
+mut acc: Any = 0;
+while (i < 10000000) { acc = second(i, i + 1); i += 1; }
+print(acc);
