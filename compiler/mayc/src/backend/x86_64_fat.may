@@ -1876,12 +1876,274 @@ fun fat_index_set(ctx: Any, n: Any) -> Any {
     return 0;
 }
 
-fun fat_index(ctx: Any, n: Any) -> Any {
+// ---- inline map probe (#133) ---------------------------------------------
+//
+// `m[k]` with a receiver the checker proved `Map<K, V>` and a key proved Str or
+// Int probes the runtime's hash table inline instead of calling rt_index_get.
+// The walk is rt_map_find's exactly: the same key hash, the same three linear
+// steps then CPython's perturb sequence, and the same 32-byte entries (key type,
+// key, value type, value). Anything else - a receiver that is not a map, a key
+// of another type, a map below the hash-table threshold (rt_map_find scans those
+// linearly), a non-list non-map receiver - falls back to the runtime call, which
+// keeps growth, faults and dynamic values out of the inline code.
+//
+// rsp-relative words used by the probe (96 bytes, released on every exit):
+//   0 map payload   8 key type   16 key payload   24 step
+//   32 table   40 mask   48 perturb   56 slot   64 entries   72 key   80 entry
+// The runtime's map header holds count, capacity, entries, hash table and hash
+// capacity at offsets 0, 8, 16, 24 and 32 (runtime/fat.may).
+
+// A REX prefix (0x40 + W*8 + R*4 + X*2 + B), or nothing when all bits are
+// clear, then a helper for each instruction form the probe emits.
+fun fat_rex(ctx: Any, w: Any, r: Any, x: Any, b: Any) -> Any {
+    let rex: Any = 64 + w * 8 + r * 4 + x * 2 + b;
+    if (rex != 64) { e8(ctx, rex); }
+    return 0;
+}
+
+// One instruction: `mov reg, [base + disp8]` (opcode 139) or
+// `mov [base + disp8], reg` (opcode 137). `base` may be RSP.
+fun fat_rm(ctx: Any, opcode: Any, reg: Any, base: Any, disp: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, 0, if (base >= 8) { 1 } else { 0 });
+    e8(ctx, opcode); e8(ctx, 64 + (reg % 8) * 8 + base % 8);
+    if (base % 8 == 4) { e8(ctx, 36); }                                      // SIB: [rsp], no index
+    e8(ctx, disp);
+    return 0;
+}
+fun fat_stack_store(ctx: Any, reg: Any, disp: Any) -> Any { return fat_rm(ctx, 137, reg, 4, disp); }
+fun fat_stack_load(ctx: Any, reg: Any, disp: Any) -> Any { return fat_rm(ctx, 139, reg, 4, disp); }
+
+// mov reg, [base + index * 8].
+fun fat_rm_index8(ctx: Any, reg: Any, base: Any, index: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, if (index >= 8) { 1 } else { 0 },
+        if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 139); e8(ctx, (reg % 8) * 8 + 4);
+    e8(ctx, 192 + (index % 8) * 8 + base % 8);                               // scale 8
+    return 0;
+}
+
+// lea reg, [base + disp8]; lea reg, [base + index + disp8]; lea reg,
+// [base + index * scale] (scale as the SIB field, 0-3).
+fun fat_lea(ctx: Any, reg: Any, base: Any, disp: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, 0, if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 141); e8(ctx, 64 + (reg % 8) * 8 + base % 8);
+    if (base % 8 == 4) { e8(ctx, 36); }
+    e8(ctx, disp);
+    return 0;
+}
+fun fat_lea_index(ctx: Any, reg: Any, base: Any, index: Any, disp: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, if (index >= 8) { 1 } else { 0 },
+        if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 141); e8(ctx, 64 + (reg % 8) * 8 + 4);
+    e8(ctx, (index % 8) * 8 + base % 8); e8(ctx, disp);
+    return 0;
+}
+fun fat_lea_scale(ctx: Any, reg: Any, base: Any, index: Any, scale: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, if (index >= 8) { 1 } else { 0 },
+        if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 141); e8(ctx, (reg % 8) * 8 + 4);
+    e8(ctx, scale * 64 + (index % 8) * 8 + base % 8);
+    return 0;
+}
+
+// `op dst, src` for 1 add, 33 and, 41 sub (0x29), 49 xor (0x31), 57 cmp
+// (0x39) and 137 mov (0x89).
+fun fat_alu_reg(ctx: Any, opcode: Any, dst: Any, src: Any) -> Any {
+    fat_rex(ctx, 1, if (src >= 8) { 1 } else { 0 }, 0, if (dst >= 8) { 1 } else { 0 });
+    e8(ctx, opcode); e8(ctx, 192 + (src % 8) * 8 + dst % 8);
+    return 0;
+}
+// shl/shr/sar reg, imm8 (ext 4, 5, 7).
+fun fat_shift_imm(ctx: Any, ext: Any, reg: Any, imm: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 193); e8(ctx, 192 + ext * 8 + reg % 8); e8(ctx, imm);
+    return 0;
+}
+// imul reg, reg, imm32 and imul dst, src.
+fun fat_imul_imm(ctx: Any, reg: Any, imm: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 105); e8(ctx, 192 + (reg % 8) * 8 + reg % 8); e32(ctx, imm);
+    return 0;
+}
+// movzx reg32, byte [base].
+fun fat_movzx8(ctx: Any, reg: Any, base: Any) -> Any {
+    fat_rex(ctx, 0, if (reg >= 8) { 1 } else { 0 }, 0, if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 15); e8(ctx, 182); e8(ctx, (reg % 8) * 8 + base % 8);
+    return 0;
+}
+fun fat_test(ctx: Any, reg: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, 0); e8(ctx, 133); e8(ctx, 192 + (reg % 8) * 8 + reg % 8);
+    return 0;
+}
+// inc (ext 0) or dec (ext 1) reg.
+fun fat_incdec(ctx: Any, ext: Any, reg: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 255); e8(ctx, 192 + ext * 8 + reg % 8);
+    return 0;
+}
+fun fat_stack_inc(ctx: Any, disp: Any) -> Any {
+    e8(ctx, 72); e8(ctx, 255); e8(ctx, 68); e8(ctx, 36); e8(ctx, disp);
+    return 0;
+}
+// movabs reg, imm64.
+fun fat_movabs(ctx: Any, reg: Any, value: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 184 + reg % 8); e64(ctx, value);
+    return 0;
+}
+fun fat_push_reg(ctx: Any, reg: Any) -> Any {
+    if (reg >= 8) { e8(ctx, 65); }
+    e8(ctx, 80 + reg % 8);
+    return 0;
+}
+// cmp reg, imm8.
+fun fat_cmp_imm8(ctx: Any, reg: Any, imm: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 131); e8(ctx, 248 + reg % 8); e8(ctx, imm);
+    return 0;
+}
+// cmp qword [base + disp8], imm8.
+fun fat_cmp_mem8(ctx: Any, base: Any, disp: Any, imm: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 131); e8(ctx, 120 + base % 8); e8(ctx, disp); e8(ctx, imm);
+    return 0;
+}
+
+// The runtime's Str key hash (runtime/fat.may rt_key_hash): a wrapping
+// polynomial over the bytes. Leaves the key in R9 and the hash in RSI.
+fun fat_map_str_hash(ctx: Any) -> Any {
+    let top: Any = newlab(ctx); let done: Any = newlab(ctx);
+    x86_move_register(ctx, 9, 0);                                            // mov r9, rax
+    e8(ctx, 69); e8(ctx, 49); e8(ctx, 210);                                  // xor r10d, r10d
+    fat_rm(ctx, 139, 7, 0, 0);                                               // mov rdi, [rax]     length
+    fat_lea(ctx, 6, 0, 8);                                                   // lea rsi, [rax + 8]
+    fat_alu_reg(ctx, 1, 7, 6);                                               // add rdi, rsi       end
+    placelab(ctx, top);
+    fat_alu_reg(ctx, 57, 6, 7);                                              // cmp rsi, rdi
+    jcc(ctx, 131, done);                                                      // jae done
+    fat_imul_imm(ctx, 10, 131);                                              // imul r10, r10, 131
+    fat_movzx8(ctx, 1, 6);                                                   // movzx ecx, byte [rsi]
+    fat_alu_reg(ctx, 1, 10, 1);                                              // add r10, rcx
+    fat_incdec(ctx, 0, 6);                                                   // inc rsi
+    jmp(ctx, top);
+    placelab(ctx, done);
+    fat_alu_reg(ctx, 137, 6, 10);                                            // mov rsi, r10
+    return 0;
+}
+
+// The runtime's Int key hash: fold the high words into the low ones. Leaves the
+// key in R9 and the hash in RSI.
+fun fat_map_int_hash(ctx: Any) -> Any {
+    x86_move_register(ctx, 9, 0);                                            // mov r9, rax
+    fat_alu_reg(ctx, 137, 6, 0);                                             // mov rsi, rax
+    fat_shift_imm(ctx, 5, 6, 32);                                            // shr rsi, 32
+    fat_alu_reg(ctx, 137, 1, 0);                                             // mov rcx, rax
+    fat_alu_reg(ctx, 49, 6, 1);                                              // xor rsi, rcx
+    fat_shift_imm(ctx, 5, 1, 48);                                            // shr rcx, 48
+    fat_alu_reg(ctx, 49, 6, 1);                                              // xor rsi, rcx
+    return 0;
+}
+
+// The walk over the runtime hash table; see the block comment above for the
+// frame. RSI holds the hash, R9 the key; a hit leaves the entry's value in
+// RDX/RAX, a miss leaves nil in both. Releases the probe frame and jumps to
+// `done`.
+fun fat_map_probe(ctx: Any, keyType: Any, done: Any) -> Any {
+    let probe: Any = newlab(ctx); let next: Any = newlab(ctx);
+    let linear: Any = newlab(ctx); let miss: Any = newlab(ctx);
+    let found: Any = newlab(ctx); let called: Any = newlab(ctx);
+    fat_stack_load(ctx, 1, 0);                                               // mov rcx, [rsp]         map
+    fat_rm(ctx, 139, 11, 1, 32);                                             // mov r11, [rcx + 32]    hash capacity
+    fat_rm(ctx, 139, 10, 1, 24);                                             // mov r10, [rcx + 24]    table
+    fat_rm(ctx, 139, 8, 1, 16);                                              // mov r8, [rcx + 16]     entries
+    fat_incdec(ctx, 1, 11);                                                  // dec r11                mask
+    fat_alu_reg(ctx, 137, 7, 6);                                             // mov rdi, rsi
+    fat_alu_reg(ctx, 33, 7, 11);                                             // and rdi, r11           slot
+    x86_mov_immediate(ctx, 2, 0);                                            // mov edx, 0
+    fat_stack_store(ctx, 2, 24);                                             // step = 0
+    placelab(ctx, probe);
+    fat_rm_index8(ctx, 1, 10, 7);                                            // mov rcx, [r10 + rdi*8]
+    fat_test(ctx, 1);                                                        // test rcx, rcx
+    jcc(ctx, 132, miss);                                                     // je miss
+    fat_alu_reg(ctx, 137, 2, 1);                                             // mov rdx, rcx
+    fat_shift_imm(ctx, 4, 2, 5);                                             // shl rdx, 5
+    fat_lea_index(ctx, 0, 8, 2, -32);                                        // lea rax, [r8 + rdx - 32]
+    fat_cmp_mem8(ctx, 0, 0, keyType);                                        // cmp qword [rax], keyType
+    jcc(ctx, 133, next);                                                     // jne next
+    if (keyType == 4) {
+        fat_rm(ctx, 139, 2, 0, 8);                                           // mov rdx, [rax + 8]
+        fat_alu_reg(ctx, 57, 2, 9);                                          // cmp rdx, r9
+        jcc(ctx, 132, found);                                                // je found
+        fat_stack_store(ctx, 0, 80);                                         // save the walk across the call
+        fat_stack_store(ctx, 10, 32);
+        fat_stack_store(ctx, 11, 40);
+        fat_stack_store(ctx, 6, 48);
+        fat_stack_store(ctx, 7, 56);
+        fat_stack_store(ctx, 8, 64);
+        fat_stack_store(ctx, 9, 72);
+        fat_push_reg(ctx, 2);                                                // push stored key
+        fat_push_reg(ctx, 9);                                                // push lookup key
+        fat_rt_call(ctx, "rt_str_eq", 2);                                    // keys equal?
+        fat_stack_load(ctx, 10, 32);
+        fat_stack_load(ctx, 11, 40);
+        fat_stack_load(ctx, 6, 48);
+        fat_stack_load(ctx, 7, 56);
+        fat_stack_load(ctx, 8, 64);
+        fat_stack_load(ctx, 9, 72);
+        fat_test(ctx, 0);                                                    // test rax, rax
+        jcc(ctx, 133, called);                                               // jne called
+    } else {
+        fat_rm(ctx, 139, 2, 0, 8);                                           // mov rdx, [rax + 8]
+        fat_alu_reg(ctx, 57, 2, 9);                                          // cmp rdx, r9
+        jcc(ctx, 132, found);                                                // je found
+    }
+    placelab(ctx, next);
+    fat_stack_load(ctx, 2, 24);                                              // step
+    fat_stack_inc(ctx, 24);
+    fat_cmp_imm8(ctx, 2, 3);                                                 // cmp rdx, 3
+    jcc(ctx, 130, linear);                                                   // jb: the three linear steps
+    fat_alu_reg(ctx, 137, 2, 6);                                             // mov rdx, rsi
+    fat_shift_imm(ctx, 5, 2, 5);                                             // shr rdx, 5
+    fat_movabs(ctx, 1, 576460752303423487);                                  // mov rcx, 2^59 - 1
+    fat_alu_reg(ctx, 33, 2, 1);                                              // and rdx, rcx
+    fat_alu_reg(ctx, 137, 6, 2);                                             // mov rsi, rdx   perturb
+    fat_lea_scale(ctx, 2, 7, 7, 2);                                          // lea rdx, [rdi + rdi*4]
+    fat_alu_immediate(ctx, 0, 2, 1);                                         // add rdx, 1
+    fat_alu_reg(ctx, 1, 2, 6);                                               // add rdx, rsi
+    fat_alu_reg(ctx, 137, 7, 2);                                             // mov rdi, rdx
+    fat_alu_reg(ctx, 33, 7, 11);                                             // and rdi, r11
+    jmp(ctx, probe);
+    placelab(ctx, linear);
+    fat_incdec(ctx, 0, 7);                                                   // inc rdi
+    fat_alu_reg(ctx, 33, 7, 11);                                             // and rdi, r11
+    jmp(ctx, probe);
+    placelab(ctx, miss);
+    e8(ctx, 49); e8(ctx, 192);                                               // xor eax, eax
+    e8(ctx, 49); e8(ctx, 210);                                               // xor edx, edx
+    fat_release(ctx, 96);
+    jmp(ctx, done);
+    placelab(ctx, found);
+    fat_rm(ctx, 139, 2, 0, 16);                                              // mov rdx, [rax + 16]
+    fat_rm(ctx, 139, 0, 0, 24);                                              // mov rax, [rax + 24]
+    fat_release(ctx, 96);
+    jmp(ctx, done);
+    placelab(ctx, called);
+    fat_stack_load(ctx, 0, 80);                                              // mov rax, [rsp + 80]
+    jmp(ctx, found);
+    return 0;
+}
+
+// Load `object[index]` into RDX/RAX: a list element or, for a receiver the
+// checker proved a Map with a Str/Int key, an inline probe. Everything else
+// calls rt_index_get.
+fun fat_index_load(ctx: Any, n: Any) -> Any {
     let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
     let typed: Any = newlab(ctx); let bytes: Any = newlab(ctx);
+    let mapcheck: Any = newlab(ctx);
+    let probe: Any = if (NO_OPT) { 0 } else { n.mapProbe ?? 0 };
     fat_operands(ctx, n.object, n.index);
     for byte: Any in [73, 131, 249, 5] { e8(ctx, byte); }                    // cmp r9, 5
-    jcc(ctx, 133, slow);
+    jcc(ctx, 133, if (probe == 4 or probe == 2) { mapcheck } else { slow });
     for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                    // cmp rdx, 2
     jcc(ctx, 133, slow);
     for byte: Any in [77, 139, 16, 76, 57, 208] { e8(ctx, byte); }           // mov r10, [r8]; cmp rax, r10
@@ -1906,9 +2168,46 @@ fun fat_index(ctx: Any, n: Any) -> Any {
     for byte: Any in [65, 15, 182, 4, 2] { e8(ctx, byte); }                  // movzx eax, byte [r10 + rax]
     for byte: Any in [186, 1, 0, 0, 0] { e8(ctx, byte); }                    // mov edx, 1  (Bool)
     jmp(ctx, done);
+    if (probe == 4 or probe == 2) {
+        placelab(ctx, mapcheck);
+        for byte: Any in [73, 131, 249, 6] { e8(ctx, byte); }                // cmp r9, 6
+        jcc(ctx, 133, slow);                                                  // jne slow (not a map)
+        for byte: Any in [73, 131, 120, 32, 0] { e8(ctx, byte); }            // cmp qword [r8 + 32], 0
+        jcc(ctx, 132, slow);                                                  // je slow (linear scan)
+        for byte: Any in [72, 131, 250, probe] { e8(ctx, byte); }            // cmp rdx, probe (key type)
+        jcc(ctx, 133, slow);
+        fat_rsp(ctx, 236, 96);                                                // sub rsp, 96
+        fat_stack_store(ctx, 8, 0);                                           // map payload
+        fat_stack_store(ctx, 2, 8);                                           // key type
+        fat_stack_store(ctx, 0, 16);                                          // key payload
+        if (probe == 4) { fat_map_str_hash(ctx); } else { fat_map_int_hash(ctx); }
+        fat_map_probe(ctx, probe, done);
+    }
     placelab(ctx, slow);
     fat_stub_call(ctx, "rt_index_get", -1);
     placelab(ctx, done);
+    return 0;
+}
+
+fun fat_index(ctx: Any, n: Any) -> Any {
+    fat_index_load(ctx, n);
+    return 0;
+}
+
+// `m[k] ?? fallback` where the value's only readers are the copy into the
+// coalesce result and the IR_NONNULL branch: decide the branch from the value
+// the probe just loaded, so no temporary is stored and re-read and the branch
+// reuses the probe's result. The nil test stays: a present entry whose value is
+// nil (reachable through an `Any` alias) coalesces to the fallback.
+fun fat_index_coalesce(ctx: Any, n: Any, result: Any, done: Any) -> Any {
+    let fall: Any = newlab(ctx);
+    fat_index_load(ctx, n);
+    fat_test(ctx, 2);                                                        // test rdx, rdx
+    jcc(ctx, 132, fall);                                                     // je fallback
+    if (result != 0 and FAT_INTERVALS[result.slot].uses > 0) { fat_put(ctx, result); }
+    jmp(ctx, done);
+    placelab(ctx, fall);
+    fat_forget();
     return 0;
 }
 
@@ -1971,6 +2270,38 @@ fun fat_fusable(block: Any, position: Any) -> Any {
     return -1;
 }
 
+// `left ?? right` lowers to an E_INDEX, an IR_COPY of its value into the
+// coalesce result and an IR_NONNULL branch on the indexed value. When those are
+// the value's only two readers, the branch can be decided from the value the
+// index load leaves in RDX/RAX: no temporary store and reload, and the probe's
+// hit or miss is the branch condition. Returns [branch position, copy result or
+// 0] when the instructions at `position` (after dead copies) are that copy and
+// branch, else nil.
+fun fat_coalesce_fusable(block: Any, position: Any) -> Any {
+    let instruction: Any = block.code[position];
+    if (instruction.op != E_INDEX or instruction.result == 0) { return nil; }
+    let value: Any = instruction.result;
+    let interval: Any = FAT_INTERVALS[value.slot];
+    if (interval.definitions != 1) { return nil; }
+    mut following: Any = position + 1;
+    while (following < len(block.code) and FAT_DEAD[following]) { following += 1; }
+    if (following >= len(block.code)) { return nil; }
+    mut result: Any = 0;
+    let next: Any = block.code[following];
+    if (next.op == IR_COPY and next.result != 0 and next.result.slot != value.slot and
+        next.arg1 != 0 and next.arg1.slot == value.slot) {
+        result = next.result;
+        following += 1;
+        while (following < len(block.code) and FAT_DEAD[following]) { following += 1; }
+        if (following >= len(block.code)) { return nil; }
+    }
+    let branch: Any = block.code[following];
+    if (branch.op != IR_NONNULL or branch.arg1 == 0 or branch.arg1.slot != value.slot) { return nil; }
+    let expected: Any = if (result == 0) { 1 } else { 2 };
+    if (interval.uses != expected) { return nil; }
+    return [following, result];
+}
+
 fun fat_ir(ctx: Any, block: Any) -> Any {
     mut position: Any = 0;
     while (position < len(block.code)) {
@@ -1986,6 +2317,15 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
             position = fused + 1;
             fat_branch_compare(ctx, payload, fat_lab(ctx, branch.extra), branch.op == IR_TRUE);
             continue;
+        }
+        if (op == E_INDEX and not NO_OPT) {
+            let coalesce: Any = fat_coalesce_fusable(block, position - 1);
+            if (coalesce != nil) {
+                let branch: Any = block.code[coalesce[0]];
+                fat_index_coalesce(ctx, payload, coalesce[1], fat_lab(ctx, branch.extra));
+                position = coalesce[0] + 1;
+                continue;
+            }
         }
         if (op == IR_LABEL) { placelab(ctx, fat_lab(ctx, payload)); fat_forget(); }
         else if (op == IR_JUMP) { jmp(ctx, fat_lab(ctx, payload)); }
