@@ -118,10 +118,15 @@ images mostly shrink slightly because `rt_struct_new`/`rt_struct_set` (and, for
 image: `construct` 109,912 to 105,736 (-3.8%), `trees` 110,384 to 110,304,
 `record_gc` 110,128 to 110,048, `nbody` 142,944 to 142,872.
 
-**Heap counters (MAYC_GC_STATS).** With statistics on, every workload binary
-reports the same collections, allocated bytes, peak and threshold, and the same
-live bytes except where conservative stack retention differs by construction
-shape:
+**Heap counters (MAYC_GC_STATS).** On the workloads below, and on the audit's
+300k-record GC workload, inline and runtime construction report the same
+collections, allocated bytes, peak and threshold, and the same live bytes
+except where conservative stack retention differs by construction shape. The
+claim is scoped to those workloads: on a tiny heap where collection timing
+decides whether a list grows in place, an independent A/B saw allocated bytes
+differ by 0.01% and collections shift, because the two code shapes retain
+slightly different stacks. The counters are identical whenever the same
+collections happen:
 
 ```
 trees          before: collections=11 allocated=1885689824 live=41946016 peak=218103712 threshold=226492320
@@ -171,6 +176,10 @@ Raw samples, image sizes and the full counter lines:
 - A record that later grows through an `Any` alias moves its entries out of the
   block and behaves exactly as before; the fixture covers the observation and a
   write after growth.
+- `FAT_RECORD_STACK`'s out-of-order and partial-fallback branches are not
+  reachable for parser-generated constructors (one straight-line record literal
+  per constructor function); the 4097-field case exercises the fallback
+  end-to-end, and the mid-sequence fallback is defensive for future lowerings.
 - The compiler self-compile cost above is the main trade: a 4% slower compiler
   build (and up to ~2% more peak RSS) for 17-27% faster construction-heavy
   workloads. If the project values compiler throughput over the benchmark

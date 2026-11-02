@@ -20,6 +20,12 @@ and `Err` are ordinary maps built by the prelude, not fixed-layout records.
 Everything is skipped under `--no-opt`, where lowering emits the old
 `rt_map_get` calls.
 
+Two audit notes scope the fallback list above: strict checking rejects a
+variant pattern on an `Any` subject, so the `Any`-value coverage here exercises
+the tag-value/legacy path rather than the slot read; and a compacted fixed
+record is not reachable from source (`remove` returns a copy), so the
+compaction half of the guard is defensive.
+
 **Key objects** (`src/backend/x86_64_fat.may`). The guard compares the slot's
 key against the site's key object by pointer, so the match's synthesized field
 name has to be the same object the constructor wrote. Synthesized literals

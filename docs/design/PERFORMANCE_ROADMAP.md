@@ -264,10 +264,21 @@ backend would benefit too. Each one is skipped under `--no-opt`.
   field reads and `len` calls in loop conditions. Done within a straight-line
   region for repeated field and element reads (report above); cross-block CSE
   and `len` in loop conditions stay open.
-- Loop-invariant code motion.
+- Loop-invariant code motion. Tried: a sound hoister (back-edge loops only,
+  receiver invariance, field-sensitive store kill, escape analysis, `E_GET`
+  totality) moved 20 field/`len` reads out of n-body's loops but made n-body
+  3-5% slower over 61 paired runs, because block-local CSE cannot merge the
+  hoisted copies and the short inner loop is memory-bound; reverted, and a
+  future attempt needs cross-block value numbering
+  ([report](../../compiler/mayc/tests/backend/check-elimination.md)).
 - Check elimination: bounds checks for `while (i < len(xs))` patterns, and
   overflow checks for induction variables whose range is proven (the raw
-  backend's range analysis as a model).
+  backend's range analysis as a model). Measured ceiling: a temporary unsound
+  build removing every list bounds check and every inline Int overflow check
+  moves the suite by at most -2.9% (collatz) and makes sieve 1.3% slower; the
+  dedicated `while (i < len(xs))` loops are memory/type-check bound, so a sound
+  subset of that is below the noise floor. Not implemented; the item stays open
+  with those numbers ([report](../../compiler/mayc/tests/backend/check-elimination.md)).
 - Escape analysis: stack-allocate or scalar-replace records and lists that
   do not escape their function (n-body's per-step temporaries).
 - Monomorphization of generic functions at concrete instantiations, so
@@ -304,7 +315,12 @@ its research gate passes on real Maylang allocation traces.
   conservative stack and register scanning retains most garbage
   ([#135](https://github.com/mirged/maylang/issues/135)).
 - Collection thresholds based on live bytes, so peak RSS tracks the live
-  set rather than the 256 MiB default. The floor and margin are now overridable
+  set rather than the 256 MiB default. Also done: `MAYC_GC_MIN` and
+  `MAYC_GC_MARGIN` override the derived floor and margin per run (defaults
+  unchanged when unset or invalid); the tuned policy (8 MiB floor, 512 KiB
+  margin) takes binary trees from 234 to 95 MiB peak RSS at 1.70x the run time,
+  while six of the eight workloads never collect at the default heap
+  ([report](../../compiler/mayc/tests/backend/gc-policy.md)). The floor and margin are now overridable
   per run with `MAYC_GC_MIN`/`MAYC_GC_MARGIN`, defaults unchanged; the measured
   trade-off is 234 → 95 MiB peak RSS on binary trees at 1.70x time
   ([report](../../compiler/mayc/tests/backend/gc-policy.md)).
@@ -341,7 +357,7 @@ the CI performance job publishes a fresh report.
 | 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
 | 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots, one-block constructors, guarded slot reads and enum payload reads in `match` done ([design](STRUCT_LAYOUT.md), [reports](../../compiler/mayc/tests/backend/struct-slots.md): [struct](../../compiler/mayc/tests/backend/struct-slots.md), [enum payloads](../../compiler/mayc/tests/backend/enum-payloads.md)), [#134](https://github.com/mirged/maylang/issues/134) |
 | 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push`, string equality, inline map probing with the `??` fold ([report](../../compiler/mayc/tests/backend/map-probe.md)), direct calls with register arguments ([report](../../compiler/mayc/tests/backend/direct-calls.md)), straight-line native Float functions ([report](../../compiler/mayc/tests/backend/native-floats.md)) and native main ([report](../../compiler/mayc/tests/backend/main-native.md)) done; native Float loops and native regions open in [#132](https://github.com/mirged/maylang/issues/132) |
-| 4 IR optimizer | propagation, dead-code/store elimination and block-local CSE done ([report](../../compiler/mayc/tests/backend/ir-passes.md)); leaf-function inlining measured twice (round 1 and on the register-call base) and not merged, open as opt-in/accessor-only; LICM, check elimination, escape analysis, monomorphization and the raw-backend ports open in [#131](https://github.com/mirged/maylang/issues/131) |
-| 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation and returned pages measured negative and not merged ([report](../../compiler/mayc/tests/backend/inline-alloc.md)); fixed-slot record initialization inlined instead, which pays ([report](../../compiler/mayc/tests/backend/construction-inline.md)); precise stack maps designed and measured ([design](STACK_MAPS.md)), open in [#135](https://github.com/mirged/maylang/issues/135) |
+| 4 IR optimizer | propagation, dead-code/store elimination and block-local CSE done ([report](../../compiler/mayc/tests/backend/ir-passes.md)); leaf-function inlining measured twice (round 1 and on the register-call base) and not merged, open as opt-in/accessor-only; LICM and check elimination measured negative on the current backend (ceiling ≤3%, LICM -3-5% on n-body; [report](../../compiler/mayc/tests/backend/check-elimination.md)); escape analysis, monomorphization and the raw-backend ports open in [#131](https://github.com/mirged/maylang/issues/131) |
+| 5 Allocation and collection | live-set thresholds and GC statistics done, with `MAYC_GC_MIN`/`MAYC_GC_MARGIN` policy overrides ([report](../../compiler/mayc/tests/backend/gc-policy.md)); inline allocation and returned pages measured negative and not merged ([report](../../compiler/mayc/tests/backend/inline-alloc.md)); fixed-slot record initialization inlined instead, which pays ([report](../../compiler/mayc/tests/backend/construction-inline.md)); precise stack maps designed and measured ([design](STACK_MAPS.md)), open in [#135](https://github.com/mirged/maylang/issues/135) |
 | 6 Other targets | deferred (frozen) |
 | 7 Compiler throughput | baseline recorded ([report](../../compiler/mayc/tests/backend/compiler-throughput.md)); re-measure per phase |

@@ -165,6 +165,9 @@ builds of every fixture, as it does for the existing fat passes.
   stays valid across collections.
 - **Field cache invalidation.** A cached entry pointer is checked against the
   count, so an entry array that moves on growth simply misses and re-probes.
+  The guarded slot read has the same fallback; the compaction half of that
+  guard is defensive, because `remove` returns a copy and never compacts a
+  record in place.
 - **`to_map`, display and JSON** must not assume a hash table exists.
 
 ## Migration
