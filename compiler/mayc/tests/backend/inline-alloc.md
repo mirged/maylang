@@ -122,7 +122,10 @@ bookkeeping; larger, hotter runtime helpers (map insertion, record slot
 writes, list growth) hide the remaining call overhead. A profitable next step
 is to inline those helpers' *initialization* as well, or to allocate whole
 construction sequences (record plus its fields) in one place, rather than
-extending the allocation fast path alone.
+extending the allocation fast path alone. The initialization follow-up was
+taken for fixed-slot records in [construction-inline.md](construction-inline.md):
+it keeps this allocation call and inlines the header and slot writes, and it
+pays (construction-heavy workloads -18% to -36% CPU).
 
 Raw samples: [inline-alloc-performance.json](inline-alloc-performance.json).
 

@@ -10,6 +10,18 @@
   from 610 to 164 ms (3.7x), with identical output; both paths are off under
   `--no-opt`, `enum_payloads.may` is pinned in the oracle suite, and an
   objdump assertion covers the generated code. Refs #134.
+- Inline fixed-slot record construction ([report](compiler/mayc/tests/backend/construction-inline.md)):
+  a struct or enum constructor's `rt_struct_new` header writes and its
+  `rt_struct_set` slot writes are emitted as one generated block when the record
+  size is a compile-time constant, while the allocation itself stays a runtime
+  call. The heap layout is unchanged (kind-4 record block, entries at `p + 48`),
+  `MAYC_GC_STATS` counters are identical on every workload, and `--no-opt` keeps
+  the runtime calls. Binary trees drop from 975 to 803 ms of CPU (-17.7%), 2M
+  constructions from 93 to 72 ms (-22.9%) and the record-churn workload from 303
+  to 195 ms (-35.6%); n-body and the field-read controls are unchanged. The
+  compiler's own self-compile is 4% slower and peaks 2.3% higher, a
+  conservative-retention effect of building the compiler with the change.
+  `tests/record_construct.may` and the oracle test cover the paths.
 - Value propagation, dead code and block-local CSE before the fat backend
   ([report](compiler/mayc/tests/backend/ir-passes.md)): `src/ir_opt.may`
   propagates copies, eliminates repeated field and element reads in a

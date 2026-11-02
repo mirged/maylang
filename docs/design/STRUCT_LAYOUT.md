@@ -143,6 +143,12 @@ Implemented as follows:
    their interned key text for CSE. Synthesized literals are interned by text
    so the guard's key object is the constructor's. `Result` patterns keep
    `rt_map_get`.
+6. Done (#135): the constructor's `rt_struct_new` header writes and its
+   `rt_struct_set` slot writes are emitted as one generated block when the size
+   reaches the backend as a compile-time constant. The allocation itself stays
+   a runtime call, so the block, the zeros the allocator leaves and the
+   collector are unchanged; every unproven shape keeps the runtime calls
+   ([report](../../compiler/mayc/tests/backend/construction-inline.md)).
 
 Every step is skipped under `--no-opt`, and the oracle test compares both
 builds of every fixture, as it does for the existing fat passes.
