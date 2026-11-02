@@ -56,6 +56,13 @@ site. Tail calls keep bounded trace depth, handlers restore unwound frames, and
 cooperative fibers retain independent traces. Storage holds 1024 frames and
 snapshots show at most 64. This is error tracing, not a DWARF debugger interface.
 
+`--no-opt` disables the fat backend's optional passes: constant and variable
+forwarding, proven operand types (so every operand's type word is checked),
+register homes for hot locals, XMM registers for Float temporaries, and the
+move of top-level bindings into main locals. It exists so `tests/oracle.py` can
+compile every behaviour fixture both ways and require the same output; it is not
+a supported code-generation mode of its own.
+
 `main.may` expands imports and drives a staged compiler:
 
 1. `lexer.may` emits source-positioned `Token` structs.
