@@ -119,9 +119,12 @@ and margin are tuned (section 1.5).
 ### 1.5 Threshold policy is the stronger RSS lever today
 
 `GCMIN` and `GCMARGIN` are constants derived from the nominal 256 MiB heap
-(`sz / 2` and `sz / 16` capped at 8 MiB). Replacing those two lines in a runtime
-copy and re-running the workload changes the peak far more than the measured
-retention does (three runs each, minimum of peak RSS):
+(`sz / 2` and `sz / 16` capped at 8 MiB); they are now overridable at run time
+with `MAYC_GC_MIN` and `MAYC_GC_MARGIN`, defaults unchanged
+([gc-policy.md](../../compiler/mayc/tests/backend/gc-policy.md)). Replacing
+those two lines in a runtime copy and re-running the workload changes the peak
+far more than the measured retention does (three runs each, minimum of peak
+RSS):
 
 | Policy | trees peak | trees time | collections | trees_nolived peak |
 | --- | --- | --- | --- | --- |

@@ -43,6 +43,20 @@ live bytes anyway for the threshold). `compiler/mayc/tests/limits.py
 --runtime-gc-stats` uses it and cross-checks the runtime's collection count
 against the inline meter.
 
+The floor and margin are also overridable for experiments: `MAYC_GC_MIN` and
+`MAYC_GC_MARGIN` (decimal bytes) replace `GCMIN` and `GCMARGIN` at start-up.
+The accepted range is `[65536, reserve / 2]`; an absent, non-decimal or
+out-of-range value leaves the derived policy, so a typo cannot disable
+collection, and with both unset the behavior is exactly the threshold policy
+above. The overrides exist to measure the policy and to run RSS-sensitive
+workloads under a smaller threshold without rebuilding the runtime; they are
+not a new default. On binary trees, `MAYC_GC_MIN=8388608
+MAYC_GC_MARGIN=524288` cuts peak RSS from 234 MiB to 95 MiB while taking 1.70x
+as long and collecting 60 instead of 11 times, and a workload that never
+collects at the default heap is unaffected; the measured trade-off and the
+frontier-creep explanation are in
+[gc-policy.md](../../compiler/mayc/tests/backend/gc-policy.md).
+
 The table reserves one byte per eight reserved heap bytes (128 MiB for the
 default 1 GiB reservation), with pages committed on demand. Stack, global and suspended
 fiber roots are traced, including runtime metadata. Mark-stack exhaustion

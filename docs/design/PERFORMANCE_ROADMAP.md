@@ -303,7 +303,10 @@ its research gate passes on real Maylang allocation traces.
   conservative stack and register scanning retains most garbage
   ([#135](https://github.com/mirged/maylang/issues/135)).
 - Collection thresholds based on live bytes, so peak RSS tracks the live
-  set rather than the 256 MiB default.
+  set rather than the 256 MiB default. The floor and margin are now overridable
+  per run with `MAYC_GC_MIN`/`MAYC_GC_MARGIN`, defaults unchanged; the measured
+  trade-off is 234 → 95 MiB peak RSS on binary trees at 1.70x time
+  ([report](../../compiler/mayc/tests/backend/gc-policy.md)).
 - Longer term (`design:discussion`): precise stack maps from the code
   generator, which would allow a generational or moving nursery. Today the
   collector scans stacks and registers conservatively

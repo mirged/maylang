@@ -12,6 +12,18 @@
   Str-key probe and hashmap controls compile to byte-identical binaries and do
   not move, so existing workloads are unchanged. `tests/map_probe_keys.may` and
   the oracle test cover the semantics.
+- GC floor and margin overrides ([report](compiler/mayc/tests/backend/gc-policy.md)):
+  `MAYC_GC_MIN` and `MAYC_GC_MARGIN` (decimal bytes) replace the collection
+  floor and margin derived from the nominal heap, so the threshold policy can
+  be tuned per run without rebuilding the runtime. Defaults are unchanged when
+  the variables are unset or invalid, and the accepted range keeps a typo from
+  disabling collection. Under `MAYC_GC_MIN=8388608 MAYC_GC_MARGIN=524288`
+  binary trees drops from 234 MiB to 95 MiB peak RSS at 1.70x the run time and
+  60 instead of 11 collections, hashmap drops 30% and strings 37% while six of
+  the eight roadmap workloads do not collect at the default heap and are
+  unchanged. The report records the interleaved measurements, the separate
+  effects of the floor and the margin, the frontier-creep traces and the tested
+  invariants.
 - Enum payload reads in `match` ([report](compiler/mayc/tests/backend/enum-payloads.md)):
   a variant pattern proves the tag, so the tag and its payload bindings are
   read by guarded fixed slot instead of one `rt_map_get` call per arm; the
