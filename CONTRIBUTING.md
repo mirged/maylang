@@ -92,3 +92,14 @@ gh pr create --draft --title 'docs: explain the changed workflow' --body-file /t
 
 Review and test generated code. Move public paths with migration support and
 keep behavior changes separately reviewable from mechanical restructuring.
+
+## Licensing
+
+Contributions are accepted under the repository's [MIT License](LICENSE). Do
+not paste code from another project unless its license allows it: keep the
+upstream notice with the file, add it to
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and record it in the relevant
+`vendor.json` when it is a vendored header. `make check` fails when the
+maintained copies drift from their recorded checksums or when the root and
+editor license files disagree.
+

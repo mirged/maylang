@@ -85,6 +85,61 @@ def mirrors():
 
 IMPORT = re.compile(r'^\s*(?:import|from)\s+"([^"]+)"', re.M)
 
+# Vendored sources that must stay attributed in THIRD_PARTY_NOTICES.md. The
+# maintained headers are also covered by scripts/vendor.py; the frozen copies
+# and the per-directory licenses have no manifest of their own.
+VENDORED = [
+    'stdlib/ui/native/vendor/sokol_app.h',
+    'stdlib/ui/native/vendor/sokol_gfx.h',
+    'stdlib/ui/native/vendor/sokol_glue.h',
+    'stdlib/ui/native/vendor/stb_image_write.h',
+    'stdlib/ui/native/vendor/stb_truetype.h',
+    'frozen/platform/maybrowser/native/vendor/stb_image.h',
+    'frozen/platform/maybrowser/native/vendor/stb_image_write.h',
+    'frozen/platform/maybrowser/native/vendor/stb_truetype.h',
+    'examples/apps/maynes/native/vendor/binjnes/LICENSE',
+    'examples/apps/maynes/roms/LICENSE',
+]
+
+
+def licenses():
+    # GitHub and package consumers read the root LICENSE; the extension needs
+    # its own copy inside the VSIX. Keep the manifests and notices in step so
+    # a vendored file cannot arrive without attribution.
+    errors = []
+    root = ROOT / 'LICENSE'
+    if not root.is_file():
+        return ['LICENSE: missing the repository license']
+    notice = root.read_text(errors='replace')
+    if 'MIT License' not in notice or 'THE SOFTWARE IS PROVIDED "AS IS"' not in notice:
+        errors.append('LICENSE: must keep the standard MIT text so license detectors recognize it')
+    editor = ROOT / 'editors/vscode/LICENSE'
+    if not editor.is_file() or editor.read_bytes() != root.read_bytes():
+        errors.append('editors/vscode/LICENSE: must match the root LICENSE byte for byte')
+    try:
+        cargo = (ROOT / 'Cargo.toml').read_text(errors='replace')
+    except OSError:
+        errors.append('Cargo.toml: unreadable')
+    else:
+        if 'license = "MIT"' not in cargo:
+            errors.append('Cargo.toml: workspace.package must declare license = "MIT"')
+    try:
+        package = json.loads((ROOT / 'editors/vscode/package.json').read_text(errors='replace'))
+    except (OSError, ValueError):
+        errors.append('editors/vscode/package.json: unreadable')
+    else:
+        if package.get('license') != 'MIT':
+            errors.append('editors/vscode/package.json: must declare "license": "MIT"')
+    manifest = ROOT / 'THIRD_PARTY_NOTICES.md'
+    if not manifest.is_file():
+        errors.append('THIRD_PARTY_NOTICES.md: missing third-party notices')
+    else:
+        listed = manifest.read_text(errors='replace')
+        for name in VENDORED:
+            if name not in listed:
+                errors.append(f'THIRD_PARTY_NOTICES.md: does not attribute {name}')
+    return errors
+
 
 def tool_boundaries(paths):
     # A tool's src/ directory is private to that tool. Code used by several
@@ -120,12 +175,12 @@ def main():
                                     cwd=ROOT).decode().split('\0')
     paths = checked(names)
     vendor = runpy.run_path(str(ROOT / 'scripts/vendor.py'))
-    errors = (problems(paths) + mirrors() + tool_boundaries(paths) +
+    errors = (problems(paths) + mirrors() + tool_boundaries(paths) + licenses() +
               [e for d in vendor['DIRECTORIES'] for e in vendor['check'](d)])
     for error in errors:
         print(error, file=sys.stderr)
     print(f'{"FAIL" if errors else "PASS"} repository links, JSON and Python syntax, native mirror, '
-          f'tool boundaries, vendored checksums ({len(paths)} files)')
+          f'tool boundaries, licenses and third-party notices, vendored checksums ({len(paths)} files)')
     return bool(errors)
 
 

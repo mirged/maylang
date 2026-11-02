@@ -91,3 +91,9 @@ code --install-extension /tmp/maylang.vsix
 * `syntaxes/maylang.tmLanguage.json` — TextMate grammar.
 * `language-configuration.json` — comments, brackets, indentation.
 * `snippets/maylang.json` — function / loop / `may` / `match` snippets.
+
+## License
+
+The extension is MIT-licensed; the full text is `LICENSE` in this directory.
+The repository-wide license and third-party notices are in the
+[root README](../../README.md#license).

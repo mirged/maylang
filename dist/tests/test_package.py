@@ -28,6 +28,9 @@ def main():
         metadata = json.loads((bundle / 'RELEASE.json').read_text())
         assert metadata == provenance['release'] and metadata['version'] == provenance['version']
         assert metadata['codename'] in (bundle / 'CHANGELOG.md').read_text()
+        assert (bundle / 'LICENSE').read_bytes() == (ROOT / 'LICENSE').read_bytes()
+        notices = (bundle / 'THIRD_PARTY_NOTICES.md').read_text()
+        assert 'floooh/sokol' in notices and 'binji/binjnes' in notices, notices
         env=os.environ.copy(); env['PATH']=str(bundle/'bin')+os.pathsep+env.get('PATH','')
         for variable in ('MAYC','MAYLANG_STDLIB','MAYPKG_MANIFEST','MAYPKG_ENTRY'): env.pop(variable,None)
         project=work/'project';project.mkdir()

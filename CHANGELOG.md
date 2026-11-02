@@ -1,5 +1,16 @@
 # Unreleased
 
+## Licensing
+
+- Add a root MIT [LICENSE](LICENSE) that covers the compiler, tools, standard
+  library, examples and native adapters, with
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) listing the vendored Sokol,
+  stb and binjnes sources plus the bundled homebrew ROM and reproducing their
+  notices ([#54](https://github.com/mirged/maylang/issues/54)). GitHub can now
+  detect the repository license. The release archive ships both files, the VS
+  Code extension LICENSE matches the root copy, and `make check` fails when a
+  vendored source loses its attribution or the manifests drift.
+
 ## Documentation
 
 - Doc comments are the single source of API descriptions

@@ -39,6 +39,14 @@ that span components. Directory depth was preserved where possible, so
 relative imports between `compiler/` and `tools/` siblings use
 `../../<group>/<component>/`.
 
+## Repository-wide files
+
+- [LICENSE](../LICENSE): the MIT license covering this repository.
+- [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md): vendored sources and
+  their licenses, shipped with the release archive.
+- [CONTRIBUTING.md](../CONTRIBUTING.md): checks, style, commits and licensing.
+- [AGENTS.md](../AGENTS.md): behavior, traps and commands for coding agents.
+
 ## Path migration
 
 The October 2026 re-layout replaced `toolchain/`, `example_projects/` and the top-level

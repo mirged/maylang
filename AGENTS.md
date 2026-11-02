@@ -39,6 +39,10 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
   anything you skipped because a dependency was missing.
 - Keep behavior changes separate from mechanical moves or reformatting so
   each can be reviewed.
+- The repository is MIT-licensed (`LICENSE`). Vendored sources keep their own
+  licenses and are listed in `THIRD_PARTY_NOTICES.md`; keep
+  `editors/vscode/LICENSE` byte-identical to the root copy and attribute any
+  new third-party file. `make check` enforces both.
 - Do not edit, fix or test anything under `frozen/`. It is kept for later
   but not built or maintained; see [frozen/README.md](frozen/README.md).
 
