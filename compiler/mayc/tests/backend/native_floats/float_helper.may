@@ -1,0 +1,7 @@
+// A call-bound Float helper: the call itself is the loop's work.
+fun dbl(x: Float) -> Float { return x * 2.0; }
+
+mut i: Int = 0;
+mut acc: Float = 1.0;
+while (i < 20000000) { acc = dbl(acc); i += 1; }
+print(acc);

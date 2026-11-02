@@ -1,0 +1,7 @@
+// A wider straight-line Float expression inside the callee.
+fun norm(a: Float, b: Float) -> Float { return a * a + b * b - 2.0 * a * b + 0.25; }
+
+mut i: Int = 0;
+mut acc: Float = 0.5;
+while (i < 5000000) { acc = norm(acc, 0.25); i += 1; }
+print(acc);

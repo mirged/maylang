@@ -1,0 +1,8 @@
+// A call-bound Float helper whose result feeds the next call, so the loop is
+// limited by the helper's latency chain.
+fun fma(a: Float, b: Float) -> Float { return a * 1.0000001 + b; }
+
+mut i: Int = 0;
+mut acc: Float = 1.0;
+while (i < 10000000) { acc = fma(acc, 0.5); i += 1; }
+print(acc);

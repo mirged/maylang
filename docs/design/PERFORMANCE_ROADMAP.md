@@ -185,7 +185,14 @@ CPython's.
   ([report](../../compiler/mayc/tests/backend/float-registers.md)).
 - **Native Float functions:** extend `words.may` so functions over `Int`,
   `Float`, `Ptr` and `Bool` compile to machine code with `Float` in XMM
-  registers (same binary64 semantics as the runtime).
+  registers (same binary64 semantics as the runtime). Partly done: a
+  straight-line Float function is native, with Float temporaries and locals in
+  XMM registers, Float results and parameters as words under the existing
+  word ABI, and the runtime's division-fault and NaN-comparison rules
+  ([report](../../compiler/mayc/tests/backend/native-floats.md)). A Float body
+  that contains a loop stays tagged, because its locals would sit in frame
+  slots and lose to the fat backend's XMM homes; loop bodies need an XMM home
+  scheme in the raw backend (native regions).
 - **Native regions:** compile loops whose variables are all native-typed as
   native code inside otherwise fat functions, instead of requiring the whole
   function to qualify.
@@ -318,7 +325,7 @@ the CI performance job publishes a fresh report.
 | 0 Measurement | tracked suite, `--no-opt`, oracle test and the CI report job done; GC statistics done |
 | 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
 | 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots, one-block constructors and guarded slot reads done ([design](STRUCT_LAYOUT.md), [report](../../compiler/mayc/tests/backend/struct-slots.md)); enum payload reads in `match` open, [#134](https://github.com/mirged/maylang/issues/134) |
-| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push`, string equality, inline map probing with the `??` fold ([report](../../compiler/mayc/tests/backend/map-probe.md)) and direct calls with register arguments ([report](../../compiler/mayc/tests/backend/direct-calls.md)) done; native regions, native Float functions and main-as-native open in [#132](https://github.com/mirged/maylang/issues/132) |
+| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push`, string equality, inline map probing with the `??` fold ([report](../../compiler/mayc/tests/backend/map-probe.md)), direct calls with register arguments ([report](../../compiler/mayc/tests/backend/direct-calls.md)) and straight-line native Float functions ([report](../../compiler/mayc/tests/backend/native-floats.md)) done; native Float loops, native regions and main-as-native open in [#132](https://github.com/mirged/maylang/issues/132) |
 | 4 IR optimizer | propagation, dead-code/store elimination and block-local CSE done ([report](../../compiler/mayc/tests/backend/ir-passes.md)); leaf-function inlining tried and measured (no win, not merged); LICM, check elimination, escape analysis, monomorphization and the raw-backend ports open in [#131](https://github.com/mirged/maylang/issues/131) |
 | 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation and returned pages measured negative and not merged ([report](../../compiler/mayc/tests/backend/inline-alloc.md), [#135](https://github.com/mirged/maylang/issues/135)); precise stack maps designed and measured ([design](STACK_MAPS.md)), open in [#135](https://github.com/mirged/maylang/issues/135) |
 | 6 Other targets | deferred (frozen) |

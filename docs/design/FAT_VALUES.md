@@ -79,7 +79,10 @@ or the byte pointer `addr` returns. The `address * 8` decoding disappears.
   dynamic code passes their payloads in the SysV argument registers and tags
   the result, checking a type word only when it is not proven; their fat entry
   checks every type word and needs no shifts, for closures and function
-  values.
+  values. An `Int`, `Ptr` or `Bool` payload is the word itself and a `Float`
+  payload is its binary64 bit pattern, which the call site and the adapters
+  box as type word 3 (a `Bool` as 3 or 4); inside a Float function the values
+  live in XMM registers and only the boundary uses the words.
 
 ## Migration
 

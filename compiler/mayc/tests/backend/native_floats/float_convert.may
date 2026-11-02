@@ -1,0 +1,8 @@
+// A Float helper that converts an Int parameter: to_float is a runtime call in
+// tagged code and cvtsi2sd in native code.
+fun scale(x: Float, k: Int) -> Float { return x * to_float(k); }
+
+mut i: Int = 0;
+mut acc: Float = 1.0;
+while (i < 10000000) { acc = scale(acc, i + 1); i += 1; }
+print(acc);

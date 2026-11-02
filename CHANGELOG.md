@@ -22,6 +22,18 @@
   compiler's own self-compile is 4% slower and peaks 2.3% higher, a
   conservative-retention effect of building the compiler with the change.
   `tests/record_construct.may` and the oracle test cover the paths.
+- Native Float functions ([report](compiler/mayc/tests/backend/native-floats.md)):
+  a straight-line function whose parameters, result, locals and operations are
+  `Int`, `Float`, `Ptr` or `Bool` now compiles to native-word machine code. A
+  Float is its binary64 bit pattern in a word, so the word call ABI, fat entry
+  and word adapters are unchanged; inside the function XMM8-15 hold the Float
+  locals and XMM2-7 the Float temporaries, and `+ - * /` and the six
+  comparisons run as SSE with the runtime's division-fault and NaN rules.
+  Call-bound Float helpers are 3-53% faster (26-53% for expressions wider than
+  one multiply), including `to_float`, which was a runtime call. A Float body
+  that contains a loop stays tagged, so the cross-language Mandelbrot and
+  n-body numbers are unchanged; `tests/native_floats.may` and the oracle test
+  cover the semantics.
 - Value propagation, dead code and block-local CSE before the fat backend
   ([report](compiler/mayc/tests/backend/ir-passes.md)): `src/ir_opt.may`
   propagates copies, eliminates repeated field and element reads in a
