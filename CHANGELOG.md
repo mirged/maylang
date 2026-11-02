@@ -2,6 +2,18 @@
 
 ## Performance
 
+- Inline map probing and the `??` fast path ([report](compiler/mayc/tests/backend/map-probe.md)):
+  `m[k]` with a receiver the checker proved a `Map` and a key proved `Str` or
+  `Int` walks the runtime's hash table inline, keeping `rt_index_get` for
+  non-map receivers, dynamic `Any` values, other key types, maps below the
+  hash-table threshold and every other case. A `??` whose
+  indexed value is read only by the coalesce's copy and branch takes that branch
+  from the value the probe loaded, with no temporary round trip; the nil test
+  stays because a present entry can hold nil through an `Any` alias. The hashmap
+  workload drops from 110 to 103 ms (-6.9%) and a probe-heavy workload from 240
+  to 182 ms (-24.1%); the sieve and string controls are unchanged (their
+  executables are byte-identical). Both paths are off under `--no-opt`, and
+  `tests/map_probe.may` plus the oracle test cover them.
 - Inline `push` and string equality ([report](compiler/mayc/tests/backend/inline-paths.md)):
   a push into a list with spare capacity stores the element at its kind's width
   and bumps the count, falling back to `rt_push` for growth, a widening element

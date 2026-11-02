@@ -37,10 +37,10 @@ take the existing path. The shortcut runs after `fat_operands`, which leaves
 the operands in R9/R8 and RDX/RAX, so nothing is reloaded.
 
 **Coalesce.** The third bullet of the issue, skipping the nil test for a
-present map value, is not implemented: `fat_index` inlines list indexing only,
-so a map probe is still `rt_index_get` and there is no probe state at the
-branch to reuse. The branch is also cheap next to the probe. Doing this needs
-map probing inlined first, which is a different change.
+present map value, needed map probing inlined first and is a separate change:
+[map-probe.md](map-probe.md) inlines the Str/Int hash-table walk and folds the
+`??` branch into it. A present value can still be nil through an `Any` alias,
+so that change keeps the type-word test rather than removing it.
 
 Both fast paths are skipped under `--no-opt`.
 
