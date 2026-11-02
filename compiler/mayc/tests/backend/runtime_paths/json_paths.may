@@ -1,0 +1,10 @@
+// json: encode a 2 000-element array and decode a 20 000-character object.
+let xs: List<Int> = [];
+mut i: Int = 0;
+while (i < 2000) { push(xs, i * 13); i += 1; }
+let text: Str = json_stringify(xs);
+print(len(text), substring(text, 0, 12));
+
+let blob: Str = "{\"name\": \"" + repeat("a", 20000) + "\", \"n\": 7}";
+let parsed: Any = json_parse(blob);
+print(len(parsed.name), parsed.n);

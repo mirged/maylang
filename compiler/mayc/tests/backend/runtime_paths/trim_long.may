@@ -1,0 +1,10 @@
+// trim_long: `trim` of a 50 000-character string with a 20 000-space prefix
+// and a 10 000-space suffix, repeated five times.
+let body: Str = repeat(" ", 20000) + repeat("x", 20000) + repeat(" ", 10000);
+mut total: Int = 0;
+mut i: Int = 0;
+while (i < 5) { total += len(trim(body)); i += 1; }
+print(len(body), total);
+
+// trim of an already-trimmed string, of a fully spaced one, and of an empty one.
+print(len(trim("  a b  ")), len(trim(repeat(" ", 1000))), len(trim("")));

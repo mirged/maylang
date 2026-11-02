@@ -1,0 +1,12 @@
+// keys_values: `keys`/`values` of a 50 000-entry Str-keyed map, twenty times.
+let m: Map<Str, Int> = {};
+mut i: Int = 0;
+while (i < 50000) { m["k" + str(i)] = i; i += 1; }
+mut total: Int = 0;
+mut round: Int = 0;
+while (round < 20) {
+    for k: Str in keys(m) { total += len(k); }
+    for v: Int in values(m) { total += v % 3; }
+    round += 1;
+}
+print(len(keys(m)), len(values(m)), total);

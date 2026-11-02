@@ -118,7 +118,12 @@ Low risk, large wins, no code generator changes.
 - Audit the remaining runtime library (`native.may`, `prelude.may`,
   `runtime/fat.may`) for other quadratic or allocation-heavy paths: string
   slicing and searching, `len` on strings (code-point counting), list
-  `insert`/`remove`, `keys`/`values`, sorting.
+  `insert`/`remove`, `keys`/`values`, sorting. Done:
+  [runtime audit](../../compiler/mayc/tests/backend/runtime-audit.md) fixes
+  code-point indexing in loops, pairwise concatenation in `str`/padding/JSON,
+  insertion sorts and `unique`; `substring`, `index_of`, `split` and list
+  `insert`/`remove` (neither exists in the library) stay as they were, and the
+  report says why.
 
 Goal: Maylang is not slower than CPython on any baseline benchmark except the
 struct-bound ones, and no map operation is worse than amortized O(1).

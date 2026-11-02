@@ -1,0 +1,9 @@
+// display_list: `str` of a 20 000-element List<Int>, then of a nested list.
+let xs: List<Int> = [];
+mut i: Int = 0;
+while (i < 20000) { push(xs, i * 37); i += 1; }
+let text: Str = str(xs);
+let nested: List<Any> = [xs, xs];
+let text2: Str = str(nested);
+print(len(text), substring(text, 0, 6), substring(text, len(text) - 6, 6));
+print(len(text2), substring(text2, 0, 8));

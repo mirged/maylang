@@ -1,0 +1,6 @@
+// str_reverse: `reverse` of a 20 000-character ASCII string and of a UTF-8
+// string with two- and three-byte sequences.
+let ascii: Any = reverse(repeat("ab", 10000));
+let utf8: Any = reverse(repeat("é·", 2500));
+print(len(ascii), substring(ascii, 0, 4), substring(ascii, len(ascii) - 4, 4));
+print(len(utf8), substring(utf8, 0, 2), utf8 == repeat("·é", 2500));

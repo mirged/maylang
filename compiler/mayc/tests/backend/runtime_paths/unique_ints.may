@@ -1,0 +1,9 @@
+// unique_ints: `unique` over 8 000 Ints with 2 000 distinct values.
+let xs: List<Int> = [];
+mut i: Int = 0;
+while (i < 8000) { push(xs, (i * 7919) % 2000); i += 1; }
+let u: Any = unique(xs);
+mut sum: Int = 0;
+i = 0;
+while (i < len(u)) { sum += int(u[i]); i += 1; }
+print(len(u), sum);

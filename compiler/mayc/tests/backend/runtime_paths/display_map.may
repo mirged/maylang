@@ -1,0 +1,7 @@
+// display_map: `str` of a 15 000-entry Int-keyed map, which sorts its entries
+// by key before printing.
+let m: Map<Int, Int> = {};
+mut i: Int = 0;
+while (i < 15000) { m[(i * 7919) % 15000] = i * 3; i += 1; }
+let text: Str = str(m);
+print(len(text), substring(text, 0, 12), substring(text, len(text) - 8, 8));

@@ -1,0 +1,12 @@
+// starts_ends: 2 000 `starts_with`/`ends_with` checks on a 100 000-character
+// line with a short prefix and suffix.
+let line: Str = ">>>" + repeat("x", 99992) + "<<<";
+mut hits: Int = 0;
+mut i: Int = 0;
+while (i < 2000) {
+    if (starts_with(line, ">>>")) { hits += 1; }
+    if (ends_with(line, "<<<")) { hits += 1; }
+    if (!starts_with(line, ">>>x")) { hits += 1; }
+    i += 1;
+}
+print(len(line), hits);

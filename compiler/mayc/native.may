@@ -75,6 +75,48 @@ fun __native_string_bytes(s: Any, start: Any, count: Any) -> Any {
     __native_copy_bytes(addr(out), addr(s) + start, count);
     return out;
 }
+/// Report whether `s`'s leading bytes [start, start + p) equal `p`'s bytes; native prelude helper.
+///
+/// Byte comparison, not code point comparison: the caller decides whether that is equivalent.
+fun __native_bytes_match(s: Any, start: Any, p: Any) -> Any {
+    let left: Any = addr(s) + start;
+    let right: Any = addr(p);
+    let n: Any = load64(addr(p) - 8);
+    mut i: Any = 0;
+    while (i + 8 <= n) {
+        if (load64(left + i) != load64(right + i)) { return false; }
+        i += 8;
+    }
+    while (i < n) {
+        if (load8(left + i) != load8(right + i)) { return false; }
+        i += 1;
+    }
+    return true;
+}
+/// Report whether walking `s` by leading-byte widths lands exactly on its byte length; helper.
+///
+/// True for well-formed UTF-8 and for any slicing where every sequence fits, which is what makes
+/// `__native_utf8_width`'s walk agree with the code point count of `len`. A truncated sequence
+/// (the last byte starts a two- or four-byte sequence) is not consistent, and the string
+/// functions fall back to their code point loop for it.
+fun __native_utf8_consistent(s: Any) -> Any {
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
+    mut offset: Any = 0;
+    while (offset < n) {
+        let width: Any = __native_utf8_width(load8(bytes + offset));
+        if (offset + width > n) { return false; }
+        offset += width;
+    }
+    return true;
+}
+/// Report whether byte `offset` starts a code point of `s` (or is its end); helper.
+fun __native_boundary(s: Any, offset: Any) -> Any {
+    let bytes: Any = addr(s);
+    if (offset >= load64(bytes - 8)) { return true; }
+    let b: Any = load8(bytes + offset);
+    return b < 128 || b >= 192;
+}
 /// Copy `count` code points of `s`, starting at code point index `start`.
 ///
 /// The third argument is a count, not an end index, and the range must lie within `s`.
@@ -112,6 +154,10 @@ fun is_lower_code(c: Any) -> Any { return c >= 97 && c <= 122; }
 
 /// Remove whitespace from the beginning and end of a string.
 ///
+/// Whitespace is ASCII space, tab, LF and CR, and those are single bytes, so the scan runs over
+/// bytes: a code point that is not one of them cannot contain one of their bytes. Trimming a long
+/// indented string was quadratic while it indexed by code point from the start for every byte.
+///
 /// Params:
 /// - `s`: The input string.
 ///
@@ -122,12 +168,13 @@ fun is_lower_code(c: Any) -> Any { return c >= 97 && c <= 122; }
 /// print(trim("  hello  "));
 /// ```
 fun trim(s: Any) -> Any {
-    let n: Any = len(s);
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
     mut a: Any = 0;
-    while (a < n && is_space_code(char_at(s, a))) { a = a + 1; }
+    while (a < n && is_space_code(load8(bytes + a))) { a = a + 1; }
     mut b: Any = n;
-    while (b > a && is_space_code(char_at(s, b - 1))) { b = b - 1; }
-    return substring(s, a, b - a);
+    while (b > a && is_space_code(load8(bytes + b - 1))) { b = b - 1; }
+    return __native_string_bytes(s, a, b - a);
 }
 
 /// Copy `s`, shifting the 26 ASCII letters starting at `low` by `delta`; native prelude helper.
@@ -184,14 +231,44 @@ fun index_of(s: Any, sub: Any) -> Any {
 fun contains(s: Any, sub: Any) -> Any { return index_of(s, sub) >= 0; }
 
 /// Report whether the string begins with the supplied prefix.
+///
+/// Compares bytes instead of allocating a substring of the prefix's code point length, so the cost
+/// is the prefix length rather than the string length. A consistent prefix (one whose width walk
+/// lands on its byte length, so its code point count matches) walks identically inside a matching
+/// `s`, which is why the byte comparison is the same test as the code point one; a truncated
+/// prefix takes the code point path.
 fun starts_with(s: Any, prefix: Any) -> Any {
+    let m: Any = load64(addr(prefix) - 8);
+    if (m > load64(addr(s) - 8)) { return false; }
+    if (!__native_utf8_consistent(prefix)) { return __native_starts_with_codepoints(s, prefix); }
+    return __native_bytes_match(s, 0, prefix);
+}
+
+/// `starts_with` by code point index, for prefixes that are not byte-consistent; helper.
+fun __native_starts_with_codepoints(s: Any, prefix: Any) -> Any {
     let n: Any = len(prefix);
     if (n > len(s)) { return false; }
     return substring(s, 0, n) == prefix;
 }
 
 /// Report whether the string ends with the supplied suffix.
+///
+/// As `starts_with`, the comparison runs over bytes with no allocation. The byte offset of the
+/// suffix must also start a code point (otherwise the suffix would be compared against a shorter
+/// last code point), and an offset that is not a strict boundary, or a suffix that is not
+/// byte-consistent, takes the code point path.
 fun ends_with(s: Any, suffix: Any) -> Any {
+    let m: Any = load64(addr(suffix) - 8);
+    let n: Any = load64(addr(s) - 8);
+    if (m > n) { return false; }
+    if (!__native_utf8_consistent(suffix)) { return __native_ends_with_codepoints(s, suffix); }
+    let offset: Any = n - m;
+    if (!__native_boundary(s, offset)) { return __native_ends_with_codepoints(s, suffix); }
+    return __native_bytes_match(s, offset, suffix);
+}
+
+/// `ends_with` by code point index, for suffixes that are not byte-consistent; helper.
+fun __native_ends_with_codepoints(s: Any, suffix: Any) -> Any {
     let n: Any = len(suffix);
     if (n > len(s)) { return false; }
     return substring(s, len(s) - n, n) == suffix;
@@ -344,23 +421,27 @@ fun int(x: Any) -> Any {
     if (t == 6) { return trunc(x); }
     if (t != 1) { return raise_error("runtime", "cannot convert to Int"); }
     let s: Any = trim(x);
-    let n: Any = len(s);
+    // Digits, the sign and the (already trimmed) whitespace are ASCII, so the scan runs over
+    // bytes: `char_at` would re-walk the string from its start for every digit and make a long
+    // decimal quadratic.
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
     mut i: Any = 0;
-    if (n > 0 && (char_at(s, 0) == 45 || char_at(s, 0) == 43)) { i = 1; }
+    if (n > 0 && (load8(bytes) == 45 || load8(bytes) == 43)) { i = 1; }
     if (i >= n) { return raise_error("runtime", "cannot convert to Int"); }
     let start: Any = i;
     while (i < n) {
-        let c: Any = char_at(s, i);
+        let c: Any = load8(bytes + i);
         if (c < 48 || c > 57) { return raise_error("runtime", "cannot convert to Int"); }
         i = i + 1;
     }
     mut sign: Any = 1;
-    if (char_at(s, 0) == 45) { sign = -1; }
+    if (load8(bytes) == 45) { sign = -1; }
     mut v: Any = 0;
     mut k: Any = start;
     while (k < n) {
         // Accumulate negative input directly so the minimum Int is representable.
-        v = v * 10 + (char_at(s, k) - 48) * sign;
+        v = v * 10 + (load8(bytes + k) - 48) * sign;
         k = k + 1;
     }
     return v;
@@ -396,6 +477,11 @@ fun float_str(f: Any) -> Any { return __math_format(f); }
 
 /// Build a list with the input items in reverse order.
 ///
+/// A string is reversed by bytes: each code point is copied to its mirrored byte offset, one pass
+/// over the input. The previous `char_at`/`char_from` loop re-walked the string from its start for
+/// every character, which is quadratic; a string whose width walk does not fit its byte length
+/// takes that loop instead.
+///
 /// Params:
 /// - `x`: The input list.
 ///
@@ -408,11 +494,30 @@ fun float_str(f: Any) -> Any { return __math_format(f); }
 fun reverse(x: Any) -> Any {
     let n: Any = len(x);
     if (value_tag(x) == 1) {
+        if (__native_utf8_consistent(x)) { return __native_reverse_bytes(x); }
         mut out: Any = "";
         for i: Any in 0..n { out = out + char_from(char_at(x, n - 1 - i)); }
         return out;
     }
     return [x[n - 1 - i] for i: Any in 0..n];
+}
+
+/// Reverse code points of a byte-consistent string, copying each one to its mirrored offset;
+/// helper.
+fun __native_reverse_bytes(s: Any) -> Any {
+    let n: Any = load64(addr(s) - 8);
+    let out: Any = repeat("\0", n);
+    let source: Int = addr(s);
+    let target: Int = addr(out);
+    mut offset: Int = 0;
+    mut at: Int = n;
+    while (offset < n) {
+        let width: Int = __native_utf8_width(load8(source + offset));
+        at -= width;
+        __native_copy_bytes(target + at, source + offset, width);
+        offset += width;
+    }
+    return out;
 }
 
 /// Build the list of integers from `a` (inclusive) to `b` (exclusive).
@@ -490,6 +595,9 @@ fun abs(x: Any) -> Any { return if (cmp(x, 0) < 0) { 0 - x } else { x }; }
 /// Return the items in ascending order using the standard comparison function. The input list is
 /// preserved.
 ///
+/// The sort is a stable bottom-up merge sort over a copy of the input: O(n log n) comparisons
+/// instead of the quadratic insertion sort's O(n²). Equal items keep their input order.
+///
 /// Params:
 /// - `xs`: A list of comparable values.
 ///
@@ -500,19 +608,38 @@ fun abs(x: Any) -> Any { return if (cmp(x, 0) < 0) { 0 - x } else { x }; }
 /// print(sort([3, 1, 2]));
 /// ```
 fun sort(xs: Any) -> Any {
-    let a: Any = [];
-    for x: Any in xs { push(a, x); }
-    let n: Any = len(a);
-    for i: Any in 1..n {
-        let key: Any = a[i];
-        mut j: Any = i - 1;
-        while (j >= 0 && cmp(a[j], key) > 0) {
-            a[j + 1] = a[j];
-            j = j - 1;
+    mut src: Any = [];
+    for x: Any in xs { push(src, x); }
+    let n: Any = len(src);
+    if (n < 2) { return src; }
+    mut dst: Any = [];
+    for i: Any in 0..n { push(dst, nil); }
+    mut width: Any = 1;
+    while (width < n) {
+        mut start: Any = 0;
+        while (start < n) {
+            let mid: Any = min(start + width, n);
+            let end: Any = min(start + 2 * width, n);
+            mut left: Any = start;
+            mut right: Any = mid;
+            mut write: Any = start;
+            // `cmp(left, right) <= 0` takes from the left run first, which is why the
+            // sort stays stable.
+            while (left < mid && right < end) {
+                if (cmp(src[left], src[right]) <= 0) { dst[write] = src[left]; left += 1; }
+                else { dst[write] = src[right]; right += 1; }
+                write += 1;
+            }
+            while (left < mid) { dst[write] = src[left]; left += 1; write += 1; }
+            while (right < end) { dst[write] = src[right]; right += 1; write += 1; }
+            start = end;
         }
-        a[j + 1] = key;
+        let swap: Any = src;
+        src = dst;
+        dst = swap;
+        width = width * 2;
     }
-    return a;
+    return src;
 }
 
 // ------------------------------------------------------------------ maps
@@ -781,13 +908,16 @@ fun parse_int(x: Any) -> Any {
     if (value_tag(x) == 0) { return x; }
     if (value_tag(x) == 6) { return trunc(x); }
     let s: Any = trim(x);
-    let n: Any = len(s);
+    // As in `int`, the digits and sign are ASCII: walk bytes rather than re-indexing by code
+    // point, which is quadratic in the number of digits.
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
     if (n == 0) { return raise_error("parse", "cannot parse as Int"); }
     mut i: Any = 0;
-    if (char_at(s, 0) == 45 || char_at(s, 0) == 43) { i = 1; }
+    if (load8(bytes) == 45 || load8(bytes) == 43) { i = 1; }
     if (i >= n) { return raise_error("parse", "cannot parse as Int"); }
     while (i < n) {
-        let c: Any = char_at(s, i);
+        let c: Any = load8(bytes + i);
         if (c < 48 || c > 57) { return raise_error("parse", "cannot parse as Int"); }
         i = i + 1;
     }
@@ -865,10 +995,16 @@ fun cbrt(x: Any) -> Any {
 
 /// Report whether a code is JSON whitespace (space, tab, LF or CR); JSON parser helper.
 fun jd_is_space(c: Any) -> Any { return c == 32 || c == 9 || c == 10 || c == 13; }
-/// Skip JSON whitespace from index `i` and return the next index.
+/// Skip JSON whitespace from byte offset `i` and return the next byte offset.
+///
+/// The JSON scanner works in byte offsets: the structural characters it looks for are ASCII, and
+/// `char_at` re-walked the string from its start for every character, which made parsing a long
+/// document quadratic.
 fun jd_skip(s: Any, i: Any) -> Any {
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
     mut j: Any = i;
-    while (j < len(s) && jd_is_space(char_at(s, j))) { j = j + 1; }
+    while (j < n && jd_is_space(load8(bytes + j))) { j = j + 1; }
     return j;
 }
 
@@ -880,84 +1016,116 @@ fun jd_hex(c: Any) -> Any {
     return raise_error("parse", "invalid JSON Unicode escape");
 }
 
-/// Decode a quoted JSON string and return the parsed value and next position.
+/// Decode a quoted JSON string at byte offset `i` and return the text and the next byte offset.
+///
+/// Runs of unescaped bytes are copied once per run and the runs are joined with a single
+/// allocation, instead of appending one character at a time.
 fun jd_string(s: Any, i: Any) -> Any {
-    mut out: Any = "";
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
+    let parts: Any = [];
     mut j: Any = i;
-    while (j < len(s)) {
-        let c: Any = char_at(s, j);
-        if (c == 34) { return [out, j + 1]; }
+    mut start: Any = i;
+    while (j < n) {
+        let c: Any = load8(bytes + j);
+        if (c == 34) {
+            push(parts, __native_string_bytes(s, start, j - start));
+            return [__join_list(parts, ""), j + 1];
+        }
         if (c == 92) {
+            push(parts, __native_string_bytes(s, start, j - start));
             j = j + 1;
-            let e: Any = char_at(s, j);
-            if (e == 110) { out = out + char_from(10); }
-            else if (e == 116) { out = out + char_from(9); }
-            else if (e == 114) { out = out + char_from(13); }
-            else if (e == 98) { out = out + char_from(8); }
-            else if (e == 102) { out = out + char_from(12); }
-            else if (e == 117) {
-                if (j + 4 >= len(s)) { return raise_error("parse", "incomplete JSON Unicode escape"); }
+            if (j >= n) { return raise_error("parse", "incomplete JSON escape"); }
+            let b0: Any = load8(bytes + j);
+            // The escaped character's code point and width, decoded from bytes (the fat backend has
+            // no direct `utf8_decode` call here); a truncated tail is clamped to the input.
+            mut w: Any = __native_utf8_width(b0);
+            if (j + w > n) { w = n - j; }
+            mut e: Any = b0;
+            if (w == 2) { e = (b0 - 192) * 64 + (load8(bytes + j + 1) - 128); }
+            if (w == 3) { e = (b0 - 224) * 4096 + (load8(bytes + j + 1) - 128) * 64 + (load8(bytes + j + 2) - 128); }
+            if (w == 4) {
+                e = (b0 - 240) * 262144 + (load8(bytes + j + 1) - 128) * 4096
+                    + (load8(bytes + j + 2) - 128) * 64 + (load8(bytes + j + 3) - 128);
+            }
+            if (e == 117) {
+                if (j + 4 >= n) { return raise_error("parse", "incomplete JSON Unicode escape"); }
                 mut code: Any = 0;
-                for k: Any in 1..=4 { code = code * 16 + jd_hex(char_at(s, j + k)); }
+                for k: Any in 1..=4 { code = code * 16 + jd_hex(load8(bytes + j + k)); }
                 j = j + 4;
                 if (code >= 55296 && code <= 56319) {
-                    if (j + 6 >= len(s) || char_at(s, j + 1) != 92 || char_at(s, j + 2) != 117) {
+                    if (j + 6 >= n || load8(bytes + j + 1) != 92 || load8(bytes + j + 2) != 117) {
                         return raise_error("parse", "missing low surrogate");
                     }
                     mut low: Any = 0;
-                    for k: Any in 3..=6 { low = low * 16 + jd_hex(char_at(s, j + k)); }
+                    for k: Any in 3..=6 { low = low * 16 + jd_hex(load8(bytes + j + k)); }
                     if (low < 56320 || low > 57343) { return raise_error("parse", "invalid low surrogate"); }
                     code = 65536 + (code - 55296) * 1024 + low - 56320;
                     j = j + 6;
                 } else if (code >= 56320 && code <= 57343) { return raise_error("parse", "unexpected low surrogate"); }
-                out = out + char_from(code);
-            } else { out = out + char_from(e); }
-        } else {
-            out = out + char_from(c);
+                push(parts, char_from(code));
+            } else {
+                if (e == 110) { push(parts, char_from(10)); }
+                else if (e == 116) { push(parts, char_from(9)); }
+                else if (e == 114) { push(parts, char_from(13)); }
+                else if (e == 98) { push(parts, char_from(8)); }
+                else if (e == 102) { push(parts, char_from(12)); }
+                else { push(parts, char_from(e)); }
+                // A raw non-ASCII byte after the backslash is escaped as its code point.
+                j = j + w - 1;
+            }
+            start = j + 1;
         }
         j = j + 1;
     }
-    return [out, j];
+    push(parts, __native_string_bytes(s, start, n - start));
+    return [__join_list(parts, ""), j];
 }
 
-/// Read a JSON number and return the parsed value and next position.
+/// Read a JSON number at byte offset `i` and return the parsed value and next byte offset.
 fun jd_number(s: Any, i: Any) -> Any {
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
     mut j: Any = i;
-    if (j < len(s) && char_at(s, j) == 45) { j = j + 1; }
+    if (j < n && load8(bytes + j) == 45) { j = j + 1; }
     mut is_float: Any = false;
-    while (j < len(s)) {
-        let c: Any = char_at(s, j);
+    while (j < n) {
+        let c: Any = load8(bytes + j);
         if (c >= 48 && c <= 57) { j = j + 1; }
         else if (c == 46) { is_float = true; j = j + 1; }
         else if (c == 101 || c == 69) { is_float = true; j = j + 1; }
         else if (c == 43 || c == 45) { j = j + 1; }
         else { break; }
     }
-    let text: Any = substring(s, i, j - i);
+    let text: Any = __native_string_bytes(s, i, j - i);
     if (is_float) { return [float(text), j]; }
     return [int(text), j];
 }
 
-/// Read a JSON array and return the parsed list and next position.
+/// Read a JSON array at byte offset `i` and return the parsed list and next byte offset.
 fun jd_array(s: Any, i: Any) -> Any {
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
     mut out: Any = [];
     mut j: Any = jd_skip(s, i);
-    if (j < len(s) && char_at(s, j) == 93) { return [out, j + 1]; }
+    if (j < n && load8(bytes + j) == 93) { return [out, j + 1]; }
     while (true) {
         let r: Any = jd_value(s, jd_skip(s, j));
         push(out, r[0]);
         j = jd_skip(s, r[1]);
-        if (j < len(s) && char_at(s, j) == 44) { j = j + 1; }
+        if (j < n && load8(bytes + j) == 44) { j = j + 1; }
         else { break; }
     }
     return [out, j + 1];
 }
 
-/// Read a JSON object and return the parsed map and next position.
+/// Read a JSON object at byte offset `i` and return the parsed map and next byte offset.
 fun jd_object(s: Any, i: Any) -> Any {
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
     let out: Any = to_map([]);
     mut j: Any = jd_skip(s, i);
-    if (j < len(s) && char_at(s, j) == 125) { return [out, j + 1]; }
+    if (j < n && load8(bytes + j) == 125) { return [out, j + 1]; }
     while (true) {
         j = jd_skip(s, j);
         let kr: Any = jd_string(s, j + 1);
@@ -966,30 +1134,32 @@ fun jd_object(s: Any, i: Any) -> Any {
         let vr: Any = jd_value(s, jd_skip(s, j));
         map_set(out, kr[0], vr[0]);
         j = jd_skip(s, vr[1]);
-        if (j < len(s) && char_at(s, j) == 44) { j = j + 1; }
+        if (j < n && load8(bytes + j) == 44) { j = j + 1; }
         else { break; }
     }
     return [out, j + 1];
 }
 
-/// Parse the JSON value at the next token and return the value and next position.
+/// Parse the JSON value at byte offset `i` and return it with the next byte offset.
 fun jd_value(s: Any, i: Any) -> Any {
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
     let j: Any = jd_skip(s, i);
-    if (j >= len(s)) { return raise_error("parse", "unexpected end of JSON"); }
-    let c: Any = char_at(s, j);
+    if (j >= n) { return raise_error("parse", "unexpected end of JSON"); }
+    let c: Any = load8(bytes + j);
     if (c == 123) { return jd_object(s, j + 1); }
     if (c == 91) { return jd_array(s, j + 1); }
     if (c == 34) { return jd_string(s, j + 1); }
     if (c == 116) {
-        if (j + 4 <= len(s) && substring(s, j, 4) == "true") { return [true, j + 4]; }
+        if (j + 4 <= n && __native_bytes_match(s, j, "true")) { return [true, j + 4]; }
         return raise_error("parse", "invalid JSON literal");
     }
     if (c == 102) {
-        if (j + 5 <= len(s) && substring(s, j, 5) == "false") { return [false, j + 5]; }
+        if (j + 5 <= n && __native_bytes_match(s, j, "false")) { return [false, j + 5]; }
         return raise_error("parse", "invalid JSON literal");
     }
     if (c == 110) {
-        if (j + 4 <= len(s) && substring(s, j, 4) == "null") { return [nil, j + 4]; }
+        if (j + 4 <= n && __native_bytes_match(s, j, "null")) { return [nil, j + 4]; }
         return raise_error("parse", "invalid JSON literal");
     }
     if (c == 45 || (c >= 48 && c <= 57)) { return jd_number(s, j); }
@@ -1014,12 +1184,46 @@ fun jd_value(s: Any, i: Any) -> Any {
 fun json_parse(s: Any) -> Any {
     let r: Any = jd_value(s, 0);
     let end: Any = jd_skip(s, r[1]);
-    if (end != len(s)) { return raise_error("parse", "trailing characters after JSON"); }
+    if (end != load64(addr(s) - 8)) { return raise_error("parse", "trailing characters after JSON"); }
     return r[0];
 }
 
 /// Quote and escape a string for JSON, including control characters.
+///
+/// Unescaped runs are copied once and the pieces are joined with one allocation; appending a
+/// character at a time copied the whole prefix again per character. A string whose width walk does
+/// not fit its byte length keeps the code point loop.
 fun jq_escape(s: Any) -> Any {
+    if (!__native_utf8_consistent(s)) { return __jd_escape_codepoints(s); }
+    let bytes: Any = addr(s);
+    let n: Any = load64(bytes - 8);
+    let parts: Any = ["\""];
+    mut run: Any = 0;
+    mut j: Any = 0;
+    while (j < n) {
+        let c: Any = load8(bytes + j);
+        if (c == 34 || c == 92 || c < 32) {
+            if (j > run) { push(parts, __native_string_bytes(s, run, j - run)); }
+            if (c == 34) { push(parts, "\\\""); }
+            else if (c == 92) { push(parts, "\\\\"); }
+            else if (c == 10) { push(parts, "\\n"); }
+            else if (c == 9) { push(parts, "\\t"); }
+            else if (c == 13) { push(parts, "\\r"); }
+            else {
+                let hex: Any = "0123456789abcdef";
+                push(parts, "\\u00" + hex[c / 16] + hex[c % 16]);
+            }
+            run = j + 1;
+        }
+        j = j + 1;
+    }
+    if (j > run) { push(parts, __native_string_bytes(s, run, j - run)); }
+    push(parts, "\"");
+    return __join_list(parts, "");
+}
+
+/// `jq_escape` by code point index, for strings that are not byte-consistent; helper.
+fun __jd_escape_codepoints(s: Any) -> Any {
     mut out: Any = "\"";
     for i: Any in 0..len(s) {
         let c: Any = char_at(s, i);
@@ -1041,7 +1245,8 @@ fun jq_escape(s: Any) -> Any {
 /// recursively.
 ///
 /// Object keys are sorted before serialization and must be strings. Cyclic collections are not
-/// valid JSON trees; do not pass self-referential values.
+/// valid JSON trees; do not pass self-referential values. Parts are collected and joined once, so
+/// encoding is linear in the output size instead of copying the growing prefix per member.
 ///
 /// Params:
 /// - `v`: The value to encode.
@@ -1061,23 +1266,27 @@ fun json_stringify(v: Any) -> Any {
     if (t == 6) { return str(v); }
     if (t == 1) { return jq_escape(v); }
     if (t == 5) {
-        mut out: Any = "[";
+        let parts: Any = ["["];
         let n: Any = len(v);
         for i: Any in 0..n {
-            if (i > 0) { out = out + ","; }
-            out = out + json_stringify(v[i]);
+            if (i > 0) { push(parts, ","); }
+            push(parts, json_stringify(v[i]));
         }
-        return out + "]";
+        push(parts, "]");
+        return __join_list(parts, "");
     }
     if (t == 7) {
-        mut out: Any = "{";
+        let parts: Any = ["{"];
         let ks: Any = sort(map_keys(v));
         let n: Any = len(ks);
         for i: Any in 0..n {
-            if (i > 0) { out = out + ","; }
-            out = out + jq_escape(ks[i]) + ":" + json_stringify(map_get(v, ks[i]));
+            if (i > 0) { push(parts, ","); }
+            push(parts, jq_escape(ks[i]));
+            push(parts, ":");
+            push(parts, json_stringify(map_get(v, ks[i])));
         }
-        return out + "}";
+        push(parts, "}");
+        return __join_list(parts, "");
     }
     return "null";
 }
@@ -1177,9 +1386,20 @@ fun flatten(xss: Any) -> Any {
 }
 
 /// Return distinct list values in first-occurrence order.
+///
+/// A map records the values already seen. Map key equality is the same total equality
+/// (`value_eq`) that `has` uses for lists — strings by bytes, numbers by value, collections and
+/// functions by identity — so this is the linear form of the former scan, which compared every
+/// new value against every value already kept.
 fun unique(xs: Any) -> Any {
     let out: Any = [];
-    for x: Any in xs { if (!has(out, x)) { push(out, x); } }
+    let seen: Any = to_map([]);
+    for x: Any in xs {
+        if (!map_has(seen, x)) {
+            map_set(seen, x, true);
+            push(out, x);
+        }
+    }
     return out;
 }
 
@@ -1202,18 +1422,34 @@ fun range_step(a: Any, b: Any, step: Any) -> Any {
 
 /// Prepend whole padding strings until the code-point width is reached; empty padding faults when
 /// more text is needed.
+///
+/// The number of padding copies is computed and built with `repeat`, which allocates once; adding
+/// one pad at a time copied the whole prefix again per copy.
 fun pad_left(s: Any, width: Any, ch: Any) -> Any {
-    mut out: Any = s;
-    while (len(out) < width) { out = ch + out; }
-    return out;
+    let pad: Any = len(ch);
+    let have: Any = len(s);
+    if (pad == 0) {
+        // An empty pad cannot reach the width; keep the original non-terminating behaviour.
+        mut out: Any = s;
+        while (len(out) < width) { out = ch + out; }
+        return out;
+    }
+    if (have >= width) { return s; }
+    return repeat(ch, (width - have + pad - 1) / pad) + s;
 }
 
 /// Append whole padding strings until the code-point width is reached; empty padding faults when
 /// more text is needed.
 fun pad_right(s: Any, width: Any, ch: Any) -> Any {
-    mut out: Any = s;
-    while (len(out) < width) { out = out + ch; }
-    return out;
+    let pad: Any = len(ch);
+    let have: Any = len(s);
+    if (pad == 0) {
+        mut out: Any = s;
+        while (len(out) < width) { out = out + ch; }
+        return out;
+    }
+    if (have >= width) { return s; }
+    return s + repeat(ch, (width - have + pad - 1) / pad);
 }
 
 /// Split on LF, preserving empty fields.

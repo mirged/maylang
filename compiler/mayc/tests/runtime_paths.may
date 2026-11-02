@@ -1,0 +1,110 @@
+// Feature fixture for the runtime-library audit: display of collections, sort,
+// unique, trim/pad/reverse, integer text, prefix/suffix tests, search, keys and
+// values, and JSON reading/writing. Every line must keep its old text.
+
+// ---- display: nested lists, maps with sorted keys, strings quoted, cycles
+print(str([1, "a\"b", [2, [3]], nil, true, 1.5]));
+print(str({"b": 1, "a": [1, 2], "c": {"d": nil}}));
+print(str([]), str({}), str(""), str(nil));
+print(str([repeat("x", 3)]), len(str(range(0, 20))));
+// Map display sorts entries by key, across the merge widths and the sizes where
+// the runtime keeps no index table.
+let wide: Map<Int, Int> = {};
+mut k: Int = 0;
+while (k < 40) { wide[(k * 17) % 41] = k; k += 1; }
+print(str(wide));
+print(str({"b": 1, "a": 2}), str({}), str({3: "c", 1: "a", 2: "b"}));
+let cycle: List<Any> = [];
+push(cycle, 1);
+push(cycle, cycle);
+print(str(cycle));
+print(may { str(json_parse("nope")) } otherwise { err.kind });
+
+// ---- sort: numbers, strings, equal keys, already sorted and reversed input
+print(sort([3, 1, 2]), sort([]), sort([1]), sort([1, 1, 1]));
+print(sort([3, 1, 2, 1, 3, 2, 0, -1]));
+print(sort(["pear", "apple", "fig", "Émile", "éclair", ""]));
+print(sort([2.5, -1.0, 0.0, 1e9, -0.0, 3.25]));
+let sorted_in: Any = range(0, 300);
+print(sorted_in[0], sort(sorted_in)[299]);
+let descending: List<Int> = [];
+mut i: Int = 300;
+while (i > 0) { push(descending, i); i -= 1; }
+let ascending: Any = sort(descending);
+print(ascending[0], ascending[299], len(ascending));
+let words: List<Str> = ["b", "a", "b", "a", "c"];
+print(sort(words));
+
+// ---- unique
+print(unique([1, 2, 2, 3, 1]), unique([]), unique(["a", "a", "b"]));
+print(unique([1, "1", 1.0, true, nil, "1", 1, nil]));
+let dup: List<Int> = [];
+i = 0;
+while (i < 2000) { push(dup, i % 50); i += 1; }
+let uniq: Any = unique(dup);
+print(len(uniq), uniq[0], uniq[49]);
+
+// ---- trim, pad, reverse
+print("[" + trim("  \t\r\n hello \n\t ") + "]");
+print("[" + trim("") + "]", len(trim("     ")), trim("é"), trim("  é  "));
+print("[" + pad_left("x", 7, "ab") + "]", "[" + pad_right("x", 8, "·") + "]");
+print("[" + pad_left("abc", 2, "-") + "]", "[" + pad_right("", 3, "z") + "]");
+print(pad_left("x", 9, "abc"), pad_right("x", 10, "abc"));
+print(reverse("abcdef"), reverse(""), reverse("a"), reverse("é·漢😀"));
+print(reverse([1, 2, 3]), reverse([]), len(reverse(repeat("ab", 5000))));
+
+// ---- integer, float and radix text
+print(int("  42  "), int("+7"), int("-7"), int("007"), int("0"), int("-0"));
+print(int(3.9), int(-3.9));
+print(may { int(true) } otherwise { err.kind }, may { int(nil) } otherwise { err.kind });
+print(parse_int("  -1234567890123  "), parse_int("0"));
+print(int(repeat("9", 18)), len(str(int(repeat("9", 18)))));
+print(may { int("4 2") } otherwise { err.kind });
+print(may { int("é") } otherwise { err.kind });
+print(may { int("") } otherwise { err.kind });
+print(may { int("9223372036854775808") } otherwise { err.kind });
+print(float("3.5"), float("  1e3  "), int(float("2.9")));
+
+// ---- prefix and suffix tests
+print(starts_with("hello", "he"), starts_with("hello", ""), starts_with("he", "hello"));
+print(ends_with("hello", "lo"), ends_with("hello", ""), ends_with("lo", "hello"));
+print(starts_with("héllo", "hé"), ends_with("héllo", "llo"), ends_with("héllo", "éllo"));
+print(starts_with("漢字", "漢"), ends_with("漢字", "字"), starts_with("漢字", "字"));
+print(ends_with("abc", "bc"), ends_with("abc", "abc"), starts_with("abc", "abc"));
+print(starts_with("λ🙂日本", "λ🙂"), ends_with("λ🙂日本", "🙂日本"));
+
+// ---- search and slicing
+print(index_of("hello", "ll"), index_of("hello", ""), index_of("hello", "z"), index_of("", "a"));
+print(index_of("héllo", "llo"), index_of("héllo", "é"), contains("héllo", "éll"));
+print(len("héllo"), len(""), len("😀"), substring("héllo", 1, 3), substring("héllo", 0, 10));
+print(chars("aé·"), "héllo"[1], "héllo"[10], char_at("héllo", 1), ord("é"));
+print(split("a,b,,c", ","), split("", ","), split("a", ""), split("aéb", "é"));
+print(join(["a", "b"], "-"), join([], "-"), replace("a-b-c", "-", "+"), repeat("ab", 3));
+
+// ---- keys and values with several key types, and of a larger map
+let mixed: Map<Any, Any> = {};
+mixed["s"] = 1;
+mixed[2] = "two";
+mixed[3.5] = [3, 5];
+mixed[true] = nil;
+print(keys(mixed), values(mixed), len(keys(mixed)), has(mixed, 2), has(mixed, 4));
+print(keys({}), values({}));
+let big: Map<Int, Int> = {};
+i = 0;
+while (i < 500) { big[i] = i * 2; i += 1; }
+print(len(keys(big)), len(values(big)), sum(values(big)));
+
+// ---- JSON reader and writer
+print(json_stringify({"n": [1, "two", 3.5, true, nil], "e": {"a": []}}));
+print(json_stringify("quote\" backslash\\ nl\n tab\t ctrl" + chr(1) + chr(2)));
+print(json_stringify([json_parse("{\"a\": [1, 2]}"), "x"]));
+print(json_parse("\"\\u0041\\u00e9\\ud83d\\ude00\""));
+print(json_parse("  [1, -2.5, true, false, null, {}, []]  "));
+print(json_parse("{\"a\\\"b\": 1, \"é\": 2, \"\": 3}"));
+print(may { json_parse("{\"a\": 1} trailing") } otherwise { err.kind });
+print(may { json_parse("[1, ") } otherwise { err.kind });
+print(may { json_parse("\"\\ud83d\"") } otherwise { err.kind });
+print(may { json_parse("\"abc") } otherwise { err.message });
+print(json_stringify(json_parse("\"héllo · 漢 😀\"")));
+print(len(json_stringify(range(0, 500))));
+print(json_parse(json_stringify({"deep": {"a": [1, {"b": [2, [3]]}]}})).deep.a[1].b[1][0]);

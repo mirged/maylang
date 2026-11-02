@@ -1,0 +1,5 @@
+// pad: `pad_left`/`pad_right` to width 20 000 with a two-character pad.
+let padded: Str = pad_left("x", 20000, "ab");
+let right: Str = pad_right("x", 20000, "ab");
+print(len(padded), substring(padded, 0, 4), substring(padded, len(padded) - 2, 2));
+print(len(right), substring(right, 0, 2), substring(right, len(right) - 4, 4));

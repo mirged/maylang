@@ -210,7 +210,12 @@ fun rt_str_eq(a: Any, b: Any) -> Any {
     if (a == b) { return 1; }
     let la: Any = load64(a);
     if (la != load64(b)) { return 0; }
+    // Eight bytes per step: map keys and string comparisons spend most of their time here.
     mut i: Any = 0;
+    while (i + 8 <= la) {
+        if (load64(a + 8 + i) != load64(b + 8 + i)) { return 0; }
+        i = i + 8;
+    }
     while (i < la) {
         if (load8(a + 8 + i) != load8(b + 8 + i)) { return 0; }
         i = i + 1;
@@ -341,49 +346,116 @@ fun rt_display_elem(t: Any, v: Any, path: Any) -> Any {
 }
 
 fun rt_display_list(v: Any, path: Any) -> Any {
-    mut out: Any = rt_from(addr("["), 1);
     let n: Any = load64(v);
+    if (n == 0) { return rt_from(addr("[]"), 2); }
+    // Element texts are kept in a scanned scratch block, then one allocation of the total
+    // length is filled with one copy per part, as rt_join does. Concatenating element by
+    // element copied the whole prefix again for every element (quadratic in the output).
+    let texts: Any = rt_alloc(n * 8 + 8);
+    mut total: Any = 2 + (n - 1) * 2;
     mut i: Any = 0;
     while (i < n) {
-        if (i > 0) { out = rt_concat(out, rt_from(addr(", "), 2)); }
-        out = rt_concat(out, rt_display_elem(rt_element_tag(v, i), rt_element(v, i), path));
+        let text: Any = rt_display_elem(rt_element_tag(v, i), rt_element(v, i), path);
+        store64(texts + i * 8, text);
+        total = total + load64(text);
         i = i + 1;
     }
-    return rt_concat(out, rt_from(addr("]"), 1));
+    let out: Any = rt_strnew(total);
+    store8(out + 8, 91);
+    mut at: Any = out + 9;
+    i = 0;
+    while (i < n) {
+        if (i > 0) { store8(at, 44); store8(at + 1, 32); at = at + 2; }
+        let text: Any = load64(texts + i * 8);
+        rt_copy(at, text + 8, load64(text));
+        at = at + load64(text);
+        i = i + 1;
+    }
+    store8(at, 93);
+    return out;
 }
 
 // Maps display their entries sorted by key.
 fun rt_display_map(v: Any, path: Any) -> Any {
     let n: Any = load64(v);
     let d: Any = load64(v + 16);
-    let order: Any = rt_alloc_bytes(n * 8 + 8);
+    if (n == 0) { return rt_from(addr("{}"), 2); }
+    // Bottom-up merge sort of the entry pointers, by key: the insertion sort this replaces
+    // compared every key with every earlier one. Taking the left run on a tie keeps equal keys
+    // in insertion order, as before.
+    mut order: Any = rt_alloc_bytes(n * 8 + 8);
+    mut scratch: Any = rt_alloc_bytes(n * 8 + 8);
     mut i: Any = 0;
     while (i < n) { store64(order + i * 8, d + i * 32); i = i + 1; }
-    mut a: Any = 1;
-    while (a < n) {
-        let entry: Any = load64(order + a * 8);
-        mut j: Any = a;
-        while (j > 0) {
-            let previous: Any = load64(order + (j - 1) * 8);
-            if (rt_less(load64(entry), load64(entry + 8), load64(previous), load64(previous + 8)) == 1) {
-                store64(order + j * 8, previous);
-                j = j - 1;
-            } else { break; }
+    mut width: Any = 1;
+    while (width < n) {
+        mut start: Any = 0;
+        while (start < n) {
+            mut mid: Any = start + width;
+            if (mid > n) { mid = n; }
+            mut end: Any = start + 2 * width;
+            if (end > n) { end = n; }
+            mut left: Any = start;
+            mut right: Any = mid;
+            mut write: Any = start;
+            while (left < mid and right < end) {
+                let le: Any = load64(order + left * 8);
+                let re: Any = load64(order + right * 8);
+                if (rt_less(load64(re), load64(re + 8), load64(le), load64(le + 8)) == 1) {
+                    store64(scratch + write * 8, re);
+                    right = right + 1;
+                } else {
+                    store64(scratch + write * 8, le);
+                    left = left + 1;
+                }
+                write = write + 1;
+            }
+            while (left < mid) {
+                store64(scratch + write * 8, load64(order + left * 8));
+                left = left + 1;
+                write = write + 1;
+            }
+            while (right < end) {
+                store64(scratch + write * 8, load64(order + right * 8));
+                right = right + 1;
+                write = write + 1;
+            }
+            start = end;
         }
-        store64(order + j * 8, entry);
-        a = a + 1;
+        let swap: Any = order;
+        order = scratch;
+        scratch = swap;
+        width = width * 2;
     }
-    mut out: Any = rt_from(addr("{"), 1);
+    // Key and value texts in a scanned scratch block, as in rt_display_list.
+    let texts: Any = rt_alloc(n * 16 + 8);
+    mut total: Any = 2 + (n - 1) * 2 + n * 2;
     i = 0;
     while (i < n) {
-        if (i > 0) { out = rt_concat(out, rt_from(addr(", "), 2)); }
         let entry: Any = load64(order + i * 8);
-        out = rt_concat(out, rt_display_elem(load64(entry), load64(entry + 8), path));
-        out = rt_concat(out, rt_from(addr(": "), 2));
-        out = rt_concat(out, rt_display_elem(load64(entry + 16), load64(entry + 24), path));
+        let key: Any = rt_display_elem(load64(entry), load64(entry + 8), path);
+        let val: Any = rt_display_elem(load64(entry + 16), load64(entry + 24), path);
+        store64(texts + i * 16, key); store64(texts + i * 16 + 8, val);
+        total = total + load64(key) + load64(val);
         i = i + 1;
     }
-    return rt_concat(out, rt_from(addr("}"), 1));
+    let out: Any = rt_strnew(total);
+    store8(out + 8, 123);
+    mut at: Any = out + 9;
+    i = 0;
+    while (i < n) {
+        if (i > 0) { store8(at, 44); store8(at + 1, 32); at = at + 2; }
+        let key: Any = load64(texts + i * 16);
+        rt_copy(at, key + 8, load64(key));
+        at = at + load64(key);
+        store8(at, 58); store8(at + 1, 32); at = at + 2;
+        let val: Any = load64(texts + i * 16 + 8);
+        rt_copy(at, val + 8, load64(val));
+        at = at + load64(val);
+        i = i + 1;
+    }
+    store8(at, 125);
+    return out;
 }
 
 // Shortest round-trip text from runtime/math.may.
@@ -1165,13 +1237,20 @@ fun rt_to_map(lt: Any, l: Any) -> Any {
     return m;
 }
 
-// Keys (`offset` 0) or values (16) of a map, as a list.
+// Keys (`offset` 0) or values (16) of a map, as a list. The result is allocated at its final
+// size, so the entries are stored directly instead of through rt_list_add's growth check.
 fun rt_map_column(m: Any, offset: Any) -> Any {
     let n: Any = load64(m);
     let d: Any = load64(m + 16);
     let l: Any = rt_list_raw(n);
+    let out: Any = load64(l + 16);
     mut i: Any = 0;
-    while (i < n) { rt_list_add(l, load64(d + i * 32 + offset), load64(d + i * 32 + offset + 8)); i = i + 1; }
+    while (i < n) {
+        store64(out + i * 16, load64(d + i * 32 + offset));
+        store64(out + i * 16 + 8, load64(d + i * 32 + offset + 8));
+        i = i + 1;
+    }
+    store64(l, n);
     RTAG = 5;
     return l;
 }

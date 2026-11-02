@@ -88,10 +88,12 @@
 - **sort** — `sort(xs)` — Return the items in ascending order using the standard comparison function. The input list is preserved.
 - `sort` parameter `xs`: A list of comparable values.
 - `sort` returns: A new sorted list.
+- `sort`: The sort is a stable bottom-up merge sort over a copy of the input: O(n log n) comparisons instead of the quadratic insertion sort's O(n²). Equal items keep their input order.
 - `sort` example: `print(sort([3, 1, 2]));`.
 - **reverse** — `reverse(x)` — Build a list with the input items in reverse order.
 - `reverse` parameter `x`: The input list.
 - `reverse` returns: A new list.
+- `reverse`: A string is reversed by bytes: each code point is copied to its mirrored byte offset, one pass over the input. The previous `char_at`/`char_from` loop re-walked the string from its start for every character, which is quadratic; a string whose width walk does not fit its byte length takes that loop instead.
 - `reverse` example: `print(reverse([1, 2, 3]));`.
 - **slice** — `slice(xs, start, stop)` — Copy a contiguous section of a list. Bounds are clamped to the list length; the stop index is exclusive.
 - `slice` parameter `xs`: The input list.
@@ -159,7 +161,7 @@
 - **json_stringify** — `json_stringify(v)` — Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.
 - `json_stringify` parameter `v`: The value to encode.
 - `json_stringify` returns: A JSON string.
-- `json_stringify`: Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values.
+- `json_stringify`: Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values. Parts are collected and joined once, so encoding is linear in the output size instead of copying the growing prefix per member.
 - `json_stringify` example: `print(json_stringify({"name": "Ada", "ready": true}));`.
 - **input** — `input(prompt)` — Display a prompt and read one line from standard input. The trailing newline is removed.
 - `input` parameter `prompt`: The text to display before reading; `nil` suppresses it.
@@ -312,6 +314,7 @@
 - **trim** — `trim(s)` — Remove whitespace from the beginning and end of a string.
 - `trim` parameter `s`: The input string.
 - `trim` returns: A string.
+- `trim`: Whitespace is ASCII space, tab, LF and CR, and those are single bytes, so the scan runs over bytes: a code point that is not one of them cannot contain one of their bytes. Trimming a long indented string was quadratic while it indexed by code point from the start for every byte.
 - `trim` example: `print(trim("  hello  "));`.
 - **repeat** — `repeat(s, n)` — Concatenate `n` copies of `s`; a nonpositive count gives an empty string.
 - `repeat` parameter `s`: The string to repeat.
