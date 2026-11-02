@@ -291,6 +291,31 @@ fun parse_params() -> Any {
     return parr;
 }
 
+// The fixed-slot constructor writes entries by slot, so a declaration whose
+// entries are not all keyed and unique cannot use it: the map path updates a
+// repeated key in place, which leaves one entry (#134).
+fun record_entry_text(key: Any) -> Any {
+    if (key == 0) { return 0; }
+    if (key.kind == E_STR) { return symbol_name(key.span.source + key.start, key.length); }
+    if (key.kind == E_STRB) { return symbol_name(key.address, key.length); }
+    return 0;
+}
+
+fun record_entries_keyed(entries: Any) -> Any {
+    let seen: Any = {};
+    mut entry: Any = entries;
+    while (entry != 0) {
+        if (entry.key == 0) { return 0; }
+        let text: Any = record_entry_text(entry.key);
+        if (text != 0) {
+            if (has(seen, text)) { return 0; }
+            seen[text] = true;
+        }
+        entry = entry.next;
+    }
+    return 1;
+}
+
 fun parse_struct(ctx: Any) -> Any {
     let span: Any = parser_span();
     expect(TK_STRUCT);
@@ -343,8 +368,9 @@ fun parse_struct(ctx: Any) -> Any {
     mapn.entries = entries;
     // A record: the constructor allocates one fixed-slot block (#134). The
     // slot count is the entry count, because a declaration may add
-    // string-keyed entries (operator methods) to its fields.
-    mapn.record = 1;
+    // string-keyed entries (operator methods) to its fields. A declaration
+    // with a repeated key keeps the map path's update-in-place semantics.
+    mapn.record = record_entries_keyed(entries);
     let body: Any = mknode(S_BLOCK);
     body.statements = 0;
     body.tail = mapn;
@@ -408,7 +434,7 @@ fun parse_enum(ctx: Any) -> Any {
         let mapn: Any = mknode(E_MAP);
         mapn.entries = entries;
         // An enum variant is a record too: the tag entry first, then payload.
-        mapn.record = 1;
+        mapn.record = record_entries_keyed(entries);
         let body: Any = mknode(S_BLOCK);
         body.statements = 0;
         body.tail = mapn;

@@ -1,0 +1,29 @@
+// Duplicate constructor entry keys (#134). The fixed-slot record writes every
+// entry at its declared slot, but the map path updates a repeated key in
+// place, so a declaration whose keys are not unique must keep the map path.
+// An enum payload field named `tag` collides with the tag entry and is the
+// smallest such case. This fixture is also in the oracle suite, so optimized
+// and --no-opt output must be identical.
+
+enum Dup { A(tag: Int), B(v: Int) }
+let a: Any = A(7);
+print(len(keys(a)), keys(a), str(a), a.tag);
+let b: Any = B(1);
+print(len(keys(b)), keys(b), str(b), b.tag, b.v);
+
+// A field and a string-keyed entry with the same text.
+struct DupS { x: Any, "x": dsf }
+fun dsf(self: Any, other: Any) -> Any { return self; }
+let d: Any = DupS(1);
+print(len(keys(d)), keys(d), str(d), d.x, d["x"]);
+
+// The same collision with the string entry declared first.
+struct DupFirst { "x": dsf, x: Any }
+let f: Any = DupFirst(2);
+print(len(keys(f)), keys(f), str(f), f.x);
+
+// A unique string-keyed entry (its source text has an escape) stays a record;
+// the field slot follows the string entry's slot.
+struct Esc { "a\"b": dsf, x: Any }
+let e: Any = Esc(3);
+print(len(keys(e)), keys(e), e.x, len(str(e)));
