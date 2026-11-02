@@ -5,10 +5,10 @@
     {
       "workload": "trees",
       "heap_mib": 256,
-      "peak_rss_kb": 239508,
-      "elapsed_s": 1.047,
-      "user_s": 0.966,
-      "system_s": 0.08,
+      "peak_rss_kb": 238480,
+      "elapsed_s": 0.906,
+      "user_s": 0.821,
+      "system_s": 0.084,
       "sweeps": [
         {
           "count": 0,
@@ -114,10 +114,10 @@
     {
       "workload": "trees_nolived",
       "heap_mib": 256,
-      "peak_rss_kb": 229188,
-      "elapsed_s": 0.859,
-      "user_s": 0.786,
-      "system_s": 0.072,
+      "peak_rss_kb": 229120,
+      "elapsed_s": 0.714,
+      "user_s": 0.658,
+      "system_s": 0.056,
       "sweeps": [
         {
           "count": 0,

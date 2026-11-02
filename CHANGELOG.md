@@ -18,12 +18,15 @@
   be tuned per run without rebuilding the runtime. Defaults are unchanged when
   the variables are unset or invalid, and the accepted range keeps a typo from
   disabling collection. Under `MAYC_GC_MIN=8388608 MAYC_GC_MARGIN=524288`
-  binary trees drops from 234 MiB to 95 MiB peak RSS at 1.70x the run time and
+  binary trees drops from 234 MiB to 95 MiB peak RSS at 1.75x the run time and
   60 instead of 11 collections, hashmap drops 30% and strings 37% while six of
   the eight roadmap workloads do not collect at the default heap and are
-  unchanged. The report records the interleaved measurements, the separate
-  effects of the floor and the margin, the frontier-creep traces and the tested
-  invariants.
+  unchanged. The overrides are read by the existing start-up statistics probe,
+  so default programs keep their previous code layout: paired pinned runs of
+  the previous and current runtime show fib within noise and no workload
+  regressing by more than 2%. The report records the interleaved measurements,
+  the separate effects of the floor and the margin, the frontier-creep traces,
+  the layout audit and the tested invariants.
 - Main as native ([report](compiler/mayc/tests/backend/main-native.md)): when
   every top-level binding was demoted to a main local and every value and
   operation is an `Int`, `Bool` or `Ptr` machine word, main's statements

@@ -45,13 +45,17 @@ against the inline meter.
 
 The floor and margin are also overridable for experiments: `MAYC_GC_MIN` and
 `MAYC_GC_MARGIN` (decimal bytes) replace `GCMIN` and `GCMARGIN` at start-up.
-The accepted range is `[65536, reserve / 2]`; an absent, non-decimal or
-out-of-range value leaves the derived policy, so a typo cannot disable
+The values ride the same single `/proc/self/environ` probe as `MAYC_GC_STATS`,
+which `rt_init` already calls at its end, and the parsing helpers are emitted
+after the code every program depends on: `rt_init` keeps its previous code
+shape and size, so a default program keeps its previous code layout and no
+hot-path alignment changes. The accepted range is `[65536, reserve / 2]`; an absent, non-decimal
+or out-of-range value leaves the derived policy, so a typo cannot disable
 collection, and with both unset the behavior is exactly the threshold policy
 above. The overrides exist to measure the policy and to run RSS-sensitive
 workloads under a smaller threshold without rebuilding the runtime; they are
 not a new default. On binary trees, `MAYC_GC_MIN=8388608
-MAYC_GC_MARGIN=524288` cuts peak RSS from 234 MiB to 95 MiB while taking 1.70x
+MAYC_GC_MARGIN=524288` cuts peak RSS from 234 MiB to 95 MiB while taking 1.75x
 as long and collecting 60 instead of 11 times, and a workload that never
 collects at the default heap is unaffected; the measured trade-off and the
 frontier-creep explanation are in
