@@ -147,3 +147,96 @@ Raw samples: [ir-passes-performance.json](ir-passes-performance.json)
 - The pass is deliberately conservative about effects; a call drops every load
   entry even when it cannot reach the object. A future pass can add alias
   information rather than weakening this rule.
+
+## Inlining retry (round 2) — measured, not merged
+
+The [roadmap](../../../../docs/design/PERFORMANCE_ROADMAP.md#phase-4-ir-optimizer)
+records a first leaf inliner that was behaviour-clean but lost: binary trees
+1.79 s → 1.86 s, everything else flat, because the call was small next to the
+map insertion a constructor performed. Since then #132's register-argument
+direct calls are in the base, so this increment retried the same shape to see
+whether erasing the remaining call overhead pays. It does not pay on the suite,
+so the code and its fixture were reverted; the evidence is recorded here.
+
+### What was implemented (then reverted)
+
+An IR inliner (`src/ir_inline.may`) ran before the propagation passes, skipped
+under `--no-opt` and `--debug`. It cloned straight-line bodies (no branches, one
+trailing return, no locals or parameter writes, at most 24 quads) of fat
+functions into call sites with matching arity: parameter reads became the
+argument values, so every argument is evaluated once at the original site; the
+body runs in the caller's position, so evaluation order, effects and faults are
+unchanged; the callee name must not be shadowed by a caller local, parameter or
+global. Bodies that call through a parameter are excluded (that parameter name
+would not resolve in the caller), as are the calls the backend lowers before
+function resolution (`__math_high`, `__math_low`, `__math_bits`,
+`__join_list`), raw/native functions, closures and captures, and callers with an
+exception region. Budgets: 24 quads for a body, 220 inlined instructions per
+caller, 3000 per program. The callee stays in the image.
+
+Correctness was clean on that build: all eight xlang programs printed identical
+output and `oracle.py` passed 62/62, with a new `tests/inline_opt.may` fixture
+covering evaluation order, effects in arguments, inlined-body faults,
+call-through-parameter, a local shadowing a function name, a captured local and
+`--no-opt` parity. The fixture and its `legacy_behavior.json` entry were
+reverted with the pass.
+
+### Measurements
+
+Integrated base `62c3c45` (candidate compiler sha `6be0410d`), child CPU time,
+interleaved before/after, xlang workloads. Twenty paired runs; "paired median"
+is the median of the per-round before/after difference, which cancels the host
+load drift that made the side medians noisy (the machine was shared). A
+15-pair run earlier the same evening moved the same benchmarks by at most 2%
+either way.
+
+| Benchmark | before / after, ms | paired median | image |
+| --- | --- | --- | --- |
+| fib (control, native-word) | 68.3 / 68.9 | -0.2% | 109,976 → 105,800 |
+| collatz | 125.3 / 105.9 | -0.0% | 105,640 → 105,560 |
+| sieve | 284.2 / 266.1 | -1.2% | 109,856 → 109,784 |
+| hashmap | 134.8 / 137.0 | +3.1% | 109,872 → 109,800 |
+| strings | 99.6 / 85.0 | -0.1% | 109,800 → 109,728 |
+| mandelbrot | 49.3 / 49.1 | -0.0% | 109,736 → 109,656 |
+| n-body | 89.0 / 87.4 | +0.3% | 142,944 → 142,872 |
+| binary trees | 1319.9 / 1310.5 | -0.5% | 110,384 → 110,272 |
+
+There is no suite movement beyond the spread. The only user function the suite
+offers the inliner is trees' `Node` constructor (11 quads, inlined at both
+sites in `make()`); the other programs call builtins, raw runtime helpers,
+recursive functions or bodies that exceed the budget.
+
+Inlining-shaped microbenchmarks
+([sources](inlining/), 12 paired runs) show where the shape does pay:
+
+| Microbenchmark | before / after, ms | change |
+| --- | --- | --- |
+| one-expression helper in a hot loop | 24.6 / 11.4 | **-53.6%** |
+| struct field accessor in a hot loop | 44.2 / 28.9 | **-34.6%** |
+| struct constructor wrapper in a hot loop | 793.9 / 774.2 | -2.5% |
+
+Compile cost, same interleaved method: `features.may` +2.5% (earlier 15-pair run
++5.6%), the compiler compiling itself **+16.3%** (earlier run +10.0%), and the
+compiler image the candidate produces **+2.4%** (3,019,048 → 3,091,944 bytes)
+because library helpers are inlined into the compiler. This is the cost that
+decides the result: a default-on inliner buys no suite movement and slows the
+compiler.
+
+### Refined negative
+
+- What the calling convention fixed: constructor inlining no longer *regresses*.
+  Binary trees is -0.5% (paired median; -2.6% by minimum) instead of the earlier
+  +4%, and the constructor microbenchmark is -2.5%. Argument registers removed
+  the argument-vector and padding work the old attempt paid for.
+- What it did not fix: the suite has no hot small-call shape to erase. Helper
+  and accessor calls are where a call still dominates (-53.6% and -34.6% on the
+  microbenchmarks), but none of the eight workloads has one in a hot loop, and
+  constructors stopped being call-bound: #134 makes a constructor body one
+  allocation plus fixed-slot stores.
+- Keep the inlining item open in #131 for a targeted form: an opt-in flag, or a
+  pass that only inlines non-allocating accessor/helper calls (which is cheap),
+  until a suite workload or the compiler itself has that shape. A default
+  general-purpose inliner should not merge on this evidence.
+
+Raw samples: [inlining-performance.json](inlining-performance.json) — suite,
+compile and microbenchmark samples, compiler identities and image sizes.

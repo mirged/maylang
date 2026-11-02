@@ -1,0 +1,6 @@
+fun sum3(a: Any, b: Any, c: Any) -> Any { return a + b + c; }
+let big: Int = 10000000;
+mut total: Any = 0;
+mut i: Int = 0;
+while (i < big) { total = sum3(total, i, 1); i += 1; }
+print(total);
