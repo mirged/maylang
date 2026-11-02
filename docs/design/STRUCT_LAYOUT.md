@@ -1,6 +1,9 @@
 # Struct slots and enum payloads
 
-Status: design note (roadmap phase 2, #134). No code yet.
+Status: implemented (roadmap phase 2, #134). Steps 1-3 are on
+`perf/struct-134` and measured in
+[struct-slots.md](../../compiler/mayc/tests/backend/struct-slots.md); enum
+payload reads (`match`) are the remaining step.
 
 Records are maps. A `struct` declaration generates a constructor function whose
 body is an `E_MAP` literal, and `Point(3, 4)` therefore allocates a 40-byte map
@@ -74,17 +77,23 @@ unchanged:
   to the header, which is fine because `[16]` is a pointer), and builds a hash
   table once the record exceeds seven entries. A record that grows behaves
   exactly like today's map.
-- The collector sees a kind-3 block: every 16-byte value word is traced when
-  its type word is a heap type, and an `Int` payload is still checked
-  conservatively, as for any values block.
+- The collector sees a record block (allocation kind 4): the first 48 bytes
+  are scanned as words, so the entries pointer and the hash table pointer are
+  traced, and the entries from `p + 48` are traced as values on the block's
+  16-byte grid. A plain values block would trace the entries but not the
+  header, and a record that moved its entries out on growth would then lose
+  them (see [Prototype findings](#prototype-findings)).
 
-**Offsets for typed reads.** Each field gets an index at parse time. When the
-receiver's static type is the struct, the compiler can replace the probe with
-`mov rax, [receiver + 48 + 32 * i + 24]` (and the value type word at `+16`
-when it is statically known), without any cache. The existing probe remains for
-`Any` receivers and for records that may have grown, so behaviour is unchanged
-either way. This mirrors specialized list storage: the fast layout is chosen
-only where the compiler knows the type.
+**Offsets for typed reads.** Each field gets a slot from the strict checker
+when the receiver's static type is the struct. The backend replaces the probe
+with a guarded direct read or write of `[receiver + 48 + 32 * i + 24]` (value
+type word at `+16`): the value must be a map, its entries pointer must equal
+the block plus 48, and slot `i` must hold the site's key object. Anything else
+-- an `Any` receiver, a record that grew its entries out, one compacted by
+`remove`, or a foreign map -- keeps the existing field-cache probe, so
+behaviour is unchanged either way. This mirrors specialized list storage: the
+fast layout is chosen only where the compiler knows the type and the runtime
+still proves the layout.
 
 **Why not a bare header plus values?** Dropping the keys would halve a record's
 size and make every read an offset load, but it changes the observable surface:
@@ -107,19 +116,25 @@ change and lands after struct reads are measured.
 
 ## Code generation
 
-1. `parser.may` records a field index per struct field and stores it on the
-   `E_GET`/`S_SETPROP` node (not in the type, so no contract is attached and no
-   boundary rewrite happens).
-2. `ir.may` carries the index in the `E_GET`/`S_SETPROP` payload next to the
-   existing `cache` word.
-3. `x86_64_fat.may` emits the offset load/store when `fat_known_type` proves
-   the receiver is the struct; otherwise it keeps `fat_field_get`/`fat_field_set`
-   as they are. The typed path needs no cache word, so `ir_field_cache` is
-   skipped for it and the data section does not grow.
-4. `rt_struct_new` and a matching constructor lowering replace
-   `rt_map_new_sized` + `rt_map_set` for struct and enum constructors only.
+Implemented as follows:
 
-Every step is skipped under `--no-opt`, and the oracle test must compare both
+1. `parser.may` marks a struct or enum constructor's `E_MAP` as a record, and
+   keeps the map path (no mark) for a declaration with repeated or keyless
+   entries, because the map path updates a repeated key in place and keeps one
+   entry.
+2. `strict.may` stores the field's 0-based entry slot on the `E_GET` /
+   `S_SETPROP` node as `fieldIndex` (1-based in the IR payload, 0 = unknown).
+   The slot comes from the constructor's entry order, so a string-keyed entry
+   before a field shifts that field's slot. It is not part of the type, so no
+   contract is attached and no boundary rewrite happens.
+3. `ir.may` carries the slot in the `E_GET`/`S_SETPROP` payload next to the
+   existing `cache` word, and lowers a record constructor to `rt_struct_new` +
+   one `rt_struct_set` per entry instead of `rt_map_new_sized` + `rt_map_set`.
+4. `x86_64_fat.may` emits the guarded offset load/store; a failed guard falls
+   back to `fat_field_get`/`fat_field_set`'s cache probe. The fallback still
+   needs the cache word, so the typed path does not shrink the data section.
+
+Every step is skipped under `--no-opt`, and the oracle test compares both
 builds of every fixture, as it does for the existing fat passes.
 
 ## Risks to check
@@ -139,18 +154,43 @@ builds of every fixture, as it does for the existing fat passes.
 
 ## Migration
 
-1. Add `rt_struct_new` and tests that build a record with it and observe it
-   through every map operation (`keys`, `to_map`, indexing, `==`, display,
-   JSON, a later `Any` insert).
-2. Switch struct constructors to the new allocation; measure n-body and trees.
-3. Add the field index and the typed offset read; measure again, and check the
-   compiler's own image (`make test-bootstrap`, `build_benchmark.py`).
-4. Extend the same path to enum variants and `match` payloads.
+1. Done: `rt_struct_new`/`rt_struct_set` and the record collector kind, with a
+   raw record probe in `compiler/mayc/tests/gc.py` (`c7f46ae`).
+2. Done: struct and enum constructors build the fixed-slot record
+   (`715f115`), with duplicate-key declarations kept on the map path
+   (`66f474c`).
+3. Done: field slots on the IR and the guarded offset read/write
+   (`e7c15f5`), measured below and in
+   [struct-slots.md](../../compiler/mayc/tests/backend/struct-slots.md).
+4. Next: enum payload offsets in `match`, which currently probes the payload
+   map per arm; `match` reads the tag through `rt_map_get`, not `E_GET`.
 
 Expected win: one allocation and no hashing per record, so binary trees should
 lose the entry-array and hash-table allocations entirely (the record becomes a
-single 40 + 32n byte block) and n-body's per-step temporaries shrink. Peak RSS
+single 48 + 32n byte block) and n-body's per-step temporaries shrink. Peak RSS
 should follow the record size, not the collector threshold.
+
+## Measurements
+
+Measured on `perf/struct-134` against a compiler built from the base commit
+`e0f0932` with its own runtime sidecars. The workloads are the struct-field
+ones plus a record-churn workload; seven interleaved rounds after a warm-up,
+identical output on both sides. The table gives the least-contended (minimum)
+user+system CPU sample because the machine was shared; medians, wall time,
+peak RSS and the raw samples are in
+[struct-slots.md](../../compiler/mayc/tests/backend/struct-slots.md).
+
+| Workload | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| `trees`: binary trees, depth 16 | 2233 ms | 1315 ms | 1.70x faster |
+| `construct`: 2M two-field constructions | 231 ms | 125 ms | 1.85x faster |
+| `record_gc`: grown records over a live tree | 680 ms | 398 ms | 1.71x faster |
+| `read_field2`: 5M typed field reads | 13.3 ms | 11.7 ms | 1.14x faster |
+| `nbody`: 5 bodies x 200 000 steps | 116.4 ms | 105.9 ms | 1.10x faster |
+| `self_compile`: mayc compiling its own source | 3205 ms | 2660 ms | 1.20x faster |
+
+The typed slot read is what `read_field2` and n-body gain; binary trees and the
+construction/self-compile rows are dominated by the one-allocation constructor.
 
 ## Limits
 
@@ -183,10 +223,34 @@ attempt the same time:
   declaration may add string-keyed entries (`struct Vec { x, y, "+": vadd }`),
   and sizing the record by `len(parr)` writes past its block.
 
-The remaining crash was not diagnosed before the change was reverted: the
-record's own reads, writes, growth and observation paths are all covered by the
-checks above, so look next at `rt_remove` and `rt_merge_into` on a record, at
-the sweep's treatment of a record whose entries moved out of the block on
-growth, and at records that outlive construction with dynamically added fields.
-A debugger build (or a `compiler/mayc/tests/gc_stress.py`-style reduction of the
-compiler's own workload) is the way to pin it down.
+### Diagnosis
+
+The remaining crash was the record header never being traced. A values block
+traces its 16-byte pairs and nothing else, so for a record whose entries are in
+the block the header words were never marked. That was harmless until the
+record grew: a dynamic field write moves the entries into a second, separate
+values block and stores its pointer in the header, and nothing marked that
+block. The next sweep freed it, and the record's next lookup or field write
+read freed memory. The compiler regrows its own AST records constantly (the
+parser adds `enumTag`, `enumFields`, `behaviorContract` and other fields to a
+`FuncDecl` after construction), which is why the failure depended on input size
+and collection timing: it needed a grown record whose moved entries block the
+sweeper happened to reclaim.
+
+The fix is the fourth allocation kind: a record block's first 48 bytes are
+scanned as words (so the entries pointer and the hash table pointer are roots)
+and the entries from `p + 48` as values. `compiler/mayc/tests/gc.py` builds a
+record through the new runtime path, forces growth and a collection, and checks
+with `rt_candidate` that the moved entries block and the hash table survived;
+forced back to a plain values block, the probe fails on the swept hash table
+(exit 88). `compiler/mayc/tests/runtime_maps.py` runs the same shape in source
+form on a reduced heap so real collections happen, and the compiler's own
+bootstrap fixpoint (stage 2 = stage 3) passed twice with the layout in place.
+
+A second defect the prototype's behaviour checks did catch: the fixed layout
+must fall back to the map path for duplicate entry keys. A variant with a
+payload field named `tag` repeats the tag entry; the map path updates the first
+entry in place and keeps one entry, while slot writes keep two. The parser now
+detects repeated or keyless entries and keeps `rt_map_new_sized`;
+`compiler/mayc/tests/record_dup_keys.may` pins both a duplicate variant and an
+ordinary one, optimized and `--no-opt`.

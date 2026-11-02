@@ -26,6 +26,19 @@
   function values, a mismatched arity and `--no-opt` keep the argument vector;
   `tests/direct_calls.may`, `tests/direct_calls.py` and the oracle test cover
   both paths.
+- Fixed-slot records and guarded slot reads ([report](compiler/mayc/tests/backend/struct-slots.md)):
+  a struct or enum constructor builds one `48 + 32n`-byte map block and writes
+  its entries directly, so construction allocates once and hashes nothing
+  (binary trees 1.70x, 2M two-field constructions 1.85x, a record-churn
+  workload 1.71x, self-compile 1.20x faster). The strict checker records each
+  field's entry slot, and a field read on a statically known struct is a
+  guarded offset load; a grown, compacted or foreign record falls back to the
+  field-cache probe. The collector gains a record block kind so a record's
+  moved entries block and hash table stay traced (the cause of the reverted
+  prototype's timing-dependent crash). A duplicate-key declaration keeps the
+  map path. Both paths are off under `--no-opt`; `record_layout.may`,
+  `record_dup_keys.may`, the GC record probe and a reduced-heap record churn
+  cover them. Refs #134.
 - Inline `push` and string equality ([report](compiler/mayc/tests/backend/inline-paths.md)):
   a push into a list with spare capacity stores the element at its kind's width
   and bumps the count, falling back to `rt_push` for growth, a widening element

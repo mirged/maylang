@@ -31,7 +31,9 @@ The full runtime's collector (`compiler/mayc/runtime/fat_linux.may`,
 - **Mark-sweep over one contiguous heap.** A 1 GiB reservation, a 16-byte
   header (size with the mark bit, then a magic word), and `GCSTARTS`, one byte
   per heap word recording allocation starts and the block kind (words,
-  bytes, values). Value blocks are traced precisely by their type words.
+  bytes, values, records). Value blocks are traced precisely by their type
+  words; a record block scans its 48-byte map header as words and its entries
+  as values.
 - **Bump allocation plus size bins.** `rt_alloc_kind` bumps `HP`, reusing
   swept blocks through 256 size bins (up to 2 KiB) and a free list. Every
   allocation is a call; there is no inline fast path yet.

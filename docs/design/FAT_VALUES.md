@@ -52,9 +52,11 @@ kind in the existing allocation-identity byte map: bytes (strings, buffers;
 never scanned), values (an array of 16-byte values; a payload is traced when
 its type word is a heap type, and an Int payload is checked conservatively,
 since a `Ptr` from `cstr` or `addr` may be the only reference to a heap
-block) or words (runtime-internal pointer tables; scanned conservatively). Stacks and registers are still scanned
-conservatively, accepting a word that equals an object start or the byte
-pointer `addr` returns. The `address * 8` decoding disappears.
+block), records (a struct or enum constructor's map header, scanned as words,
+followed by its entries as 16-byte values from `p + 48`) or words
+(runtime-internal pointer tables; scanned conservatively). Stacks and registers
+are still scanned conservatively, accepting a word that equals an object start
+or the byte pointer `addr` returns. The `address * 8` decoding disappears.
 
 ## Calling conventions
 
