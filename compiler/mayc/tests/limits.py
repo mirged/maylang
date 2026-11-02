@@ -168,6 +168,19 @@ def output(result):
     return Path(result['stdout']).read_text(errors='replace')
 
 
+def parse_gc_stats(text):
+    """The last `GC key=value` line the runtime printed, as integers."""
+    lines = [line for line in text.splitlines() if line.startswith('GC collections=')]
+    if not lines:
+        return {}
+    return {name: int(value) for name, value in re.findall(r'(\w+)=(-?\d+)', lines[-1])}
+
+
+def without_gc_stats(text):
+    """Output with the opt-in runtime summaries removed, for exact matches."""
+    return ''.join(line + '\n' for line in text.splitlines() if not line.startswith('GC collections='))
+
+
 def require_run(result, expected=None):
     if result['exit'] != 0 or result['category'] != 'exited' or Path(result['stderr']).stat().st_size:
         raise ValueError(f'workload failed; see {result["stderr"]}: {result["category"]}, exit {result["exit"]}')
@@ -377,6 +390,13 @@ def run_codegen(args, report, compiler):
 
 def run_gc(args, report, compiler):
     home = args.output / 'gc'
+    # The runtime's own counters are opt-in (`MAYC_GC_STATS=1`); the inline
+    # meter below keeps working and both read GCCOUNT, so the run cross-checks
+    # them against each other.
+    statistics_env = None
+    if args.runtime_gc_stats:
+        statistics_env = dict(os.environ)
+        statistics_env['MAYC_GC_STATS'] = '1'
     for heap in args.heap_mib:
         runtime = instrument_runtime(heap)
         selected = snapshot(compiler, home / f'heap-{heap}/toolchain', runtime)
@@ -407,28 +427,48 @@ def run_gc(args, report, compiler):
             report['gc'].append(row)
             if compile_result['exit'] != 0:
                 raise ValueError(f'GC compile failed: {compile_result["stderr"]}')
-            result = execute([directory / 'program', rounds, seed], directory, 'run', args)
+            result = execute([directory / 'program', rounds, seed], directory, 'run', args, environment=statistics_env)
             row['run'] = result
             text = output(result)
             metrics = {name: int(value) for name, value in re.findall(r'^LIMIT (\w+) (-?\d+)$', text, re.M)}
             row['metrics'] = metrics
+            runtime_stats = parse_gc_stats(text)
+            if runtime_stats:
+                row['runtime'] = runtime_stats
+                # Both counters read GCCOUNT; a disagreement means one of the
+                # two paths stopped observing collections.
+                if 'collections' in metrics and runtime_stats.get('collections') != metrics['collections']:
+                    raise ValueError(f'GC statistics disagree: runtime {runtime_stats.get("collections")}, '
+                                     f'meter {metrics["collections"]}; artifacts: {directory}')
+            plain = without_gc_stats(text)
             passed = result['category'] == 'exited' and result['exit'] == expected_exit and not Path(result['stderr']).stat().st_size
+            if args.runtime_gc_stats and expected_exit == 0:
+                # A run that prints ends with a summary; the corruption
+                # detector exits before its first write, so it has none.
+                passed = passed and bool(runtime_stats)
             if message:
-                passed = passed and text.endswith(message)
+                passed = passed and plain.endswith(message)
                 row['expected_limit'] = message.strip()
+            # The threshold follows the live set after every sweep, so it is a
+            # policy bound rather than the fixed nominal heap.
+            threshold = metrics.get('heap_bytes', 0)
             if expected_exit == 0:
-                passed = passed and metrics.get('heap_bytes') == heap * 1024**2 and metrics.get('collections', 0) > 0
+                passed = passed and 0 < threshold <= heap * 4 * 1024**2
+                passed = passed and threshold >= runtime_stats.get('live', 0)
+                passed = passed and metrics.get('collections', 0) > 0
                 expected_checksum = (17 * rounds * (rounds - 1) // 2 + seed * rounds
                                      if case == 'gc_churn' else rounds * 64 if case == 'gc_fragmentation' else None)
                 if expected_checksum is not None:
                     passed = passed and metrics.get('checksum') == expected_checksum
                 else:
-                    passed = passed and 'PASS retained objects' in text
+                    passed = passed and 'PASS retained objects' in plain
             if expected_exit == 70:
                 # Exhausting live data grows the collection threshold to the
-                # whole reservation, four times the configured heap, first.
-                limit = heap * 4 if case == 'gc_capacity' else heap
-                passed = passed and metrics.get('heap_bytes') == limit * 1024**2
+                # whole reservation, four times the configured heap, first; the
+                # detector self-tests stop wherever the live-set policy put it.
+                passed = passed and 0 < threshold <= heap * 4 * 1024**2
+                if case == 'gc_capacity':
+                    passed = passed and threshold == heap * 4 * 1024**2
                 if case == 'gc_root_capacity':
                     passed = passed and metrics.get('root_slots') == 131072
                 if case == 'gc_mark_capacity':
@@ -439,7 +479,9 @@ def run_gc(args, report, compiler):
             if not passed:
                 raise ValueError(f'GC failure: {case}, exit {result["exit"]}, {result["category"]}; artifacts: {directory}')
             report['passed'] += 1
-            print(f'PASS {case} heap={heap} MiB seed={seed}: {row["category"]}, {metrics.get("collections", 0)} collections', flush=True)
+            live = runtime_stats.get('live')
+            detail = '' if live is None else f', live {live / 1024**2:.2f} MiB'
+            print(f'PASS {case} heap={heap} MiB seed={seed}: {row["category"]}, {metrics.get("collections", 0)} collections{detail}', flush=True)
             write_report(args, report)
 
 
@@ -454,16 +496,22 @@ def write_report(args, report):
             if 'median_wall_ms' in row:
                 lines.append(f'| {case["case"]} | {label} | {row["median_wall_ms"]:.3f} | {row["text_bytes"]} | '
                              f'{max(r["peak_rss_kib"] for r in row["samples"])} |')
-    lines += ['', '| GC case | Heap MiB | Seed | Result | Collections | Requested MiB | GC ms |',
-              '| --- | ---: | ---: | --- | ---: | ---: | ---: |']
+    lines += ['', '| GC case | Heap MiB | Seed | Result | Collections | Requested MiB | GC ms | Live MiB | Runtime pause ms |',
+              '| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |']
     for row in report['gc']:
         metric = row.get('metrics', {})
+        runtime = row.get('runtime', {})
+        live = f'{runtime["live"] / 1024**2:.2f}' if 'live' in runtime else '-'
+        pause = f'{runtime["pause_ns"] / 1e6:.3f}' if 'pause_ns' in runtime else '-'
         lines.append(f'| {row["case"]} | {row["heap_mib"]} | {row["seed"]} | {row.get("category", "incomplete")} | '
                      f'{metric.get("collections", 0)} | {metric.get("requested_bytes", 0) / 1024**2:.2f} | '
-                     f'{metric.get("gc_ns", 0) / 1e6:.3f} |')
+                     f'{metric.get("gc_ns", 0) / 1e6:.3f} | {live} | {pause} |')
     lines += ['', 'Each case retains source, executable, logs, commands, and resource usage. Codegen variants also retain',
               '`disassembly.stdout`, `hot-functions.asm`, `functions.json`, and symbol/section tables.',
-              'ELF function sizes are zero: instruction statistics use symbol intervals and may include a neighboring trampoline.', '']
+              'ELF function sizes are zero: instruction statistics use symbol intervals and may include a neighboring trampoline.',
+              'With `--runtime-gc-stats` the runtime also prints one `GC key=value` line per output line (`MAYC_GC_STATS=1`);',
+              'the table takes live bytes and total pause from the last line, and the run cross-checks its collection count',
+              'against the inline meter.', '']
     if report.get('error'):
         lines += ['Failure: ' + report['error'], '']
     (args.output / 'REPORT.md').write_text('\n'.join(lines))
@@ -488,6 +536,8 @@ def main():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--mark-slots', type=int, default=64, help='test-only reduced mark frontier for deterministic exhaustion')
     parser.add_argument('--self-test', action='store_true')
+    parser.add_argument('--runtime-gc-stats', action='store_true',
+                        help='run GC cases with MAYC_GC_STATS=1 and report the runtime counters')
     parser.add_argument('--timeout', type=float, default=60)
     parser.add_argument('--compile-timeout', type=float, default=180)
     parser.add_argument('--memory-mib', type=int, default=2048)

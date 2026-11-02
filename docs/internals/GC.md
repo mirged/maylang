@@ -13,13 +13,35 @@ blocks; allocation restores it when a block is reused. This prevents stale
 headers inside coalesced/reused payloads from being treated as allocations and
 having their payload bytes modified by marking.
 
-Collection starts when 256 MiB of heap is in use. The heap reserves four times
-that address space (1 GiB), committed on demand; when a full collection cannot
-satisfy an allocation, the threshold grows by 64 MiB (or the request's size)
-within the reservation instead of exiting with `out of memory`. Programs that
-fit in 256 MiB collect exactly as before. A system that refuses the 1 GiB
-reservation gets a fixed 256 MiB heap, then smaller ones. The self-hosted
-compiler needs this: compiling its own source keeps close to 256 MiB live.
+The nominal heap is 256 MiB and the reservation is four times that (1 GiB),
+committed on demand. The first threshold is an eighth of the nominal heap
+(32 MiB, floored at 256 KiB for the 4-8 MiB heaps the tests use), and every
+sweep re-derives the next one from the live bytes it measured:
+`max(floor, 2 * live + margin)`, with a margin of one sixteenth of the nominal
+heap capped at 8 MiB, never below the allocation frontier plus that margin and
+never past the reservation. Peak resident memory therefore follows the live
+set instead of always committing the 256 MiB default. A single request that
+still does not fit raises the threshold by the request plus the margin;
+exhausting the reservation exits with `out of memory` (70) as before. Empty
+space is reclaimed by rewinding the bump pointer past the last live block and
+lowering the threshold, not by unmapping: the heap address space and the
+allocation-start table stay fixed. A system that refuses the 1 GiB reservation
+gets a fixed 256 MiB heap, then smaller ones. The self-hosted compiler still
+fits: compiling its own source keeps close to 256 MiB live, and the threshold
+grows with it.
+
+`MAYC_GC_STATS=1` turns on collection statistics: count, bytes allocated,
+live bytes after the last sweep, total pause (CLOCK_MONOTONIC around the
+collector), heap high-water mark, the current threshold and the kernel's
+resident high-water mark. The runtime writes one `GC key=value` line after
+each output line it writes and from `rt_host_exit`, which an uncaught fault
+reaches, so a harness can parse the last line. One start-up read of
+/proc/self/environ decides whether to enable them; after that everything is
+behind one global flag, so a normal run pays a flag test per allocation and
+per write, and the collector only tests the flag per cycle (the sweep counts
+live bytes anyway for the threshold). `compiler/mayc/tests/limits.py
+--runtime-gc-stats` uses it and cross-checks the runtime's collection count
+against the inline meter.
 
 The table reserves one byte per eight reserved heap bytes (128 MiB for the
 default 1 GiB reservation), with pages committed on demand. Stack, global and suspended

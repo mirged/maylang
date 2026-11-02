@@ -145,7 +145,9 @@ struct-bound ones, and no map operation is worse than amortized O(1).
   conversion when a value of another type is stored through an `Any`
   reference. Needs a design note (`design:discussion`): it touches the
   collector's allocation kinds and every list primitive.
-- Closure environments as fixed slots.
+- Closure environments as fixed slots. Done: `rt_env_new` allocates one word
+  per captured binding and `fat_env_cell` reads the cell at `8 * index`, so a
+  capture is a direct load, not a lookup.
 
 Goal: n-body and binary trees faster than CPython. Sieve peak RSS below
 CPython's.
@@ -258,7 +260,7 @@ the CI performance job publishes a fresh report.
 | --- | --- |
 | 0 Measurement | tracked suite, `--no-opt`, oracle test and the CI report job done; GC statistics done |
 | 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
-| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); struct slots, enum payloads and closure environments open |
+| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots and enum payloads open |
 | 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals and inline `len` done; inline `push`/string equality, native regions, native Float functions, direct calls and main-as-native open |
 | 4 IR optimizer | not started (tracked separately) |
 | 5 Allocation and collection | inline allocation, free-list return-to-OS and precise stack maps open (tracked separately) |

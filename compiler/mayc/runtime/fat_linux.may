@@ -24,6 +24,32 @@ mut GCOUNT: Any = 0;
 mut CSTOP: Any = 0;
 mut GCFLAG: Any = 0;
 mut GCCOUNT: Any = 0;
+// The post-sweep threshold policy: GCMIN is the smallest next threshold (a
+// fraction of the nominal heap), GCMARGIN the spare room above the live set.
+// rt_init sets both: module initializers of the injected runtime are not
+// executed, so only the zero word here is reliable.
+mut GCMIN: Any = 0;
+mut GCMARGIN: Any = 0;
+// Opt-in statistics (`MAYC_GC_STATS=1`): allocation total, pause time, live
+// bytes after the last sweep, the heap and resident high-water marks. Every
+// counter is behind GCSTATS, so a normal program only pays one flag test on
+// the allocation path and none in the collector.
+mut GCSTATS: Any = 0;
+mut GCALLOCATED: Any = 0;
+mut GCPAUSE: Any = 0;
+mut GCLIVE: Any = 0;
+mut GCPEAK: Any = 0;
+mut GCSTARTED: Any = 0;
+// The statistics scratch lives on its own page: the first collection can run
+// while the global root table is still being registered, so heap buffers
+// would be collectable before they ever become roots.
+mut GCSCRATCH: Any = 0;
+mut GCBUFFER: Any = 0;
+mut GCRSSBUF: Any = 0;
+mut GCLASTCOUNT: Any = 0;
+mut GCLASTALLOCATED: Any = 0;
+mut GCLASTLIVE: Any = 0;
+mut GCPRINTING: Any = 0;
 fun rt_init() -> Any {
     mut sz: Any = 268435456;
     mut reserve: Any = sz * 4;
@@ -33,7 +59,15 @@ fun rt_init() -> Any {
     GCSTARTS = syscall(9, 0, reserve / 8, 3, 34, 0 - 1, 0);
     if (GCSTARTS < 0) { syscall(60, 70); }
     HEAPLIMIT = HEAP + reserve;
-    HEAPEND = HEAP + sz;
+    // The first threshold is a fraction of the nominal heap, and every sweep
+    // re-derives it from the measured live bytes (rt_threshold), so a small
+    // live set never commits the whole default before its first collection.
+    GCMIN = sz / 8;
+    if (GCMIN < 262144) { GCMIN = 262144; }
+    GCMARGIN = sz / 16;
+    if (GCMARGIN < 262144) { GCMARGIN = 262144; }
+    if (GCMARGIN > 8388608) { GCMARGIN = 8388608; }
+    HEAPEND = HEAP + GCMIN;
     HP = HEAP;
     HEAPDIRTY = HEAP;
     FREEBINS = syscall(9, 0, 4096, 3, 34, 0 - 1, 0);
@@ -43,6 +77,20 @@ fun rt_init() -> Any {
     if (MARKSTK < 0) { syscall(60, 70); }
     CSTOP = STACKTOP;
     HSTACK = rt_alloc(64 * 64);
+    // `MAYC_GC_STATS=1` turns the counters above on. The probe and its
+    // scratch page are outside the measured window; afterwards every
+    // allocation and collection is counted.
+    if (rt_gc_stats_flag() == 1) {
+        GCSCRATCH = syscall(9, 0, 4096, 3, 34, 0 - 1, 0);
+        if (GCSCRATCH >= 0) {
+            GCBUFFER = GCSCRATCH;
+            GCRSSBUF = GCSCRATCH + 128;
+            GCSTARTED = GCSCRATCH + 4080;
+            GCSTATS = 1;
+            GCALLOCATED = 0;
+            GCPEAK = HP - HEAP;
+        }
+    }
     GCFLAG = 1;
     return 0;
 }
@@ -88,6 +136,8 @@ fun rt_scan_range(lo: Any, hi: Any) -> Any {
 }
 fun rt_gc() -> Any {
     if (GCFLAG == 0) { return 0; }
+    mut started: Any = 0;
+    if (GCSTATS != 0) { started = rt_gc_now(); }
     MARKN = 0;
     rt_mark_word(GROOTS); rt_mark_word(HSTACK); rt_mark_word(ERRVAL); rt_mark_word(TRACE_STACK);
     rt_mark_word(FIB_TRACE0);
@@ -137,6 +187,7 @@ fun rt_gc() -> Any {
     }
     rt_sweep();
     GCCOUNT = GCCOUNT + 1;
+    if (GCSTATS != 0) { GCPAUSE = GCPAUSE + rt_gc_now() - started; }
     return 0;
 }
 fun rt_sweep() -> Any {
@@ -145,6 +196,7 @@ fun rt_sweep() -> Any {
     while (bin < 257) { store64(FREEBINS + bin * 8, 0); bin += 1; }
     mut run: Any = 0;
     mut runsize: Any = 0;
+    mut live: Any = 0;
     mut p: Any = HEAP;
     while (p < HP) {
         let hdr: Any = load64(p);
@@ -158,11 +210,29 @@ fun rt_sweep() -> Any {
         } else {
             if (run != 0) { rt_free_region(run, runsize); run = 0; runsize = 0; }
             store64(p, sz);
+            live += sz;
         }
         p = p + sz;
     }
     if (run != 0) { HP = run; }
+    // The threshold of the next cycle follows the live bytes measured here.
+    GCLIVE = live;
+    HEAPEND = rt_threshold(live);
     return 0;
+}
+// The next collection threshold after a sweep: twice the live bytes plus a
+// margin, never below the initial floor and never past the reservation. An
+// empty tail is already reclaimed by rewinding HP in the sweep; lowering
+// HEAPEND (rather than unmapping) keeps the address space and the allocation
+// table fixed.
+fun rt_threshold(live: Any) -> Any {
+    mut next: Any = HEAP + live * 2 + GCMARGIN;
+    if (next < HEAP + GCMIN) { next = HEAP + GCMIN; }
+    // The live set can sit behind large interior holes; the next threshold
+    // still needs room above the allocation frontier, never below it.
+    if (next < HP + GCMARGIN) { next = HP + GCMARGIN; }
+    if (next > HEAPLIMIT) { next = HEAPLIMIT; }
+    return next;
 }
 fun rt_free_region(pointer: Any, size: Any) -> Any {
     FREECOUNT += 1;
@@ -219,6 +289,7 @@ fun rt_alloc_kind(n: Any, kind: Any) -> Any {
     mut need: Any = n + 16;
     let r: Any = need % 16;
     if (r != 0) { need = need + (16 - r); }
+    if (GCSTATS != 0) { GCALLOCATED = GCALLOCATED + need; }
     mut p: Any = 0;
     if (FREECOUNT != 0) { p = rt_fit(need, kind); }
     if (p != 0) { return p; }
@@ -228,8 +299,10 @@ fun rt_alloc_kind(n: Any, kind: Any) -> Any {
         if (p != 0) { return p; }
         if (HP + need > HEAPEND) {
             if (HP + need > HEAPLIMIT) { rt_write(addr("out of memory\n"), 14); syscall(60, 70); }
-            HEAPEND = HEAPEND + 67108864;
-            if (HEAPEND < HP + need) { HEAPEND = HP + need; }
+            // The sweep set the threshold from the live set; if this single
+            // request still does not fit above it, raise the threshold by
+            // the request plus the usual margin, inside the reservation.
+            HEAPEND = HP + need + GCMARGIN;
             if (HEAPEND > HEAPLIMIT) { HEAPEND = HEAPLIMIT; }
         }
     }
@@ -244,22 +317,23 @@ fun rt_alloc_kind(n: Any, kind: Any) -> Any {
         if (HP < HEAPDIRTY) { rt_zero(H + 16, need - 16); } else { rt_zero(H + 16, HEAPDIRTY - H - 16); }
     }
     if (HP > HEAPDIRTY) { HEAPDIRTY = HP; }
+    if (GCSTATS != 0 and HP - HEAP > GCPEAK) { GCPEAK = HP - HEAP; }
     return H + 16;
 }
 // Grow the allocation at payload `p` by `extra` bytes (a multiple of 16)
 // in place, when it is the newest block and the reservation has room (#99).
 // Growing live data past the collection threshold raises the threshold with
-// headroom (the grown block's size, at least 64 MiB), as rt_alloc_kind grows
-// it after a collection frees too little; a collection right away would find
-// the block live. The new bytes are zero. Returns 1 on success and 0 when the
-// caller must copy.
+// headroom (the grown block's size, at least the sweep margin), as
+// rt_alloc_kind grows it when a collection frees too little; a collection
+// right away would find the block live. The new bytes are zero. Returns 1 on
+// success and 0 when the caller must copy.
 fun rt_grow_in_place(p: Any, extra: Any) -> Any {
     let block: Any = p - 16;
     let size: Any = load64(block);
     if (block + size != HP or HP + extra > HEAPLIMIT) { return 0; }
     if (HP + extra > HEAPEND) {
         mut room: Any = size + extra;
-        if (room < 67108864) { room = 67108864; }
+        if (room < GCMARGIN) { room = GCMARGIN; }
         HEAPEND = HP + extra + room;
         if (HEAPEND > HEAPLIMIT) { HEAPEND = HEAPLIMIT; }
     }
@@ -273,10 +347,110 @@ fun rt_grow_in_place(p: Any, extra: Any) -> Any {
 }
 fun rt_write(p: Any, n: Any) -> Any {
     syscall(1, 1, p, n);
+    // A compiled program returns from main into an exit syscall, so the last
+    // output line is the newest point the runtime controls; a summary follows
+    // it when MAYC_GC_STATS=1. GCPRINTING keeps the summary out of its own
+    // recursion and GCSILENT holds it back while an uncaught fault prints.
+    // When the setting is off this is one flag test per write.
+    if (GCSTATS != 0 and GCPRINTING == 0 and GCSILENT == 0 and n > 0 and load8(p + n - 1) == 10) {
+        rt_gc_stats_report();
+    }
+    return 0;
+}
+
+// ---- collection statistics -------------------------------------------------
+// `MAYC_GC_STATS=1` is read once from /proc/self/environ: --raw programs set
+// STACKTOP to their own frame, so the initial environment vector is not
+// available there. The probe maps a page of its own and never touches the heap.
+fun rt_gc_stats_flag() -> Any {
+    let fd: Any = syscall(2, addr("/proc/self/environ"), 0, 0);
+    if (fd < 0) { return 0; }
+    let b: Any = syscall(9, 0, 8192, 3, 34, 0 - 1, 0);
+    if (b < 0) { syscall(3, fd); return 0; }
+    let n: Any = syscall(0, fd, b, 8192);
+    syscall(3, fd);
+    mut found: Any = 0;
+    mut i: Any = 0;
+    while (found == 0 and i < n) {
+        let start: Any = i;
+        while (i < n and load8(b + i) != 0) { i += 1; }
+        // "MAYC_GC_STATS=1" as four words; any other value leaves it off.
+        if (i - start == 15 and load32(b + start) == 1129922893 and load32(b + start + 4) == 1598244703
+            and load32(b + start + 8) == 1413567571 and load32(b + start + 12) == 3226963) { found = 1; }
+        i += 1;
+    }
+    syscall(11, b, 8192);
+    return found;
+}
+// Monotonic nanoseconds for pause accounting (CLOCK_MONOTONIC, no allocation).
+fun rt_gc_now() -> Any {
+    if (GCSTARTED == 0) { return 0; }
+    syscall(228, 1, GCSTARTED);
+    return load64(GCSTARTED) * 1000000000 + load64(GCSTARTED + 8);
+}
+// Decimal text without allocating, so the report can run at exit.
+fun rt_gc_num(v: Any) -> Any {
+    mut n: Any = v;
+    if (n < 0) { rt_write(addr("-"), 1); n = 0 - n; }
+    mut d: Any = 0;
+    if (n == 0) { store8(GCBUFFER, 48); d = 1; }
+    while (n > 0) { store8(GCBUFFER + d, 48 + n % 10); n = n / 10; d += 1; }
+    mut i: Any = 0;
+    while (i * 2 < d) {
+        let c: Any = load8(GCBUFFER + i);
+        store8(GCBUFFER + i, load8(GCBUFFER + d - 1 - i));
+        store8(GCBUFFER + d - 1 - i, c);
+        i += 1;
+    }
+    rt_write(GCBUFFER, d);
+    return 0;
+}
+// VmHWM from /proc/self/status: the kernel's peak resident set.
+fun rt_gc_rss() -> Any {
+    let fd: Any = syscall(2, addr("/proc/self/status"), 0, 0);
+    if (fd < 0) { return 0; }
+    let n: Any = syscall(0, fd, GCRSSBUF, 2048);
+    syscall(3, fd);
+    if (n <= 0) { return 0; }
+    mut i: Any = 0;
+    while (i + 6 < n) {
+        if (load8(GCRSSBUF + i) == 86 and load8(GCRSSBUF + i + 1) == 109 and load8(GCRSSBUF + i + 2) == 72
+            and load8(GCRSSBUF + i + 3) == 87 and load8(GCRSSBUF + i + 4) == 77 and load8(GCRSSBUF + i + 5) == 58) {
+            mut j: Any = i + 6;
+            while (j < n and load8(GCRSSBUF + j) < 33) { j += 1; }
+            mut v: Any = 0;
+            while (j < n and load8(GCRSSBUF + j) >= 48 and load8(GCRSSBUF + j) <= 57) {
+                v = v * 10 + load8(GCRSSBUF + j) - 48; j += 1;
+            }
+            return v;
+        }
+        i += 1;
+    }
+    return 0;
+}
+// One parseable summary line. It is written from the last output line (the
+// newest point the runtime controls before the compiled epilogue's exit
+// syscall) and from rt_host_exit, so an uncaught fault reports too. Repeated
+// identical states are not reprinted.
+fun rt_gc_stats_report() -> Any {
+    if (GCSTATS == 0 or GCPRINTING != 0) { return 0; }
+    if (GCCOUNT == GCLASTCOUNT and GCALLOCATED == GCLASTALLOCATED and GCLIVE == GCLASTLIVE) { return 0; }
+    GCLASTCOUNT = GCCOUNT; GCLASTALLOCATED = GCALLOCATED; GCLASTLIVE = GCLIVE;
+    GCPRINTING = 1;
+    rt_write(addr("GC collections="), 15); rt_gc_num(GCCOUNT);
+    rt_write(addr(" allocated="), 11); rt_gc_num(GCALLOCATED);
+    rt_write(addr(" live="), 6); rt_gc_num(GCLIVE);
+    rt_write(addr(" pause_ns="), 10); rt_gc_num(GCPAUSE);
+    rt_write(addr(" peak="), 6); rt_gc_num(GCPEAK);
+    rt_write(addr(" threshold="), 11); rt_gc_num(HEAPEND - HEAP);
+    rt_write(addr(" rss_kb="), 8); rt_gc_num(rt_gc_rss());
+    rt_write(addr("\n"), 1);
+    GCPRINTING = 0;
     return 0;
 }
 
 fun rt_host_exit(status: Any) -> Any {
+    rt_gc_stats_report();
     syscall(60, status);
     return 0;
 }

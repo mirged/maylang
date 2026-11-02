@@ -131,6 +131,18 @@ report using an independent scratch mapping without allocating from the collecte
 Time spent in a collection aborted by capacity exhaustion is represented by the
 child's total timing, not the completed-collection time counter.
 
+The runtime can measure itself as well. `--runtime-gc-stats` runs the GC cases
+with `MAYC_GC_STATS=1`, so the runtime prints one `GC collections=...
+allocated=... live=... pause_ns=... peak=... threshold=... rss_kb=...` line
+after each line of output it writes and at a fault exit. The report's `Live
+MiB` and `Runtime pause ms` columns and the `runtime` object in `report.json`
+come from the last such line; its collection count must equal the inline
+meter's, so a disagreement fails the run. The meter stays authoritative for the
+allocation and limit counters. Because the collector derives its next threshold
+from the live bytes of each sweep, a successful case is checked against that
+policy rather than the nominal heap: the threshold must be positive, at most
+`4 * heap`, and at least the live bytes reported by the runtime.
+
 Each child has wall/CPU/address-space/output/core-dump limits. Timeouts kill
 the process group and reap the direct child. A crash or arbitrary exit 70 is a failure: expected
 capacity cases require the matching diagnostic and telemetry. Failure reports
