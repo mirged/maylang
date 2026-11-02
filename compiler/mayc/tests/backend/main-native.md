@@ -4,8 +4,18 @@ Main's top-level statements now compile to native-word code when every binding
 they use was demoted to a main local (#101) and every value and operation is a
 machine word. On the cross-language suite that is collatz (a top-level `Int`
 loop) and fib (a single call into a native-word function); the other six keep
-the tagged main. The collatz loop drops from 94.75 to 47.48 ms, the 2.4× that
+the tagged main. The collatz loop drops from 87.70 to 43.73 ms, the 2.4× that
 the same loop still lost at the top level on the phase-3 reference.
+
+**Coverage correction.** The first version of this change shipped
+`tests/main_native.may`, but its string-literal prints are a dynamic boundary:
+the fixture exercised the tagged fallback, not the native path, and its image
+was byte-identical to the parent compiler's. This version adds
+`tests/main_native_words.may`, a word-only fixture that does take the native
+path, pins its tagged output in `legacy_behavior.json`, and asserts the path
+in `backends.py`; `tests/main_native.may` stays as the tagged-fallback
+fixture. The collatz measurement was native all along (it prints one computed
+`Int` and nothing else).
 
 ## Changes
 
@@ -35,7 +45,10 @@ statement) are fine; reader counts decide that.
 
 `x86_native_main` emits label 1 with the raw native codegen: prologue, `rt_init`,
 a `rt_gc_root` for each remaining global through the raw trampolines, the body
-via `cg_ir`, the epilogue and the out-of-line native-fault stubs. It uses the
+via `cg_ir`, the epilogue and the out-of-line native-fault stubs. The root loop
+is load-bearing, not defensive: the scan rejects global *references from main*,
+but `ctx.globals` still holds the runtime's own state and any user binding a
+function reads or writes, and dynamic mode has to register all of them. It uses the
 optimized raw path (`ctx.leaf`) rather than the simple one, which is where the
 win is: loop-hot locals are promoted to callee-saved registers and arithmetic
 fuses. Values in registers across a call are still rooted by the existing
@@ -66,23 +79,25 @@ samples, taken with [`main_native/run.py`](main_native/run.py) (`--rounds 15
 
 - "Before" is `40ae868` built in a separate worktree and preserved with its
   sidecars; "after" is this change. The runtime sidecars are identical
-  (`1a4c10aa…`); the compiler images are `9eba1600…` and `038afeb8…`.
+  (`1a4c10aa…`); the compiler images are `9eba1600…` and `c68e8de3…`.
 - Every measured child was pinned to CPU 2 with `taskset` and interleaved
-  rounds alternate the order. Another workload ran on the host, at a load
-  average of 5.0.
-- Values are median CPU times of 15 samples after one warm-up; every workload
-  printed the same output on both sides.
+  rounds alternate the order. Other workloads ran on the host at a load
+  average of 6.1, so the absolute times are higher than on an idle machine
+  and the tagged collatz build is the most cache-sensitive workload here.
+- Values are median CPU times of 15 samples after one warm-up; the change
+  column is the median of the per-round after/before ratios, which cancels
+  slow rounds. Every workload printed the same output on both sides.
 
 | Workload | Before, ms | After, ms | Change |
 | --- | ---: | ---: | ---: |
-| collatz, seeds 1..300000, top-level loop (native main) | 94.75 | 47.48 | **−49.9%** |
-| fib(35) (native main, one call into native fib) | 63.15 | 62.07 | −1.7% |
-| sieve (tagged main) | 213.14 | 210.71 | −1.1% |
-| hashmap (tagged main) | 119.24 | 116.54 | −2.3% |
-| strings (tagged main) | 60.28 | 61.82 | +2.6% |
-| mandelbrot (tagged main, Float) | 49.27 | 49.17 | −0.2% |
-| n-body (tagged main, structs) | 83.57 | 82.37 | −1.4% |
-| binary trees (tagged main, structs) | 1003.95 | 996.95 | −0.7% |
+| collatz, seeds 1..300000, top-level loop (native main) | 87.70 | 43.73 | **−50.4%** |
+| fib(35) (native main, one call into native fib) | 57.56 | 57.27 | +0.3% |
+| sieve (tagged main) | 193.54 | 201.35 | +0.8% |
+| hashmap (tagged main) | 93.12 | 90.65 | −1.9% |
+| strings (tagged main) | 48.74 | 50.28 | +0.1% |
+| mandelbrot (tagged main, Float) | 45.54 | 45.88 | −0.2% |
+| n-body (tagged main, structs) | 76.14 | 76.07 | +0.0% |
+| binary trees (tagged main, structs) | 842.94 | 993.56 | +2.4% |
 
 collatz is the target: the top-level loop is the same machine code a native
 `Int` function would get, so the 2.4× overhead of 16-byte frame slots, type
@@ -96,11 +111,67 @@ differences are run-to-run spread, and the two builds produce the same output.
 **Code size.** The compiler image grows from 3 056 520 to 3 102 320 bytes
 (+1.5%), from the scanner, the native-main emitter and the `print` lowering.
 
+**Compiler self-compile cost.** Independent measurement of the first version
+of this change recorded a +7.5–8.6% cost to compiling the compiler with the
+new binary. That version ran the direct-call prepass twice — once in
+`cg_program` for the new dispatch and once inside `fat_main` — and the fix
+commit removes the duplicate. On this host, a pinned 15-round interleaved A/B
+of `compiler/mayc/main.may` compiled by `40ae868` and by the fixed compiler
+measured +0.36% on the medians and +0.03% on the paired median; the earlier
+commit measured +0.2% here before the prepass was removed, so the magnitude
+of the independent figure was not reproduced on this machine and the fix
+removes the only duplication the commit introduced.
+
+## Proof the native path is taken
+
+- `tests/main_native_words.may` compiled by the parent compiler (`40ae868`,
+  before main had a native path) and by this compiler produces different
+  images (110 240 bytes against 114 376) and identical output. The old
+  `tests/main_native.may` was byte-identical to the parent compiler's image
+  (114 584 bytes) in both builds, which is how the missing coverage was
+  found.
+- The native main boxes a printed argument by pushing the fat type word as an
+  immediate: `push 0x2; push rax` for an `Int`, `push 0x1; push rax` for a
+  `Bool`, followed by the trampoline call. Those two sequences occur 19 and
+  10 times in the word-only fixture's optimized image and zero times in the
+  parent compiler's image and in the `--no-opt` image.
+- `backends.py` asserts this: it compiles a small word-only main both ways,
+  requires the images to differ, requires both boxing sequences in the
+  optimized disassembly, requires neither in `--no-opt`, and requires
+  identical stdout (`135` and `true`).
+
 ## Tests
 
-- `tests/main_native.may` is a new feature fixture whose output was produced by
-  the compiler before main had a native path (recorded in
-  `tests/legacy_behavior.json`). It covers:
+- `tests/main_native_words.may` is the word-only fixture that takes the native
+  path. Its output was produced by `40ae868` (recorded in
+  `tests/legacy_behavior.json`) and equals the `--no-opt` tagged main. It
+  covers:
+  - a collatz-style nested `Int` loop with a call in the body;
+  - `for` over `a..b` and `a..=b`, `break`, `continue` and an accumulating
+    `while`;
+  - `Bool` locals, comparisons and `and`/`or`/`!`, printed as `Bool`;
+  - division, modulo, shifts, bitwise operators and unary minus, including
+    negative operands (the demotion pass now ignores a synthetic `__wordN`
+    function's parameter names, so a bitwise expression on a main local no
+    longer keeps that binding global);
+  - calls to native-word functions and nested calls in argument position;
+  - no string literal and no other dynamic value, so the scan accepts it.
+- `tests/main_native.may` is the tagged-fallback companion: its string-literal
+  prints disqualify it by design, and it pins the tagged main's behavior,
+  including a word-compatible tagged callee reached through its word adapter
+  and a final uncaught division fault (exit 70).
+- `tests/oracle.py` compiles every fixture with and without `--no-opt` and
+  requires identical behavior, so every fixture whose main qualifies is a
+  native-versus-tagged oracle as well. `--debug` was also compared by hand for
+  a fault inside a function called from a native main: identical output and
+  exit status.
+- With the rebuilt compiler:
+  - `make check`;
+  - `make test-compiler`: 143 passed, including `raw_codegen.py`,
+    `backends.py` and `oracle.py`;
+  - `make test-bootstrap` run twice: source-only stage 2 equals stage 3 both
+    times;
+  - `raw_codegen.py` and `backends.py` run directly: pass.
   - a collatz-style nested `Int` loop with a call in the body;
   - `for` over `a..b` and `a..=b`, `break`, `continue` and an accumulating
     `while`;
@@ -113,18 +184,6 @@ differences are run-to-run spread, and the two builds produce the same output.
     calls in argument position;
   - an empty `print()` and a final division by zero: the uncaught arithmetic
     fault exits 70 with the same output on the tagged main.
-- `tests/oracle.py` compiles every fixture with and without `--no-opt` and
-  requires identical behavior, so every fixture whose main qualifies is a
-  native-versus-tagged oracle as well. `--debug` was also compared by hand for
-  a fault inside a function called from a native main: identical output and
-  exit status.
-- With the rebuilt compiler:
-  - `make check`;
-  - `make test-compiler`: 142 passed, including `raw_codegen.py`,
-    `backends.py` and `oracle.py`;
-  - `make test-bootstrap` run twice: source-only stage 2 equals stage 3 both
-    times;
-  - `raw_codegen.py` and `backends.py` run directly: pass.
 
 ## Limits and follow-ups
 
@@ -140,9 +199,11 @@ differences are run-to-run spread, and the two builds produce the same output.
   tagged function that returns a heap value would also fall back, because the
   scan rejects non-word results.
 - The scan works on main's fat-lowered IR and relies on the demotion pass
-  having removed every last global it uses; a future change to demotion or to
+  having removed every global main names; a future change to demotion or to
   the IR shapes must keep the scan's assumptions. The reader-count pass is
-  deliberately independent of the allocation passes.
+  deliberately independent of the allocation passes. The fix also taught
+  demotion to ignore the parameters of synthetic `__wordN` bitwise helpers,
+  which is what lets a word-only expression over a main local stay a local.
 - The native main uses the optimized raw path with calls, which no other
   dynamic-mode body does. It is safe here because every value is a word and
   the per-call root stores plus `rt_gc`'s callee-saved marking cover register

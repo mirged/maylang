@@ -34,7 +34,10 @@
   inside the spread because its work is one call, and the suites that use
   Float, strings, lists, maps, structs or closures keep the tagged main
   unchanged. `--no-opt`, `--raw`, the tagged fallback and
-  `tests/main_native.may` plus the oracle test cover the boundaries.
+  `tests/main_native_words.may` (with the tagged-fallback companion
+  `tests/main_native.may`) plus the oracle test cover the boundaries, and
+  `backends.py` asserts the native path is taken: its image differs from the
+  tagged build and carries the immediate-typed `print` boxing sequence.
 - Enum payload reads in `match` ([report](compiler/mayc/tests/backend/enum-payloads.md)):
   a variant pattern proves the tag, so the tag and its payload bindings are
   read by guarded fixed slot instead of one `rt_map_get` call per arm; the
