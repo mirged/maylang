@@ -1,0 +1,55 @@
+// Map probe with Float keys measurement source (#133).
+// Builds one Float-keyed map of n entries plus lists of present and absent
+// keys, then times 20 rounds of hit and miss lookups through `??` so the
+// probe's three exits (pointer-free hit, miss) are measured without building
+// floats inside the loop.
+let n: Int = 100000;
+let f: Map<Float, Int> = {};
+let fkeys: List<Float> = [];
+let fabs: List<Float> = [];
+mut i: Int = 0;
+while (i < n) {
+    let k: Float = to_float(i) * 0.5;
+    f[k] = i;
+    push(fkeys, k);
+    push(fabs, to_float(i) + 0.25);
+    i += 1;
+}
+mut sum: Int = 0;
+mut round: Int = 0;
+while (round < 20) {
+    i = 0;
+    while (i < n) { sum += f[fkeys[i]] ?? -1; i += 1; }
+    i = 0;
+    while (i < n) { sum += f[fabs[i]] ?? 0; i += 1; }
+    round += 1;
+}
+print(sum, len(fkeys));
+
+// Hashmap-shaped phase: build a Float-keyed map and look keys up with `?? 0`,
+// half of them present, so construction and lookup are both in the timed part.
+let g: Map<Float, Int> = {};
+i = 0;
+while (i < n) { g[to_float(i) * 0.5] = i; i += 1; }
+mut sum2: Int = 0;
+i = 0;
+while (i < n * 2) { sum2 += g[to_float(i) * 0.5] ?? 0; i += 1; }
+print(sum2, len(fkeys), len(fabs));
+
+// Bool-keyed phase: a Bool map holds at most two entries, so other-typed keys
+// are mixed in through an Any alias to grow the hash table; the loop then reads
+// the two Bool keys through the typed inline probe. `i % 2` is the key.
+let bm: Map<Bool, Int> = {};
+let bm_alias: Any = bm;
+bm[true] = 1;
+bm[false] = 0;
+i = 0;
+while (i < 10) { bm_alias[i] = i; i += 1; }
+mut bsum: Int = 0;
+round = 0;
+while (round < 20) {
+    i = 0;
+    while (i < n * 2) { bsum += bm[i % 2 == 0] ?? -1; i += 1; }
+    round += 1;
+}
+print(bsum, sum, sum2);

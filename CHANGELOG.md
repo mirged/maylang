@@ -2,6 +2,16 @@
 
 ## Performance
 
+- Inline map probing for Float and Bool keys ([report](compiler/mayc/tests/backend/map-probe-keys.md)):
+  the probe's key types now match the runtime's: Float keys hash with
+  `rt_hash_mix` and the `-0.0` fold and compare with `rt_same`'s IEEE equality
+  (`-0.0` equals `+0.0`, NaN equals nothing), and Bool keys use the folded
+  payload hash and payload equality. The fallback set is unchanged (non-map
+  receivers, dynamic values, sub-threshold maps, growth, faults, `--no-opt`).
+  A Float+Bool-key map workload drops from 258.8 to 126.1 ms (-51.3%); the
+  Str-key probe and hashmap controls compile to byte-identical binaries and do
+  not move, so existing workloads are unchanged. `tests/map_probe_keys.may` and
+  the oracle test cover the semantics.
 - Enum payload reads in `match` ([report](compiler/mayc/tests/backend/enum-payloads.md)):
   a variant pattern proves the tag, so the tag and its payload bindings are
   read by guarded fixed slot instead of one `rt_map_get` call per arm; the

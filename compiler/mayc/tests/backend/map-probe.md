@@ -3,15 +3,16 @@
 The last bullet of #133: `??` on a present map value reuses the probe state
 instead of re-reading a temporary. That needs map probing inlined first, so this
 change inlines the Str/Int hash-table probe and then folds the coalesce branch
-into it. Inline `push` and string equality were the first two bullets
-([inline-paths.md](inline-paths.md)).
+into it; Float and Bool keys followed in
+[map-probe-keys.md](map-probe-keys.md). Inline `push` and string equality were
+the first two bullets ([inline-paths.md](inline-paths.md)).
 
 ## Changes
 
 **The probe** (`fat_map_str_hash`, `fat_map_int_hash`, `fat_map_probe`, and
 `fat_index_load` in `src/backend/x86_64_fat.may`). `m[k]` with a receiver the
 checker proved `Map` and a key proved `Str` or `Int` now walks the runtime's
-hash table inline instead of calling `rt_index_get` (which calls
+hash table inline (Float and Bool keys were added later) instead of calling `rt_index_get` (which calls
 `rt_map_lookup`, `rt_map_find`, `rt_key_hash` and, per matching entry,
 `rt_str_eq`). The inline walk is `rt_map_find`'s exactly: the same key hash
 (`h * 131 + byte` for strings, the folded high words for `Int`), the same three

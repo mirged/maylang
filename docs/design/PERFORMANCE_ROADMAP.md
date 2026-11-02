@@ -218,10 +218,15 @@ CPython's.
   and `==`/`!=` on two strings of different byte lengths
   ([report](../../compiler/mayc/tests/backend/inline-paths.md)); the sieve
   drops from 250 to 187 ms. Also done: a `m[k]` whose receiver is proved a
-  `Map` and whose key is a proved `Str` or `Int` probes the hash table inline,
-  with the runtime call for every other case, and `??` folds its branch into
-  the probe ([report](../../compiler/mayc/tests/backend/map-probe.md)):
-  hashmap -6.9% and a probe-heavy workload -24.1%.
+  `Map` and whose key is a proved `Str`, `Int`, `Float` or `Bool` probes the
+  hash table inline, mirroring `rt_key_hash`/`rt_same` (including the `-0.0`
+  and NaN Float rules), with the runtime call for every other case, and `??`
+  folds its branch into the probe
+  ([report](../../compiler/mayc/tests/backend/map-probe.md)): hashmap -6.9% and
+  a probe-heavy workload -24.1%. The Float/Bool key types followed
+  ([report](../../compiler/mayc/tests/backend/map-probe-keys.md)): a
+  Float+Bool-key map workload runs 51% faster while Str/Int-only programs stay
+  byte-identical.
 - [#94](https://github.com/mirged/maylang/issues/94): restore or remove
   native-word extern calls.
 
