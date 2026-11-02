@@ -1,9 +1,8 @@
 # Struct slots and enum payloads
 
-Status: implemented (roadmap phase 2, #134). Steps 1-3 are merged on
+Status: implemented (roadmap phase 2, #134). Steps 1-4 are merged on
 `perf/inline-paths` and measured in
-[struct-slots.md](../../compiler/mayc/tests/backend/struct-slots.md); step 4,
-enum payload reads in `match`, is implemented and measured in
+[struct-slots.md](../../compiler/mayc/tests/backend/struct-slots.md) and
 [enum-payloads.md](../../compiler/mayc/tests/backend/enum-payloads.md).
 
 Records are maps. A `struct` declaration generates a constructor function whose

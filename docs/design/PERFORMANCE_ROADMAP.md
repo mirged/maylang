@@ -147,12 +147,14 @@ struct-bound ones, and no map operation is worse than amortized O(1).
   records, and the collector gained a record block kind so a grown record's
   moved entries stay traced
   ([report](../../compiler/mayc/tests/backend/struct-slots.md),
-  [design](STRUCT_LAYOUT.md)). Enum payload reads in `match` are the remaining
-  step ([#134](https://github.com/mirged/maylang/issues/134)).
+  [design](STRUCT_LAYOUT.md)). Enum payload reads in `match` followed on the
+  same record layout ([report](../../compiler/mayc/tests/backend/enum-payloads.md)).
 - Enum variants and payloads with the same layout, so `match` reads payloads
-  by offset. The record layout and the one-block constructor already cover
-  enum values; reading a payload by offset in `match` instead of probing it is
-  the remaining step ([#134](https://github.com/mirged/maylang/issues/134)).
+  by offset. Done: a variant pattern reads the tag and its payload bindings by
+  guarded fixed slot, keeping the runtime probe for `Any` values, grown or
+  compacted records, foreign maps and `Result` patterns
+  ([report](../../compiler/mayc/tests/backend/enum-payloads.md)); a
+  recursive-enum evaluator is 5.1x faster and a match loop 3.7x.
 - Specialized list storage for homogeneous element types (`List<Int>`,
   `List<Float>` as 8-byte words, `List<Bool>`/`List<Byte>` as bytes), with
   conversion when a value of another type is stored through an `Any`
@@ -245,9 +247,13 @@ backend would benefit too. Each one is skipped under `--no-opt`.
   every benchmark's output identical) but **did not pay**: binary trees
   1.79 s before against 1.86 s after (7 runs), n-body and fib inside the
   spread. The call is small next to the map insertion a constructor performs,
-  so the change was dropped rather than merged; a profitable inliner needed the
-  caller-side work (register arguments) from phase 3, which has now landed, so a
-  retry is unblocked.
+  so the change was dropped rather than merged. Retried on the register-call
+  base (#132): behaviour-clean again, and one-expression helpers and field
+  accessors in hot loops now inline profitably (-54% and -35%), but no suite
+  benchmark moved beyond the spread while `features.may` compile time grew 2.5%,
+  self-compile 8.5-16.3% and the compiler image 2.4%, so it was reverted again;
+  the item stays open for an opt-in or accessor-only form
+  ([addendum](../../compiler/mayc/tests/backend/ir-passes.md)).
 - Common subexpression elimination for pure operations, including repeated
   field reads and `len` calls in loop conditions. Done within a straight-line
   region for repeated field and element reads (report above); cross-block CSE
@@ -324,9 +330,9 @@ the CI performance job publishes a fresh report.
 | --- | --- |
 | 0 Measurement | tracked suite, `--no-opt`, oracle test and the CI report job done; GC statistics done |
 | 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
-| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots, one-block constructors and guarded slot reads done ([design](STRUCT_LAYOUT.md), [report](../../compiler/mayc/tests/backend/struct-slots.md)); enum payload reads in `match` open, [#134](https://github.com/mirged/maylang/issues/134) |
+| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots, one-block constructors, guarded slot reads and enum payload reads in `match` done ([design](STRUCT_LAYOUT.md), [reports](../../compiler/mayc/tests/backend/struct-slots.md): [struct](../../compiler/mayc/tests/backend/struct-slots.md), [enum payloads](../../compiler/mayc/tests/backend/enum-payloads.md)), [#134](https://github.com/mirged/maylang/issues/134) |
 | 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push`, string equality, inline map probing with the `??` fold ([report](../../compiler/mayc/tests/backend/map-probe.md)), direct calls with register arguments ([report](../../compiler/mayc/tests/backend/direct-calls.md)) and straight-line native Float functions ([report](../../compiler/mayc/tests/backend/native-floats.md)) done; native Float loops, native regions and main-as-native open in [#132](https://github.com/mirged/maylang/issues/132) |
-| 4 IR optimizer | propagation, dead-code/store elimination and block-local CSE done ([report](../../compiler/mayc/tests/backend/ir-passes.md)); leaf-function inlining tried and measured (no win, not merged); LICM, check elimination, escape analysis, monomorphization and the raw-backend ports open in [#131](https://github.com/mirged/maylang/issues/131) |
-| 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation and returned pages measured negative and not merged ([report](../../compiler/mayc/tests/backend/inline-alloc.md), [#135](https://github.com/mirged/maylang/issues/135)); precise stack maps designed and measured ([design](STACK_MAPS.md)), open in [#135](https://github.com/mirged/maylang/issues/135) |
+| 4 IR optimizer | propagation, dead-code/store elimination and block-local CSE done ([report](../../compiler/mayc/tests/backend/ir-passes.md)); leaf-function inlining measured twice (round 1 and on the register-call base) and not merged, open as opt-in/accessor-only; LICM, check elimination, escape analysis, monomorphization and the raw-backend ports open in [#131](https://github.com/mirged/maylang/issues/131) |
+| 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation and returned pages measured negative and not merged ([report](../../compiler/mayc/tests/backend/inline-alloc.md)); fixed-slot record initialization inlined instead, which pays ([report](../../compiler/mayc/tests/backend/construction-inline.md)); precise stack maps designed and measured ([design](STACK_MAPS.md)), open in [#135](https://github.com/mirged/maylang/issues/135) |
 | 6 Other targets | deferred (frozen) |
 | 7 Compiler throughput | baseline recorded ([report](../../compiler/mayc/tests/backend/compiler-throughput.md)); re-measure per phase |
