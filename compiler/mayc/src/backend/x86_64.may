@@ -1153,6 +1153,7 @@ fun x86_loop_depths(block: Any) -> Any {
 // syscall/exit clobber rax/rcx/r11 only. Builtins named __* are dispatched
 // before user functions and stay excluded, including __sp.
 fun x86_preserving_call(ctx: Any, payload: Any, name: Any) -> Any {
+    if (X86_MAIN_NATIVE and name == "print") { return true; }
     if (name == "syscall" or name == "exit" or name == "addr" or name == "cstr" or name == "len" or name == "ptr") { return true; }
     if (starts_with(name, "__")) { return false; }
     let callee: Any = backend_find_func(ctx, payload.name, payload.length);
@@ -2327,6 +2328,7 @@ fun tag_rax(ctx: Any) -> Any { e8(ctx, 72); e8(ctx, 193); e8(ctx, 224); e8(ctx, 
 
 fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     let platformName: Any = symbol_name(np, nl);
+    if (X86_MAIN_NATIVE and platformName == "print") { x86_word_main_print(ctx, args); return 1; }
     if (platformName == "__fiber_stack") { x86_core_fiber_stack(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__ccall6"), len("__ccall6")) == 1) { cg_ccall6(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__longjmp"), len("__longjmp")) == 1) { cg_longjmp(ctx); return 1; }
@@ -2991,6 +2993,307 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     return 0;
 }
 
+// ------------------------------------------------------------- native main
+//
+// Main's top-level statements are lowered by the fat path, but when every
+// binding they touch was demoted to a main local (#101), every value and
+// operation is a machine word and no dynamic value is constructed, they are
+// emitted as native-word code instead. The tagged main stays the general
+// fallback: a string, list, map, struct, closure, Float, handler or a binding
+// that stayed global keeps it, as does --no-opt. Words are the fat Int/Bool/
+// Ptr payloads themselves, so the only boundary that needs conversion is
+// `print`, which boxes each argument as a fat value and calls the runtime.
+
+mut X86_MAIN_NATIVE: Bool = false;   // true while emitting a native main
+mut X86_MAIN_KINDS: Any = [];        // temporary slot -> "Int" or "Bool"
+
+fun x86_word_main_kind(kinds: Any, value: Any) -> Any {
+    if (value == 0 or value == nil) { return nil; }
+    if (value.slot >= len(kinds)) { return nil; }
+    return kinds[value.slot];
+}
+
+fun x86_word_main_use(uses: Any, value: Any) -> Any {
+    if (value != 0 and value != nil and value.slot < len(uses)) { uses[value.slot] = uses[value.slot] + 1; }
+    return 0;
+}
+
+fun x86_word_main_uses_list(uses: Any, values: Any) -> Any {
+    mut value: Any = values;
+    while (value != 0) { x86_word_main_use(uses, value); value = value.next; }
+    return 0;
+}
+
+// Reader counts for the main block, so an unused `nil` (a loop or if used as a
+// statement) is not a dynamic value.
+fun x86_word_main_uses(block: Any) -> Any {
+    let uses: Any = [];
+    for slot: Any in 0..block.temporaries { push(uses, 0); }
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        let payload: Any = instruction.extra;
+        x86_word_main_uses_list(uses, instruction.arg1);
+        x86_word_main_uses_list(uses, instruction.arg2);
+        if (op == E_BIN or op == E_POW) { x86_word_main_use(uses, payload.left); x86_word_main_use(uses, payload.right); }
+        else if (op == E_UN) { x86_word_main_use(uses, payload.operand); }
+        else if (op == E_CALL or op == E_ICALL) {
+            x86_word_main_uses_list(uses, payload.args);
+            if (op == E_ICALL) { x86_word_main_use(uses, payload.callee); }
+        }
+        else if (op == S_LET) { x86_word_main_use(uses, payload.initializer); }
+        else if (op == S_ASSIGN or op == S_CASSIGN) { x86_word_main_use(uses, payload.value); }
+        else if (op == S_SETIDX) { x86_word_main_use(uses, payload.object); x86_word_main_use(uses, payload.index); x86_word_main_use(uses, payload.value); }
+        else if (op == E_INDEX) { x86_word_main_use(uses, payload.object); x86_word_main_use(uses, payload.index); }
+        else if (op == E_GET or op == S_SETPROP) { x86_word_main_use(uses, payload.object); if (op == S_SETPROP) { x86_word_main_use(uses, payload.value); } }
+        else if (op == E_RANGE) { x86_word_main_use(uses, payload.start); x86_word_main_use(uses, payload.end); }
+    }
+    return uses;
+}
+
+fun x86_word_main_arity(args: Any) -> Any {
+    mut count: Any = 0;
+    mut arg: Any = args;
+    while (arg != 0) { count += 1; arg = arg.next; }
+    return count;
+}
+
+fun x86_word_main_ints(args: Any, kinds: Any) -> Any {
+    mut arg: Any = args;
+    while (arg != 0) {
+        if (x86_word_main_kind(kinds, arg) != "Int") { return false; }
+        arg = arg.next;
+    }
+    return true;
+}
+
+// A builtin main may call, or nil. The result kind is "Int" for all of them.
+fun x86_word_main_builtin(name: Any, args: Any, kinds: Any) -> Any {
+    if (name == "print") {
+        mut arg: Any = args;
+        while (arg != 0) {
+            let kind: Any = x86_word_main_kind(kinds, arg);
+            if (kind != "Int" and kind != "Bool") { return nil; }
+            arg = arg.next;
+        }
+        return "Int";
+    }
+    if (name == "exit") { return if (x86_word_main_arity(args) == 1 and x86_word_main_ints(args, kinds)) { "Int" } else { nil }; }
+    if (name == "syscall") {
+        let count: Any = x86_word_main_arity(args);
+        return if (count >= 1 and count <= 7 and x86_word_main_ints(args, kinds)) { "Int" } else { nil };
+    }
+    if (has(["load8", "load16", "load32", "load64"], name)) {
+        return if (x86_word_main_arity(args) == 1 and x86_word_main_ints(args, kinds)) { "Int" } else { nil };
+    }
+    if (has(["store8", "store16", "store32", "store64"], name)) {
+        return if (x86_word_main_arity(args) == 2 and x86_word_main_ints(args, kinds)) { "Int" } else { nil };
+    }
+    return nil;
+}
+
+// Whether a call to `rec` is a word call with word arguments and result.
+fun x86_word_main_callee(rec: Any, args: Any, kinds: Any) -> Any {
+    if (rec.wordCallable != true or rec.foreign == true) { return nil; }
+    if (rec.nativeResult != "Int" and rec.nativeResult != "Bool") { return nil; }
+    if (x86_word_main_arity(args) != rec.pc) { return nil; }
+    mut arg: Any = args;
+    mut index: Any = 0;
+    while (arg != 0) {
+        let kind: Any = x86_word_main_kind(kinds, arg);
+        if (kind == nil or kind != rec.nativeKinds[index]) { return nil; }
+        index += 1; arg = arg.next;
+    }
+    return rec.nativeResult;
+}
+
+// Whether main's statements can be native-word code. Collects the callees that
+// need a word adapter in `wrapped`; the caller applies them only on success.
+fun x86_main_native(ctx: Any, wrapped: Any) -> Bool {
+    // Strict typing proves the operations keep their word kinds; legacy code
+    // can mix dynamic types in ways this scan does not model.
+    if (NO_OPT or ctx.dynamic != 1 or not STRICT_TYPES or len(ctx.mainBoxed) > 0) { return false; }
+    let block: Any = ctx.mainIR;
+    if (block == nil or block == 0) { return false; }
+    let uses: Any = x86_word_main_uses(block);
+    let kinds: Any = [];
+    for slot: Any in 0..block.temporaries { push(kinds, nil); }
+    let declared: Any = {};
+    X86_MAIN_KINDS = kinds;
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        let payload: Any = instruction.extra;
+        if (op == IR_LABEL or op == IR_JUMP) { continue; }
+        if (op == IR_NIL) {
+            if (instruction.result != 0 and uses[instruction.result.slot] > 0) { return false; }
+            continue;
+        }
+        if (op == E_INT) {
+            kinds[instruction.result.slot] = "Int";
+            continue;
+        }
+        if (op == IR_COPY) {
+            let kind: Any = x86_word_main_kind(kinds, instruction.arg1);
+            if (kind == nil) { return false; }
+            if (instruction.result != 0) { kinds[instruction.result.slot] = kind; }
+            continue;
+        }
+        if (op == IR_BOOL) {
+            if (x86_word_main_kind(kinds, instruction.arg1) == nil) { return false; }
+            if (instruction.result != 0) { kinds[instruction.result.slot] = "Bool"; }
+            continue;
+        }
+        if (op == IR_FALSE or op == IR_TRUE) {
+            if (x86_word_main_kind(kinds, instruction.arg1) != "Bool") { return false; }
+            continue;
+        }
+        if (op == E_VAR) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (glob_find(ctx, payload.name, payload.length) >= 0) { return false; }
+            if (backend_find_func(ctx, payload.name, payload.length) != 0) { return false; }
+            if (name == "true" or name == "false") {
+                if (instruction.result != 0) { kinds[instruction.result.slot] = "Bool"; }
+                continue;
+            }
+            let kind: Any = declared[name];
+            if (kind == nil) { return false; }
+            if (instruction.result != 0) { kinds[instruction.result.slot] = kind; }
+            continue;
+        }
+        if (op == E_BIN) {
+            let left: Any = x86_word_main_kind(kinds, payload.left);
+            let right: Any = x86_word_main_kind(kinds, payload.right);
+            if (left == nil or right == nil) { return false; }
+            let token: Any = payload.op;
+            mut result: Any = nil;
+            if (token == TK_EQ or token == TK_NE) {
+                if (left == right and (left == "Int" or left == "Bool")) { result = "Bool"; }
+            } else if (token == TK_LT or token == TK_LE or token == TK_GT or token == TK_GE) {
+                if (left == "Int" and right == "Int") { result = "Bool"; }
+            } else if (left == "Int" and right == "Int") { result = "Int"; }
+            if (result == nil) { return false; }
+            if (instruction.result != 0) { kinds[instruction.result.slot] = result; }
+            continue;
+        }
+        if (op == E_UN) {
+            let operand: Any = x86_word_main_kind(kinds, payload.operand);
+            let token: Any = payload.op;
+            mut result: Any = nil;
+            if ((token == TK_MINUS or token == TK_BITNOT) and operand == "Int") { result = "Int"; }
+            else if (token == TK_NOT and operand == "Bool") { result = "Bool"; }
+            if (result == nil) { return false; }
+            if (instruction.result != 0) { kinds[instruction.result.slot] = result; }
+            continue;
+        }
+        if (op == E_CALL) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (has(declared, name) or glob_find(ctx, payload.name, payload.length) >= 0) { return false; }
+            let rec: Any = backend_find_func(ctx, payload.name, payload.length);
+            mut result: Any = nil;
+            if (rec != 0) {
+                result = x86_word_main_callee(rec, payload.args, kinds);
+                if (result != nil and rec.native != true) { push(wrapped, rec); }
+            } else { result = x86_word_main_builtin(name, payload.args, kinds); }
+            if (result == nil) { return false; }
+            if (instruction.result != 0) { kinds[instruction.result.slot] = result; }
+            continue;
+        }
+        if (op == S_LET) {
+            if (payload.global == 1) { return false; }
+            let kind: Any = x86_word_main_kind(kinds, payload.initializer);
+            if (kind == nil) { return false; }
+            declared[symbol_name(payload.name, payload.length)] = kind;
+            continue;
+        }
+        if (op == S_ASSIGN) {
+            let name: Any = symbol_name(payload.name, payload.length);
+            if (glob_find(ctx, payload.name, payload.length) >= 0) { return false; }
+            let kind: Any = x86_word_main_kind(kinds, payload.value);
+            if (kind == nil or kind != declared[name]) { return false; }
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+// A runtime helper call with `words` raw words already pushed, through the
+// function's raw trampoline (which adapts words to the SysV registers).
+fun x86_word_runtime_call(ctx: Any, name: Any, words: Any) -> Any {
+    let rec: Any = backend_find_func(ctx, addr(name), len(name));
+    if (rec == 0) { die_str("mayc: missing runtime fn\n"); }
+    emission_reference(ctx, rec.lab);
+    call(ctx, rec.lab);
+    if (words > 0) {
+        let bytes: Any = words * 8;
+        if (bytes < 128) { e8(ctx, 72); e8(ctx, 131); e8(ctx, 196); e8(ctx, bytes); }
+        else { e8(ctx, 72); e8(ctx, 129); e8(ctx, 196); e32(ctx, bytes); }
+    }
+    return 0;
+}
+
+// print on a native main: box each word argument as a fat value (Int or Ptr
+// payload 2, Bool payload 1) and let the runtime display it.
+fun x86_word_main_print(ctx: Any, args: Any) -> Any {
+    mut arg: Any = args;
+    mut first: Any = true;
+    while (arg != 0) {
+        if (not first) { x86_word_runtime_call(ctx, "rt_space", 0); }
+        cg_expr(ctx, arg);
+        mut kind: Any = "Int";
+        if (arg.slot < len(X86_MAIN_KINDS) and X86_MAIN_KINDS[arg.slot] != nil) { kind = X86_MAIN_KINDS[arg.slot]; }
+        e8(ctx, 106); e8(ctx, if (kind == "Bool") { 1 } else { 2 });         // push type
+        e8(ctx, 80);                                                         // push rax
+        x86_word_runtime_call(ctx, "rt_print1", 2);
+        first = false; arg = arg.next;
+    }
+    x86_word_runtime_call(ctx, "rt_newline", 0);
+    xor_eax(ctx);
+    return 0;
+}
+
+fun x86_native_main(ctx: Any) -> Any {
+    ctx.mode = 0; ctx.native = true; ctx.leaf = true; X86_FLOAT = false;
+    ctx.nativeFaults = [0, 0, 0, 0, 0];
+    X86_MAIN_NATIVE = true;
+    loc_reset(ctx);
+    bx_use_list(ctx, ctx.mainBoxed);
+    x86_allocate_temps(ctx, ctx.mainIR);
+    align8(ctx);
+    placelab(ctx, 1);
+    e8(ctx, 85);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 229);
+    e8(ctx, 72); e8(ctx, 129); e8(ctx, 236);
+    let fp: Any = ctx.code.length;
+    e32(ctx, 0);
+    x86_save_registers(ctx);
+    xor_eax(ctx);
+    x86_word_runtime_call(ctx, "rt_init", 0);
+    for gi: Any in 0..len(ctx.globals) {
+        addr_of(ctx, glob_off(ctx, gi));
+        e8(ctx, 80);                                                         // push address
+        x86_word_runtime_call(ctx, "rt_gc_root", 1);
+    }
+    ctx.returnLabel = newlab(ctx);
+    cg_ir(ctx, ctx.mainIR);
+    X86_MAIN_NATIVE = false;
+    placelab(ctx, ctx.returnLabel);
+    if (len(ctx.foreign) > 0) { xor_eax(ctx); }
+    x86_restore_registers(ctx);
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 236);
+    e8(ctx, 93);
+    e8(ctx, 195);
+    mut frame: Any = ctx.maxLocals * 8;
+    let fr: Any = frame % 16;
+    if (fr != 0) { frame = frame + (16 - fr); }
+    store32(ctx.code.data + fp, frame);
+    for kind: Any in 0..len(ctx.nativeFaults) {
+        if (ctx.nativeFaults[kind] != 0) { placelab(ctx, ctx.nativeFaults[kind]); x86_native_raise(ctx, kind); }
+    }
+    ctx.native = false;
+    ctx.allocation = 0;
+    return 0;
+}
+
 fun cg_program(ctx: Any) -> Any {
 
     // _start
@@ -3005,7 +3308,18 @@ fun cg_program(ctx: Any) -> Any {
     e8(ctx, 49); e8(ctx, 255); // xor edi, edi
     mov_imm(ctx, 60); x86_syscall_instruction(ctx);
 
-    if (ctx.dynamic == 1) { return fat_main(ctx); }
+    if (ctx.dynamic == 1) {
+        // The direct-call prepass covers the inner functions whether main is
+        // native or tagged.
+        fat_plan_direct_calls(ctx);
+        let wrapped: Any = [];
+        if (x86_main_native(ctx, wrapped)) {
+            for rec: Any in wrapped { rec.wordCalled = true; }
+            return x86_native_main(ctx);
+        }
+        // A failed scan may have collected callees; the tagged main needs none.
+        return fat_main(ctx);
+    }
 
     // main (top-level statements) of a --raw program
     ctx.mode = 0;

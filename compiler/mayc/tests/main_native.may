@@ -1,0 +1,60 @@
+// Native main (#132). Top-level statements compile to native-word code when
+// every binding they use was demoted to a main local (#101) and every value
+// and operation is a machine word. The tagged main remains the general
+// fallback (strings, lists, maps, structs, closures, Float, handlers and
+// globals keep it), and --no-opt keeps it as well. Words are the fat Int, Bool
+// and Ptr payloads themselves; only `print` boxes them for the runtime.
+//
+// The expected output was produced by the compiler before main had a native
+// path, so it is an oracle for the tagged main. The final division by zero
+// raises the same uncaught arithmetic fault on both paths.
+
+fun step(x: Int) -> Int { return x * 3 + 1; }
+fun blend(a: Int, b: Int) -> Int { return a * b - 1; }
+// A word-compatible tagged function: its body prints, so it stays tagged and
+// main reaches it through its word adapter.
+fun helper(x: Int) -> Int { print("helper", x); return x + 1; }
+
+mut steps: Int = 0;
+mut seed: Int = 1;
+while (seed <= 1000) {
+    mut n: Int = seed;
+    while (n > 1) {
+        if (n % 2 == 0) { n = n / 2; } else { n = step(n); }
+        steps += 1;
+    }
+    seed += 1;
+}
+print("collatz", steps);
+
+mut total: Int = 0;
+for i: Int in 0..10 { total += i; }
+for j: Int in 0..=5 { total += j; }
+print("ranges", total);
+
+mut k: Int = 0;
+mut evens: Int = 0;
+let small: Bool = total < 1000;
+while (k < 20) {
+    k += 1;
+    if (k % 2 == 0) { evens += 1; }
+    if (k == 13) { continue; }
+    if (k == 18) { break; }
+    total += k;
+}
+print("control", total, evens, small, !small, small and evens > 5, small or k > 100);
+
+print("division", 7 / 3, -7 / 3, 7 % 3, -7 % 3);
+print("bits", total << 2, total >> 1, total & 255, total | 4096, total ^ 12345);
+print("unary", -total, ~total);
+
+print("calls", step(10), blend(6, 7), helper(41));
+print("nested", blend(step(2), helper(step(0))), step(blend(2, 3)));
+
+mut big: Int = 0;
+big += steps;
+print("big", big, big > 100000, big == steps);
+print();
+
+let zero: Int = 0;
+print(100 / zero);

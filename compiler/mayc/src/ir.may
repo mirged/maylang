@@ -783,7 +783,8 @@ fun ir_program(ctx: Any) -> Any {
             "cc": rec.cc, "boxed": rec.boxed, "caparr": rec.caparr,
             "foreign": rec.foreign, "ffiArgs": rec.ffiArgs, "ffiResult": rec.ffiResult,
             "ffiSlot": rec.ffiSlot, "library": rec.library, "symbol": rec.symbol,
-            "native": rec.native == true, "nativeLab": 0, "wordForeign": rec.wordForeign == true,
+            "native": rec.native == true, "wordCallable": rec.wordCallable == true, "nativeLab": 0,
+            "wordForeign": rec.wordForeign == true,
             "wordCalled": rec.wordCalled == true and rec.native != true, "wordLab": 0,
             "nativeKinds": rec.nativeKinds ?? [], "nativeResult": rec.nativeResult ?? "Int",
             "nativeFloats": rec.nativeFloats == true};
