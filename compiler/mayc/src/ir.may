@@ -664,6 +664,8 @@ fun ir_program(ctx: Any) -> Any {
         WORD_PENDING = [];
         ir_dependencies(rec.ir, names, labels, live, queue);
     }
+    // Top-level bindings no function uses become main's locals (#101).
+    if (DYNMODE == 1 and not NO_OPT) { ir_main_locals(ctx, queue); }
     // Unused externs must not add loader dependencies or fail at startup.
     let foreign: Any = [];
     for rec: Any in FOREIGN_DECLS { if (live[rec.lab]) { push(foreign, rec); } }
@@ -697,6 +699,81 @@ fun ir_program(ctx: Any) -> Any {
     MAINBODY = 0; RUNTIME_BODY = 0; FUNC_HEAD = []; FOREIGN_DECLS = [];
     IR_FUNCTION = 0; IR_MAIN = 0; IR_CODE = [];
     return 0;
+}
+
+// A top-level binding that no function reads or assigns is a main local: the
+// main block then declares it like a nested `let`, so it gets a frame slot and,
+// when hot, a register home (fat_plan_homes) instead of a data word that every
+// access loads. A binding stays global when any function uses it (a function
+// reaches it only as a global), when a `pub` name exports it, when main also
+// declares a local of that name or declares it twice (reads resolve by name),
+// or when main reads it before its declaration (that read sees the unset
+// global, not a slot). Called after every function is lowered and before the
+// emission snapshot.
+fun ir_main_locals(ctx: Any, functions: Any) -> Any {
+    let used: Any = {};
+    let called: Any = {};
+    for rec: Any in functions {
+        if (rec.ir == nil or rec.ir == 0) { continue; }
+        for instruction: Any in rec.ir.code {
+            let op: Any = instruction.op;
+            if (op == S_LET or op == S_ASSIGN or op == E_VAR or op == E_CALL) {
+                let n: Any = instruction.extra;
+                used[symbol_name(n.name, n.length)] = true;
+            }
+        }
+    }
+    let code: Any = IR_MAIN.code;
+    let declared: Any = {};
+    let local: Any = {};
+    let first: Any = {};
+    mut position: Any = 0;
+    for instruction: Any in code {
+        let op: Any = instruction.op;
+        if (op == S_LET or op == S_ASSIGN or op == E_VAR or op == E_CALL) {
+            let n: Any = instruction.extra;
+            let name: Any = symbol_name(n.name, n.length);
+            if (op == S_LET) {
+                if (n.global == 1) {
+                    if (declared[name] == nil) { declared[name] = position; }
+                    // A second top-level declaration of the name: reads resolve
+                    // by name, so both must stay globals or the later binding
+                    // writes where no read looks.
+                    else { local[name] = true; }
+                } else { local[name] = true; }
+            } else if (first[name] == nil) { first[name] = position; }
+            // A call through a variable names it in the payload only, which the
+            // backend resolves while emitting; liveness (lsra_operands) counts
+            // no use for it, so a value stored there could be dropped. Keep
+            // such bindings global until that use is modelled.
+            if (op == E_CALL) { called[name] = true; }
+        }
+        position += 1;
+    }
+    let dropped: Any = {};
+    for instruction: Any in code {
+        if (instruction.op != S_LET) { continue; }
+        let n: Any = instruction.extra;
+        if (n.global != 1) { continue; }
+        let name: Any = symbol_name(n.name, n.length);
+        if (has(used, name) or has(called, name) or has(local, name) or has(dropped, name)) { continue; }
+        if (first[name] != nil and first[name] < declared[name]) { continue; }
+        if (ir_exported(instruction.span, name)) { continue; }
+        n.global = 0;
+        dropped[name] = true;
+    }
+    if (len(dropped) > 0) {
+        let globals: Any = [];
+        for entry: Any in ctx.globals { if (not has(dropped, symbol_name(entry.p, entry.l))) { push(globals, entry); } }
+        ctx.globals = globals;
+    }
+    return 0;
+}
+
+// A `pub` top-level binding is part of its module's interface: an importer
+// reads it as a global, so it cannot move into main.
+fun ir_exported(span: Any, name: Any) -> Bool {
+    return has(MODULE_PUBLIC, source_module(span) + "::" + name);
 }
 
 fun ir_reachable(rec: Any, live: Any, queue: Any) -> Any {

@@ -1,0 +1,69 @@
+// Top-level bindings that no function uses become locals of main (#101), so
+// they take a frame slot and, when hot, a register home. A binding stays a
+// global when a function reads or writes it, when it is `pub`, when main also
+// declares a local of that name, and when main reads it before the
+// declaration. Every case below prints the same value either way.
+mut counter: Int = 0;
+mut moved: Int = 0;
+let shared: Int = 7;
+
+fun read_shared() -> Int { return shared; }
+
+fun bump_shared() -> Nil {
+    mutable_write();
+    return;
+}
+
+mut touched: Int = 0;
+fun mutable_write() -> Nil {
+    touched += 1;
+    return;
+}
+
+let struct_value: Point = Point(3, 4);
+
+struct Point { x: Int, y: Int }
+
+mut items: List<Int> = [];
+
+// A closure body is a function, so `shared` stays a global even though only
+// main reads it directly.
+let doubled: (Int) -> Int = |n: Int| { return n + shared; };
+
+mut i: Int = 0;
+while (i < 1000) {
+    counter += i;
+    moved += 1;
+    push(items, i);
+    i += 1;
+}
+
+print(counter);
+print(moved);
+print(read_shared());
+print(touched);
+bump_shared();
+print(touched);
+print(struct_value.x + struct_value.y);
+print(len(items));
+print(doubled(1));
+
+// A read before the declaration keeps the binding global and prints the unset
+// value, as it did before this change.
+print(early);
+let early: Int = 9;
+print(early);
+
+// A name declared twice at top level keeps both bindings global: the second
+// declaration must write where the reads look.
+let repeated: Int = 1;
+print(repeated);
+let repeated: Int = 2;
+print(repeated);
+
+// A block-local shadows the name; the top-level binding keeps its own value.
+{
+    let counter: Int = 1;
+    print(counter);
+}
+print(counter);
