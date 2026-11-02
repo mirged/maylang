@@ -27,6 +27,9 @@ mut ERRFLAG: Any = 0;
 mut ERRVAL: Any = 0;
 mut HDEPTH: Any = 0;
 mut HSTACK: Any = 0;
+// Set while an uncaught fault prints its message, so a host that reports
+// collector statistics prints the summary once at the exit instead.
+mut GCSILENT: Any = 0;
 
 mut TRACE_STACK: Any = 0;
 mut TRACE_DEPTH: Any = 0;
@@ -130,6 +133,10 @@ fun rt_raise(t: Any, v: Any) -> Any {
 }
 
 fun rt_die_uncaught() -> Any {
+    // The diagnostic itself is output; a host that reports collector
+    // statistics keeps the summary for the exit below instead of printing it
+    // in the middle of the message and the trace.
+    GCSILENT = 1;
     mut k: Any = rt_map_lookup(ERRVAL, 4, rt_from(addr("kind"), 4));
     let kt: Any = RTAG;
     mut m: Any = rt_map_lookup(ERRVAL, 4, rt_from(addr("message"), 7));

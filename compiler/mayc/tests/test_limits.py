@@ -60,6 +60,18 @@ class LimitsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'anchor changed'):
                 limits.instrument_runtime(4)
 
+    def test_runtime_statistics_line_is_parsed_and_removed(self):
+        text = ('PASS retained objects\n'
+                'GC collections=3 allocated=1234567 live=890123 pause_ns=45678 peak=1000 threshold=2000 rss_kb=64\n'
+                'GC collections=4 allocated=2000000 live=900000 pause_ns=50000 peak=1200 threshold=2100 rss_kb=80\n')
+        self.assertEqual(limits.parse_gc_stats(text),
+                         {'collections': 4, 'allocated': 2000000, 'live': 900000, 'pause_ns': 50000,
+                          'peak': 1200, 'threshold': 2100, 'rss_kb': 80})
+        self.assertEqual(limits.without_gc_stats(text), 'PASS retained objects\n')
+        # A diagnostic that merely starts with "GC " is not a summary line.
+        self.assertEqual(limits.without_gc_stats('GC mark stack exhausted\n'), 'GC mark stack exhausted\n')
+        self.assertEqual(limits.parse_gc_stats('no statistics\n'), {})
+
 
 if __name__ == '__main__':
     unittest.main()
