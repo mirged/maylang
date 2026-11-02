@@ -23,6 +23,11 @@
 - `__native_copy_bytes`: Its Int-only signature makes the full runtime compile it as a native-word loop; the source bootstrap ignores the types.
 - **__native_string_bytes** — `fun __native_string_bytes(s: Any, start: Any, count: Any) -> Any` — Copy an in-range UTF-8 byte slice into a fresh string; native prelude helper.
 - `__native_string_bytes`: The caller must preserve code point boundaries.
+- **__native_bytes_match** — `fun __native_bytes_match(s: Any, start: Any, p: Any) -> Any` — Report whether `s`'s leading bytes [start, start + p) equal `p`'s bytes; native prelude helper.
+- `__native_bytes_match`: Byte comparison, not code point comparison: the caller decides whether that is equivalent.
+- **__native_utf8_consistent** — `fun __native_utf8_consistent(s: Any) -> Any` — Report whether walking `s` by leading-byte widths lands exactly on its byte length; helper.
+- `__native_utf8_consistent`: True for well-formed UTF-8 and for any slicing where every sequence fits, which is what makes `__native_utf8_width`'s walk agree with the code point count of `len`. A truncated sequence (the last byte starts a two- or four-byte sequence) is not consistent, and the string functions fall back to their code point loop for it.
+- **__native_boundary** — `fun __native_boundary(s: Any, offset: Any) -> Any` — Report whether byte `offset` starts a code point of `s` (or is its end); helper.
 - **substring** — `fun substring(s: Any, start: Any, count: Any) -> Any` — Copy `count` code points of `s`, starting at code point index `start`.
 - `substring`: The third argument is a count, not an end index, and the range must lie within `s`.
 - `substring` parameter `s`: The input string.
@@ -34,6 +39,7 @@
 - **is_upper_code** — `fun is_upper_code(c: Any) -> Any` — Report whether a character code is an ASCII uppercase letter (65..90).
 - **is_lower_code** — `fun is_lower_code(c: Any) -> Any` — Report whether a character code is an ASCII lowercase letter (97..122).
 - **trim** — `fun trim(s: Any) -> Any` — Remove whitespace from the beginning and end of a string.
+- `trim`: Whitespace is ASCII space, tab, LF and CR, and those are single bytes, so the scan runs over bytes: a code point that is not one of them cannot contain one of their bytes. Trimming a long indented string was quadratic while it indexed by code point from the start for every byte.
 - `trim` parameter `s`: The input string.
 - `trim` returns: A string.
 - `trim` example: `print(trim("  hello  "));`.
@@ -46,7 +52,11 @@
 - **index_of** — `fun index_of(s: Any, sub: Any) -> Any` — Return the first substring index or `-1`; an empty needle returns zero.
 - **contains** — `fun contains(s: Any, sub: Any) -> Any` — Report whether the string contains the substring (`index_of` is nonnegative).
 - **starts_with** — `fun starts_with(s: Any, prefix: Any) -> Any` — Report whether the string begins with the supplied prefix.
+- `starts_with`: Compares bytes instead of allocating a substring of the prefix's code point length, so the cost is the prefix length rather than the string length. A consistent prefix (one whose width walk lands on its byte length, so its code point count matches) walks identically inside a matching `s`, which is why the byte comparison is the same test as the code point one; a truncated prefix takes the code point path.
+- **__native_starts_with_codepoints** — `fun __native_starts_with_codepoints(s: Any, prefix: Any) -> Any` — `starts_with` by code point index, for prefixes that are not byte-consistent; helper.
 - **ends_with** — `fun ends_with(s: Any, suffix: Any) -> Any` — Report whether the string ends with the supplied suffix.
+- `ends_with`: As `starts_with`, the comparison runs over bytes with no allocation. The byte offset of the suffix must also start a code point (otherwise the suffix would be compared against a shorter last code point), and an offset that is not a strict boundary, or a suffix that is not byte-consistent, takes the code point path.
+- **__native_ends_with_codepoints** — `fun __native_ends_with_codepoints(s: Any, suffix: Any) -> Any` — `ends_with` by code point index, for suffixes that are not byte-consistent; helper.
 - **split** — `fun split(s: Any, delim: Any) -> Any` — Split `s` at each occurrence of the literal `delim`, keeping empty fields.
 - `split`: An empty delimiter returns a one-element list containing `s`.
 - `split` parameter `s`: The input string.
@@ -80,9 +90,11 @@
 - `float` example: `print(float("3.5"));`.
 - **float_str** — `fun float_str(f: Any) -> Any` — Format a boxed float with the shortest digits that parse back to the same value; spell nonfinite values nan, inf and -inf and keep the sign of negative zero.
 - **reverse** — `fun reverse(x: Any) -> Any` — Build a list with the input items in reverse order.
+- `reverse`: A string is reversed by bytes: each code point is copied to its mirrored byte offset, one pass over the input. The previous `char_at`/`char_from` loop re-walked the string from its start for every character, which is quadratic; a string whose width walk does not fit its byte length takes that loop instead.
 - `reverse` parameter `x`: The input list.
 - `reverse` returns: A new list.
 - `reverse` example: `print(reverse([1, 2, 3]));`.
+- **__native_reverse_bytes** — `fun __native_reverse_bytes(s: Any) -> Any` — Reverse code points of a byte-consistent string, copying each one to its mirrored offset; helper.
 - **range** — `fun range(a: Any, b: Any) -> Any` — Build the list of integers from `a` (inclusive) to `b` (exclusive).
 - `range`: The function takes exactly two arguments; use `range_step` for other steps.
 - `range` parameter `a`: The inclusive starting value.
@@ -108,6 +120,7 @@
 - `abs` returns: A numeric absolute value.
 - `abs` example: `print(abs(-4));`.
 - **sort** — `fun sort(xs: Any) -> Any` — Return the items in ascending order using the standard comparison function. The input list is preserved.
+- `sort`: The sort is a stable bottom-up merge sort over a copy of the input: O(n log n) comparisons instead of the quadratic insertion sort's O(n²). Equal items keep their input order.
 - `sort` parameter `xs`: A list of comparable values.
 - `sort` returns: A new sorted list.
 - `sort` example: `print(sort([3, 1, 2]));`.
@@ -184,15 +197,17 @@
 - **hypot** — `fun hypot(x: Any, y: Any) -> Any` — Return `sqrt(x*x + y*y)` without an overflow-resistant scaling algorithm.
 - **cbrt** — `fun cbrt(x: Any) -> Any` — Return a sign-preserving cube root computed with fractional powers.
 - **jd_is_space** — `fun jd_is_space(c: Any) -> Any` — Report whether a code is JSON whitespace (space, tab, LF or CR); JSON parser helper.
-- **jd_skip** — `fun jd_skip(s: Any, i: Any) -> Any` — Skip JSON whitespace from index `i` and return the next index.
+- **jd_skip** — `fun jd_skip(s: Any, i: Any) -> Any` — Skip JSON whitespace from byte offset `i` and return the next byte offset.
+- `jd_skip`: The JSON scanner works in byte offsets: the structural characters it looks for are ASCII, and `char_at` re-walked the string from its start for every character, which made parsing a long document quadratic.
 - **jd_hex** — `fun jd_hex(c: Any) -> Any` — Decode one hexadecimal character or raise a parse fault; JSON parser helper.
 - `jd_hex` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
-- **jd_string** — `fun jd_string(s: Any, i: Any) -> Any` — Decode a quoted JSON string and return the parsed value and next position.
+- **jd_string** — `fun jd_string(s: Any, i: Any) -> Any` — Decode a quoted JSON string at byte offset `i` and return the text and the next byte offset.
+- `jd_string`: Runs of unescaped bytes are copied once per run and the runs are joined with a single allocation, instead of appending one character at a time.
 - `jd_string` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
-- **jd_number** — `fun jd_number(s: Any, i: Any) -> Any` — Read a JSON number and return the parsed value and next position.
-- **jd_array** — `fun jd_array(s: Any, i: Any) -> Any` — Read a JSON array and return the parsed list and next position.
-- **jd_object** — `fun jd_object(s: Any, i: Any) -> Any` — Read a JSON object and return the parsed map and next position.
-- **jd_value** — `fun jd_value(s: Any, i: Any) -> Any` — Parse the JSON value at the next token and return the value and next position.
+- **jd_number** — `fun jd_number(s: Any, i: Any) -> Any` — Read a JSON number at byte offset `i` and return the parsed value and next byte offset.
+- **jd_array** — `fun jd_array(s: Any, i: Any) -> Any` — Read a JSON array at byte offset `i` and return the parsed list and next byte offset.
+- **jd_object** — `fun jd_object(s: Any, i: Any) -> Any` — Read a JSON object at byte offset `i` and return the parsed map and next byte offset.
+- **jd_value** — `fun jd_value(s: Any, i: Any) -> Any` — Parse the JSON value at byte offset `i` and return it with the next byte offset.
 - `jd_value` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
 - **json_parse** — `fun json_parse(s: Any) -> Any` — Decode a JSON string into Maylang strings, numbers, booleans, lists, maps, and `nil`.
 - `json_parse`: Returns dynamic maps/lists/scalars; rejects trailing content and malformed strings. See the implementation for supported Unicode escape behavior.
@@ -201,8 +216,10 @@
 - `json_parse` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
 - `json_parse` example: `let value: Any = json_parse("{\"name\":\"Ada\"}"); print(value.name);`.
 - **jq_escape** — `fun jq_escape(s: Any) -> Any` — Quote and escape a string for JSON, including control characters.
+- `jq_escape`: Unescaped runs are copied once and the pieces are joined with one allocation; appending a character at a time copied the whole prefix again per character. A string whose width walk does not fit its byte length keeps the code point loop.
+- **__jd_escape_codepoints** — `fun __jd_escape_codepoints(s: Any) -> Any` — `jq_escape` by code point index, for strings that are not byte-consistent; helper.
 - **json_stringify** — `fun json_stringify(v: Any) -> Any` — Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.
-- `json_stringify`: Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values.
+- `json_stringify`: Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values. Parts are collected and joined once, so encoding is linear in the output size instead of copying the growing prefix per member.
 - `json_stringify` parameter `v`: The value to encode.
 - `json_stringify` returns: A JSON string.
 - `json_stringify` example: `print(json_stringify({"name": "Ada", "ready": true}));`.
@@ -224,9 +241,11 @@
 - **zip** — `fun zip(a: Any, b: Any) -> Any` — Return paired elements, stopping at the shorter list.
 - **flatten** — `fun flatten(xss: Any) -> Any` — Return a one-level concatenation of nested lists.
 - **unique** — `fun unique(xs: Any) -> Any` — Return distinct list values in first-occurrence order.
+- `unique`: A map records the values already seen. Map key equality is the same total equality (`value_eq`) that `has` uses for lists — strings by bytes, numbers by value, collections and functions by identity — so this is the linear form of the former scan, which compared every new value against every value already kept.
 - **range_step** — `fun range_step(a: Any, b: Any, step: Any) -> Any` — Return an exclusive-end arithmetic progression in either direction; step zero returns an empty list.
 - `range_step`: Step zero returns an empty list; the stop is exclusive in either direction.
 - **pad_left** — `fun pad_left(s: Any, width: Any, ch: Any) -> Any` — Prepend whole padding strings until the code-point width is reached; empty padding faults when more text is needed.
+- `pad_left`: The number of padding copies is computed and built with `repeat`, which allocates once; adding one pad at a time copied the whole prefix again per copy.
 - **pad_right** — `fun pad_right(s: Any, width: Any, ch: Any) -> Any` — Append whole padding strings until the code-point width is reached; empty padding faults when more text is needed.
 - **split_lines** — `fun split_lines(s: Any) -> Any` — Split on LF, preserving empty fields.
 - **get** — `fun get(m: Any, key: Any, fallback: Any) -> Any` — Look up `key` in a map, returning `fallback` when it is missing.

@@ -1245,6 +1245,8 @@ sort(xs)
 
 Return the items in ascending order using the standard comparison function. The input list is preserved.
 
+The sort is a stable bottom-up merge sort over a copy of the input: O(n log n) comparisons instead of the quadratic insertion sort's O(n²). Equal items keep their input order.
+
 **Parameters**
 - `xs`: A list of comparable values.
 
@@ -1262,6 +1264,8 @@ reverse(x)
 ```
 
 Build a list with the input items in reverse order.
+
+A string is reversed by bytes: each code point is copied to its mirrored byte offset, one pass over the input. The previous `char_at`/`char_from` loop re-walked the string from its start for every character, which is quadratic; a string whose width walk does not fit its byte length takes that loop instead.
 
 **Parameters**
 - `x`: The input list.
@@ -1533,7 +1537,7 @@ json_stringify(v)
 
 Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.
 
-Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values.
+Object keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values. Parts are collected and joined once, so encoding is linear in the output size instead of copying the growing prefix per member.
 
 **Parameters**
 - `v`: The value to encode.
@@ -2189,6 +2193,8 @@ trim(s)
 ```
 
 Remove whitespace from the beginning and end of a string.
+
+Whitespace is ASCII space, tab, LF and CR, and those are single bytes, so the scan runs over bytes: a code point that is not one of them cannot contain one of their bytes. Trimming a long indented string was quadratic while it indexed by code point from the start for every byte.
 
 **Parameters**
 - `s`: The input string.

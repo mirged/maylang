@@ -1,0 +1,15 @@
+// str_eq: equality of 400-character strings that match, differ at the last
+// byte, and differ in length, 200 000 times each.
+let a: Str = repeat("abcdefgh", 50);
+let b: Str = repeat("abcdefgh", 50);
+let c: Str = repeat("abcdefgh", 49) + "abcdefgX";
+let d: Str = repeat("abcdefgh", 49);
+mut hits: Int = 0;
+mut i: Int = 0;
+while (i < 200000) {
+    if (a == b) { hits += 1; }
+    if (a == c) { hits += 2; }
+    if (a == d) { hits += 3; }
+    i += 1;
+}
+print(len(a), len(c), len(d), hits);
