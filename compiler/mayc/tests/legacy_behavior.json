@@ -104,6 +104,11 @@
     "stdout": "QWRhIDM2IFsxLCAyLCAzXSB0cnVlIG5pbAp7ImEiOjEsImIiOjIsImwiOlsxLDJdLCJuIjpudWxsLCJ0Ijp0cnVlfQpbMSwidHdvIiwzLjUsZmFsc2VdCjYKeyJuZXN0ZWQiOnsiZGVlcCI6WzEseyJ4IjoyfV19fQpwYXJzZQo=",
     "stderr": ""
   },
+  "list_storage.may": {
+    "exit": 0,
+    "stdout": "W3RydWUsIGZhbHNlXSB0cnVlIGZhbHNlIDIKWzMsIDddIDMtNy0yIDIgWzMsIDddClsxLjUsIDIuMjVdIDMuNzUgMC43NQpbMywgNywgInRleHQiXSAzIDEKWzEuNSwgZmFsc2VdIDIKWzMsIDcsICJ0ZXh0Il0gWzMsIDcsICJ0ZXh0Il0KWzAsIDEsIDQsIDksIDE2XSA1IDE2CjIgNAp7MTogMiwgMzogNH0KZmFsc2UK",
+    "stderr": ""
+  },
   "lists1.may": {
     "exit": 0,
     "stdout": "WzEsIDIsIDNdIDMgMSAzClsxLCAyLCAzXSA0IFsxLCAyLCAzXQpuaWwKWzIsIDNdClsxLCAyLCAzXSBbMywgMiwgMV0KMTAgMjQKMSAzClsxLCAyLCAzXQpbMSwgMiwgMywgNCwgNV0KW1sxLCAiYSJdLCBbMiwgImIiXSwgWzMsICJjIl1dCltbMCwgImEiXSwgWzEsICJiIl1dCjEgLTEKMwpbMCwgMSwgMiwgMywgNF0gWzAsIDMsIDYsIDldCltdIDAK",

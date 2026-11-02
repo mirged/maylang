@@ -22,6 +22,15 @@
   measurable change on its own (±3%, within the run-to-run spread): proven
   types had already removed the type checks, and the remaining gain needs
   main's body to compile as native-word code.
+- Specialized list element storage ([#101](https://github.com/mirged/maylang/issues/101)
+  phase 2): a list literal or comprehension with a known element type stores
+  `Bool` as one byte, `Int` as a word and `Float` as its binary64 bits, and a
+  value of another type arriving through an `Any` alias widens the list back
+  to 16-byte fat values, so observation is unchanged
+  ([design](docs/design/LIST_STORAGE.md),
+  [report](compiler/mayc/tests/backend/list-storage.md)). The sieve benchmark
+  drops from 152 MiB and 308 ms to 16 MiB and 263 ms; a `List<Bool>` of ten
+  million flags now costs 10 MiB instead of 160 MiB.
 
 ## Licensing
 

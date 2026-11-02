@@ -86,6 +86,37 @@ fun ir_integer(value: Any, span: Any) -> Any {
     return result;
 }
 
+// The element kind a list may start with (#101 phase 2, runtime/fat.may
+// rt_list_typed): 1 Int words, 2 Float words, 3 Bool bytes, 0 fat values.
+// Only a known element type specializes; a dynamic one keeps fat values, and
+// the runtime widens a specialized list if a value of another type arrives
+// through an `Any` alias.
+fun ir_element_kind(t: Any) -> Any {
+    if (t == nil or t == 0) { return 0; }
+    let name: Any = t.name;
+    if (has(["Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64"], name)) { return 1; }
+    if (name == "Float" or name == "Float32" or name == "Float64") { return 2; }
+    if (name == "Bool") { return 3; }
+    if (name == "Int") { return 1; }
+    return 0;
+}
+
+fun ir_list_kind(t: Any) -> Any {
+    if (t == nil or t == 0 or t.name != "List") { return 0; }
+    let arguments: Any = t.arguments ?? [];
+    if (len(arguments) != 1) { return 0; }
+    return ir_element_kind(arguments[0]);
+}
+
+fun ir_list_new(node: Any, span: Any) -> Any {
+    let element: Any = node.listElement ?? 0;
+    let kind: Any = if (element != 0) { ir_element_kind(element) } else { ir_list_kind(node.contract ?? node.strictType) };
+    if (kind == 1) { return ir_runtime("rt_list_int", [ir_integer(0, span)], span); }
+    if (kind == 2) { return ir_runtime("rt_list_float", [ir_integer(0, span)], span); }
+    if (kind == 3) { return ir_runtime("rt_list_bool", [ir_integer(0, span)], span); }
+    return ir_runtime("rt_list_new", [ir_integer(0, span)], span);
+}
+
 fun ir_nil(span: Any) -> Any { return ir_emit(IR_NIL, ir_temp(span), 0, 0, 0, span); }
 fun ir_label(label: Any) -> Any { ir_emit(IR_LABEL, 0, 0, 0, label, 0); return 0; }
 fun ir_jump(label: Any) -> Any { ir_emit(IR_JUMP, 0, 0, 0, label, 0); return 0; }
@@ -192,7 +223,7 @@ fun ir_loop(ctx: Any, node: Any) -> Any {
     let index: Any = ir_integer(0, span);
     let top: Any = newlab(ctx); let done: Any = newlab(ctx); let step: Any = newlab(ctx);
     mut result: Any = ir_nil(span);
-    if (node.kind == E_COMP) { result = ir_runtime("rt_list_new", [ir_integer(0, span)], span); }
+    if (node.kind == E_COMP) { result = ir_list_new(node, span); }
     push(IR_BREAKS, [done, IR_HANDLERS]); push(IR_CONTINUES, [step, IR_HANDLERS]);
     ir_label(top);
     let condition: Any = ir_binary(TK_LT, index, count, span);
@@ -366,7 +397,7 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         return ir_operation(kind, {"start": ir_node(ctx, node.start), "end": ir_node(ctx, node.end), "inclusive": node.inclusive}, span);
     }
     if (kind == E_LIST) {
-        let result: Any = ir_runtime("rt_list_new", [ir_integer(0, span)], span);
+        let result: Any = ir_list_new(node, span);
         mut item: Any = node.items;
         while (item != 0) {
             if (item.kind == E_SPREAD) { ir_runtime("rt_extend", [result, ir_node(ctx, item.operand)], span); }

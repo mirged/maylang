@@ -131,6 +131,17 @@ fun st_contract(node: Any, t: Any) -> Any {
     if (node != 0 and st_has_contract(t)) { node.contract = t; }
     return 0;
 }
+// The declared element type of a list binding, recorded for specialized
+// element storage (#101 phase 2, ir.may ir_list_new). It is not a contract:
+// a List contract would convert every element at each boundary.
+fun st_list_element(node: Any, declared: Any) -> Any {
+    if (node == 0 or declared == nil or declared == 0 or declared.name != "List") { return 0; }
+    if (node.kind != E_LIST and node.kind != E_COMP) { return 0; }
+    if (len(declared.arguments) != 1) { return 0; }
+    node.listElement = declared.arguments[0];
+    return 0;
+}
+
 fun st_call_contracts(callee: Any, head: Any, types: Any) -> Any {
     if (callee.name != "Function") { return 0; }
     if (callee.builtin == "push" and types[0].name == "List") { st_contract(head.next, types[0].arguments[0]); return 0; }
@@ -735,6 +746,7 @@ fun st_statement(ctx: Any, node: Any) -> Any {
         let declared: Any = if (node.annotation == nil or node.annotation == 0) { actual } else { st_annotation(node.annotation, source_module(node.span), ST_VARS, node.span) };
         st_require(declared, actual, node.span);
         st_contract(node.initializer, declared);
+        st_list_element(node.initializer, declared);
         if (node.global == 0) { st_bind(name, declared, node.span); }
     } else if (k == S_ASSIGN) {
         let expected: Any = st_resolve(ctx, symbol_name(node.name, node.length), node.span);
