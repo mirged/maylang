@@ -2,6 +2,16 @@
 
 ## Performance
 
+- Value propagation, dead code and block-local CSE before the fat backend
+  ([report](compiler/mayc/tests/backend/ir-passes.md)): `src/ir_opt.may`
+  propagates copies, eliminates repeated field and element reads in a
+  straight-line region with alias-aware invalidation, removes dead definitions,
+  stores, overwritten copies and unnamed labels, and trims the emitted frame.
+  n-body drops from 113.6 to 94.8 ms (-16.5%) on the pre-phase-2 base, the
+  compiler's own image shrinks 7.7% and its self-compile is 1.8% faster; the
+  other workloads are inside the spread. Functions with an exception region
+  keep the old path, and `--no-opt` skips the module; `tests/ir_opt.may` and
+  the oracle test cover it.
 - Inline map probing and the `??` fast path ([report](compiler/mayc/tests/backend/map-probe.md)):
   `m[k]` with a receiver the checker proved a `Map` and a key proved `Str` or
   `Int` walks the runtime's hash table inline, keeping `rt_index_get` for

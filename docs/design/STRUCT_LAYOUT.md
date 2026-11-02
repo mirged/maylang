@@ -1,7 +1,7 @@
 # Struct slots and enum payloads
 
-Status: implemented (roadmap phase 2, #134). Steps 1-3 are on
-`perf/struct-134` and measured in
+Status: implemented (roadmap phase 2, #134). Steps 1-3 are merged on
+`perf/inline-paths` and measured in
 [struct-slots.md](../../compiler/mayc/tests/backend/struct-slots.md); enum
 payload reads (`match`) are the remaining step.
 
