@@ -24,6 +24,12 @@ mut GCOUNT: Any = 0;
 mut CSTOP: Any = 0;
 mut GCFLAG: Any = 0;
 mut GCCOUNT: Any = 0;
+// The post-sweep threshold policy: GCMIN is the smallest next threshold (a
+// fraction of the nominal heap), GCMARGIN the spare room above the live set.
+// rt_init sets both: module initializers of the injected runtime are not
+// executed, so only the zero word here is reliable.
+mut GCMIN: Any = 0;
+mut GCMARGIN: Any = 0;
 // Opt-in statistics (`MAYC_GC_STATS=1`): allocation total, pause time, live
 // bytes after the last sweep, the heap and resident high-water marks. Every
 // counter is behind GCSTATS, so a normal program only pays one flag test on
@@ -53,7 +59,15 @@ fun rt_init() -> Any {
     GCSTARTS = syscall(9, 0, reserve / 8, 3, 34, 0 - 1, 0);
     if (GCSTARTS < 0) { syscall(60, 70); }
     HEAPLIMIT = HEAP + reserve;
-    HEAPEND = HEAP + sz;
+    // The first threshold is a fraction of the nominal heap, and every sweep
+    // re-derives it from the measured live bytes (rt_threshold), so a small
+    // live set never commits the whole default before its first collection.
+    GCMIN = sz / 8;
+    if (GCMIN < 262144) { GCMIN = 262144; }
+    GCMARGIN = sz / 16;
+    if (GCMARGIN < 262144) { GCMARGIN = 262144; }
+    if (GCMARGIN > 8388608) { GCMARGIN = 8388608; }
+    HEAPEND = HEAP + GCMIN;
     HP = HEAP;
     HEAPDIRTY = HEAP;
     FREEBINS = syscall(9, 0, 4096, 3, 34, 0 - 1, 0);
@@ -201,9 +215,24 @@ fun rt_sweep() -> Any {
         p = p + sz;
     }
     if (run != 0) { HP = run; }
-    // The report needs the live bytes of the last sweep.
+    // The threshold of the next cycle follows the live bytes measured here.
     GCLIVE = live;
+    HEAPEND = rt_threshold(live);
     return 0;
+}
+// The next collection threshold after a sweep: twice the live bytes plus a
+// margin, never below the initial floor and never past the reservation. An
+// empty tail is already reclaimed by rewinding HP in the sweep; lowering
+// HEAPEND (rather than unmapping) keeps the address space and the allocation
+// table fixed.
+fun rt_threshold(live: Any) -> Any {
+    mut next: Any = HEAP + live * 2 + GCMARGIN;
+    if (next < HEAP + GCMIN) { next = HEAP + GCMIN; }
+    // The live set can sit behind large interior holes; the next threshold
+    // still needs room above the allocation frontier, never below it.
+    if (next < HP + GCMARGIN) { next = HP + GCMARGIN; }
+    if (next > HEAPLIMIT) { next = HEAPLIMIT; }
+    return next;
 }
 fun rt_free_region(pointer: Any, size: Any) -> Any {
     FREECOUNT += 1;
@@ -270,8 +299,10 @@ fun rt_alloc_kind(n: Any, kind: Any) -> Any {
         if (p != 0) { return p; }
         if (HP + need > HEAPEND) {
             if (HP + need > HEAPLIMIT) { rt_write(addr("out of memory\n"), 14); syscall(60, 70); }
-            HEAPEND = HEAPEND + 67108864;
-            if (HEAPEND < HP + need) { HEAPEND = HP + need; }
+            // The sweep set the threshold from the live set; if this single
+            // request still does not fit above it, raise the threshold by
+            // the request plus the usual margin, inside the reservation.
+            HEAPEND = HP + need + GCMARGIN;
             if (HEAPEND > HEAPLIMIT) { HEAPEND = HEAPLIMIT; }
         }
     }
@@ -292,17 +323,17 @@ fun rt_alloc_kind(n: Any, kind: Any) -> Any {
 // Grow the allocation at payload `p` by `extra` bytes (a multiple of 16)
 // in place, when it is the newest block and the reservation has room (#99).
 // Growing live data past the collection threshold raises the threshold with
-// headroom (the grown block's size, at least 64 MiB), as rt_alloc_kind grows
-// it after a collection frees too little; a collection right away would find
-// the block live. The new bytes are zero. Returns 1 on success and 0 when the
-// caller must copy.
+// headroom (the grown block's size, at least the sweep margin), as
+// rt_alloc_kind grows it when a collection frees too little; a collection
+// right away would find the block live. The new bytes are zero. Returns 1 on
+// success and 0 when the caller must copy.
 fun rt_grow_in_place(p: Any, extra: Any) -> Any {
     let block: Any = p - 16;
     let size: Any = load64(block);
     if (block + size != HP or HP + extra > HEAPLIMIT) { return 0; }
     if (HP + extra > HEAPEND) {
         mut room: Any = size + extra;
-        if (room < 67108864) { room = 67108864; }
+        if (room < GCMARGIN) { room = GCMARGIN; }
         HEAPEND = HP + extra + room;
         if (HEAPEND > HEAPLIMIT) { HEAPEND = HEAPLIMIT; }
     }
