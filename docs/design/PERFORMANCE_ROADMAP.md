@@ -290,8 +290,8 @@ its research gate passes on real Maylang allocation traces.
   fixed-slot record initialization (the header and slot writes after
   `rt_struct_new`) now emits inline while the allocation stays a runtime call
   ([report](../../compiler/mayc/tests/backend/construction-inline.md)); binary
-  trees -17.7%, construction -22.9% and record churn -35.6% CPU, at a 4% slower
-  compiler self-compile.
+  trees -17.7%, construction -22.9% and record churn -21 to -27% CPU, at a
+  0-6% slower compiler self-compile.
 - Size-class free lists so the sweep reuses memory instead of growing the
   heap. The bins and `rt_fit` already do the reuse; returning emptied chunks to
   the operating system was tested and did not move peak RSS, because

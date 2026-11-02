@@ -115,6 +115,16 @@ that stays tagged is unchanged, since its code is untouched.
 (+2.4%), from the Float paths in the backend and the Float helpers in the
 compiler's own code.
 
+**Cost.** For this commit alone an independent rebuild measures the compiler's
+self-compile at +10.0% CPU and its peak RSS at +11.3% (0% wins over 11 paired
+runs): the simple instruction-selection path this change uses for Float bodies
+loses the raw backend's fusions for the Int operations inside them. On the
+integrated branch the net self-compile is faster than the pre-batch baseline, so
+the cost is absorbed rather than additive, but it is a real limit of the current
+scope. The one-argument multiply helper's -3% is inside the run-to-run spread
+(an independent replay measured +0.1%); it is listed for completeness, not as a
+win.
+
 ## Tests
 
 - `tests/native_floats.may` is a new feature fixture whose output was produced

@@ -17,10 +17,11 @@
   call. The heap layout is unchanged (kind-4 record block, entries at `p + 48`),
   `MAYC_GC_STATS` counters are identical on every workload, and `--no-opt` keeps
   the runtime calls. Binary trees drop from 975 to 803 ms of CPU (-17.7%), 2M
-  constructions from 93 to 72 ms (-22.9%) and the record-churn workload from 303
-  to 195 ms (-35.6%); n-body and the field-read controls are unchanged. The
-  compiler's own self-compile is 4% slower and peaks 2.3% higher, a
-  conservative-retention effect of building the compiler with the change.
+  constructions from 93 to 72 ms (-22.9%) and the record-churn workload by
+  20-27%; n-body and the field-read controls are unchanged. The compiler's own
+  self-compile is 0-6% slower depending on the method and peaks up to ~2%
+  higher, a conservative-retention effect of building the compiler with the
+  change.
   `tests/record_construct.may` and the oracle test cover the paths.
 - Native Float functions ([report](compiler/mayc/tests/backend/native-floats.md)):
   a straight-line function whose parameters, result, locals and operations are
@@ -32,8 +33,10 @@
   Call-bound Float helpers are 3-53% faster (26-53% for expressions wider than
   one multiply), including `to_float`, which was a runtime call. A Float body
   that contains a loop stays tagged, so the cross-language Mandelbrot and
-  n-body numbers are unchanged; `tests/native_floats.may` and the oracle test
-  cover the semantics.
+  n-body numbers are unchanged; the compiler image grows 2.4%, and this commit
+  alone costs about 10% compiler self-compile (absorbed on the branch, where the
+  net self-compile is faster than before). `tests/native_floats.may` and the
+  oracle test cover the semantics.
 - Value propagation, dead code and block-local CSE before the fat backend
   ([report](compiler/mayc/tests/backend/ir-passes.md)): `src/ir_opt.may`
   propagates copies, eliminates repeated field and element reads in a

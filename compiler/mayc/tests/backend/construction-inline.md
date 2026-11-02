@@ -6,9 +6,10 @@ it neutral-to-negative, concluding that the profitable direction was inlining
 construction *initialization* or allocating whole construction sequences. This
 is that experiment for fixed-slot struct and enum construction: the allocation
 stays a runtime call, and the header writes plus every slot write are emitted as
-one generated block. **It pays: the construction-heavy workloads drop 18-36% in
-CPU time.** The compiler's own self-compile is 4% slower with 2.3% more peak RSS
-in this experiment; that trade and its evidence are recorded below.
+one generated block. **It pays: the construction-heavy workloads drop 17-27% in
+CPU time.** The compiler's own self-compile is 0-6% slower depending on the
+measurement method, with up to ~2% more peak RSS in this experiment; that trade
+and its evidence are recorded below.
 
 ## Mechanism
 
@@ -71,13 +72,17 @@ sidecars are unchanged.
 | --- | ---: | ---: | ---: | ---: |
 | `trees`, binary trees depth 16 | 974.7 | 802.6 | **-17.7%** | -14.9% |
 | `construct`, 2M two-field constructions | 93.4 | 72.0 | **-22.9%** | -18.9% |
-| `record_gc`, short-lived records over a live tree | 302.6 | 195.0 | **-35.6%** | -19.6% |
+| `record_gc`, short-lived records over a live tree | 302.6 | 195.0 | **-21 to -27%** | -19.6% |
 | `nbody`, 5 bodies × 200k steps | 75.3 | 74.8 | -0.7% | +0.7% |
 | `read_field2`, 5M typed field reads (control) | 9.0 | 8.8 | -2.4% | -4.0% |
 | `read_local`, field reads of a local (control) | 4.1 | 4.0 | -1.0% | -4.9% |
 | `self_compile`, mayc compiling its own source | 2222.5 | 2330.8 | +4.9% | +4.0% |
 
-The construction-heavy workloads are where the calls were: `trees` and
+The `record_gc` row is the best of the 21 interleaved rounds; a paired replay
+of the same harness puts it at -20% to -27%, so the -35.6% below the raw
+minimum is a minimum-of-samples artifact. `trees` (-17.7%) and `construct`
+(-22.9%) reproduce. The construction-heavy workloads are where the calls were:
+`trees` and
 `construct` build one- and two-field records in their hot loops, and
 `record_gc` churns three-field records while a tree stays live. `nbody`
 constructs only its five bodies at startup and then spends all its time on
@@ -85,8 +90,11 @@ field arithmetic, and the two read controls construct one record (or none)
 before their loop, so they stay inside the spread (-1% to -2.4% is layout
 noise, see below).
 
-**Self-compile.** The 15-round run is consistent: the after side is 4.0% slower
-by median CPU and 4.9% by minimum, with peak RSS 441.7 to 451.8 MiB (+2.3%).
+**Self-compile.** The 15-round run puts the after side at 4.0% slower by median
+CPU and 4.9% by minimum, with peak RSS 441.7 to 451.8 MiB (+2.3%). An
+independent replay on a different CPU-pinned method measures 0% to +6% and a
+RSS change between 0% and +2.3% depending on the compiler's own code-shape
+retention, so read this as a small method-dependent cost, not a firm 4%.
 The two compiler binaries are different programs (one calls the runtime for
 construction, one writes the slots inline), so the change also changes the
 compiler's own heap retention: with conservative stack scanning, a different
@@ -164,7 +172,7 @@ Raw samples, image sizes and the full counter lines:
   block and behaves exactly as before; the fixture covers the observation and a
   write after growth.
 - The compiler self-compile cost above is the main trade: a 4% slower compiler
-  build (and 2.3% more peak RSS) for 18-36% faster construction-heavy
+  build (and up to ~2% more peak RSS) for 17-27% faster construction-heavy
   workloads. If the project values compiler throughput over the benchmark
   suite, gate or revert this; the mechanism is self-contained in the fat
   backend.
