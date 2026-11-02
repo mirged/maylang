@@ -2,6 +2,14 @@
 
 ## Performance
 
+- Inline `push` and string equality ([report](compiler/mayc/tests/backend/inline-paths.md)):
+  a push into a list with spare capacity stores the element at its kind's width
+  and bumps the count, falling back to `rt_push` for growth, a widening element
+  type and non-list receivers; `==`/`!=` on two strings of different byte
+  lengths answer without entering `rt_eq`. The sieve's 10M `push` loop drops
+  from 250 ms to 187 ms (-25%); the string workload is inside the spread and
+  the hashmap control is unchanged. Both paths are off under `--no-opt`, and
+  `tests/inline_push.may` plus the oracle test cover them.
 - Audit the rest of the runtime library and remove its remaining superlinear
   and allocation-heavy paths ([report](compiler/mayc/tests/backend/runtime-audit.md)):
   - `sort` is a stable merge sort (O(n log n) comparisons), and `unique`

@@ -1283,6 +1283,73 @@ fun fat_len_fast(ctx: Any, args: Any) -> Any {
     return 0;
 }
 
+// push(list, value) with spare capacity stores inline (#101 phase 3). Both
+// operands take the stack slots the runtime call would use, so the slow path
+// is that call unchanged and no value is read after code is emitted (the
+// held-slot trap). A specialized list (kind 1 Int, 2 Float, 3 Bool) stores
+// only a value of its declared type; anything else falls back to rt_push,
+// which widens the list when a value of another type arrives.
+fun fat_push_fast(ctx: Any, args: Any) -> Any {
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx); let stored: Any = newlab(ctx);
+    let typed: Any = newlab(ctx); let bytes: Any = newlab(ctx);
+    fat_get(ctx, args); fat_push(ctx);                                     // list
+    fat_get(ctx, args.next); fat_push(ctx);                                // value
+    // [rsp] value payload, [rsp + 8] value type, [rsp + 16] list, [rsp + 24] list type
+    for byte: Any in [72, 131, 124, 36, 24, 5] { e8(ctx, byte); }          // cmp qword [rsp + 24], 5
+    jcc(ctx, 133, slow);
+    for byte: Any in [76, 139, 68, 36, 16] { e8(ctx, byte); }              // mov r8, [rsp + 16]
+    for byte: Any in [73, 139, 8] { e8(ctx, byte); }                       // mov rcx, [r8]      len
+    for byte: Any in [73, 139, 80, 8] { e8(ctx, byte); }                   // mov rdx, [r8 + 8]  cap
+    for byte: Any in [72, 57, 209] { e8(ctx, byte); }                      // cmp rcx, rdx
+    jcc(ctx, 131, slow);                                                   // jae: no spare capacity
+    for byte: Any in [77, 139, 88, 24] { e8(ctx, byte); }                  // mov r11, [r8 + 24] kind
+    for byte: Any in [77, 133, 219] { e8(ctx, byte); }                     // test r11, r11
+    jcc(ctx, 133, typed);                                                  // jne typed
+    // Fat values: data + len * 16.
+    for byte: Any in [77, 139, 80, 16] { e8(ctx, byte); }                  // mov r10, [r8 + 16]
+    for byte: Any in [72, 137, 202] { e8(ctx, byte); }                     // mov rdx, rcx
+    for byte: Any in [72, 193, 226, 4] { e8(ctx, byte); }                  // shl rdx, 4
+    for byte: Any in [73, 1, 210] { e8(ctx, byte); }                       // add r10, rdx
+    for byte: Any in [72, 139, 84, 36, 8] { e8(ctx, byte); }               // mov rdx, [rsp + 8]
+    for byte: Any in [72, 139, 4, 36] { e8(ctx, byte); }                   // mov rax, [rsp]
+    for byte: Any in [73, 137, 18] { e8(ctx, byte); }                      // mov [r10], rdx
+    for byte: Any in [73, 137, 66, 8] { e8(ctx, byte); }                   // mov [r10 + 8], rax
+    jmp(ctx, stored);
+    placelab(ctx, typed);
+    for byte: Any in [73, 131, 251, 3] { e8(ctx, byte); }                  // cmp r11, 3
+    jcc(ctx, 132, bytes);
+    // Int (kind 1) and Float (kind 2): the value type must be kind + 1.
+    for byte: Any in [72, 139, 84, 36, 8] { e8(ctx, byte); }               // mov rdx, [rsp + 8]
+    for byte: Any in [77, 141, 75, 1] { e8(ctx, byte); }                   // lea r9, [r11 + 1]
+    for byte: Any in [76, 57, 202] { e8(ctx, byte); }                      // cmp rdx, r9
+    jcc(ctx, 133, slow);
+    for byte: Any in [72, 139, 4, 36] { e8(ctx, byte); }                   // mov rax, [rsp]
+    for byte: Any in [77, 139, 80, 16] { e8(ctx, byte); }                  // mov r10, [r8 + 16]
+    for byte: Any in [72, 137, 202] { e8(ctx, byte); }                     // mov rdx, rcx
+    for byte: Any in [72, 193, 226, 3] { e8(ctx, byte); }                  // shl rdx, 3
+    for byte: Any in [73, 1, 210] { e8(ctx, byte); }                       // add r10, rdx
+    for byte: Any in [73, 137, 2] { e8(ctx, byte); }                       // mov [r10], rax
+    jmp(ctx, stored);
+    placelab(ctx, bytes);
+    // Bool (kind 3): one byte, and only a Bool fits.
+    for byte: Any in [72, 131, 124, 36, 8, 1] { e8(ctx, byte); }           // cmp qword [rsp + 8], 1
+    jcc(ctx, 133, slow);
+    for byte: Any in [72, 139, 4, 36] { e8(ctx, byte); }                   // mov rax, [rsp]
+    for byte: Any in [77, 139, 80, 16] { e8(ctx, byte); }                  // mov r10, [r8 + 16]
+    for byte: Any in [73, 1, 202] { e8(ctx, byte); }                       // add r10, rcx
+    for byte: Any in [65, 136, 2] { e8(ctx, byte); }                       // mov [r10], al
+    placelab(ctx, stored);
+    for byte: Any in [73, 131, 0, 1] { e8(ctx, byte); }                    // add qword [r8], 1
+    for byte: Any in [72, 131, 196, 32] { e8(ctx, byte); }                 // add rsp, 32
+    x86_mov_immediate(ctx, 2, 5);
+    x86_move_register(ctx, 0, 8);                                          // mov rax, r8
+    jmp(ctx, done);
+    placelab(ctx, slow);
+    fat_rt_call(ctx, "rt_push", 4);
+    placelab(ctx, done);
+    return 0;
+}
+
 fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
     if (name == "print") {
         mut arg: Any = args;
@@ -1345,6 +1412,7 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         return fat_set(ctx, 0, 0);
     }
     if (name == "len") { return fat_len_fast(ctx, args); }
+    if (name == "push" and not NO_OPT and fat_count(args) == 2) { return fat_push_fast(ctx, args); }
     if (has(FAT_BUILTINS, name)) { return fat_rt(ctx, FAT_BUILTINS[name], args); }
     if (has(FAT_MATH, name)) {
         let kernel: Any = FAT_MATH[name];
@@ -1708,6 +1776,26 @@ fun fat_float_jump(ctx: Any, op: Any, label: Any, truthy: Any) -> Any {
     return 0;
 }
 
+// Two Str operands of different byte lengths are unequal, so `==`/`!=` answers
+// without entering rt_eq (which compares content). Registers hold the operands
+// as fat_operands left them; other operand types fall through to `other`.
+fun fat_str_length_shortcut(ctx: Any, n: Any, done: Any) -> Any {
+    let other: Any = newlab(ctx);
+    for byte: Any in [73, 131, 249, 4] { e8(ctx, byte); }                    // cmp r9, 4
+    jcc(ctx, 133, other);
+    for byte: Any in [72, 131, 250, 4] { e8(ctx, byte); }                    // cmp rdx, 4
+    jcc(ctx, 133, other);
+    for byte: Any in [77, 139, 16] { e8(ctx, byte); }                        // mov r10, [r8]   byte length
+    for byte: Any in [76, 139, 24] { e8(ctx, byte); }                        // mov r11, [rax]
+    for byte: Any in [77, 57, 218] { e8(ctx, byte); }                        // cmp r10, r11
+    jcc(ctx, 132, other);                                                     // je: same length
+    x86_mov_immediate(ctx, 0, if (n.op == TK_NE) { 1 } else { 0 });
+    x86_mov_immediate(ctx, 2, 1);
+    jmp(ctx, done);
+    placelab(ctx, other);
+    return 0;
+}
+
 fun fat_binary(ctx: Any, n: Any) -> Any {
     let key: Any = str(n.op);
     if (fat_float_hint(n) and ((n.op >= TK_PLUS and n.op <= TK_SLASH) or has(FAT_INLINE_COMPARE, key))) { return fat_float_inline(ctx, n); }
@@ -1720,6 +1808,7 @@ fun fat_binary(ctx: Any, n: Any) -> Any {
     // operands that are not Ints when there is no Float path).
     mut slowUsed: Any = checked and not floats;
     fat_operands(ctx, n.left, n.right);
+    if ((n.op == TK_EQ or n.op == TK_NE) and not NO_OPT) { fat_str_length_shortcut(ctx, n, done); }
     if (has(FAT_INLINE_ARITH, key) or has(FAT_INLINE_COMPARE, key)) {
         fat_int_checks(ctx, n, notInt);
         if (has(FAT_INLINE_ARITH, key)) {
@@ -1920,7 +2009,10 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
             e8(ctx, 72); e8(ctx, 133); e8(ctx, 210);                        // test rdx, rdx
             jcc(ctx, if (op == IR_ISNIL) { 132 } else { 133 }, fat_lab(ctx, payload));
         }
-        else if (op == IR_RUNTIME) { fat_rt(ctx, payload, instruction.arg1); }
+        else if (op == IR_RUNTIME) {
+            if (payload == "rt_push" and not NO_OPT and fat_count(instruction.arg1) == 2) { fat_push_fast(ctx, instruction.arg1); }
+            else { fat_rt(ctx, payload, instruction.arg1); }
+        }
         else if (op == IR_RETURN) { fat_get(ctx, instruction.arg1); jmp(ctx, ctx.returnLabel); }
         else if (op == IR_TAILCALL) {
             mut arg: Any = instruction.arg1;

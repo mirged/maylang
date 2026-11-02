@@ -273,5 +273,10 @@
     "exit": 0,
     "stdout": "bmlsCnRydWUgZmFsc2UKMCAwIDk5OTk5OSAtOTk5OTk5CjAuMCAtMC4wIDEuNSAtMS41CiBhYmMgd2l0aCBzcGFjZQpbXSBbMSwgMl0gW1tdXSBbbmlsLCB0cnVlXQp7fSB7ImEiOiAxfSB7Im5lc3RlZCI6IHsieCI6IDF9fQpOaWwgQm9vbCBJbnQgRmxvYXQgU3RyIExpc3QgTWFwCnRydWUgdHJ1ZSB0cnVlIHRydWUgZmFsc2UgdHJ1ZSB0cnVlCg==",
     "stderr": ""
+  },
+  "inline_push.may": {
+    "exit": 0,
+    "stdout": "NjQgMCAxODkgMTIwCnRydWUgNjUgNwo2NiA0MgoyIDIuMjUKMyB0cnVlIGZhbHNlIHRydWUKNjcgMSB3aWRlCjUgdHJ1ZSB0cnVlCmZhbHNlIHRydWUgdHJ1ZSBmYWxzZSB0cnVlCjUgZmFsc2UKZmFsc2UgdHJ1ZQo=",
+    "stderr": ""
   }
 }
