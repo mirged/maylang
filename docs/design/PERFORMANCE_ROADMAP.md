@@ -284,7 +284,9 @@ its research gate passes on real Maylang allocation traces.
 - Longer term (`design:discussion`): precise stack maps from the code
   generator, which would allow a generational or moving nursery. Today the
   collector scans stacks and registers conservatively
-  ([GC.md](../internals/GC.md)).
+  ([GC.md](../internals/GC.md)). The design, the codegen requirements, the
+  measured conservative retention and the expected effect on the RSS target are
+  in [STACK_MAPS.md](STACK_MAPS.md).
 
 Goal: binary trees within 3× of Java; peak RSS within 2× of CPython on every
 benchmark.
@@ -313,6 +315,6 @@ the CI performance job publishes a fresh report.
 | 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots, one-block constructors and guarded slot reads done ([design](STRUCT_LAYOUT.md), [report](../../compiler/mayc/tests/backend/struct-slots.md)); enum payload reads in `match` open, [#134](https://github.com/mirged/maylang/issues/134) |
 | 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push`, string equality, inline map probing with the `??` fold ([report](../../compiler/mayc/tests/backend/map-probe.md)) and direct calls with register arguments ([report](../../compiler/mayc/tests/backend/direct-calls.md)) done; native regions, native Float functions and main-as-native open in [#132](https://github.com/mirged/maylang/issues/132) |
 | 4 IR optimizer | propagation, dead-code/store elimination and block-local CSE done ([report](../../compiler/mayc/tests/backend/ir-passes.md)); leaf-function inlining tried and measured (no win, not merged); LICM, check elimination, escape analysis, monomorphization and the raw-backend ports open in [#131](https://github.com/mirged/maylang/issues/131) |
-| 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation and returned pages measured negative and not merged ([report](../../compiler/mayc/tests/backend/inline-alloc.md), [#135](https://github.com/mirged/maylang/issues/135)); precise stack maps open in [#135](https://github.com/mirged/maylang/issues/135) |
+| 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation and returned pages measured negative and not merged ([report](../../compiler/mayc/tests/backend/inline-alloc.md), [#135](https://github.com/mirged/maylang/issues/135)); precise stack maps designed and measured ([design](STACK_MAPS.md)), open in [#135](https://github.com/mirged/maylang/issues/135) |
 | 6 Other targets | deferred (frozen) |
 | 7 Compiler throughput | baseline recorded ([report](../../compiler/mayc/tests/backend/compiler-throughput.md)); re-measure per phase |

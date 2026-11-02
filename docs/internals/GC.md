@@ -59,7 +59,10 @@ encoded user addresses (`address * 8`) preserve the allocation returned by
 validation. Holding an `addr` into a string's interior still requires keeping
 the source string alive. The existing map suite
 also forces automatic collection in a reduced heap. Conservative retention,
-fixed heap capacity and nonmoving fragmentation remain limitations. A possible
+fixed heap capacity and nonmoving fragmentation remain limitations. How much a
+conservative stack and register scan actually retains, what precise stack maps
+would need from the code generator and what they are worth on the binary-trees
+RSS target are recorded in [STACK_MAPS.md](../design/STACK_MAPS.md). A possible
 successor, a collector that reclaims whole groups of objects predicted to die
 together, is planned (research only) in the
 [MOSAIC GC roadmap](../design/MOSAIC_GC.md).
