@@ -62,7 +62,7 @@ fun rt_init() -> Any {
     // The first threshold is a fraction of the nominal heap, and every sweep
     // re-derives it from the measured live bytes (rt_threshold), so a small
     // live set never commits the whole default before its first collection.
-    GCMIN = sz / 8;
+    GCMIN = sz / 2;
     if (GCMIN < 262144) { GCMIN = 262144; }
     GCMARGIN = sz / 16;
     if (GCMARGIN < 262144) { GCMARGIN = 262144; }

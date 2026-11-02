@@ -14,9 +14,9 @@ headers inside coalesced/reused payloads from being treated as allocations and
 having their payload bytes modified by marking.
 
 The nominal heap is 256 MiB and the reservation is four times that (1 GiB),
-committed on demand. The first threshold is an eighth of the nominal heap
-(32 MiB, floored at 256 KiB for the 4-8 MiB heaps the tests use), and every
-sweep re-derives the next one from the live bytes it measured:
+committed on demand. The first threshold is half of the nominal heap
+(128 MiB by default, floored at 256 KiB for the 4-8 MiB heaps the tests use),
+and every sweep re-derives the next one from the live bytes it measured:
 `max(floor, 2 * live + margin)`, with a margin of one sixteenth of the nominal
 heap capped at 8 MiB, never below the allocation frontier plus that margin and
 never past the reservation. Peak resident memory therefore follows the live

@@ -131,7 +131,7 @@ That is the only supported target for now: `--target x86_64-nodeos`,
 
 The full runtime is [`runtime/fat.may`](runtime/fat.may) with its Linux host
 [`runtime/fat_linux.may`](runtime/fat_linux.may) (collector, files,
-processes). The collector starts at an eighth of the nominal heap and
+processes). The collector starts at half of the nominal heap and
 re-derives the threshold from the live bytes of every sweep, so peak resident
 memory follows the live set instead of always committing the 256 MiB default;
 `MAYC_GC_STATS=1` prints a `GC key=value` summary after each output line and

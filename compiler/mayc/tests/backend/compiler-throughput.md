@@ -21,18 +21,25 @@ python3 compiler/mayc/tests/build_benchmark.py \
 
 Machine: Intel i5-13500H, Linux 6.12, machine otherwise idle.
 
-## Baseline (`perf/top-level-main`, after phases 1–3 and specialized list
-storage)
+## Baseline (`perf/top-level-main`, after phases 0–3, the runtime audit,
+specialized list storage and the live-set collection threshold)
 
 | Workload | Median | Samples | Image |
 | --- | --- | --- | --- |
-| `hello.may` (one `print`) | 134 ms | 156, 125, 134 | 94 KiB |
-| `features.may` (every frontend feature) | 166 ms | 166, 162, 169 | 191 KiB |
-| the compiler itself (`main.may`, 8.5k lines plus sidecars) | 2370 ms | 2370 | 2.5 MiB |
+| `hello.may` (one `print`) | 126 ms | 121, 131, 126 | 103 KiB |
+| `features.may` (every frontend feature) | 158 ms | 158, 159, 155 | 212 KiB |
+| the compiler itself (`main.may`, 8.5k lines plus sidecars) | 2434 ms | 2434 | 2.5 MiB |
 
-The self-compile figure is one sample: a rebuild is minutes long and the
-harness records `compiler_rebuild_samples`, so treat it as an order of
-magnitude, not a median. The two small programs are medians of three.
+The self-compile figure is one sample: a rebuild takes minutes and the harness
+records `compiler_rebuild_samples`, so treat it as an order of magnitude, not
+a median. The two small programs are medians of three.
+
+The collection threshold moves these numbers more than any other recent
+change, because a compiler's live set is large: with a first threshold of one
+eighth of the nominal heap, `hello.may` took 206 ms and peak RSS fell to 56
+MiB, while the fixed 256 MiB start of 0.15 was 134 ms and 89 MiB. The
+committed policy (half the nominal heap, then `2 * live + margin` after every
+sweep) lands within noise of the old time at 126 ms.
 
 ## What to watch
 

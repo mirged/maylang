@@ -34,7 +34,7 @@
   object to the report, and requires the runtime's collection count to equal
   the inline meter's. `make test-limits` exercises it.
 - Derive the collection threshold from the live bytes of each sweep instead of
-  the fixed 256 MiB default: the first cycle starts at an eighth of the
+  the fixed 256 MiB default: the first cycle starts at half of the
   nominal heap, then every sweep sets `max(floor, 2 * live + margin)` with a
   margin of one sixteenth of the nominal heap (at most 8 MiB), never below the
   allocation frontier plus that margin and clamped to the reservation. Empty
