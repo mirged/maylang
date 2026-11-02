@@ -816,7 +816,7 @@ fun fat_forward(ctx: Any, instruction: Any) -> Bool {
     else if (op == E_INT) { d = [0, 2, n.value]; }
     else if (op == E_FLOAT) { d = [1, float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)))]; }
     else if (op == E_STR) { d = [2, fat_key(ctx, n.span.source, n.start, n.length)]; }
-    else if (op == E_STRB) { d = [2, intern_obj2(ctx, n.address, n.length)]; }
+    else if (op == E_STRB) { d = [2, fat_key_text(ctx, n.address, n.length)]; }
     else if (op == E_VAR) {
         let p: Any = n.name; let l: Any = n.length;
         if (name_eq(p, l, addr("nil"), 3) == 1) { d = [0, 0, 0]; }
@@ -967,6 +967,18 @@ fun fat_key(ctx: Any, source: Any, start: Any, length: Any) -> Any {
     return off;
 }
 
+// Like fat_key, for a synthesized literal whose address is given directly.
+// Interning by text makes a match payload's field name the same key object the
+// variant constructor wrote (#134 step 4).
+fun fat_key_text(ctx: Any, address: Any, length: Any) -> Any {
+    let text: Any = symbol_name(address, length);
+    let known: Any = FAT_KEYS[text];
+    if (known != nil) { return known; }
+    let off: Any = intern_obj2(ctx, address, length);
+    FAT_KEYS[text] = off;
+    return off;
+}
+
 // The inline field cache check (#98): with the map's type word in `t` and
 // payload in `p` (registers 2/0 or 10/11), leave the cached entry's address
 // in RCX, or jump to `miss` unless the value is a map holding the site's
@@ -1021,9 +1033,9 @@ fun fat_field_slot_check(ctx: Any, key: Any, field: Any, miss: Any) -> Any {
 }
 
 // `object.name` through the site's cache (a writable word reserved by
-// ir_field_cache), else rt_field_get.
-fun fat_field_get(ctx: Any, object: Any, cache: Any, source: Any, start: Any, length: Any, field: Any) -> Any {
-    let key: Any = fat_key(ctx, source, start, length);
+// ir_field_cache), else rt_field_get. `key` is the site's key object and
+// `field` its 1-based fixed slot when the receiver's type is known, else 0.
+fun fat_field_get(ctx: Any, object: Any, cache: Any, key: Any, field: Any) -> Any {
     let miss: Any = newlab(ctx); let done: Any = newlab(ctx);
     fat_get(ctx, object);
     // A statically known struct field: read the fixed slot without the cache
@@ -1649,7 +1661,7 @@ fun fat_operation(ctx: Any, n: Any) -> Any {
     let k: Any = n.kind;
     if (k == E_INT) { return fat_set(ctx, 2, n.value); }
     if (k == E_STR) { return fat_literal(ctx, fat_key(ctx, n.span.source, n.start, n.length)); }
-    if (k == E_STRB) { return fat_literal(ctx, intern_obj2(ctx, n.address, n.length)); }
+    if (k == E_STRB) { return fat_literal(ctx, fat_key_text(ctx, n.address, n.length)); }
     if (k == E_FLOAT) {
         let bits: Any = float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)));
         e8(ctx, 72); e8(ctx, 184); e32(ctx, bits[0]); e32(ctx, bits[1]);   // movabs rax, bits
@@ -1660,7 +1672,13 @@ fun fat_operation(ctx: Any, n: Any) -> Any {
     if (k == E_CAPVAR) { fat_env_cell(ctx, n.index); return fat_cell_load(ctx); }
     if (k == E_CLOSURE) { return fat_closure(ctx, n); }
     if (k == E_INDEX) { return fat_index(ctx, n); }
-    if (k == E_GET) { return fat_field_get(ctx, n.object, n.cache, n.span.source, n.start, n.length, n.field ?? 0); }
+    if (k == E_GET) {
+        let address: Any = n.keyAddress;
+        mut key: Any = 0;
+        if (address != nil and address != 0) { key = fat_key_text(ctx, address, n.keyLength); }
+        else { key = fat_key(ctx, n.span.source, n.start, n.length); }
+        return fat_field_get(ctx, n.object, n.cache, key, n.field ?? 0);
+    }
     if (k == E_ICALL) { fat_get(ctx, n.callee); return fat_apply(ctx, n.args); }
     if (k == E_RANGE) {
         fat_get(ctx, n.start); fat_push(ctx); fat_get(ctx, n.end); fat_push(ctx);

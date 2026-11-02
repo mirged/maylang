@@ -49,6 +49,11 @@
     "stdout": "MCAwIDAKMSAxIGIKMC4zMDAwMDAwMDAwMDAwMDAwNAoxMDAwMDAwMDAwMDAwClsxLCAyLCAzXQphYmMKWzEsIFsyLCBbM11dXQp7ImEiOiBbMSwgeyJiIjogMn1dfQpbXQpbXSBbXSBbXQowIDEK",
     "stderr": ""
   },
+  "enum_payloads.may": {
+    "exit": 0,
+    "stdout": "MTIuMCAxMi4wIDAuMApSZWN0IDIuMCAzLjAKNDIuMAo3LjAgNi4wCjI3LjAgWyJ0YWciLCAiciIsICJleHRyYSJdIDkKMy4wIGNpcmNsZQpnbyAxIGJpZyA1IHN0b3AKemVybyBvayA3IGVyciBiYWQKMjkgQWRkCjIxLjAK",
+    "stderr": ""
+  },
   "enums.may": {
     "exit": 0,
     "stdout": "Q2lyY2xlIDIuMApSZWN0IDMuMCA0LjAKbmlsCjEyLjU2NjM2IDEyLjAgMC4wCg==",

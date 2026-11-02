@@ -337,7 +337,10 @@ fun ir_opt_cse_block(code: Any, start: Any, end: Any, removed: Any, defs: Any, f
                 mut field: Any = nil;
                 mut named: Bool = true;
                 if (op == E_GET) {
-                    if (n.span == nil or n.start == nil or n.length == nil) { named = false; }
+                    // A match payload read names its field by interned text
+                    // rather than a source span (#134 step 4).
+                    if (n.keyAddress != nil and n.keyAddress != 0) { field = symbol_name(n.keyAddress, n.keyLength); }
+                    else if (n.span == nil or n.start == nil or n.length == nil) { named = false; }
                     else { field = symbol_name(n.span.source + n.start, n.length); }
                 } else { id2 = ir_opt_ident(ident, n.index); }
                 if (not named) { position += 1; continue; }

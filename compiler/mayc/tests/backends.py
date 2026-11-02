@@ -123,6 +123,40 @@ def main():
         assert guard not in listings['no-opt'] and slot1 not in listings['no-opt'], \
             'fat struct field slots are read by offset under --no-opt'
         print('PASS fat struct fields load from their fixed slot only when optimized', flush=True)
+
+        # Fat enum payload reads (#134 step 4): a variant pattern proves the
+        # tag, so match reads the tag entry (slot 0) and the payload entries by
+        # fixed slot behind the same layout guard. Slot 2 of a two-field
+        # payload is the distinctive one; --no-opt probes through rt_map_get
+        # and must not emit any slot guard.
+        payloads = work / 'enum-payloads.may'
+        payloads.write_text('enum E { A(x: Int), B(y: Int, z: Int) }\n'
+                            'fun f(v: E) -> Int {\n'
+                            '    match (v) {\n'
+                            '        A(x) => { return x; },\n'
+                            '        B(y, z) => { return y + z; }\n'
+                            '    }\n'
+                            '    return 0;\n'
+                            '}\n'
+                            'mut total: Int = 0;\nmut i: Int = 0;\n'
+                            'while (i < 10) { total += f(A(1)) + f(B(2, 3)); i += 1; }\n'
+                            'print(total, f(B(2, 3)));\n')
+        listings = {}
+        for label, options in [('optimized', ()), ('no-opt', ('--no-opt',))]:
+            binary = work / f'enum-payloads-{label}'
+            compile_source(compiler, payloads, binary, *options)
+            run = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            assert run.returncode == 0 and run.stdout == b'60 5\n', run
+            disassembly = subprocess.check_output(
+                ['objdump', '-d', '-Mintel', '--no-show-raw-insn', str(binary)], text=True)
+            listings[label] = ' '.join(disassembly.split())
+        tag_slot = 'cmp QWORD PTR [rax+0x38],r8'
+        payload_slot2 = 'cmp QWORD PTR [rax+0x78],r8'
+        assert tag_slot in listings['optimized'] and payload_slot2 in listings['optimized'], \
+            'enum match payload slots are not read by offset in the optimized build'
+        assert tag_slot not in listings['no-opt'] and payload_slot2 not in listings['no-opt'], \
+            'enum match payload slots are read by offset under --no-opt'
+        print('PASS enum match payloads load from their fixed slot only when optimized', flush=True)
         for args, message in [(['--target', 'bogus'], b'unknown target'),
                               (['--target'], b'requires a target name'),
                               (['--target', 'arm64-linux'], b'target arm64-linux is frozen'),
