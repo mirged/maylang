@@ -201,10 +201,11 @@ CPython's.
 - **Top-level code:** bindings that no function reads or assigns are locals of
   main rather than data words, so they get frame slots, register homes and no
   collector root ([report](../../compiler/mayc/tests/backend/main-locals.md)).
-  Measured on its own the change is inside the run-to-run spread; compiling
-  main's body itself as native-word code is open, and it is where the 2.4×
-  that a top-level loop still loses to the same loop in an all-`Int` function
-  sits.
+  Done: main's body itself compiles as native-word code when every binding is
+  a main local and every value is an `Int`, `Bool` or `Ptr` word, with `print`
+  boxing its arguments at the only dynamic boundary; the collatz top-level
+  loop drops from 94.75 to 47.48 ms (−49.9%) and the tagged main stays the
+  general fallback ([report](../../compiler/mayc/tests/backend/main-native.md)).
 - **Direct calls:** calls to known functions with matching arity skip the
   argument vector and count checks and pass arguments in registers. Done: a
   fat function with one to three parameters keeps one body, fed from registers
@@ -339,7 +340,7 @@ the CI performance job publishes a fresh report.
 | 0 Measurement | tracked suite, `--no-opt`, oracle test and the CI report job done; GC statistics done |
 | 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
 | 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots, one-block constructors, guarded slot reads and enum payload reads in `match` done ([design](STRUCT_LAYOUT.md), [reports](../../compiler/mayc/tests/backend/struct-slots.md): [struct](../../compiler/mayc/tests/backend/struct-slots.md), [enum payloads](../../compiler/mayc/tests/backend/enum-payloads.md)), [#134](https://github.com/mirged/maylang/issues/134) |
-| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push`, string equality, inline map probing with the `??` fold ([report](../../compiler/mayc/tests/backend/map-probe.md)), direct calls with register arguments ([report](../../compiler/mayc/tests/backend/direct-calls.md)) and straight-line native Float functions ([report](../../compiler/mayc/tests/backend/native-floats.md)) done; native Float loops, native regions and main-as-native open in [#132](https://github.com/mirged/maylang/issues/132) |
+| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push`, string equality, inline map probing with the `??` fold ([report](../../compiler/mayc/tests/backend/map-probe.md)), direct calls with register arguments ([report](../../compiler/mayc/tests/backend/direct-calls.md)), straight-line native Float functions ([report](../../compiler/mayc/tests/backend/native-floats.md)) and native main ([report](../../compiler/mayc/tests/backend/main-native.md)) done; native Float loops and native regions open in [#132](https://github.com/mirged/maylang/issues/132) |
 | 4 IR optimizer | propagation, dead-code/store elimination and block-local CSE done ([report](../../compiler/mayc/tests/backend/ir-passes.md)); leaf-function inlining measured twice (round 1 and on the register-call base) and not merged, open as opt-in/accessor-only; LICM, check elimination, escape analysis, monomorphization and the raw-backend ports open in [#131](https://github.com/mirged/maylang/issues/131) |
 | 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation and returned pages measured negative and not merged ([report](../../compiler/mayc/tests/backend/inline-alloc.md)); fixed-slot record initialization inlined instead, which pays ([report](../../compiler/mayc/tests/backend/construction-inline.md)); precise stack maps designed and measured ([design](STACK_MAPS.md)), open in [#135](https://github.com/mirged/maylang/issues/135) |
 | 6 Other targets | deferred (frozen) |

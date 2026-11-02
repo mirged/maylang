@@ -24,6 +24,17 @@
   unchanged. The report records the interleaved measurements, the separate
   effects of the floor and the margin, the frontier-creep traces and the tested
   invariants.
+- Main as native ([report](compiler/mayc/tests/backend/main-native.md)): when
+  every top-level binding was demoted to a main local and every value and
+  operation is an `Int`, `Bool` or `Ptr` machine word, main's statements
+  compile to native-word code instead of tagged code. Words are the fat
+  payloads themselves, so the only boundary is `print`, which boxes its
+  arguments and calls the runtime. The collatz top-level loop drops from 94.75
+  to 47.48 ms (−49.9%) on the cross-language suite; fib's native main is
+  inside the spread because its work is one call, and the suites that use
+  Float, strings, lists, maps, structs or closures keep the tagged main
+  unchanged. `--no-opt`, `--raw`, the tagged fallback and
+  `tests/main_native.may` plus the oracle test cover the boundaries.
 - Enum payload reads in `match` ([report](compiler/mayc/tests/backend/enum-payloads.md)):
   a variant pattern proves the tag, so the tag and its payload bindings are
   read by guarded fixed slot instead of one `rt_map_get` call per arm; the
