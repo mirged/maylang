@@ -25,6 +25,10 @@ mut STRICT_TYPES: Any = true;
 mut BEHAVIOR_CALLABLES: Any = false;
 mut BEHAVIOR_CALLABLE_SPAN: Any = 0;
 mut DEBUG_TRACES: Any = false;
+// --no-opt: the fat backend keeps every value in its frame slot, reloads it for
+// each use and checks every operand's type word, so that oracle tests can
+// compare optimized and unoptimized runs of the same program.
+mut NO_OPT: Any = false;
 
 // The source arena defaults to 256 MiB; MAYC_ARENA_BYTES overrides it.
 fun arena_size() -> Any {

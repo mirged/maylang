@@ -89,8 +89,11 @@ Further measurements behind the diagnosis:
   harness (`xlang.py`) that runs the eight workloads above in Maylang plus
   whichever of C, Rust, Java, Node and CPython are installed, checks that
   outputs are equal and records medians and peak RSS. Skip missing languages
-  and say so.
-- Record the baseline above as the first report. Rerun after every phase.
+  and say so. Done: `compiler/mayc/tests/backend/xlang.py`, run by
+  `make bench-xlang`; the sources live in `xlang/` beside it.
+- Record the baseline above as the first report. Rerun after every phase. The
+  current numbers are in
+  [xlang-baseline.md](../../compiler/mayc/tests/backend/xlang-baseline.md).
 - GC statistics on request (collections, bytes allocated, live bytes, pause
   time), for example through an environment variable, and include them in
   `limits.py` reports.
@@ -98,6 +101,10 @@ Further measurements behind the diagnosis:
   existing performance job.
 - A `--no-opt` (or `-O0`) compiler flag that disables the optimizations
   below, so oracle tests can compare optimized and unoptimized behaviour.
+  Done: `--no-opt` turns off forwarding, proven types, register homes, XMM
+  temporaries and top-level-to-main-local demotion, and
+  `compiler/mayc/tests/oracle.py` (part of `make test-compiler`) requires
+  identical output from both builds of every fixture.
 
 ## Phase 1: runtime algorithms
 
@@ -162,9 +169,13 @@ CPython's.
 - **Native regions:** compile loops whose variables are all native-typed as
   native code inside otherwise fat functions, instead of requiring the whole
   function to qualify.
-- **Top-level code:** compile top-level statements as a `main` function, so
-  bindings that no function references become locals and qualify for the
-  above.
+- **Top-level code:** bindings that no function reads or assigns are locals of
+  main rather than data words, so they get frame slots, register homes and no
+  collector root ([report](../../compiler/mayc/tests/backend/main-locals.md)).
+  Measured on its own the change is inside the run-to-run spread; compiling
+  main's body itself as native-word code is open, and it is where the 2.4×
+  that a top-level loop still loses to the same loop in an all-`Int` function
+  sits.
 - **Direct calls:** calls to known functions with matching arity skip the
   argument vector and count checks and pass arguments in registers.
 - Inline fast paths for common runtime calls: `len` of lists, `push` with
@@ -238,10 +249,10 @@ stage timings).
 
 | Phase | State |
 | --- | --- |
-| 0 Measurement | baseline measured locally; suite not tracked yet |
+| 0 Measurement | tracked suite, `--no-opt` and oracle test done; GC statistics and the CI job open |
 | 1 Runtime algorithms | #97, #99 done; runtime audit open |
 | 2 Object layout | #98 done (field caches); slot layout open |
-| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats and parameter versioning done |
+| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning and top-level main locals done; native regions and main-as-native open |
 | 4 IR optimizer | not started |
 | 5 Allocation and collection | not started |
 | 6 Other targets | deferred (frozen) |

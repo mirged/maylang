@@ -135,6 +135,7 @@ HARNESSES = [
     (["modules.py"], "module identities and visibility"),
     (["backends.py"], "backend contexts, relocations and target diagnostics"),
     (["raw_codegen.py"], "raw x86-64 code generation and workload checksums"),
+    (["oracle.py"], "optimized and --no-opt programs behave identically"),
     (["regalloc.py"], "linear-scan allocation and GC roots"),
     (["runtime_maps.py"], "runtime hash tables and allocation bins"),
     (["gc.py"], "GC allocation identity and repeated collections"),

@@ -11,6 +11,7 @@
 - `--check` — expand imports, parse, strictly check and resolve names without producing an executable.
 - `--strict` — enable strict checking, the default.
 - `--debug` — instrument user functions with declaration/source frames; uncaught faults print a trace and caught errors expose `err.stack`.
+- `--no-opt` — disable the fat backend's optional passes (constant/variable forwarding, proven types, register homes, XMM Float temporaries, top-level bindings as main locals) for oracle tests; the program must behave identically.
 - `--legacy` — disable the strict pass for legacy untyped sources; name resolution and mutability checks still apply.
 - `--raw` — omit runtime, native library and prelude.
 - `--no-code-align` — emit raw x86-64 code without the NOP padding that aligns function bodies and loop heads; for layout experiments.

@@ -167,6 +167,7 @@ fun fat_plan_forwarding(block: Any, intervals: Any) -> Any {
     fat_plan_dead_copies(block, intervals);
     FAT_FORWARDABLE = []; FAT_FORWARD = [];
     for interval: Any in intervals { push(FAT_FORWARDABLE, 0); push(FAT_FORWARD, nil); }
+    if (NO_OPT) { return 0; }
     mut position: Any = 0;
     for instruction: Any in block.code {
         let result: Any = instruction.result;
@@ -198,6 +199,7 @@ fun fat_plan_forwarding(block: Any, intervals: Any) -> Any {
 // registers (rt_gc), so general-register homes need no spilling around
 // calls; XMM homes are spilled (fat_xmm_spill).
 fun fat_plan_homes(ctx: Any, block: Any, parameters: Any, count: Any) -> Any {
+    if (NO_OPT) { return 0; }
     let code: Any = block.code;
     let labels: Any = {};
     mut position: Any = 0;
@@ -371,7 +373,8 @@ fun fat_builtin_type(ctx: Any, n: Any, locals: Any) -> Any {
 fun fat_plan_types(ctx: Any, block: Any, parameters: Any, count: Any, main: Bool, assumed: Any) -> Any {
     FAT_PROVEN = [];
     FAT_PROVEN_VARS = {};
-    for interval: Any in FAT_INTERVALS { push(FAT_PROVEN, FAT_PROVEN_TOP); }
+    for interval: Any in FAT_INTERVALS { push(FAT_PROVEN, if (NO_OPT) { -1 } else { FAT_PROVEN_TOP }); }
+    if (NO_OPT) { return 0; }
     let code: Any = block.code;
     // Name ids, declarations per id; parameters and captured names never
     // qualify. A read before the declaration (in code order) sees another
@@ -651,6 +654,7 @@ fun fat_xmm_safe(ctx: Any, instruction: Any) -> Bool {
 fun fat_plan_xmm(ctx: Any, block: Any) -> Any {
     FAT_XMM = [];
     for interval: Any in FAT_INTERVALS { push(FAT_XMM, -1); }
+    if (NO_OPT) { return 0; }
     let code: Any = block.code;
     for instruction: Any in code { if (instruction.op == IR_TRY_BEGIN) { return 0; } }
     let busy: Any = [];
