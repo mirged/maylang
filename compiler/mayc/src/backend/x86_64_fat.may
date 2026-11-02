@@ -1262,6 +1262,27 @@ fun fat_math_bits(ctx: Any, name: Any, args: Any) -> Any {
     return 0;
 }
 
+// len(list) and len(map) read the header's count inline; strings count code
+// points, so they keep the runtime call (#101 phase 3 inline fast paths).
+fun fat_len_fast(ctx: Any, args: Any) -> Any {
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx); let counted: Any = newlab(ctx);
+    if (args == 0) { return fat_rt(ctx, "rt_len", args); }
+    fat_get(ctx, args);
+    for byte: Any in [72, 131, 250, 5] { e8(ctx, byte); }                    // cmp rdx, 5
+    jcc(ctx, 132, counted);                                                   // je counted
+    for byte: Any in [72, 131, 250, 6] { e8(ctx, byte); }                    // cmp rdx, 6
+    jcc(ctx, 133, slow);                                                      // jne slow
+    placelab(ctx, counted);
+    for byte: Any in [72, 139, 0] { e8(ctx, byte); }                         // mov rax, [rax]
+    x86_mov_immediate(ctx, 2, 2);
+    jmp(ctx, done);
+    placelab(ctx, slow);
+    for byte: Any in [82, 80] { e8(ctx, byte); }                             // push rdx; push rax
+    fat_rt_call(ctx, "rt_len", 2);
+    placelab(ctx, done);
+    return 0;
+}
+
 fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
     if (name == "print") {
         mut arg: Any = args;
@@ -1323,6 +1344,7 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         for byte: Any in FAT_STORES[name] { e8(ctx, byte); }                  // mov [rax], cl/cx/ecx/rcx
         return fat_set(ctx, 0, 0);
     }
+    if (name == "len") { return fat_len_fast(ctx, args); }
     if (has(FAT_BUILTINS, name)) { return fat_rt(ctx, FAT_BUILTINS[name], args); }
     if (has(FAT_MATH, name)) {
         let kernel: Any = FAT_MATH[name];
