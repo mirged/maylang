@@ -1,0 +1,24 @@
+// A recursive enum evaluated many times: every node tests the tag and reads
+// its payload through match, which is the shape #134 step 4 optimizes.
+enum Expr { Num(n: Int), Add(l: Expr, r: Expr), Mul(l: Expr, r: Expr) }
+
+fun build(depth: Int) -> Expr {
+    if (depth == 0) { return Num(1); }
+    return Add(build(depth - 1), Mul(build(depth - 1), Num(2)));
+}
+
+fun eval(e: Expr) -> Int {
+    match (e) {
+        Num(n) => { return n; },
+        Add(l, r) => { return eval(l) + eval(r); },
+        Mul(l, r) => { return eval(l) * eval(r); }
+    }
+    return 0;
+}
+
+let tree: Expr = build(10);
+let once: Int = eval(tree);
+mut total: Int = 0;
+mut i: Int = 0;
+while (i < 20000) { total += eval(tree); i += 1; }
+print(once, total);

@@ -816,7 +816,7 @@ fun fat_forward(ctx: Any, instruction: Any) -> Bool {
     else if (op == E_INT) { d = [0, 2, n.value]; }
     else if (op == E_FLOAT) { d = [1, float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)))]; }
     else if (op == E_STR) { d = [2, fat_key(ctx, n.span.source, n.start, n.length)]; }
-    else if (op == E_STRB) { d = [2, intern_obj2(ctx, n.address, n.length)]; }
+    else if (op == E_STRB) { d = [2, fat_key_text(ctx, n.address, n.length)]; }
     else if (op == E_VAR) {
         let p: Any = n.name; let l: Any = n.length;
         if (name_eq(p, l, addr("nil"), 3) == 1) { d = [0, 0, 0]; }
@@ -967,6 +967,18 @@ fun fat_key(ctx: Any, source: Any, start: Any, length: Any) -> Any {
     return off;
 }
 
+// Like fat_key, for a synthesized literal whose address is given directly.
+// Interning by text makes a match payload's field name the same key object the
+// variant constructor wrote (#134 step 4).
+fun fat_key_text(ctx: Any, address: Any, length: Any) -> Any {
+    let text: Any = symbol_name(address, length);
+    let known: Any = FAT_KEYS[text];
+    if (known != nil) { return known; }
+    let off: Any = intern_obj2(ctx, address, length);
+    FAT_KEYS[text] = off;
+    return off;
+}
+
 // The inline field cache check (#98): with the map's type word in `t` and
 // payload in `p` (registers 2/0 or 10/11), leave the cached entry's address
 // in RCX, or jump to `miss` unless the value is a map holding the site's
@@ -998,12 +1010,43 @@ fun fat_field_operands(ctx: Any, cache: Any, key: Any) -> Any {
     return 0;
 }
 
+// A record whose entries are still inside its own block has every field at a
+// fixed slot (#134): `entries == p + 48` and slot `field - 1` holds the site's
+// key object. Leave that entry's address in RCX, or jump to `miss`. A record
+// that grew its entries out (a dynamic field write) or was compacted by
+// `remove` fails the first or the second check and falls back to the field
+// cache, so the fast path never assumes a layout the runtime did not build.
+// Clobbers R8; RDX/RAX keep the receiver so a fallback can reuse them.
+fun fat_field_slot_check(ctx: Any, key: Any, field: Any, miss: Any) -> Any {
+    let disp: Any = 48 + 32 * (field - 1);
+    for byte: Any in [72, 131, 250, 6] { e8(ctx, byte); }                             // cmp rdx, 6
+    jcc(ctx, 133, miss);
+    for byte: Any in [72, 139, 72, 16] { e8(ctx, byte); }                            // mov rcx, [rax + 16]
+    for byte: Any in [76, 141, 64, 48] { e8(ctx, byte); }                            // lea r8, [rax + 48]
+    for byte: Any in [76, 57, 193] { e8(ctx, byte); }                                // cmp rcx, r8
+    jcc(ctx, 133, miss);
+    x86_relocated_immediate(ctx, 8, 1, key);                                         // mov r8, key object
+    for byte: Any in [76, 57, 128] { e8(ctx, byte); } e32(ctx, disp + 8);            // cmp [rax + disp + 8], r8
+    jcc(ctx, 133, miss);
+    for byte: Any in [72, 141, 136] { e8(ctx, byte); } e32(ctx, disp);               // lea rcx, [rax + disp]
+    return 0;
+}
+
 // `object.name` through the site's cache (a writable word reserved by
-// ir_field_cache), else rt_field_get.
-fun fat_field_get(ctx: Any, object: Any, cache: Any, source: Any, start: Any, length: Any) -> Any {
-    let key: Any = fat_key(ctx, source, start, length);
+// ir_field_cache), else rt_field_get. `key` is the site's key object and
+// `field` its 1-based fixed slot when the receiver's type is known, else 0.
+fun fat_field_get(ctx: Any, object: Any, cache: Any, key: Any, field: Any) -> Any {
     let miss: Any = newlab(ctx); let done: Any = newlab(ctx);
     fat_get(ctx, object);
+    // A statically known struct field: read the fixed slot without the cache
+    // when the record is still in its fixed layout, else use the cache probe.
+    if (field > 0 and not NO_OPT) {
+        let fallback: Any = newlab(ctx);
+        fat_field_slot_check(ctx, key, field, fallback);
+        for byte: Any in [72, 139, 81, 16, 72, 139, 65, 24] { e8(ctx, byte); }        // mov rdx, [rcx + 16]; mov rax, [rcx + 24]
+        jmp(ctx, done);
+        placelab(ctx, fallback);
+    }
     fat_field_probe(ctx, 2, cache, key, miss);
     for byte: Any in [72, 139, 81, 16, 72, 139, 65, 24] { e8(ctx, byte); }             // mov rdx, [rcx + 16]; mov rax, [rcx + 24]
     jmp(ctx, done);
@@ -1016,10 +1059,20 @@ fun fat_field_get(ctx: Any, object: Any, cache: Any, source: Any, start: Any, le
 }
 
 // `object.name = value` through the site's cache, else rt_field_set.
-fun fat_field_set(ctx: Any, object: Any, value: Any, cache: Any, source: Any, start: Any, length: Any) -> Any {
+fun fat_field_set(ctx: Any, object: Any, value: Any, cache: Any, source: Any, start: Any, length: Any, field: Any) -> Any {
     let key: Any = fat_key(ctx, source, start, length);
     let miss: Any = newlab(ctx); let done: Any = newlab(ctx);
     fat_get(ctx, object);
+    // A statically known struct field: write the fixed slot while the record
+    // is still in its fixed layout, else use the cache probe.
+    if (field > 0 and not NO_OPT) {
+        let fallback: Any = newlab(ctx);
+        fat_field_slot_check(ctx, key, field, fallback);
+        fat_get(ctx, value);
+        for byte: Any in [72, 137, 81, 16, 72, 137, 65, 24] { e8(ctx, byte); }        // mov [rcx + 16], rdx; mov [rcx + 24], rax
+        jmp(ctx, done);
+        placelab(ctx, fallback);
+    }
     for byte: Any in [73, 137, 210, 73, 137, 195] { e8(ctx, byte); }                   // mov r10, rdx; mov r11, rax
     fat_field_probe(ctx, 10, cache, key, miss);
     fat_get(ctx, value);
@@ -1158,6 +1211,172 @@ fun fat_count(args: Any) -> Any {
     return count;
 }
 
+// ---------------------------------------------------- direct calls (#132)
+//
+// A call to a function known at compile time with matching arity passes its
+// arguments in registers instead of building the 16-byte argument vector:
+// argument 0 in RDX/RAX (the result registers), argument 1 in RDI/RSI and
+// argument 2 in R8/R9. A fat function with one to three parameters has one body
+// that stores its parameters from those registers; its vector entry, which
+// closures and function values use, copies the vector into the registers
+// first. A native-word body takes its payloads in the SysV argument registers.
+//
+// fat_plan_direct_calls marks the callees of such calls before emission, from
+// every direct call site in the IR, so a callee emits its register entry
+// whenever a call site uses it, regardless of emission order.
+
+let FAT_ARG_PAIRS: Any = [[2, 0], [7, 6], [8, 9]];
+let FAT_WORD_ARGUMENTS: Any = [7, 6, 2, 1, 8, 9];
+
+// One out-of-line "expected Int or Bool" fault stub per body.
+mut FAT_WORD_FAULT: Any = nil;
+
+// Whether calls to `rec` can use the register convention: a fat body with one
+// to three parameters and no closure environment. The vector entry keeps
+// working for every other caller.
+fun fat_register_callable(rec: Any) -> Bool {
+    if (NO_OPT or rec == 0) { return false; }
+    if (rec.foreign == true or rec.mode == 1 or rec.native == true or rec.cc != 0) { return false; }
+    return rec.pc >= 1 and rec.pc <= 3;
+}
+
+// The register entry of `rec`; the first user allocates the label, so a caller
+// and the callee agree on it whatever the emission order.
+fun fat_register_label(ctx: Any, rec: Any) -> Any {
+    if (rec.regLab == nil) { rec.regLab = newlab(ctx); }
+    return rec.regLab;
+}
+
+// The `expected Int or Bool` fault stub of the body being emitted.
+fun fat_word_fault(ctx: Any) -> Any {
+    if (FAT_WORD_FAULT == nil) { FAT_WORD_FAULT = newlab(ctx); }
+    return FAT_WORD_FAULT;
+}
+
+fun fat_cmp_immediate(ctx: Any, register: Any, value: Any) -> Any {
+    e8(ctx, if (register >= 8) { 73 } else { 72 }); e8(ctx, 131); e8(ctx, 248 + register % 8); e8(ctx, value);
+    return 0;
+}
+
+// Mark the callees of direct calls with matching arity that can take their
+// arguments in registers. Called once, before any body is emitted.
+fun fat_plan_direct_calls(ctx: Any) -> Any {
+    if (NO_OPT) { return 0; }
+    fat_plan_direct_block(ctx, ctx.mainIR);
+    for rec: Any in ctx.functions {
+        if (rec.mode == 1 or rec.native == true or rec.foreign == true) { continue; }
+        fat_plan_direct_block(ctx, rec.ir);
+    }
+    return 0;
+}
+
+fun fat_plan_direct_block(ctx: Any, block: Any) -> Any {
+    if (block == nil or block == 0) { return 0; }
+    for instruction: Any in block.code {
+        if (instruction.op != E_CALL) { continue; }
+        let n: Any = instruction.extra;
+        if (n == 0) { continue; }
+        let name: Any = symbol_name(n.name, n.length);
+        mut callee: Any = ctx.functionIndex[name];
+        // `ln` and friends lower to the portable math kernels (fat_builtin).
+        if (callee == nil and has(FAT_MATH, name)) { callee = ctx.functionIndex[FAT_MATH[name]]; }
+        if (callee == nil or fat_count(n.args) != callee.pc) { continue; }
+        if (fat_register_callable(callee)) { callee.regWanted = true; }
+        else if (callee.native == true and callee.pc <= 6) { callee.wordWanted = true; }
+    }
+    return 0;
+}
+
+// mov reg, [rsp + displacement], for the vector entry before the prologue.
+fun fat_incoming(ctx: Any, register: Any, displacement: Any) -> Any {
+    e8(ctx, if (register >= 8) { 76 } else { 72 }); e8(ctx, 139);
+    e8(ctx, 68 + (register % 8) * 8); e8(ctx, 36); e8(ctx, displacement);
+    return 0;
+}
+
+// Copy the argument vector at [rsp + 8] into the register convention.
+fun fat_arguments_to_registers(ctx: Any, count: Any) -> Any {
+    for index: Any in 0..count {
+        let pair: Any = FAT_ARG_PAIRS[index];
+        fat_incoming(ctx, pair[0], 8 + 16 * index);
+        fat_incoming(ctx, pair[1], 16 + 16 * index);
+    }
+    return 0;
+}
+
+// Load arguments right to left, so argument 0 is loaded last and stays in
+// RDX/RAX. A load has no effects, so the order is not observable.
+fun fat_register_arguments(ctx: Any, args: Any, index: Any) -> Any {
+    if (args == 0) { return 0; }
+    fat_register_arguments(ctx, args.next, index + 1);
+    fat_get(ctx, args);
+    if (index > 0) {
+        let pair: Any = FAT_ARG_PAIRS[index];
+        x86_move_register(ctx, pair[0], 2); x86_move_register(ctx, pair[1], 0);
+    }
+    return 0;
+}
+
+// A direct call to a known fat function: arguments travel in registers, so no
+// argument vector is built and the stack pointer is not adjusted.
+fun fat_direct_registers(ctx: Any, rec: Any, args: Any) -> Any {
+    fat_register_arguments(ctx, args, 0);
+    // The register entry is a label created after emission_begin registered the
+    // function's own label, so queue the function explicitly.
+    emission_reference(ctx, rec.lab);
+    fat_call_begin(ctx); call(ctx, fat_register_label(ctx, rec)); fat_call_end(ctx);
+    return 0;
+}
+
+// Load parameter `index` of a native-word callee: check its type word unless it
+// is proven, then move the payload into its SysV argument register.
+fun fat_native_argument(ctx: Any, rec: Any, arg: Any, index: Any) -> Any {
+    fat_get(ctx, arg);
+    let expected: Any = fat_native_type(rec.nativeKinds[index]);
+    if (fat_known_type(arg) != expected) {
+        fat_cmp_immediate(ctx, 2, expected);
+        jcc(ctx, 133, fat_word_fault(ctx));
+    }
+    x86_move_register(ctx, FAT_WORD_ARGUMENTS[index], 0);
+    return 0;
+}
+
+// `wanted` is an argument index to load, or -1 for every index but 2: RDX is
+// both parameter 2's register and the scratch register of a load, so it is
+// loaded last.
+fun fat_native_arguments(ctx: Any, rec: Any, args: Any, wanted: Any) -> Any {
+    mut arg: Any = args; mut index: Any = 0;
+    while (arg != 0) {
+        if (wanted < 0) { if (index != 2) { fat_native_argument(ctx, rec, arg, index); } }
+        else if (index == wanted) { fat_native_argument(ctx, rec, arg, index); }
+        index += 1; arg = arg.next;
+    }
+    return 0;
+}
+
+// A direct call to a native-word function: payloads in the argument registers,
+// result word tagged here. Its fat entry (rec.lab) stays for closures.
+fun fat_direct_native(ctx: Any, rec: Any, args: Any) -> Any {
+    fat_native_arguments(ctx, rec, args, -1);
+    fat_native_arguments(ctx, rec, args, 2);
+    if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
+    emission_reference(ctx, rec.lab);
+    fat_call_begin(ctx); call(ctx, rec.nativeLab); fat_call_end(ctx);
+    x86_mov_immediate(ctx, 2, fat_native_type(rec.nativeResult));
+    return 0;
+}
+
+// A direct call to a function known at compile time with matching arity:
+// arguments in registers where the callee has an entry for that, otherwise the
+// argument-vector path (padding, extra arguments) as before.
+fun fat_call_known(ctx: Any, rec: Any, args: Any) -> Any {
+    if (not NO_OPT and fat_count(args) == rec.pc) {
+        if (rec.regWanted == true) { return fat_direct_registers(ctx, rec, args); }
+        if (rec.wordWanted == true and rec.native == true and rec.pc <= 6) { return fat_direct_native(ctx, rec, args); }
+    }
+    return fat_direct(ctx, rec, args);
+}
+
 fun fat_direct(ctx: Any, rec: Any, args: Any) -> Any {
     let count: Any = fat_count(args);
     let size: Any = if (count > rec.pc) { count } else { rec.pc };
@@ -1283,6 +1502,73 @@ fun fat_len_fast(ctx: Any, args: Any) -> Any {
     return 0;
 }
 
+// push(list, value) with spare capacity stores inline (#101 phase 3). Both
+// operands take the stack slots the runtime call would use, so the slow path
+// is that call unchanged and no value is read after code is emitted (the
+// held-slot trap). A specialized list (kind 1 Int, 2 Float, 3 Bool) stores
+// only a value of its declared type; anything else falls back to rt_push,
+// which widens the list when a value of another type arrives.
+fun fat_push_fast(ctx: Any, args: Any) -> Any {
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx); let stored: Any = newlab(ctx);
+    let typed: Any = newlab(ctx); let bytes: Any = newlab(ctx);
+    fat_get(ctx, args); fat_push(ctx);                                     // list
+    fat_get(ctx, args.next); fat_push(ctx);                                // value
+    // [rsp] value payload, [rsp + 8] value type, [rsp + 16] list, [rsp + 24] list type
+    for byte: Any in [72, 131, 124, 36, 24, 5] { e8(ctx, byte); }          // cmp qword [rsp + 24], 5
+    jcc(ctx, 133, slow);
+    for byte: Any in [76, 139, 68, 36, 16] { e8(ctx, byte); }              // mov r8, [rsp + 16]
+    for byte: Any in [73, 139, 8] { e8(ctx, byte); }                       // mov rcx, [r8]      len
+    for byte: Any in [73, 139, 80, 8] { e8(ctx, byte); }                   // mov rdx, [r8 + 8]  cap
+    for byte: Any in [72, 57, 209] { e8(ctx, byte); }                      // cmp rcx, rdx
+    jcc(ctx, 131, slow);                                                   // jae: no spare capacity
+    for byte: Any in [77, 139, 88, 24] { e8(ctx, byte); }                  // mov r11, [r8 + 24] kind
+    for byte: Any in [77, 133, 219] { e8(ctx, byte); }                     // test r11, r11
+    jcc(ctx, 133, typed);                                                  // jne typed
+    // Fat values: data + len * 16.
+    for byte: Any in [77, 139, 80, 16] { e8(ctx, byte); }                  // mov r10, [r8 + 16]
+    for byte: Any in [72, 137, 202] { e8(ctx, byte); }                     // mov rdx, rcx
+    for byte: Any in [72, 193, 226, 4] { e8(ctx, byte); }                  // shl rdx, 4
+    for byte: Any in [73, 1, 210] { e8(ctx, byte); }                       // add r10, rdx
+    for byte: Any in [72, 139, 84, 36, 8] { e8(ctx, byte); }               // mov rdx, [rsp + 8]
+    for byte: Any in [72, 139, 4, 36] { e8(ctx, byte); }                   // mov rax, [rsp]
+    for byte: Any in [73, 137, 18] { e8(ctx, byte); }                      // mov [r10], rdx
+    for byte: Any in [73, 137, 66, 8] { e8(ctx, byte); }                   // mov [r10 + 8], rax
+    jmp(ctx, stored);
+    placelab(ctx, typed);
+    for byte: Any in [73, 131, 251, 3] { e8(ctx, byte); }                  // cmp r11, 3
+    jcc(ctx, 132, bytes);
+    // Int (kind 1) and Float (kind 2): the value type must be kind + 1.
+    for byte: Any in [72, 139, 84, 36, 8] { e8(ctx, byte); }               // mov rdx, [rsp + 8]
+    for byte: Any in [77, 141, 75, 1] { e8(ctx, byte); }                   // lea r9, [r11 + 1]
+    for byte: Any in [76, 57, 202] { e8(ctx, byte); }                      // cmp rdx, r9
+    jcc(ctx, 133, slow);
+    for byte: Any in [72, 139, 4, 36] { e8(ctx, byte); }                   // mov rax, [rsp]
+    for byte: Any in [77, 139, 80, 16] { e8(ctx, byte); }                  // mov r10, [r8 + 16]
+    for byte: Any in [72, 137, 202] { e8(ctx, byte); }                     // mov rdx, rcx
+    for byte: Any in [72, 193, 226, 3] { e8(ctx, byte); }                  // shl rdx, 3
+    for byte: Any in [73, 1, 210] { e8(ctx, byte); }                       // add r10, rdx
+    for byte: Any in [73, 137, 2] { e8(ctx, byte); }                       // mov [r10], rax
+    jmp(ctx, stored);
+    placelab(ctx, bytes);
+    // Bool (kind 3): one byte, and only a Bool fits.
+    for byte: Any in [72, 131, 124, 36, 8, 1] { e8(ctx, byte); }           // cmp qword [rsp + 8], 1
+    jcc(ctx, 133, slow);
+    for byte: Any in [72, 139, 4, 36] { e8(ctx, byte); }                   // mov rax, [rsp]
+    for byte: Any in [77, 139, 80, 16] { e8(ctx, byte); }                  // mov r10, [r8 + 16]
+    for byte: Any in [73, 1, 202] { e8(ctx, byte); }                       // add r10, rcx
+    for byte: Any in [65, 136, 2] { e8(ctx, byte); }                       // mov [r10], al
+    placelab(ctx, stored);
+    for byte: Any in [73, 131, 0, 1] { e8(ctx, byte); }                    // add qword [r8], 1
+    for byte: Any in [72, 131, 196, 32] { e8(ctx, byte); }                 // add rsp, 32
+    x86_mov_immediate(ctx, 2, 5);
+    x86_move_register(ctx, 0, 8);                                          // mov rax, r8
+    jmp(ctx, done);
+    placelab(ctx, slow);
+    fat_rt_call(ctx, "rt_push", 4);
+    placelab(ctx, done);
+    return 0;
+}
+
 fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
     if (name == "print") {
         mut arg: Any = args;
@@ -1345,11 +1631,12 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         return fat_set(ctx, 0, 0);
     }
     if (name == "len") { return fat_len_fast(ctx, args); }
+    if (name == "push" and not NO_OPT and fat_count(args) == 2) { return fat_push_fast(ctx, args); }
     if (has(FAT_BUILTINS, name)) { return fat_rt(ctx, FAT_BUILTINS[name], args); }
     if (has(FAT_MATH, name)) {
         let kernel: Any = FAT_MATH[name];
         let rec: Any = backend_find_func(ctx, addr(kernel), len(kernel));
-        if (rec != 0) { return fat_direct(ctx, rec, args); }
+        if (rec != 0) { return fat_call_known(ctx, rec, args); }
     }
     die_str("mayc: --values fat does not support `${name}` yet\n");
     return 0;
@@ -1363,7 +1650,7 @@ fun fat_call(ctx: Any, n: Any) -> Any {
         // native.may's portable join body, replaced by the runtime's (#99).
         if (name == "__join_list") { return fat_rt(ctx, "rt_join", n.args); }
         let rec: Any = backend_find_func(ctx, p, l);
-        if (rec != 0 and rec.mode != 1) { return fat_direct(ctx, rec, n.args); }
+        if (rec != 0 and rec.mode != 1) { return fat_call_known(ctx, rec, n.args); }
         return fat_builtin(ctx, symbol_name(p, l), n.args);
     }
     fat_var(ctx, n);
@@ -1374,7 +1661,7 @@ fun fat_operation(ctx: Any, n: Any) -> Any {
     let k: Any = n.kind;
     if (k == E_INT) { return fat_set(ctx, 2, n.value); }
     if (k == E_STR) { return fat_literal(ctx, fat_key(ctx, n.span.source, n.start, n.length)); }
-    if (k == E_STRB) { return fat_literal(ctx, intern_obj2(ctx, n.address, n.length)); }
+    if (k == E_STRB) { return fat_literal(ctx, fat_key_text(ctx, n.address, n.length)); }
     if (k == E_FLOAT) {
         let bits: Any = float_literal_bits(str(symbol_name(n.span.source + n.start, n.length)));
         e8(ctx, 72); e8(ctx, 184); e32(ctx, bits[0]); e32(ctx, bits[1]);   // movabs rax, bits
@@ -1385,7 +1672,13 @@ fun fat_operation(ctx: Any, n: Any) -> Any {
     if (k == E_CAPVAR) { fat_env_cell(ctx, n.index); return fat_cell_load(ctx); }
     if (k == E_CLOSURE) { return fat_closure(ctx, n); }
     if (k == E_INDEX) { return fat_index(ctx, n); }
-    if (k == E_GET) { return fat_field_get(ctx, n.object, n.cache, n.span.source, n.start, n.length); }
+    if (k == E_GET) {
+        let address: Any = n.keyAddress;
+        mut key: Any = 0;
+        if (address != nil and address != 0) { key = fat_key_text(ctx, address, n.keyLength); }
+        else { key = fat_key(ctx, n.span.source, n.start, n.length); }
+        return fat_field_get(ctx, n.object, n.cache, key, n.field ?? 0);
+    }
     if (k == E_ICALL) { fat_get(ctx, n.callee); return fat_apply(ctx, n.args); }
     if (k == E_RANGE) {
         fat_get(ctx, n.start); fat_push(ctx); fat_get(ctx, n.end); fat_push(ctx);
@@ -1708,6 +2001,26 @@ fun fat_float_jump(ctx: Any, op: Any, label: Any, truthy: Any) -> Any {
     return 0;
 }
 
+// Two Str operands of different byte lengths are unequal, so `==`/`!=` answers
+// without entering rt_eq (which compares content). Registers hold the operands
+// as fat_operands left them; other operand types fall through to `other`.
+fun fat_str_length_shortcut(ctx: Any, n: Any, done: Any) -> Any {
+    let other: Any = newlab(ctx);
+    for byte: Any in [73, 131, 249, 4] { e8(ctx, byte); }                    // cmp r9, 4
+    jcc(ctx, 133, other);
+    for byte: Any in [72, 131, 250, 4] { e8(ctx, byte); }                    // cmp rdx, 4
+    jcc(ctx, 133, other);
+    for byte: Any in [77, 139, 16] { e8(ctx, byte); }                        // mov r10, [r8]   byte length
+    for byte: Any in [76, 139, 24] { e8(ctx, byte); }                        // mov r11, [rax]
+    for byte: Any in [77, 57, 218] { e8(ctx, byte); }                        // cmp r10, r11
+    jcc(ctx, 132, other);                                                     // je: same length
+    x86_mov_immediate(ctx, 0, if (n.op == TK_NE) { 1 } else { 0 });
+    x86_mov_immediate(ctx, 2, 1);
+    jmp(ctx, done);
+    placelab(ctx, other);
+    return 0;
+}
+
 fun fat_binary(ctx: Any, n: Any) -> Any {
     let key: Any = str(n.op);
     if (fat_float_hint(n) and ((n.op >= TK_PLUS and n.op <= TK_SLASH) or has(FAT_INLINE_COMPARE, key))) { return fat_float_inline(ctx, n); }
@@ -1720,6 +2033,7 @@ fun fat_binary(ctx: Any, n: Any) -> Any {
     // operands that are not Ints when there is no Float path).
     mut slowUsed: Any = checked and not floats;
     fat_operands(ctx, n.left, n.right);
+    if ((n.op == TK_EQ or n.op == TK_NE) and not NO_OPT) { fat_str_length_shortcut(ctx, n, done); }
     if (has(FAT_INLINE_ARITH, key) or has(FAT_INLINE_COMPARE, key)) {
         fat_int_checks(ctx, n, notInt);
         if (has(FAT_INLINE_ARITH, key)) {
@@ -1787,12 +2101,325 @@ fun fat_index_set(ctx: Any, n: Any) -> Any {
     return 0;
 }
 
-fun fat_index(ctx: Any, n: Any) -> Any {
+// ---- inline map probe (#133) ---------------------------------------------
+//
+// `m[k]` with a receiver the checker proved `Map<K, V>` and a key proved Str,
+// Int, Float or Bool probes the runtime's hash table inline instead of calling
+// rt_index_get. The walk is rt_map_find's exactly: the same key hash
+// (rt_key_hash), the same key equality (rt_same, including Float's -0.0/NaN
+// rules), the same three linear steps then CPython's perturb sequence, and the
+// same 32-byte entries (key type, key, value type, value). Anything else - a
+// receiver that is not a map, a key of another type, a map below the hash-table
+// threshold (rt_map_find scans those linearly), a non-list non-map receiver -
+// falls back to the runtime call, which keeps growth, faults and dynamic values
+// out of the inline code.
+//
+// rsp-relative words used by the probe (96 bytes, released on every exit):
+//   0 map payload   8 key type   16 key payload   24 step
+//   32 table   40 mask   48 perturb   56 slot   64 entries   72 key   80 entry
+// The runtime's map header holds count, capacity, entries, hash table and hash
+// capacity at offsets 0, 8, 16, 24 and 32 (runtime/fat.may).
+
+// A REX prefix (0x40 + W*8 + R*4 + X*2 + B), or nothing when all bits are
+// clear, then a helper for each instruction form the probe emits.
+fun fat_rex(ctx: Any, w: Any, r: Any, x: Any, b: Any) -> Any {
+    let rex: Any = 64 + w * 8 + r * 4 + x * 2 + b;
+    if (rex != 64) { e8(ctx, rex); }
+    return 0;
+}
+
+// One instruction: `mov reg, [base + disp8]` (opcode 139) or
+// `mov [base + disp8], reg` (opcode 137). `base` may be RSP.
+fun fat_rm(ctx: Any, opcode: Any, reg: Any, base: Any, disp: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, 0, if (base >= 8) { 1 } else { 0 });
+    e8(ctx, opcode); e8(ctx, 64 + (reg % 8) * 8 + base % 8);
+    if (base % 8 == 4) { e8(ctx, 36); }                                      // SIB: [rsp], no index
+    e8(ctx, disp);
+    return 0;
+}
+fun fat_stack_store(ctx: Any, reg: Any, disp: Any) -> Any { return fat_rm(ctx, 137, reg, 4, disp); }
+fun fat_stack_load(ctx: Any, reg: Any, disp: Any) -> Any { return fat_rm(ctx, 139, reg, 4, disp); }
+
+// mov reg, [base + index * 8].
+fun fat_rm_index8(ctx: Any, reg: Any, base: Any, index: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, if (index >= 8) { 1 } else { 0 },
+        if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 139); e8(ctx, (reg % 8) * 8 + 4);
+    e8(ctx, 192 + (index % 8) * 8 + base % 8);                               // scale 8
+    return 0;
+}
+
+// lea reg, [base + disp]; the displacement is the 8-bit form when it fits.
+fun fat_lea(ctx: Any, reg: Any, base: Any, disp: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, 0, if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 141);
+    if (disp >= 0 and disp <= 127) { e8(ctx, 64 + (reg % 8) * 8 + base % 8); }
+    else { e8(ctx, 128 + (reg % 8) * 8 + base % 8); }
+    if (base % 8 == 4) { e8(ctx, 36); }
+    if (disp >= 0 and disp <= 127) { e8(ctx, disp); } else { e32(ctx, disp); }
+    return 0;
+}
+// lea reg, [base + index + disp8]; lea reg, [base + index * scale] (scale as
+// the SIB field, 0-3).
+fun fat_lea_index(ctx: Any, reg: Any, base: Any, index: Any, disp: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, if (index >= 8) { 1 } else { 0 },
+        if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 141); e8(ctx, 64 + (reg % 8) * 8 + 4);
+    e8(ctx, (index % 8) * 8 + base % 8); e8(ctx, disp);
+    return 0;
+}
+fun fat_lea_scale(ctx: Any, reg: Any, base: Any, index: Any, scale: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, if (index >= 8) { 1 } else { 0 },
+        if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 141); e8(ctx, (reg % 8) * 8 + 4);
+    e8(ctx, scale * 64 + (index % 8) * 8 + base % 8);
+    return 0;
+}
+
+// `op dst, src` for 1 add, 33 and, 41 sub (0x29), 49 xor (0x31), 57 cmp
+// (0x39) and 137 mov (0x89).
+fun fat_alu_reg(ctx: Any, opcode: Any, dst: Any, src: Any) -> Any {
+    fat_rex(ctx, 1, if (src >= 8) { 1 } else { 0 }, 0, if (dst >= 8) { 1 } else { 0 });
+    e8(ctx, opcode); e8(ctx, 192 + (src % 8) * 8 + dst % 8);
+    return 0;
+}
+// shl/shr/sar reg, imm8 (ext 4, 5, 7).
+fun fat_shift_imm(ctx: Any, ext: Any, reg: Any, imm: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 193); e8(ctx, 192 + ext * 8 + reg % 8); e8(ctx, imm);
+    return 0;
+}
+// imul reg, reg, imm32 and imul dst, src.
+fun fat_imul_imm(ctx: Any, reg: Any, imm: Any) -> Any {
+    fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 105); e8(ctx, 192 + (reg % 8) * 8 + reg % 8); e32(ctx, imm);
+    return 0;
+}
+fun fat_imul(ctx: Any, dst: Any, src: Any) -> Any {
+    fat_rex(ctx, 1, if (dst >= 8) { 1 } else { 0 }, 0, if (src >= 8) { 1 } else { 0 });
+    e8(ctx, 15); e8(ctx, 175); e8(ctx, 192 + (dst % 8) * 8 + src % 8);
+    return 0;
+}
+// movzx reg32, byte [base].
+fun fat_movzx8(ctx: Any, reg: Any, base: Any) -> Any {
+    fat_rex(ctx, 0, if (reg >= 8) { 1 } else { 0 }, 0, if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 15); e8(ctx, 182); e8(ctx, (reg % 8) * 8 + base % 8);
+    return 0;
+}
+fun fat_test(ctx: Any, reg: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, 0); e8(ctx, 133); e8(ctx, 192 + (reg % 8) * 8 + reg % 8);
+    return 0;
+}
+// inc (ext 0) or dec (ext 1) reg.
+fun fat_incdec(ctx: Any, ext: Any, reg: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 255); e8(ctx, 192 + ext * 8 + reg % 8);
+    return 0;
+}
+fun fat_stack_inc(ctx: Any, disp: Any) -> Any {
+    e8(ctx, 72); e8(ctx, 255); e8(ctx, 68); e8(ctx, 36); e8(ctx, disp);
+    return 0;
+}
+// movabs reg, imm64.
+fun fat_movabs(ctx: Any, reg: Any, value: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 184 + reg % 8); e64(ctx, value);
+    return 0;
+}
+fun fat_push_reg(ctx: Any, reg: Any) -> Any {
+    if (reg >= 8) { e8(ctx, 65); }
+    e8(ctx, 80 + reg % 8);
+    return 0;
+}
+// cmp reg, imm8.
+fun fat_cmp_imm8(ctx: Any, reg: Any, imm: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (reg >= 8) { 1 } else { 0 });
+    e8(ctx, 131); e8(ctx, 248 + reg % 8); e8(ctx, imm);
+    return 0;
+}
+// cmp qword [base + disp8], imm8.
+fun fat_cmp_mem8(ctx: Any, base: Any, disp: Any, imm: Any) -> Any {
+    fat_rex(ctx, 1, 0, 0, if (base >= 8) { 1 } else { 0 });
+    e8(ctx, 131); e8(ctx, 120 + base % 8); e8(ctx, disp); e8(ctx, imm);
+    return 0;
+}
+
+// The runtime's Str key hash (runtime/fat.may rt_key_hash): a wrapping
+// polynomial over the bytes. Leaves the key in R9 and the hash in RSI.
+fun fat_map_str_hash(ctx: Any) -> Any {
+    let top: Any = newlab(ctx); let done: Any = newlab(ctx);
+    x86_move_register(ctx, 9, 0);                                            // mov r9, rax
+    e8(ctx, 69); e8(ctx, 49); e8(ctx, 210);                                  // xor r10d, r10d
+    fat_rm(ctx, 139, 7, 0, 0);                                               // mov rdi, [rax]     length
+    fat_lea(ctx, 6, 0, 8);                                                   // lea rsi, [rax + 8]
+    fat_alu_reg(ctx, 1, 7, 6);                                               // add rdi, rsi       end
+    placelab(ctx, top);
+    fat_alu_reg(ctx, 57, 6, 7);                                              // cmp rsi, rdi
+    jcc(ctx, 131, done);                                                      // jae done
+    fat_imul_imm(ctx, 10, 131);                                              // imul r10, r10, 131
+    fat_movzx8(ctx, 1, 6);                                                   // movzx ecx, byte [rsi]
+    fat_alu_reg(ctx, 1, 10, 1);                                              // add r10, rcx
+    fat_incdec(ctx, 0, 6);                                                   // inc rsi
+    jmp(ctx, top);
+    placelab(ctx, done);
+    fat_alu_reg(ctx, 137, 6, 10);                                            // mov rsi, r10
+    return 0;
+}
+
+// The runtime's Int key hash: fold the high words into the low ones. Leaves the
+// key in R9 and the hash in RSI. Bool keys use it too: rt_key_hash's `kt <= 2`
+// branch is this formula, and a Bool payload is 0 or 1, so the fold leaves it
+// unchanged.
+fun fat_map_int_hash(ctx: Any) -> Any {
+    x86_move_register(ctx, 9, 0);                                            // mov r9, rax
+    fat_alu_reg(ctx, 137, 6, 0);                                             // mov rsi, rax
+    fat_shift_imm(ctx, 5, 6, 32);                                            // shr rsi, 32
+    fat_alu_reg(ctx, 137, 1, 0);                                             // mov rcx, rax
+    fat_alu_reg(ctx, 49, 6, 1);                                              // xor rsi, rcx
+    fat_shift_imm(ctx, 5, 1, 48);                                            // shr rcx, 48
+    fat_alu_reg(ctx, 49, 6, 1);                                              // xor rsi, rcx
+    return 0;
+}
+
+// The runtime's Float key hash (runtime/fat.may rt_key_hash): rt_hash_mix of the
+// payload bits, with the -0.0 payload folded onto mix(0) so both zeros hash to
+// the same slot (rt_same treats them as the same key). The mix is the runtime's
+// exactly: h = x*C1; h ^= h >> 32; h *= C2; h ^= (h >> 29) & (2^35 - 1), where
+// the shifts are the arithmetic shifts in the source, masked so the logical
+// ones here are identical. Leaves the key in R9 and the hash in RSI.
+fun fat_map_float_hash(ctx: Any) -> Any {
+    let set: Any = newlab(ctx);
+    x86_move_register(ctx, 9, 0);                                            // mov r9, rax
+    x86_mov_immediate(ctx, 11, 1); fat_shift_imm(ctx, 4, 11, 63);            // mov r11, 1 << 63  (-0.0)
+    fat_alu_reg(ctx, 57, 0, 11);                                             // cmp rax, r11
+    jcc(ctx, 133, set);                                                      // jne set
+    xor_eax(ctx);                                                            // x = 0 for -0.0
+    placelab(ctx, set);
+    fat_movabs(ctx, 11, 1024421277861575701); fat_imul(ctx, 0, 11);          // imul rax, C1
+    fat_alu_reg(ctx, 137, 2, 0);                                             // mov rdx, rax
+    fat_shift_imm(ctx, 5, 2, 32);                                            // shr rdx, 32
+    fat_alu_reg(ctx, 49, 0, 2);                                              // xor rax, rdx
+    fat_movabs(ctx, 11, 1105712242481227193); fat_imul(ctx, 0, 11);          // imul rax, C2
+    fat_alu_reg(ctx, 137, 2, 0);                                             // mov rdx, rax
+    fat_shift_imm(ctx, 5, 2, 29);                                            // shr rdx, 29
+    fat_movabs(ctx, 1, 34359738367);                                         // mov rcx, 2^35 - 1
+    fat_alu_reg(ctx, 33, 2, 1);                                              // and rdx, rcx
+    fat_alu_reg(ctx, 49, 0, 2);                                              // xor rax, rdx
+    fat_alu_reg(ctx, 137, 6, 0);                                             // mov rsi, rax
+    return 0;
+}
+
+// The walk over the runtime hash table; see the block comment above for the
+// frame. RSI holds the hash, R9 the key; a hit leaves the entry's value in
+// RDX/RAX, a miss leaves nil in both. Releases the probe frame and jumps to
+// `done`.
+fun fat_map_probe(ctx: Any, keyType: Any, done: Any) -> Any {
+    let probe: Any = newlab(ctx); let next: Any = newlab(ctx);
+    let linear: Any = newlab(ctx); let miss: Any = newlab(ctx);
+    let found: Any = newlab(ctx); let called: Any = newlab(ctx);
+    fat_stack_load(ctx, 1, 0);                                               // mov rcx, [rsp]         map
+    fat_rm(ctx, 139, 11, 1, 32);                                             // mov r11, [rcx + 32]    hash capacity
+    fat_rm(ctx, 139, 10, 1, 24);                                             // mov r10, [rcx + 24]    table
+    fat_rm(ctx, 139, 8, 1, 16);                                              // mov r8, [rcx + 16]     entries
+    fat_incdec(ctx, 1, 11);                                                  // dec r11                mask
+    fat_alu_reg(ctx, 137, 7, 6);                                             // mov rdi, rsi
+    fat_alu_reg(ctx, 33, 7, 11);                                             // and rdi, r11           slot
+    x86_mov_immediate(ctx, 2, 0);                                            // mov edx, 0
+    fat_stack_store(ctx, 2, 24);                                             // step = 0
+    placelab(ctx, probe);
+    fat_rm_index8(ctx, 1, 10, 7);                                            // mov rcx, [r10 + rdi*8]
+    fat_test(ctx, 1);                                                        // test rcx, rcx
+    jcc(ctx, 132, miss);                                                     // je miss
+    fat_alu_reg(ctx, 137, 2, 1);                                             // mov rdx, rcx
+    fat_shift_imm(ctx, 4, 2, 5);                                             // shl rdx, 5
+    fat_lea_index(ctx, 0, 8, 2, -32);                                        // lea rax, [r8 + rdx - 32]
+    fat_cmp_mem8(ctx, 0, 0, keyType);                                        // cmp qword [rax], keyType
+    jcc(ctx, 133, next);                                                     // jne next
+    if (keyType == 4) {
+        fat_rm(ctx, 139, 2, 0, 8);                                           // mov rdx, [rax + 8]
+        fat_alu_reg(ctx, 57, 2, 9);                                          // cmp rdx, r9
+        jcc(ctx, 132, found);                                                // je found
+        fat_stack_store(ctx, 0, 80);                                         // save the walk across the call
+        fat_stack_store(ctx, 10, 32);
+        fat_stack_store(ctx, 11, 40);
+        fat_stack_store(ctx, 6, 48);
+        fat_stack_store(ctx, 7, 56);
+        fat_stack_store(ctx, 8, 64);
+        fat_stack_store(ctx, 9, 72);
+        fat_push_reg(ctx, 2);                                                // push stored key
+        fat_push_reg(ctx, 9);                                                // push lookup key
+        fat_rt_call(ctx, "rt_str_eq", 2);                                    // keys equal?
+        fat_stack_load(ctx, 10, 32);
+        fat_stack_load(ctx, 11, 40);
+        fat_stack_load(ctx, 6, 48);
+        fat_stack_load(ctx, 7, 56);
+        fat_stack_load(ctx, 8, 64);
+        fat_stack_load(ctx, 9, 72);
+        fat_test(ctx, 0);                                                    // test rax, rax
+        jcc(ctx, 133, called);                                               // jne called
+    } else if (keyType == 3) {
+        // Float keys compare the way rt_same does: __fbits(20, a, b) is
+        // IEEE equality -- -0.0 equals +0.0 and NaN never equals anything,
+        // including itself. ucomisd sets ZF for ordered equality and PF for
+        // unordered, so jp skips NaN and je takes ordered equality.
+        fat_rm(ctx, 139, 2, 0, 8);                                           // mov rdx, [rax + 8]
+        fat_movq_to_xmm(ctx, 0, 2);                                          // movq xmm0, rdx
+        fat_movq_to_xmm(ctx, 1, 9);                                          // movq xmm1, r9
+        fat_sse(ctx, 102, 46, 1, 0, false);                                  // ucomisd xmm1, xmm0
+        jcc(ctx, 138, next);                                                 // jp next (unordered: NaN)
+        jcc(ctx, 132, found);                                                // je found
+    } else {
+        fat_rm(ctx, 139, 2, 0, 8);                                           // mov rdx, [rax + 8]
+        fat_alu_reg(ctx, 57, 2, 9);                                          // cmp rdx, r9
+        jcc(ctx, 132, found);                                                // je found
+    }
+    placelab(ctx, next);
+    fat_stack_load(ctx, 2, 24);                                              // step
+    fat_stack_inc(ctx, 24);
+    fat_cmp_imm8(ctx, 2, 3);                                                 // cmp rdx, 3
+    jcc(ctx, 130, linear);                                                   // jb: the three linear steps
+    fat_alu_reg(ctx, 137, 2, 6);                                             // mov rdx, rsi
+    fat_shift_imm(ctx, 5, 2, 5);                                             // shr rdx, 5
+    fat_movabs(ctx, 1, 576460752303423487);                                  // mov rcx, 2^59 - 1
+    fat_alu_reg(ctx, 33, 2, 1);                                              // and rdx, rcx
+    fat_alu_reg(ctx, 137, 6, 2);                                             // mov rsi, rdx   perturb
+    fat_lea_scale(ctx, 2, 7, 7, 2);                                          // lea rdx, [rdi + rdi*4]
+    fat_alu_immediate(ctx, 0, 2, 1);                                         // add rdx, 1
+    fat_alu_reg(ctx, 1, 2, 6);                                               // add rdx, rsi
+    fat_alu_reg(ctx, 137, 7, 2);                                             // mov rdi, rdx
+    fat_alu_reg(ctx, 33, 7, 11);                                             // and rdi, r11
+    jmp(ctx, probe);
+    placelab(ctx, linear);
+    fat_incdec(ctx, 0, 7);                                                   // inc rdi
+    fat_alu_reg(ctx, 33, 7, 11);                                             // and rdi, r11
+    jmp(ctx, probe);
+    placelab(ctx, miss);
+    e8(ctx, 49); e8(ctx, 192);                                               // xor eax, eax
+    e8(ctx, 49); e8(ctx, 210);                                               // xor edx, edx
+    fat_release(ctx, 96);
+    jmp(ctx, done);
+    placelab(ctx, found);
+    fat_rm(ctx, 139, 2, 0, 16);                                              // mov rdx, [rax + 16]
+    fat_rm(ctx, 139, 0, 0, 24);                                              // mov rax, [rax + 24]
+    fat_release(ctx, 96);
+    jmp(ctx, done);
+    placelab(ctx, called);
+    fat_stack_load(ctx, 0, 80);                                              // mov rax, [rsp + 80]
+    jmp(ctx, found);
+    return 0;
+}
+
+// Load `object[index]` into RDX/RAX: a list element or, for a receiver the
+// checker proved a Map with a Str, Int, Float or Bool key, an inline probe.
+// Everything else calls rt_index_get.
+fun fat_index_load(ctx: Any, n: Any) -> Any {
     let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
     let typed: Any = newlab(ctx); let bytes: Any = newlab(ctx);
+    let mapcheck: Any = newlab(ctx);
+    let probe: Any = if (NO_OPT) { 0 } else { n.mapProbe ?? 0 };
     fat_operands(ctx, n.object, n.index);
     for byte: Any in [73, 131, 249, 5] { e8(ctx, byte); }                    // cmp r9, 5
-    jcc(ctx, 133, slow);
+    jcc(ctx, 133, if (probe >= 1 and probe <= 4) { mapcheck } else { slow });
     for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                    // cmp rdx, 2
     jcc(ctx, 133, slow);
     for byte: Any in [77, 139, 16, 76, 57, 208] { e8(ctx, byte); }           // mov r10, [r8]; cmp rax, r10
@@ -1817,9 +2444,48 @@ fun fat_index(ctx: Any, n: Any) -> Any {
     for byte: Any in [65, 15, 182, 4, 2] { e8(ctx, byte); }                  // movzx eax, byte [r10 + rax]
     for byte: Any in [186, 1, 0, 0, 0] { e8(ctx, byte); }                    // mov edx, 1  (Bool)
     jmp(ctx, done);
+    if (probe >= 1 and probe <= 4) {
+        placelab(ctx, mapcheck);
+        for byte: Any in [73, 131, 249, 6] { e8(ctx, byte); }                // cmp r9, 6
+        jcc(ctx, 133, slow);                                                  // jne slow (not a map)
+        for byte: Any in [73, 131, 120, 32, 0] { e8(ctx, byte); }            // cmp qword [r8 + 32], 0
+        jcc(ctx, 132, slow);                                                  // je slow (linear scan)
+        for byte: Any in [72, 131, 250, probe] { e8(ctx, byte); }            // cmp rdx, probe (key type)
+        jcc(ctx, 133, slow);
+        fat_rsp(ctx, 236, 96);                                                // sub rsp, 96
+        fat_stack_store(ctx, 8, 0);                                           // map payload
+        fat_stack_store(ctx, 2, 8);                                           // key type
+        fat_stack_store(ctx, 0, 16);                                          // key payload
+        if (probe == 4) { fat_map_str_hash(ctx); }
+        else if (probe == 3) { fat_map_float_hash(ctx); }
+        else { fat_map_int_hash(ctx); }
+        fat_map_probe(ctx, probe, done);
+    }
     placelab(ctx, slow);
     fat_stub_call(ctx, "rt_index_get", -1);
     placelab(ctx, done);
+    return 0;
+}
+
+fun fat_index(ctx: Any, n: Any) -> Any {
+    fat_index_load(ctx, n);
+    return 0;
+}
+
+// `m[k] ?? fallback` where the value's only readers are the copy into the
+// coalesce result and the IR_NONNULL branch: decide the branch from the value
+// the probe just loaded, so no temporary is stored and re-read and the branch
+// reuses the probe's result. The nil test stays: a present entry whose value is
+// nil (reachable through an `Any` alias) coalesces to the fallback.
+fun fat_index_coalesce(ctx: Any, n: Any, result: Any, done: Any) -> Any {
+    let fall: Any = newlab(ctx);
+    fat_index_load(ctx, n);
+    fat_test(ctx, 2);                                                        // test rdx, rdx
+    jcc(ctx, 132, fall);                                                     // je fallback
+    if (result != 0 and FAT_INTERVALS[result.slot].uses > 0) { fat_put(ctx, result); }
+    jmp(ctx, done);
+    placelab(ctx, fall);
+    fat_forget();
     return 0;
 }
 
@@ -1882,6 +2548,136 @@ fun fat_fusable(block: Any, position: Any) -> Any {
     return -1;
 }
 
+// `left ?? right` lowers to an E_INDEX, an IR_COPY of its value into the
+// coalesce result and an IR_NONNULL branch on the indexed value. When those are
+// the value's only two readers, the branch can be decided from the value the
+// index load leaves in RDX/RAX: no temporary store and reload, and the probe's
+// hit or miss is the branch condition. Returns [branch position, copy result or
+// 0] when the instructions at `position` (after dead copies) are that copy and
+// branch, else nil.
+fun fat_coalesce_fusable(block: Any, position: Any) -> Any {
+    let instruction: Any = block.code[position];
+    if (instruction.op != E_INDEX or instruction.result == 0) { return nil; }
+    let value: Any = instruction.result;
+    let interval: Any = FAT_INTERVALS[value.slot];
+    if (interval.definitions != 1) { return nil; }
+    mut following: Any = position + 1;
+    while (following < len(block.code) and FAT_DEAD[following]) { following += 1; }
+    if (following >= len(block.code)) { return nil; }
+    mut result: Any = 0;
+    let next: Any = block.code[following];
+    if (next.op == IR_COPY and next.result != 0 and next.result.slot != value.slot and
+        next.arg1 != 0 and next.arg1.slot == value.slot) {
+        result = next.result;
+        following += 1;
+        while (following < len(block.code) and FAT_DEAD[following]) { following += 1; }
+        if (following >= len(block.code)) { return nil; }
+    }
+    let branch: Any = block.code[following];
+    if (branch.op != IR_NONNULL or branch.arg1 == 0 or branch.arg1.slot != value.slot) { return nil; }
+    let expected: Any = if (result == 0) { 1 } else { 2 };
+    if (interval.uses != expected) { return nil; }
+    return [following, result];
+}
+
+// ---- fixed-slot record construction (#135) --------------------------------
+//
+// A struct or enum constructor lowers to rt_struct_new(n) and one
+// rt_struct_set per entry (#134). Its body is straight-line: the keys are
+// interned string literals, the values are its parameters, and the record
+// cannot be named before it is returned. When the size reaches the backend as a
+// forwarded constant, the allocation's header writes and every slot write are
+// emitted directly instead of one runtime call per slot. The allocation itself
+// stays a runtime call (rt_alloc_record), so the block is the same kind-4
+// record block of docs/design/STRUCT_LAYOUT.md: a 48-byte map header with the
+// entries at p + 48, the hash table fields left zeroed and the entry bytes
+// exactly those rt_struct_set writes. The collector is untouched. A shape this
+// cannot prove keeps the runtime calls, and --no-opt keeps the old path.
+//
+// FAT_RECORD_STACK holds the records whose header this body wrote and whose
+// slots are still being filled: [temporary slot, size, next slot, valid].
+// Constructor bodies nest only through nested record constructors, and an inner
+// record completes before the outer record's next slot write, so a stack
+// matches the order.
+mut FAT_RECORD_STACK: Any = [];
+
+// The constant Int value of `value` when the backend forwarded one here.
+fun fat_record_const(value: Any) -> Any {
+    if (value == 0 or value == nil) { return nil; }
+    let d: Any = FAT_FORWARD[value.slot];
+    if (d == nil or d[0] != 0 or d[1] != 2) { return nil; }
+    return d[2];
+}
+
+fun fat_record_pending(slot: Any) -> Any {
+    mut i: Any = len(FAT_RECORD_STACK) - 1;
+    while (i >= 0) {
+        let entry: Any = FAT_RECORD_STACK[i];
+        if (entry[0] == slot) { return entry; }
+        i -= 1;
+    }
+    return nil;
+}
+
+// push rax.
+fun fat_push_payload(ctx: Any) -> Any { e8(ctx, 80); return 0; }
+
+// Allocate a `size`-slot record and write rt_struct_new's header: the count,
+// the capacity in values (two per entry) and the entries pointer into the
+// block at p + 48. rt_alloc_record zeroes the payload, so the hash table fields
+// at 24 and 32 stay zero exactly as the runtime leaves them.
+fun fat_record_new(ctx: Any, instruction: Any) -> Bool {
+    let args: Any = instruction.arg1;
+    if (args == 0 or args.next != 0 or instruction.result == 0) { return false; }
+    let size: Any = fat_record_const(args);
+    if (size == nil or size <= 0 or size > 4096) { return false; }
+    x86_mov_immediate(ctx, 0, size); fat_push_payload(ctx);              // push size
+    fat_rt_call(ctx, "rt_alloc_record", 1);                              // payload in rax
+    x86_mov_immediate(ctx, 2, 6);                                        // type word: record
+    x86_mov_immediate(ctx, 1, size);
+    fat_rm(ctx, 137, 1, 0, 0);                                           // mov [rax], rcx        count
+    x86_mov_immediate(ctx, 1, size * 2);
+    fat_rm(ctx, 137, 1, 0, 8);                                           // mov [rax + 8], rcx    capacity
+    fat_lea(ctx, 1, 0, 48);                                              // lea rcx, [rax + 48]
+    fat_rm(ctx, 137, 1, 0, 16);                                          // mov [rax + 16], rcx   entries
+    push(FAT_RECORD_STACK, [instruction.result.slot, size, 0, true]);
+    return true;
+}
+
+// Write entry `slot` of the record whose header `fat_record_new` wrote: the
+// key type and payload, then the value type and payload, at
+// [record + 48 + 32 * slot]. Returns false to keep the runtime call.
+fun fat_record_set(ctx: Any, instruction: Any) -> Bool {
+    let record: Any = instruction.arg1;
+    if (record == 0 or record.next == 0) { return false; }
+    let slotValue: Any = record.next;
+    if (slotValue.next == 0 or slotValue.next.next == 0) { return false; }
+    let key: Any = slotValue.next;
+    let value: Any = key.next;
+    if (value.next != 0) { return false; }
+    let entry: Any = fat_record_pending(record.slot);
+    if (entry == nil or entry[3] != true) { return false; }
+    let slot: Any = fat_record_const(slotValue);
+    if (slot == nil or slot != entry[2] or slot >= entry[1]) {
+        entry[3] = false;                                                // the rest keeps the runtime call
+        return false;
+    }
+    fat_get(ctx, record); x86_move_register(ctx, 10, 0);                 // r10 = record payload
+    fat_get(ctx, key); x86_move_register(ctx, 11, 0);                    // r11 = key payload
+    fat_lea(ctx, 1, 10, 48 + 32 * slot);                                 // rcx = entry address
+    fat_rm(ctx, 137, 2, 1, 0);                                           // mov [rcx], rdx        key type
+    fat_rm(ctx, 137, 11, 1, 8);                                          // mov [rcx + 8], r11    key payload
+    fat_get(ctx, value);
+    fat_rm(ctx, 137, 2, 1, 16);                                          // mov [rcx + 16], rdx   value type
+    fat_rm(ctx, 137, 0, 1, 24);                                          // mov [rcx + 24], rax   value payload
+    entry[2] = slot + 1;
+    if (entry[2] == entry[1]) {
+        let top: Any = FAT_RECORD_STACK[len(FAT_RECORD_STACK) - 1];
+        if (top[0] == entry[0]) { pop(FAT_RECORD_STACK); } else { entry[3] = false; }
+    }
+    return true;
+}
+
 fun fat_ir(ctx: Any, block: Any) -> Any {
     mut position: Any = 0;
     while (position < len(block.code)) {
@@ -1897,6 +2693,15 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
             position = fused + 1;
             fat_branch_compare(ctx, payload, fat_lab(ctx, branch.extra), branch.op == IR_TRUE);
             continue;
+        }
+        if (op == E_INDEX and not NO_OPT) {
+            let coalesce: Any = fat_coalesce_fusable(block, position - 1);
+            if (coalesce != nil) {
+                let branch: Any = block.code[coalesce[0]];
+                fat_index_coalesce(ctx, payload, coalesce[1], fat_lab(ctx, branch.extra));
+                position = coalesce[0] + 1;
+                continue;
+            }
         }
         if (op == IR_LABEL) { placelab(ctx, fat_lab(ctx, payload)); fat_forget(); }
         else if (op == IR_JUMP) { jmp(ctx, fat_lab(ctx, payload)); }
@@ -1920,7 +2725,12 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
             e8(ctx, 72); e8(ctx, 133); e8(ctx, 210);                        // test rdx, rdx
             jcc(ctx, if (op == IR_ISNIL) { 132 } else { 133 }, fat_lab(ctx, payload));
         }
-        else if (op == IR_RUNTIME) { fat_rt(ctx, payload, instruction.arg1); }
+        else if (op == IR_RUNTIME) {
+            if (payload == "rt_push" and not NO_OPT and fat_count(instruction.arg1) == 2) { fat_push_fast(ctx, instruction.arg1); }
+            else if (payload == "rt_struct_new" and not NO_OPT and fat_record_new(ctx, instruction)) { }
+            else if (payload == "rt_struct_set" and not NO_OPT and fat_record_set(ctx, instruction)) { }
+            else { fat_rt(ctx, payload, instruction.arg1); }
+        }
         else if (op == IR_RETURN) { fat_get(ctx, instruction.arg1); jmp(ctx, ctx.returnLabel); }
         else if (op == IR_TAILCALL) {
             mut arg: Any = instruction.arg1;
@@ -1938,7 +2748,7 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
         else if (op == S_ASSIGN) { fat_assign(ctx, payload); }
         else if (op == S_CASSIGN) { fat_get(ctx, payload.value); fat_env_cell(ctx, payload.index); fat_cell_store(ctx); }
         else if (op == S_SETIDX) { fat_index_set(ctx, payload); } else if (op == S_SETPROP) {
-            fat_field_set(ctx, payload.object, payload.value, payload.cache, payload.span.source, payload.start, payload.length);
+            fat_field_set(ctx, payload.object, payload.value, payload.cache, payload.span.source, payload.start, payload.length, payload.field ?? 0);
         } else { fat_operation(ctx, payload); }
         // A result nothing reads (lsra counts readers, never too few) needs no store.
         if (instruction.result != 0 and FAT_INTERVALS[instruction.result.slot].uses > 0) { fat_put(ctx, instruction.result); }
@@ -1987,6 +2797,12 @@ fun fat_epilogue(ctx: Any, fp: Any) -> Any {
     // Saves round up to whole 16-byte slots, keeping the stack aligned.
     store32(ctx.code.data + fp, slots + 16 * ((len(registers) + 1) / 2));
     fat_emit_deferred(ctx);
+    // The type-fault stub of a direct call to a native-word function.
+    if (FAT_WORD_FAULT != nil) {
+        placelab(ctx, FAT_WORD_FAULT);
+        call_rt0(ctx, addr("rt_word_type_fault"), len("rt_word_type_fault"));
+        FAT_WORD_FAULT = nil;
+    }
     return 0;
 }
 
@@ -1996,7 +2812,7 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
     bx_use_list(ctx, boxed);
     ctx.fatBase = fat_plan_slots(block); fat_forget(); FAT_APPLY_LOCAL = -1;
     FAT_HOME_NAMES = {}; FAT_HOME_ORDER = []; FAT_HOMES = [];
-    FAT_XMM = []; FAT_IN_BODY = false;
+    FAT_XMM = []; FAT_IN_BODY = false; FAT_WORD_FAULT = nil; FAT_RECORD_STACK = [];
     for interval: Any in FAT_INTERVALS { push(FAT_XMM, -1); }
     ctx.envCount = 0; ctx.envCaptures = [];
     return 0;
@@ -2005,6 +2821,13 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
 // The fat entry of a native-word function (#92): check each argument's type
 // word, pass the payloads as machine words and give the result its type.
 // Fat Int and Bool payloads are the native words, so nothing is converted.
+// The fat type word of a native-word parameter or result kind.
+fun fat_native_type(kind: Any) -> Any {
+    if (kind == "Bool") { return 1; }
+    if (kind == "Float") { return 3; }
+    return 2;
+}
+
 fun fat_native_entry(ctx: Any, rec: Any) -> Any {
     if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
     let fault: Any = newlab(ctx);
@@ -2013,12 +2836,12 @@ fun fat_native_entry(ctx: Any, rec: Any) -> Any {
     let registers: Any = [7, 6, 2, 1, 8, 9];
     for index: Any in 0..rec.pc {
         x86_load_register(ctx, 0, 0 - (16 + 16 * index));
-        e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, if (rec.nativeKinds[index] == "Bool") { 1 } else { 2 }); // cmp rax, type
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, fat_native_type(rec.nativeKinds[index])); // cmp rax, type
         jcc(ctx, 133, fault);
     }
     for index: Any in 0..rec.pc { x86_load_register(ctx, registers[index], 0 - (24 + 16 * index)); }
     call(ctx, rec.nativeLab);
-    x86_mov_immediate(ctx, 2, if (rec.nativeResult == "Bool") { 1 } else { 2 });
+    x86_mov_immediate(ctx, 2, fat_native_type(rec.nativeResult));
     e8(ctx, 93); e8(ctx, 195);                                                // pop rbp; ret
     placelab(ctx, fault);
     call_rt0(ctx, addr("rt_word_type_fault"), len("rt_word_type_fault"));
@@ -2038,7 +2861,7 @@ fun fat_word_adapter(ctx: Any, rec: Any) -> Any {
     for index: Any in 0..rec.pc {
         let register: Any = registers[index];
         e8(ctx, 72); e8(ctx, 199); e8(ctx, 132); e8(ctx, 36); e32(ctx, 16 * index); // mov qword [rsp + d], type
-        e32(ctx, if (rec.nativeKinds[index] == "Bool") { 1 } else { 2 });
+        e32(ctx, fat_native_type(rec.nativeKinds[index]));
         e8(ctx, if (register >= 8) { 76 } else { 72 }); e8(ctx, 137);            // mov [rsp + d], reg
         e8(ctx, 132 + (register % 8) * 8); e8(ctx, 36); e32(ctx, 16 * index + 8);
     }
@@ -2166,33 +2989,56 @@ fun fat_versioned(ctx: Any, rec: Any, assumed: Any) -> Bool {
 // through `Any` aliases, so its entry compares each such argument's type
 // word with the annotation and runs the generic body when one differs;
 // otherwise it falls through to the body specialized for those types.
+//
+// A function whose callers use the register convention (#132) keeps its
+// vector entry as an adapter that copies the argument vector into registers
+// and then dispatches from them, so closures and function values still work.
 fun fat_func(ctx: Any, rec: Any) -> Any {
     if (rec.foreign == true) { return fat_foreign(ctx, rec); }
     let assumed: Any = fat_assumptions(rec);
+    let registers: Bool = rec.regWanted == true;
     if (fat_versioned(ctx, rec, assumed)) {
+        let specialized: Any = newlab(ctx);
         let generic: Any = newlab(ctx);
-        placelab(ctx, rec.lab);
+        let genericRegister: Any = newlab(ctx);
+        if (registers) {
+            placelab(ctx, rec.lab);
+            fat_arguments_to_registers(ctx, rec.pc);
+            placelab(ctx, fat_register_label(ctx, rec));
+        } else { placelab(ctx, rec.lab); }
         for index: Any in 0..rec.pc {
             if (assumed[index] > 0) {
-                let displacement: Any = 8 + 16 * index;                        // type word of argument `index`
-                if (displacement < 128) { for byte: Any in [72, 131, 124, 36, displacement] { e8(ctx, byte); } } // cmp qword [rsp + d8], type
-                else { for byte: Any in [72, 131, 188, 36] { e8(ctx, byte); } e32(ctx, displacement); }       // cmp qword [rsp + d32], type
-                e8(ctx, assumed[index]);
-                jcc(ctx, 133, generic);                                       // jne
+                if (registers) { fat_cmp_immediate(ctx, FAT_ARG_PAIRS[index][0], assumed[index]); jcc(ctx, 133, genericRegister); }
+                else {
+                    let displacement: Any = 8 + 16 * index;                    // type word of argument `index`
+                    if (displacement < 128) { for byte: Any in [72, 131, 124, 36, displacement] { e8(ctx, byte); } } // cmp qword [rsp + d8], type
+                    else { for byte: Any in [72, 131, 188, 36] { e8(ctx, byte); } e32(ctx, displacement); }       // cmp qword [rsp + d32], type
+                    e8(ctx, assumed[index]);
+                    jcc(ctx, 133, generic);                                   // jne
+                }
             }
         }
+        if (registers) { jmp(ctx, specialized); placelab(ctx, genericRegister); jmp(ctx, generic); }
         FAT_LABEL_MAP = {};
-        fat_body(ctx, rec, newlab(ctx), assumed);
+        fat_body(ctx, rec, specialized, assumed, registers);
         FAT_LABEL_MAP = nil;
-        fat_body(ctx, rec, generic, []);
-    } else { fat_body(ctx, rec, rec.lab, []); }
+        fat_body(ctx, rec, generic, [], registers);
+    } else if (registers) {
+        // The vector entry stays for closures and function values; a direct
+        // call jumps straight to the register body.
+        placelab(ctx, rec.lab);
+        fat_arguments_to_registers(ctx, rec.pc);
+        fat_body(ctx, rec, fat_register_label(ctx, rec), [], true);
+    } else { fat_body(ctx, rec, rec.lab, [], false); }
     if (rec.wordCalled == true) { fat_word_adapter(ctx, rec); }
     ctx.allocation = 0;
     return 0;
 }
 
-// One body of `rec` at `label`, relying on parameter types `assumed`.
-fun fat_body(ctx: Any, rec: Any, label: Any, assumed: Any) -> Any {
+// One body of `rec` at `label`, relying on parameter types `assumed`. With
+// `registers` the parameters arrive in the direct-call register convention
+// (fat_direct_registers) instead of the argument vector.
+fun fat_body(ctx: Any, rec: Any, label: Any, assumed: Any, registers: Bool) -> Any {
     fat_begin(ctx, rec.ir, rec.boxed);
     fat_plan_types(ctx, rec.ir, rec.parr, rec.pc, false, assumed);
     fat_plan_homes(ctx, rec.ir, rec.parr, rec.pc);
@@ -2204,10 +3050,27 @@ fun fat_body(ctx: Any, rec: Any, label: Any, assumed: Any) -> Any {
     placelab(ctx, label);
     let fp: Any = fat_prologue(ctx);
     if (rec.cc > 0) { x86_store_register(ctx, 10, fat_disp(fat_local_slot(ctx, ctx.envSlot)) - 8); }
-    for i: Any in 0..rec.pc {
-        x86_load_register(ctx, 2, 0 - (16 + 16 * i)); x86_load_register(ctx, 0, 0 - (24 + 16 * i));
-        if (is_boxed(ctx, rec.parr[i].name, rec.parr[i].length) == 1) { fat_push(ctx); fat_rt_call(ctx, "rt_cell", 2); }
-        fat_store_slot(ctx, fat_local_slot(ctx, i));
+    if (registers) {
+        // Store every parameter before boxing any: rt_cell clobbers the
+        // caller-saved argument registers.
+        for i: Any in 0..rec.pc {
+            if (i == 1) { x86_move_register(ctx, 2, 7); x86_move_register(ctx, 0, 6); }
+            else if (i == 2) { x86_move_register(ctx, 2, 8); x86_move_register(ctx, 0, 9); }
+            fat_store_slot(ctx, fat_local_slot(ctx, i));
+        }
+        for i: Any in 0..rec.pc {
+            if (is_boxed(ctx, rec.parr[i].name, rec.parr[i].length) == 1) {
+                fat_load_slot(ctx, fat_local_slot(ctx, i));
+                fat_push(ctx); fat_rt_call(ctx, "rt_cell", 2);
+                fat_store_slot(ctx, fat_local_slot(ctx, i));
+            }
+        }
+    } else {
+        for i: Any in 0..rec.pc {
+            x86_load_register(ctx, 2, 0 - (16 + 16 * i)); x86_load_register(ctx, 0, 0 - (24 + 16 * i));
+            if (is_boxed(ctx, rec.parr[i].name, rec.parr[i].length) == 1) { fat_push(ctx); fat_rt_call(ctx, "rt_cell", 2); }
+            fat_store_slot(ctx, fat_local_slot(ctx, i));
+        }
     }
     ctx.returnLabel = newlab(ctx); ctx.restartLabel = newlab(ctx);
     placelab(ctx, ctx.restartLabel); fat_forget();
@@ -2219,6 +3082,8 @@ fun fat_body(ctx: Any, rec: Any, label: Any, assumed: Any) -> Any {
 
 // Top-level statements (label 1), called from _start.
 fun fat_main(ctx: Any) -> Any {
+    // The direct-call prepass already ran in cg_program, before it chose
+    // between this tagged main and the native one.
     fat_begin(ctx, ctx.mainIR, ctx.mainBoxed);
     fat_plan_global_writes(ctx);
     fat_plan_types(ctx, ctx.mainIR, [], 0, true, []);

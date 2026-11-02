@@ -137,9 +137,24 @@ struct-bound ones, and no map operation is worse than amortized O(1).
   their entries at the final size
   ([report](../../compiler/mayc/tests/backend/struct-fields.md)). A struct
   as a header plus fixed fat slots would still cut each record's memory and
-  allocations; it changes how records are observed and needs its own design.
+  allocations; the design is in [STRUCT_LAYOUT.md](STRUCT_LAYOUT.md): the
+  record keeps the map header and its key objects (so `keys`, `to_map`,
+  display order and mutation through `Any` are unchanged) but allocates its
+  entries in the same block, with no hash table, and typed reads become offset
+  loads. Done: a struct or enum constructor builds one `48 + 32n`-byte record
+  block and writes its slots directly, a typed field read is a guarded slot
+  load that keeps the field-cache probe for grown, compacted and foreign
+  records, and the collector gained a record block kind so a grown record's
+  moved entries stay traced
+  ([report](../../compiler/mayc/tests/backend/struct-slots.md),
+  [design](STRUCT_LAYOUT.md)). Enum payload reads in `match` followed on the
+  same record layout ([report](../../compiler/mayc/tests/backend/enum-payloads.md)).
 - Enum variants and payloads with the same layout, so `match` reads payloads
-  by offset.
+  by offset. Done: a variant pattern reads the tag and its payload bindings by
+  guarded fixed slot, keeping the runtime probe for `Any` values, grown or
+  compacted records, foreign maps and `Result` patterns
+  ([report](../../compiler/mayc/tests/backend/enum-payloads.md)); a
+  recursive-enum evaluator is 5.1x faster and a match loop 3.7x.
 - Specialized list storage for homogeneous element types (`List<Int>`,
   `List<Float>` as 8-byte words, `List<Bool>`/`List<Byte>` as bytes), with
   conversion when a value of another type is stored through an `Any`
@@ -172,22 +187,47 @@ CPython's.
   ([report](../../compiler/mayc/tests/backend/float-registers.md)).
 - **Native Float functions:** extend `words.may` so functions over `Int`,
   `Float`, `Ptr` and `Bool` compile to machine code with `Float` in XMM
-  registers (same binary64 semantics as the runtime).
+  registers (same binary64 semantics as the runtime). Partly done: a
+  straight-line Float function is native, with Float temporaries and locals in
+  XMM registers, Float results and parameters as words under the existing
+  word ABI, and the runtime's division-fault and NaN-comparison rules
+  ([report](../../compiler/mayc/tests/backend/native-floats.md)). A Float body
+  that contains a loop stays tagged, because its locals would sit in frame
+  slots and lose to the fat backend's XMM homes; loop bodies need an XMM home
+  scheme in the raw backend (native regions).
 - **Native regions:** compile loops whose variables are all native-typed as
   native code inside otherwise fat functions, instead of requiring the whole
   function to qualify.
 - **Top-level code:** bindings that no function reads or assigns are locals of
   main rather than data words, so they get frame slots, register homes and no
   collector root ([report](../../compiler/mayc/tests/backend/main-locals.md)).
-  Measured on its own the change is inside the run-to-run spread; compiling
-  main's body itself as native-word code is open, and it is where the 2.4×
-  that a top-level loop still loses to the same loop in an all-`Int` function
-  sits.
+  Done: main's body itself compiles as native-word code when every binding is
+  a main local and every value is an `Int`, `Bool` or `Ptr` word, with `print`
+  boxing its arguments at the only dynamic boundary; the collatz top-level
+  loop drops from 94.75 to 47.48 ms (−49.9%) and the tagged main stays the
+  general fallback ([report](../../compiler/mayc/tests/backend/main-native.md)).
 - **Direct calls:** calls to known functions with matching arity skip the
-  argument vector and count checks and pass arguments in registers.
+  argument vector and count checks and pass arguments in registers. Done: a
+  fat function with one to three parameters keeps one body, fed from registers
+  by a direct call and from its argument-vector entry by closures, and a
+  native-word direct call passes payloads in the SysV argument registers
+  ([report](../../compiler/mayc/tests/backend/direct-calls.md)).
 - Inline fast paths for common runtime calls: `len` of lists, `push` with
   spare capacity, string equality on length mismatch, `??` on present map
-  values.
+  values. Done: `push` with spare capacity (all four element kinds, with the
+  runtime call for growth, a widening element type and non-list receivers)
+  and `==`/`!=` on two strings of different byte lengths
+  ([report](../../compiler/mayc/tests/backend/inline-paths.md)); the sieve
+  drops from 250 to 187 ms. Also done: a `m[k]` whose receiver is proved a
+  `Map` and whose key is a proved `Str`, `Int`, `Float` or `Bool` probes the
+  hash table inline, mirroring `rt_key_hash`/`rt_same` (including the `-0.0`
+  and NaN Float rules), with the runtime call for every other case, and `??`
+  folds its branch into the probe
+  ([report](../../compiler/mayc/tests/backend/map-probe.md)): hashmap -6.9% and
+  a probe-heavy workload -24.1%. The Float/Bool key types followed
+  ([report](../../compiler/mayc/tests/backend/map-probe-keys.md)): a
+  Float+Bool-key map workload runs 51% faster while Str/Int-only programs stay
+  byte-identical.
 - [#94](https://github.com/mirged/maylang/issues/94): restore or remove
   native-word extern calls.
 
@@ -199,15 +239,46 @@ Passes on the shared IR (`src/ir.may`), so a revived ARM64 or RISC-V
 backend would benefit too. Each one is skipped under `--no-opt`.
 
 - Constant and copy propagation beyond `sem_fold`; dead code and dead store
-  elimination for fat code (the raw backend's DCE as a model).
+  elimination for fat code (the raw backend's DCE as a model). Done:
+  `src/ir_opt.may` adds copy propagation, straight-line CSE of repeated field
+  and element reads with alias-aware invalidation, dead definition, store and
+  overwritten-copy elimination, and dead-label removal for fat functions
+  ([report](../../compiler/mayc/tests/backend/ir-passes.md): n-body -16.5% on
+  the pre-phase-2 base, compiler image -7.7%).
 - Inlining of small, non-recursive functions and closures with known
-  targets, with a size budget measured on the compiler's own image.
+  targets, with a size budget measured on the compiler's own image. Tried: a
+  leaf inliner (straight-line bodies ending in one return, parameter reads
+  only, 24-quad budget) cloned struct constructors and one-expression helpers
+  into their call sites; it was behaviour-clean (`make test-bootstrap` green,
+  every benchmark's output identical) but **did not pay**: binary trees
+  1.79 s before against 1.86 s after (7 runs), n-body and fib inside the
+  spread. The call is small next to the map insertion a constructor performs,
+  so the change was dropped rather than merged. Retried on the register-call
+  base (#132): behaviour-clean again, and one-expression helpers and field
+  accessors in hot loops now inline profitably (-54% and -35%), but no suite
+  benchmark moved beyond the spread while `features.may` compile time grew 2.5%,
+  self-compile 8.5-16.3% and the compiler image 2.4%, so it was reverted again;
+  the item stays open for an opt-in or accessor-only form
+  ([addendum](../../compiler/mayc/tests/backend/ir-passes.md)).
 - Common subexpression elimination for pure operations, including repeated
-  field reads and `len` calls in loop conditions.
-- Loop-invariant code motion.
+  field reads and `len` calls in loop conditions. Done within a straight-line
+  region for repeated field and element reads (report above); cross-block CSE
+  and `len` in loop conditions stay open.
+- Loop-invariant code motion. Tried: a sound hoister (back-edge loops only,
+  receiver invariance, field-sensitive store kill, escape analysis, `E_GET`
+  totality) moved 20 field/`len` reads out of n-body's loops but made n-body
+  3-5% slower over 61 paired runs, because block-local CSE cannot merge the
+  hoisted copies and the short inner loop is memory-bound; reverted, and a
+  future attempt needs cross-block value numbering
+  ([report](../../compiler/mayc/tests/backend/check-elimination.md)).
 - Check elimination: bounds checks for `while (i < len(xs))` patterns, and
   overflow checks for induction variables whose range is proven (the raw
-  backend's range analysis as a model).
+  backend's range analysis as a model). Measured ceiling: a temporary unsound
+  build removing every list bounds check and every inline Int overflow check
+  moves the suite by at most -2.9% (collatz) and makes sieve 1.3% slower; the
+  dedicated `while (i < len(xs))` loops are memory/type-check bound, so a sound
+  subset of that is below the noise floor. Not implemented; the item stays open
+  with those numbers ([report](../../compiler/mayc/tests/backend/check-elimination.md)).
 - Escape analysis: stack-allocate or scalar-replace records and lists that
   do not escape their function (n-body's per-step temporaries).
 - Monomorphization of generic functions at concrete instantiations, so
@@ -226,15 +297,39 @@ cover the items below. It replaces the conventional collector work only if
 its research gate passes on real Maylang allocation traces.
 
 - Inline bump-pointer allocation for small objects, falling back to the
-  runtime when the current chunk is full.
+  runtime when the current chunk is full. Tested: an inline bump and
+  exact-size free-bin claim for construction sites is bit-identical to the
+  runtime path but neutral on the roadmap workloads and 2-7% slower on several
+  controls (compiler image +16.6%), so the code was dropped; the report and
+  patch are kept for a future attempt at inlining construction initialization
+  instead of allocation alone
+  ([report](../../compiler/mayc/tests/backend/inline-alloc.md)). That followed:
+  fixed-slot record initialization (the header and slot writes after
+  `rt_struct_new`) now emits inline while the allocation stays a runtime call
+  ([report](../../compiler/mayc/tests/backend/construction-inline.md)); binary
+  trees -17.7%, construction -22.9% and record churn -21 to -27% CPU, at a
+  0-6% slower compiler self-compile.
 - Size-class free lists so the sweep reuses memory instead of growing the
-  heap. Return empty chunks to the operating system.
+  heap. The bins and `rt_fit` already do the reuse; returning emptied chunks to
+  the operating system was tested and did not move peak RSS, because
+  conservative stack and register scanning retains most garbage
+  ([#135](https://github.com/mirged/maylang/issues/135)).
 - Collection thresholds based on live bytes, so peak RSS tracks the live
-  set rather than the 256 MiB default.
+  set rather than the 256 MiB default. Also done: `MAYC_GC_MIN` and
+  `MAYC_GC_MARGIN` override the derived floor and margin per run (defaults
+  unchanged when unset or invalid); the tuned policy (8 MiB floor, 512 KiB
+  margin) takes binary trees from 234 to 95 MiB peak RSS at 1.70x the run time,
+  while six of the eight workloads never collect at the default heap
+  ([report](../../compiler/mayc/tests/backend/gc-policy.md)). The floor and margin are now overridable
+  per run with `MAYC_GC_MIN`/`MAYC_GC_MARGIN`, defaults unchanged; the measured
+  trade-off is 234 → 95 MiB peak RSS on binary trees at 1.70x time
+  ([report](../../compiler/mayc/tests/backend/gc-policy.md)).
 - Longer term (`design:discussion`): precise stack maps from the code
   generator, which would allow a generational or moving nursery. Today the
   collector scans stacks and registers conservatively
-  ([GC.md](../internals/GC.md)).
+  ([GC.md](../internals/GC.md)). The design, the codegen requirements, the
+  measured conservative retention and the expected effect on the RSS target are
+  in [STACK_MAPS.md](STACK_MAPS.md).
 
 Goal: binary trees within 3× of Java; peak RSS within 2× of CPython on every
 benchmark.
@@ -260,9 +355,9 @@ the CI performance job publishes a fresh report.
 | --- | --- |
 | 0 Measurement | tracked suite, `--no-opt`, oracle test and the CI report job done; GC statistics done |
 | 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
-| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots and enum payloads in [#134](https://github.com/mirged/maylang/issues/134) |
-| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals and inline `len` done; inline `push`/string equality, native regions, native Float functions, direct calls and main-as-native in [#132](https://github.com/mirged/maylang/issues/132), inline `push`/string equality in [#133](https://github.com/mirged/maylang/issues/133) |
-| 4 IR optimizer | not started; tracked in [#131](https://github.com/mirged/maylang/issues/131) |
-| 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation, returned pages and precise stack maps in [#135](https://github.com/mirged/maylang/issues/135) |
+| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots, one-block constructors, guarded slot reads and enum payload reads in `match` done ([design](STRUCT_LAYOUT.md), [reports](../../compiler/mayc/tests/backend/struct-slots.md): [struct](../../compiler/mayc/tests/backend/struct-slots.md), [enum payloads](../../compiler/mayc/tests/backend/enum-payloads.md)), [#134](https://github.com/mirged/maylang/issues/134) |
+| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push`, string equality, inline map probing with the `??` fold ([report](../../compiler/mayc/tests/backend/map-probe.md)), direct calls with register arguments ([report](../../compiler/mayc/tests/backend/direct-calls.md)), straight-line native Float functions ([report](../../compiler/mayc/tests/backend/native-floats.md)) and native main ([report](../../compiler/mayc/tests/backend/main-native.md)) done; native Float loops and native regions open in [#132](https://github.com/mirged/maylang/issues/132) |
+| 4 IR optimizer | propagation, dead-code/store elimination and block-local CSE done ([report](../../compiler/mayc/tests/backend/ir-passes.md)); leaf-function inlining measured twice (round 1 and on the register-call base) and not merged, open as opt-in/accessor-only; LICM and check elimination measured negative on the current backend (ceiling ≤3%, LICM -3-5% on n-body; [report](../../compiler/mayc/tests/backend/check-elimination.md)); escape analysis, monomorphization and the raw-backend ports open in [#131](https://github.com/mirged/maylang/issues/131) |
+| 5 Allocation and collection | live-set thresholds and GC statistics done, with `MAYC_GC_MIN`/`MAYC_GC_MARGIN` policy overrides ([report](../../compiler/mayc/tests/backend/gc-policy.md)); inline allocation and returned pages measured negative and not merged ([report](../../compiler/mayc/tests/backend/inline-alloc.md)); fixed-slot record initialization inlined instead, which pays ([report](../../compiler/mayc/tests/backend/construction-inline.md)); precise stack maps designed and measured ([design](STACK_MAPS.md)), open in [#135](https://github.com/mirged/maylang/issues/135) |
 | 6 Other targets | deferred (frozen) |
-| 7 Compiler throughput | baseline recorded ([report](../../compiler/mayc/tests/backend/compiler-throughput.md)); re-measure per phase |
+| 7 Compiler throughput | baseline recorded ([report](../../compiler/mayc/tests/backend/compiler-throughput.md)); re-measured per phase, and the batch leaves the compiler 9-10% faster than the pre-batch baseline. The native main (phase 3) costs 0-6% of self-compile depending on the measurement method (report [main-native.md](../../compiler/mayc/tests/backend/main-native.md)), accepted for the collatz halving |

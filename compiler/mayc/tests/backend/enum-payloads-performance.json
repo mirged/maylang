@@ -1,0 +1,310 @@
+{
+  "date_utc": "2026-11-02T20:18:54Z",
+  "revision": "0e80998749d48fc5758c73d9f4f0ae4af6831f86",
+  "status": "A  compiler/mayc/tests/backend/enum_payloads/control.may\nA  compiler/mayc/tests/backend/enum_payloads/eval_tree.may\nA  compiler/mayc/tests/backend/enum_payloads/match_loop.may\nA  compiler/mayc/tests/backend/enum_payloads/run.py\n?? compiler/mayc/tests/backend/enum-payloads-performance.json",
+  "compiler_sha256": {
+    "before": "5468034f90b448a2e7fd994cd673059e8a76a4a019717d0414bdd63dabea7285",
+    "after": "8bc6975f101f00e22cfde9ec47b2728e1dc9fbd91649b54bf9fbbee85f7a897c"
+  },
+  "runtime_sha256": {
+    "before": "1a4c10aa07a8cbb5139135fdbc5439f7e6544c75528ee3b4c7337a76d95fbb67",
+    "after": "1a4c10aa07a8cbb5139135fdbc5439f7e6544c75528ee3b4c7337a76d95fbb67"
+  },
+  "uname": "Linux debian 6.12.113+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.113-1 (2026-10-15) x86_64 ",
+  "loadavg": [
+    5.36962890625,
+    3.6123046875,
+    3.6220703125
+  ],
+  "rounds": 5,
+  "results": [
+    {
+      "workload": "control",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 0.06857000099262223,
+          "cpu_s": 0.068484,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.09079416902386583,
+          "cpu_s": 0.090572,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.07090371698723175,
+          "cpu_s": 0.07036899999999999,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.10788990999571979,
+          "cpu_s": 0.107651,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.07440653798403218,
+          "cpu_s": 0.07413399999999999,
+          "max_rss_kb": 18824
+        }
+      ],
+      "median_wall_ms": 74.41,
+      "median_cpu_ms": 74.13,
+      "min_cpu_ms": 68.48,
+      "median_max_rss_kb": 18824,
+      "output": "119999995"
+    },
+    {
+      "workload": "control",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 0.06624414800899103,
+          "cpu_s": 0.066067,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.07289676100481302,
+          "cpu_s": 0.072658,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.06927598602487706,
+          "cpu_s": 0.06895799999999999,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.07612573500955477,
+          "cpu_s": 0.075863,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.07796185801271349,
+          "cpu_s": 0.0776,
+          "max_rss_kb": 18824
+        }
+      ],
+      "median_wall_ms": 72.9,
+      "median_cpu_ms": 72.66,
+      "min_cpu_ms": 66.07,
+      "median_max_rss_kb": 18824,
+      "output": "119999995"
+    },
+    {
+      "workload": "eval_tree",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 5.970119033998344,
+          "cpu_s": 5.96846,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 6.9213428980147,
+          "cpu_s": 6.911122,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 7.012067272997228,
+          "cpu_s": 7.007203,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 7.272867639025208,
+          "cpu_s": 7.267543,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 9.645990331016947,
+          "cpu_s": 9.639987,
+          "max_rss_kb": 18824
+        }
+      ],
+      "median_wall_ms": 7012.07,
+      "median_cpu_ms": 7007.2,
+      "min_cpu_ms": 5968.46,
+      "median_max_rss_kb": 18824,
+      "output": "59049 1180980000"
+    },
+    {
+      "workload": "eval_tree",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 1.1889982689754106,
+          "cpu_s": 1.188038,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 2.227558020997094,
+          "cpu_s": 2.223788,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 1.3703845360141713,
+          "cpu_s": 1.369163,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 1.267036787001416,
+          "cpu_s": 1.266096,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 1.6028408970159944,
+          "cpu_s": 1.602014,
+          "max_rss_kb": 18824
+        }
+      ],
+      "median_wall_ms": 1370.38,
+      "median_cpu_ms": 1369.16,
+      "min_cpu_ms": 1188.04,
+      "median_max_rss_kb": 18824,
+      "output": "59049 1180980000"
+    },
+    {
+      "workload": "match_loop",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 0.6108226609940175,
+          "cpu_s": 0.610011,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.7258262749819551,
+          "cpu_s": 0.725332,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 1.0776580670208205,
+          "cpu_s": 1.074899,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.5703232210071292,
+          "cpu_s": 0.569603,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.585374699003296,
+          "cpu_s": 0.585058,
+          "max_rss_kb": 18824
+        }
+      ],
+      "median_wall_ms": 610.82,
+      "median_cpu_ms": 610.01,
+      "min_cpu_ms": 569.6,
+      "median_max_rss_kb": 18824,
+      "output": "121616000.0"
+    },
+    {
+      "workload": "match_loop",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 0.16268493901588954,
+          "cpu_s": 0.16239099999999998,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.16451952900388278,
+          "cpu_s": 0.16439099999999998,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.17786625097505748,
+          "cpu_s": 0.17738099999999998,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.16216543698101304,
+          "cpu_s": 0.161873,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.2115319420117885,
+          "cpu_s": 0.21133899999999997,
+          "max_rss_kb": 18824
+        }
+      ],
+      "median_wall_ms": 164.52,
+      "median_cpu_ms": 164.39,
+      "min_cpu_ms": 161.87,
+      "median_max_rss_kb": 18824,
+      "output": "121616000.0"
+    },
+    {
+      "workload": "read_local",
+      "side": "before",
+      "samples": [
+        {
+          "wall_s": 0.004021278000436723,
+          "cpu_s": 0.003832,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.004122857004404068,
+          "cpu_s": 0.0039109999999999995,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.005078636982943863,
+          "cpu_s": 0.004706999999999999,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.0058425590104889125,
+          "cpu_s": 0.00565,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.00408702899585478,
+          "cpu_s": 0.003945,
+          "max_rss_kb": 18824
+        }
+      ],
+      "median_wall_ms": 4.12,
+      "median_cpu_ms": 3.94,
+      "min_cpu_ms": 3.83,
+      "median_max_rss_kb": 18824,
+      "output": "7500000.0"
+    },
+    {
+      "workload": "read_local",
+      "side": "after",
+      "samples": [
+        {
+          "wall_s": 0.005987754004308954,
+          "cpu_s": 0.005885,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.004678201978094876,
+          "cpu_s": 0.00453,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.005979759007459506,
+          "cpu_s": 0.005809,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.006155362003482878,
+          "cpu_s": 0.005921999999999999,
+          "max_rss_kb": 18824
+        },
+        {
+          "wall_s": 0.005592766014160588,
+          "cpu_s": 0.005376,
+          "max_rss_kb": 18824
+        }
+      ],
+      "median_wall_ms": 5.98,
+      "median_cpu_ms": 5.81,
+      "min_cpu_ms": 4.53,
+      "median_max_rss_kb": 18824,
+      "output": "7500000.0"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import "src/sema.may";
 import "src/strict.may";
 import "src/behavior.may";
 import "src/ir.may";
+import "src/ir_opt.may";
 import "src/backend.may";
 import "src/formats.may";
 import "src/formats/bytes.may";
@@ -403,6 +404,7 @@ fun main2() -> Any {
         ir_program(ctx);
 
     }
+    ir_opt_program(ctx);
     profile_mark("ir");
     backend_emit(ctx);
     profile_mark("emit");

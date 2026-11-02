@@ -1,0 +1,56 @@
+// Fixed-slot record construction (#135): a struct or enum constructor builds one
+// kind-4 record block (#134) and the backend may emit the header and slot writes
+// as one generated block when the size is constant. Argument evaluation order,
+// effects, nesting, growth through an Any alias and every observation of the
+// built record must stay identical to the runtime-call path.
+
+struct Vec3 { x: Int, y: Int, z: Int }
+mut trace: Str = "";
+fun t(v: Int, tag: Str) -> Int { trace = trace + tag; return v; }
+let p: Vec3 = Vec3(t(1, "a"), t(2, "b"), t(3, "c"));
+print(trace, p.x, p.y, p.z, keys(p));
+
+// Nested construction: the inner record completes before the outer slot write.
+struct Pair { first: Any, second: Any }
+let q: Pair = Pair(Vec3(4, 5, 6), Vec3(7, 8, 9));
+print(q.first.z, q.second.x, keys(q));
+
+// Eight fields: the widest fixed block, and a slot address past a disp8.
+struct Wide { a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int, h: Int }
+let w: Wide = Wide(1, 2, 3, 4, 5, 6, 7, 8);
+print(w.a, w.d, w.h, len(keys(w)));
+
+// Growth through an Any alias appends an entry after the fixed slots.
+let alias: Any = w;
+alias.extra = 42;
+print(alias.extra, len(keys(alias)), w.a, w.h);
+alias.h = 80;
+print(w.h, keys(w));
+
+// Enums are records too: the tag entry first, then the payload in order.
+enum Shape { Circle(r: Int), Rect(w: Int, h: Int), Empty }
+let c: Any = Circle(3);
+let r: Any = Rect(4, 5);
+let e: Any = Empty();
+print(keys(c), keys(r), keys(e));
+print(c.tag, c.r, r.tag, r.w, r.h, e.tag);
+let cs: Shape = Circle(3);
+print(match (cs) { Circle(x) => x * 2, _ => 0 });
+
+// Observation sees the same entries in the same order as a map: keys, indexing,
+// display, JSON and to_map (which returns the record itself).
+let hand: Any = Vec3(4, 5, 6);
+print(hand.x, hand["z"], keys(hand), to_map(hand) == hand);
+print(str(hand), json_stringify(hand));
+
+// A fault while an argument is evaluated happens before the constructor is
+// called; the handler then builds the record normally.
+let zero: Int = 0;
+let recovered: Any = may { Vec3(1, 1 / zero, 3) } otherwise { print("arith", err.kind); Vec3(0, 0, 0) };
+print(recovered.x, recovered.y, keys(recovered));
+
+// Construction over many collections: every record is traced through its block.
+mut total: Int = 0;
+mut i: Int = 0;
+while (i < 200000) { let v: Vec3 = Vec3(i, i + 1, i + 2); total += v.z; i += 1; }
+print(total > 0, total);

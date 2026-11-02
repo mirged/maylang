@@ -1,0 +1,7 @@
+// A call-bound native-word function with two parameters.
+fun second2(a: Int, b: Int) -> Int { return b; }
+
+mut i: Int = 0;
+mut acc: Int = 0;
+while (i < 10000000) { acc = second2(i, i + 1); i += 1; }
+print(acc);

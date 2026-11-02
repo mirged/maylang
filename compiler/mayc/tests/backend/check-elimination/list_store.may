@@ -1,0 +1,10 @@
+// Same guard over a list store, then read back: `while (i < len(xs))`.
+let xs: List<Int> = [];
+mut i: Int = 0;
+while (i < 1000000) { push(xs, 0); i += 1; }
+i = 0;
+while (i < len(xs)) { xs[i] = i; i += 1; }
+mut total: Int = 0;
+i = 0;
+while (i < len(xs)) { total += xs[i]; i += 1; }
+print(total, len(xs));

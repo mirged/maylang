@@ -1,0 +1,8 @@
+struct Pair { a: Int, b: Int }
+fun second(p: Pair) -> Int { return p.b; }
+let p: Pair = Pair(3, 4);
+let big: Int = 20000000;
+mut sum: Int = 0;
+mut i: Int = 0;
+while (i < big) { sum += second(p); i += 1; }
+print(sum);

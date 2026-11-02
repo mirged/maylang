@@ -1,0 +1,217 @@
+{
+  "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+  "probes": [],
+  "workloads": [
+    {
+      "workload": "trees",
+      "heap_mib": 256,
+      "peak_rss_kb": 238480,
+      "elapsed_s": 0.906,
+      "user_s": 0.821,
+      "system_s": 0.084,
+      "sweeps": [
+        {
+          "count": 0,
+          "live": 17836192,
+          "extent": 134217632,
+          "threshold": 142606240,
+          "free": 1,
+          "roots": 55
+        },
+        {
+          "count": 1,
+          "live": 17836448,
+          "extent": 142606240,
+          "threshold": 150994848,
+          "free": 1,
+          "roots": 55
+        },
+        {
+          "count": 2,
+          "live": 17852960,
+          "extent": 150994848,
+          "threshold": 159383456,
+          "free": 2,
+          "roots": 55
+        },
+        {
+          "count": 3,
+          "live": 17857824,
+          "extent": 159383456,
+          "threshold": 167772064,
+          "free": 1,
+          "roots": 55
+        },
+        {
+          "count": 4,
+          "live": 17952032,
+          "extent": 167772064,
+          "threshold": 176160672,
+          "free": 1,
+          "roots": 55
+        },
+        {
+          "count": 5,
+          "live": 18158240,
+          "extent": 176160672,
+          "threshold": 184549280,
+          "free": 2,
+          "roots": 55
+        },
+        {
+          "count": 6,
+          "live": 18169120,
+          "extent": 184549280,
+          "threshold": 192937888,
+          "free": 2,
+          "roots": 55
+        },
+        {
+          "count": 7,
+          "live": 19707552,
+          "extent": 192937888,
+          "threshold": 201326496,
+          "free": 1,
+          "roots": 55
+        },
+        {
+          "count": 8,
+          "live": 25186464,
+          "extent": 201326496,
+          "threshold": 209715104,
+          "free": 1,
+          "roots": 55
+        },
+        {
+          "count": 9,
+          "live": 25171744,
+          "extent": 209715104,
+          "threshold": 218103712,
+          "free": 2,
+          "roots": 55
+        },
+        {
+          "count": 10,
+          "live": 41945632,
+          "extent": 218103712,
+          "threshold": 226492320,
+          "free": 2,
+          "roots": 55
+        }
+      ],
+      "collections": 11,
+      "live_min": 17836192,
+      "live_median": 18158240,
+      "live_max": 41945632,
+      "extent_max": 218103712,
+      "threshold_max": 226492320,
+      "known_true_min": 17829792,
+      "known_true_max": 34606880,
+      "retained_lower_min": -16770688,
+      "retained_lower_max": 7338752,
+      "retained_upper_max": 24115840
+    },
+    {
+      "workload": "trees_nolived",
+      "heap_mib": 256,
+      "peak_rss_kb": 229120,
+      "elapsed_s": 0.714,
+      "user_s": 0.658,
+      "system_s": 0.056,
+      "sweeps": [
+        {
+          "count": 0,
+          "live": 1059488,
+          "extent": 134217632,
+          "threshold": 142606240,
+          "free": 1,
+          "roots": 55
+        },
+        {
+          "count": 1,
+          "live": 1071776,
+          "extent": 142606240,
+          "threshold": 150994848,
+          "free": 2,
+          "roots": 55
+        },
+        {
+          "count": 2,
+          "live": 1082016,
+          "extent": 150994848,
+          "threshold": 159383456,
+          "free": 2,
+          "roots": 55
+        },
+        {
+          "count": 3,
+          "live": 1158560,
+          "extent": 159383456,
+          "threshold": 167772064,
+          "free": 2,
+          "roots": 55
+        },
+        {
+          "count": 4,
+          "live": 1178272,
+          "extent": 167772064,
+          "threshold": 176160672,
+          "free": 3,
+          "roots": 55
+        },
+        {
+          "count": 5,
+          "live": 1328544,
+          "extent": 176160672,
+          "threshold": 184549280,
+          "free": 1,
+          "roots": 55
+        },
+        {
+          "count": 6,
+          "live": 2170016,
+          "extent": 184549280,
+          "threshold": 192937888,
+          "free": 1,
+          "roots": 55
+        },
+        {
+          "count": 7,
+          "live": 2121248,
+          "extent": 192937888,
+          "threshold": 201326496,
+          "free": 2,
+          "roots": 55
+        },
+        {
+          "count": 8,
+          "live": 8396960,
+          "extent": 201326496,
+          "threshold": 209715104,
+          "free": 2,
+          "roots": 55
+        },
+        {
+          "count": 9,
+          "live": 33557792,
+          "extent": 209715104,
+          "threshold": 218103712,
+          "free": 2,
+          "roots": 55
+        }
+      ],
+      "collections": 10,
+      "live_min": 1059488,
+      "live_median": 1328544,
+      "live_max": 33557792,
+      "extent_max": 209715104,
+      "threshold_max": 218103712,
+      "known_true_min": 1052704,
+      "known_true_max": 17829792,
+      "retained_lower_min": -16770304,
+      "retained_lower_max": 15728000,
+      "retained_upper_max": 32505088
+    }
+  ],
+  "inventory": []
+}

@@ -1,0 +1,83 @@
+// Inline map probe for Float and Bool keys (#133).
+// The probe mirrors rt_map_find for those key types: rt_key_hash's Float mix
+// with the -0.0 fold, Bool/Int's folded payload, and rt_same's Float equality
+// (-0.0 equals +0.0, NaN equals nothing). Missing keys, sub-threshold maps and
+// dynamic (Any) receivers keep the runtime call.
+
+// Float keys: hits, misses and a map that crosses the hash-table threshold.
+let f: Map<Float, Int> = {};
+let fkeys: List<Float> = [];
+mut i: Int = 0;
+while (i < 20) { let k: Float = to_float(i) * 0.25; f[k] = i; push(fkeys, k); i += 1; }
+mut out: Str = "";
+i = 0;
+while (i < 20) { if ((f[fkeys[i]] ?? -1) == i) { out = out + "1"; } else { out = out + "0"; } i += 1; }
+print(out, len(fkeys));
+print(f[0.25] ?? -1, f[0.0] ?? -2, f[0.3] ?? -3);
+print(f[-0.0] ?? -4, f[5.0] ?? -5);
+i = 20;
+while (i < 100) { f[to_float(i) * 0.25] = i; i += 1; }
+print(len(fkeys), f[0.0] ?? -1, f[24.75] ?? -2, f[0.3] ?? -3);
+
+// Both zeros are one key, and a write through either spelling updates it.
+let g: Map<Float, Int> = {};
+g[-0.0] = 5;
+print(g[0.0] ?? -1, g[-0.0] ?? -2, keys(g));
+g[0.0] = 6;
+print(g[-0.0] ?? -3, keys(g));
+
+// NaN never matches, including itself: a stored NaN stays unfindable and each
+// insert appends an entry, exactly as rt_same defines it.
+let nan: Float = sqrt(0.0 - 1.0);
+print(nan == nan, nan != nan, nan < nan, nan > nan);
+let h: Map<Float, Int> = {};
+h[1.5] = 1;
+h[nan] = 2;
+h[nan] = 3;
+print(h[nan] ?? -4, h[1.5] ?? -4, keys(h));
+
+// Key and fallback evaluation order with a Float-keyed coalesce.
+mut trace: Str = "";
+fun fkey(v: Float) -> Float { trace = trace + "k"; return v; }
+fun fallback(v: Int) -> Int { trace = trace + "v"; return v; }
+trace = "";
+let hit: Int = f[fkey(5.0)] ?? fallback(10);
+print(hit, trace);
+trace = "";
+let miss: Int = f[fkey(1000.0)] ?? fallback(11);
+print(miss, trace);
+
+// Bool keys: both values are keys, a one-key map misses the other, and a map
+// stays below the hash-table threshold because only two Bool keys exist.
+let b: Map<Bool, Int> = {};
+b[true] = 1;
+b[false] = 0;
+print(b[true] ?? -1, b[false] ?? -2, keys(b));
+let b2: Map<Bool, Int> = {};
+b2[true] = 7;
+print(b2[false] ?? -3, b2[true] ?? -3, keys(b2));
+b2[true] = 8;
+print(b2[true] ?? -4, keys(b2));
+// A Bool-keyed map has at most two entries, so it never grows a hash table on
+// its own; mixing other-typed keys in through an Any alias grows one, and the
+// typed Bool reads then take the inline probe's hash-table path.
+let b3: Map<Bool, Int> = {};
+let b3any: Any = b3;
+b3[true] = 1;
+b3[false] = 0;
+mut j: Int = 0;
+while (j < 10) { b3any[j] = j; j += 1; }
+print(b3[true] ?? -1, b3[false] ?? -2, len(b3any));
+b3any[20] = 20;
+print(b3[true] ?? -3, b3[false] ?? -3, len(b3any));
+
+// An Any alias can insert a key the typed inline probe then reads, and a
+// dynamically typed receiver and key keep the runtime path.
+let anyf: Any = f;
+anyf[9.5] = 99;
+print(f[9.5] ?? -5, len(fkeys));
+let anykey: Any = 0.75;
+print(anyf[anykey] ?? -6, anyf[0.25] ?? -7);
+let anyb: Any = b;
+anyb[true] = 2;
+print(b[true] ?? -8);

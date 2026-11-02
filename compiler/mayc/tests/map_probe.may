@@ -1,0 +1,85 @@
+// Inline map probe and coalesce fast path (#101 phase 3, #133).
+// `m[k]` with a receiver proved a Map and a Str or Int key probes the runtime's
+// hash table inline; `??` decides its branch from the value the probe loaded.
+// A missing key, a receiver that is not a map, a dynamic (Any) receiver or key,
+// a map below the hash-table threshold and every other key type take the
+// runtime call. A present entry can hold nil through an Any alias, so coalesce
+// still tests the value's type word.
+
+// Str keys: a hash-table map, present and missing keys, and dynamic key text.
+let m: Map<Str, Int> = {};
+mut i: Int = 0;
+while (i < 200) { m["k" + str(i)] = i * 3; i += 1; }
+mut sum: Int = 0;
+i = 0;
+while (i < 300) { sum += m["k" + str(i)] ?? -1; i += 1; }
+print(sum, m["k" + str(199)] ?? -2, m["k" + str(500)] ?? -3, len(m));
+
+// Int keys, dynamic and literal.
+let im: Map<Int, Int> = {};
+i = 0;
+while (i < 100) { im[i * 5] = i; i += 1; }
+print(im[125] ?? -1, im[7] ?? -2, im[495] ?? -3, im[0] ?? -4);
+
+// A map below the entry threshold has no hash table and scans linearly.
+let small: Map<Int, Int> = {1: 10, 2: 20, 3: 30};
+print(small[2] ?? -1, small[4] ?? -2);
+
+// Evaluation order: the key is evaluated once, the fallback only on a nil
+// value, and the probe sees the map after the key expression's effects.
+mut trace: Str = "";
+fun keyed(text: Str) -> Str { trace = trace + "k"; return text; }
+fun fallback(v: Int) -> Int { trace = trace + "v"; return v; }
+trace = "";
+let present: Int = m[keyed("k7")] ?? fallback(10);
+print(present, trace);
+trace = "";
+let absent: Int = m[keyed("nope")] ?? fallback(11);
+print(absent, trace);
+
+// Growth before, during and after a probe.
+let g: Map<Str, Int> = {};
+i = 0;
+while (i < 7) { g["g" + str(i)] = i; i += 1; }
+print(g["g3"] ?? -1);
+i = 0;
+while (i < 40) { g["g" + str(i)] = i * 2; i += 1; }
+print(g["g3"] ?? -1, g["g39"] ?? -1, g["g40"] ?? -2, len(g));
+fun grow(k: Str) -> Int {
+    mut j: Int = 0;
+    while (j < 40) { g["n" + str(j)] = j; j += 1; }
+    return -5;
+}
+print(g["g3"] ?? grow("g3"), len(g));
+print(g["missing"] ?? grow("y"), len(g), g["missing"] ?? -7);
+
+// An Any alias keeps the runtime call, and can store nil for a present key.
+let alias: Any = im;
+print(alias[125] ?? -4, alias[126] ?? -5);
+alias[126] = nil;
+print(im[126] ?? -6, value_tag(im[126]));
+
+// A non-map receiver: list and string indexing keep their existing paths.
+let xs: List<Int> = [4, 5, 6];
+print(xs[2] ?? -1, xs[7] ?? -2);
+let s: Str = "hey";
+print(s[0] ?? "?", s[9] ?? "?");
+
+// Other key types still call the runtime.
+let fm: Map<Float, Int> = {1.5: 1, 2.5: 2};
+print(fm[2.5] ?? -1, fm[9.5] ?? -2);
+let bm: Map<Bool, Int> = {};
+bm[true] = 1; bm[false] = 0;
+print(bm[true] ?? -1, bm[false] ?? -2);
+
+// Nested maps: the inner probe runs on the coalesced receiver.
+let outer: Map<Str, Map<Str, Int>> = {};
+let inner: Map<Str, Int> = {"v": 7};
+outer["one"] = inner;
+let empty: Map<Str, Int> = {};
+print((outer["one"] ?? empty)["v"] ?? 0, (outer["two"] ?? empty)["v"] ?? -1);
+
+// A coalesce whose value is used and one whose value is discarded.
+print(m["k5"] ?? 0);
+m["k6"] ?? fallback(12);
+print(trace);

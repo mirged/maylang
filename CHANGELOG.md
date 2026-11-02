@@ -2,6 +2,135 @@
 
 ## Performance
 
+- Inline map probing for Float and Bool keys ([report](compiler/mayc/tests/backend/map-probe-keys.md)):
+  the probe's key types now match the runtime's: Float keys hash with
+  `rt_hash_mix` and the `-0.0` fold and compare with `rt_same`'s IEEE equality
+  (`-0.0` equals `+0.0`, NaN equals nothing), and Bool keys use the folded
+  payload hash and payload equality. The fallback set is unchanged (non-map
+  receivers, dynamic values, sub-threshold maps, growth, faults, `--no-opt`).
+  A Float+Bool-key map workload drops from 258.8 to 126.1 ms (-51.3%); the
+  Str-key probe and hashmap controls compile to byte-identical binaries and do
+  not move, so existing workloads are unchanged. `tests/map_probe_keys.may` and
+  the oracle test cover the semantics.
+- GC floor and margin overrides ([report](compiler/mayc/tests/backend/gc-policy.md)):
+  `MAYC_GC_MIN` and `MAYC_GC_MARGIN` (decimal bytes) replace the collection
+  floor and margin derived from the nominal heap, so the threshold policy can
+  be tuned per run without rebuilding the runtime. Defaults are unchanged when
+  the variables are unset or invalid, and the accepted range keeps a typo from
+  disabling collection. Under `MAYC_GC_MIN=8388608 MAYC_GC_MARGIN=524288`
+  binary trees drops from 234 MiB to 95 MiB peak RSS at 1.75x the run time and
+  60 instead of 11 collections, hashmap drops 30% and strings 37% while six of
+  the eight roadmap workloads do not collect at the default heap and are
+  unchanged. The overrides are read by the existing start-up statistics probe,
+  so default programs keep their previous code layout: paired pinned runs of
+  the previous and current runtime show fib within noise and no workload
+  regressing by more than 2%. The report records the interleaved measurements,
+  the separate effects of the floor and the margin, the frontier-creep traces,
+  the layout audit and the tested invariants.
+- Main as native ([report](compiler/mayc/tests/backend/main-native.md)): when
+  every top-level binding was demoted to a main local and every value and
+  operation is an `Int`, `Bool` or `Ptr` machine word, main's statements
+  compile to native-word code instead of tagged code. Words are the fat
+  payloads themselves, so the only boundary is `print`, which boxes its
+  arguments and calls the runtime. The collatz top-level loop drops from 94.75
+  to 47.48 ms (−49.9%) on the cross-language suite; fib's native main is
+  inside the spread because its work is one call, and the suites that use
+  Float, strings, lists, maps, structs or closures keep the tagged main
+  unchanged. `--no-opt`, `--raw`, the tagged fallback and
+  `tests/main_native_words.may` (with the tagged-fallback companion
+  `tests/main_native.may`) plus the oracle test cover the boundaries, and
+  `backends.py` asserts the native path is taken: its image differs from the
+  tagged build and carries the immediate-typed `print` boxing sequence.
+- Enum payload reads in `match` ([report](compiler/mayc/tests/backend/enum-payloads.md)):
+  a variant pattern proves the tag, so the tag and its payload bindings are
+  read by guarded fixed slot instead of one `rt_map_get` call per arm; the
+  runtime probe stays for `Any`/grown/foreign values and `Result` patterns.
+  A recursive-enum evaluator drops from 7007 to 1369 ms (5.1x) and a match loop
+  from 610 to 164 ms (3.7x), with identical output; both paths are off under
+  `--no-opt`, `enum_payloads.may` is pinned in the oracle suite, and an
+  objdump assertion covers the generated code. Refs #134.
+- Inline fixed-slot record construction ([report](compiler/mayc/tests/backend/construction-inline.md)):
+  a struct or enum constructor's `rt_struct_new` header writes and its
+  `rt_struct_set` slot writes are emitted as one generated block when the record
+  size is a compile-time constant, while the allocation itself stays a runtime
+  call. The heap layout is unchanged (kind-4 record block, entries at `p + 48`),
+  `MAYC_GC_STATS` counters are identical on every workload, and `--no-opt` keeps
+  the runtime calls. Binary trees drop from 975 to 803 ms of CPU (-17.7%), 2M
+  constructions from 93 to 72 ms (-22.9%) and the record-churn workload by
+  20-27%; n-body and the field-read controls are unchanged. The compiler's own
+  self-compile is 0-6% slower depending on the method and peaks up to ~2%
+  higher, a conservative-retention effect of building the compiler with the
+  change.
+  `tests/record_construct.may` and the oracle test cover the paths.
+- Native Float functions ([report](compiler/mayc/tests/backend/native-floats.md)):
+  a straight-line function whose parameters, result, locals and operations are
+  `Int`, `Float`, `Ptr` or `Bool` now compiles to native-word machine code. A
+  Float is its binary64 bit pattern in a word, so the word call ABI, fat entry
+  and word adapters are unchanged; inside the function XMM8-15 hold the Float
+  locals and XMM2-7 the Float temporaries, and `+ - * /` and the six
+  comparisons run as SSE with the runtime's division-fault and NaN rules.
+  Call-bound Float helpers are 3-53% faster (26-53% for expressions wider than
+  one multiply), including `to_float`, which was a runtime call. A Float body
+  that contains a loop stays tagged, so the cross-language Mandelbrot and
+  n-body numbers are unchanged; the compiler image grows 2.4%, and this commit
+  alone costs about 10% compiler self-compile (absorbed on the branch, where the
+  net self-compile is faster than before). `tests/native_floats.may` and the
+  oracle test cover the semantics.
+- Value propagation, dead code and block-local CSE before the fat backend
+  ([report](compiler/mayc/tests/backend/ir-passes.md)): `src/ir_opt.may`
+  propagates copies, eliminates repeated field and element reads in a
+  straight-line region with alias-aware invalidation, removes dead definitions,
+  stores, overwritten copies and unnamed labels, and trims the emitted frame.
+  n-body drops from 113.6 to 94.8 ms (-16.5%) on the pre-phase-2 base, the
+  compiler's own image shrinks 7.7% and its self-compile is 1.8% faster; the
+  other workloads are inside the spread. Functions with an exception region
+  keep the old path, and `--no-opt` skips the module; `tests/ir_opt.may` and
+  the oracle test cover it.
+- Inline map probing and the `??` fast path ([report](compiler/mayc/tests/backend/map-probe.md)):
+  `m[k]` with a receiver the checker proved a `Map` and a key proved `Str` or
+  `Int` walks the runtime's hash table inline, keeping `rt_index_get` for
+  non-map receivers, dynamic `Any` values, other key types, maps below the
+  hash-table threshold and every other case. A `??` whose
+  indexed value is read only by the coalesce's copy and branch takes that branch
+  from the value the probe loaded, with no temporary round trip; the nil test
+  stays because a present entry can hold nil through an `Any` alias. The hashmap
+  workload drops from 110 to 103 ms (-6.9%) and a probe-heavy workload from 240
+  to 182 ms (-24.1%); the sieve and string controls are unchanged (their
+  executables are byte-identical). Both paths are off under `--no-opt`, and
+  `tests/map_probe.may` plus the oracle test cover them.
+- Direct calls with register arguments ([report](compiler/mayc/tests/backend/direct-calls.md)):
+  a call to a function known at compile time with matching arity passes up to
+  three fat arguments in the register pairs RDX/RAX, RDI/RSI and R8/R9, and a
+  native-word callee's payloads in the SysV argument registers, instead of
+  building the 16-byte argument vector; a proven argument also skips its type
+  check. Call-bound microbenchmarks drop 16-27%, the compiler image shrinks
+  2.5% and its self-compile is 1.7% faster. fib is unchanged because its
+  recursive calls are already native-word calls, and binary trees and n-body
+  move 1-2% because their time is allocation and map probes. Closures,
+  function values, a mismatched arity and `--no-opt` keep the argument vector;
+  `tests/direct_calls.may`, `tests/direct_calls.py` and the oracle test cover
+  both paths.
+- Fixed-slot records and guarded slot reads ([report](compiler/mayc/tests/backend/struct-slots.md)):
+  a struct or enum constructor builds one `48 + 32n`-byte map block and writes
+  its entries directly, so construction allocates once and hashes nothing
+  (binary trees 1.70x, 2M two-field constructions 1.85x, a record-churn
+  workload 1.71x, self-compile 1.20x faster). The strict checker records each
+  field's entry slot, and a field read on a statically known struct is a
+  guarded offset load; a grown, compacted or foreign record falls back to the
+  field-cache probe. The collector gains a record block kind so a record's
+  moved entries block and hash table stay traced (the cause of the reverted
+  prototype's timing-dependent crash). A duplicate-key declaration keeps the
+  map path. Both paths are off under `--no-opt`; `record_layout.may`,
+  `record_dup_keys.may`, the GC record probe and a reduced-heap record churn
+  cover them. Refs #134.
+- Inline `push` and string equality ([report](compiler/mayc/tests/backend/inline-paths.md)):
+  a push into a list with spare capacity stores the element at its kind's width
+  and bumps the count, falling back to `rt_push` for growth, a widening element
+  type and non-list receivers; `==`/`!=` on two strings of different byte
+  lengths answer without entering `rt_eq`. The sieve's 10M `push` loop drops
+  from 250 ms to 187 ms (-25%); the string workload is inside the spread and
+  the hashmap control is unchanged. Both paths are off under `--no-opt`, and
+  `tests/inline_push.may` plus the oracle test cover them.
 - Audit the rest of the runtime library and remove its remaining superlinear
   and allocation-heavy paths ([report](compiler/mayc/tests/backend/runtime-audit.md)):
   - `sort` is a stable merge sort (O(n log n) comparisons), and `unique`

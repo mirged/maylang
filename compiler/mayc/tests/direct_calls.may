@@ -1,0 +1,161 @@
+// Direct calls with register arguments (#132). A call to a function known at
+// compile time with matching arity passes its arguments in registers instead
+// of building the 16-byte argument vector: a fat callee's parameters start in
+// RDX/RAX, RDI/RSI and R8/R9, and a native-word callee's payloads start in the
+// SysV argument registers. Its expected output was produced by the compiler
+// before the change, so it is an oracle for the argument-vector path;
+// oracle.py also compiles it with --no-opt, which keeps that path.
+//
+// The fixture covers one, two and three parameters, native-word callees with
+// up to six parameters and Bool and Ptr parameters, versioned functions whose
+// specialized and generic bodies are both reached, calls in loops, direct
+// recursion and mutual recursion, reentrancy, evaluation order between
+// arguments, callees that fault, and callees reached through function values.
+
+fun show(label: Str, value: Any) -> Nil { print(label, value); return; }
+
+fun caught(f: () -> Any) -> Str {
+    return may { str(f()) } otherwise { "${err.kind}: ${err.message}" };
+}
+
+// -------------------------------------------------- fat callees, 1-3 arguments
+fun one(x: Any) -> Any { return x; }
+fun two(a: Any, b: Any) -> List<Any> { return [a, b]; }
+fun three(a: Any, b: Any, c: Any) -> List<Any> { return [a, b, c]; }
+fun bool_text(flag: Bool) -> Any { if (flag) { return "yes"; } return "no"; }
+fun twice(x: Float) -> Any { return x * 2.0; }
+fun sum(a: Any, b: Any) -> Any { return a + b; }
+// The result of one call is an argument of the next.
+fun nested(a: Any, b: Any) -> Any { return sum(one(a), three(b, b, b)); }
+// A direct call as a return value, and one in a condition.
+fun wrapped(x: Any) -> Any { return one(x); }
+fun positive(x: Any) -> Any { if (sum(x, 1) > 0) { return true; } return false; }
+
+// -------------------------------------------------- native-word callees
+fun add(a: Int, b: Int) -> Int { return a + b; }
+fun add3(a: Int, b: Int, c: Int) -> Int { return a + b + c; }
+fun add6(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int) -> Int { return a + b + c + d + e + f; }
+fun pick(flag: Bool, a: Int, b: Int) -> Int { if (flag) { return a; } return b; }
+fun even_word(n: Int) -> Bool { return n % 2 == 0; }
+fun first_byte(p: Ptr) -> Int { return load8(p); }
+fun overflow(x: Int) -> Int { return x + 9223372036854775807; }
+fun divide(a: Int, b: Int) -> Int { return a / b; }
+
+// -------------------------------------------------- versioned fat callees
+// A loop and annotated parameter types give a function a specialized body and
+// a generic one; an argument of another type takes the generic body.
+fun scaled(n: Int, factor: Int) -> Int {
+    mut total: Int = 0;
+    mut i: Int = 0;
+    while (i < n) { total += i * factor; i += 1; }
+    return total;
+}
+fun mixed(flag: Bool, x: Float) -> Float {
+    mut v: Float = x;
+    mut i: Int = 0;
+    while (i < 4) { if (flag) { v = v * 2.0; } i += 1; }
+    return v;
+}
+
+// -------------------------------------------------- recursion and reentrancy
+// Non-tail, so the recursive calls go through the direct-call path; a tail
+// call stores its arguments in the parameter slots instead.
+fun walk(n: Int) -> Any { if (n <= 0) { return 0; } return walk(n - 1) + 1; }
+fun fact(n: Int) -> Int { if (n <= 1) { return 1; } return n * fact(n - 1); }
+fun even(n: Int) -> Any { if (n == 0) { return true; } return odd(n - 1); }
+fun odd(n: Int) -> Any { if (n == 0) { return false; } return even(n - 1); }
+fun outer(n: Int) -> Any { if (n <= 0) { return 0; } return inner(n - 1) + 1; }
+fun inner(n: Int) -> Any { return outer(n); }
+fun tail_walk(n: Int, acc: Any) -> Any { if (n <= 0) { return acc; } return tail_walk(n - 1, sum(acc, 1)); }
+
+// -------------------------------------------------- evaluation order, effects
+mut ticks: Int = 0;
+fun tick(value: Any) -> Any { ticks += 1; return value; }
+
+fun effects() -> List<Any> {
+    ticks = 0;
+    let made: Any = three(tick(1), tick(2), tick(3));
+    ticks = 0;
+    let counted: Int = add(int(tick(4)), int(tick(5)));
+    return [made, counted, ticks];
+}
+
+// -------------------------------------------------- callees that fault
+fun failer(x: Any) -> Any { fail("callee failed"); return x; }
+
+// -------------------------------------------------- dynamic callees
+fun make_adder(k: Int) -> Any {
+    fun add_k(x: Int) -> Any { return k + x; }
+    return add_k;
+}
+fun apply_operator(f: Any) -> Any { return f(6, 7); }
+
+// ================================================== top level (fat main)
+show("one", one(7));
+show("two", two(2, "b"));
+show("three", three(1, 2.5, true));
+show("bool text", bool_text(true));
+show("bool text false", bool_text(false));
+show("twice", twice(1.25));
+show("sum", sum(3, 4));
+show("nested", nested(1, 2));
+show("wrapped", wrapped("w"));
+show("positive", positive(4));
+
+show("add", add(3, 4));
+show("add3", add3(1, 2, 3));
+show("add6", add6(1, 2, 3, 4, 5, 6));
+show("pick", pick(true, 10, 20));
+show("pick false", pick(false, 10, 20));
+show("even word", even_word(10));
+show("even word odd", even_word(7));
+show("first byte", first_byte(addr("A")));
+
+show("scaled", scaled(10, 3));
+show("mixed", mixed(true, 1.5));
+show("mixed false", mixed(false, 2.0));
+// Through an Any alias the annotations do not hold: the generic body runs.
+let loose_scaled: Any = scaled;
+show("value scaled", loose_scaled(10, 3));
+show("scaled mismatch", caught(fun() -> Any { return loose_scaled(3.0, 2); }));
+let loose_mixed: Any = mixed;
+show("mixed mismatch", caught(fun() -> Any { return loose_mixed(2, 3.0); }));
+
+// Direct calls in loops, and a loop body that is one call.
+mut total: Int = 0;
+mut i: Int = 0;
+while (i < 100) { total += add(i, 2); i += 1; }
+show("loop native", total);
+mut acc: Any = 0;
+i = 0;
+while (i < 6) { acc = two(acc, i); i += 1; }
+show("loop fat", acc);
+mut count: Int = 0;
+i = 0;
+while (i < 20) { count += int(walk(2)); i += 1; }
+show("loop recursive", count);
+
+show("walk", walk(12));
+show("fact", fact(10));
+show("even", even(10));
+show("odd", odd(9));
+show("reentrant", outer(5));
+show("tail walk", tail_walk(10, 0));
+
+show("effects", effects());
+
+show("overflow", caught(fun() -> Any { return overflow(1); }));
+show("divide", caught(fun() -> Any { return divide(7, 0); }));
+show("fail", caught(fun() -> Any { return failer(1); }));
+
+// Function values still go through the vector entry of a register-callable
+// function and through a native-word function's fat entry.
+let value_one: Any = one;
+show("value one", value_one(9));
+let value_two: Any = two;
+show("value two", value_two(3, 4));
+let value_add: Any = add;
+show("value add", value_add(20, 22));
+let adder: Any = make_adder(10);
+show("closure", adder(5));
+show("operator", apply_operator(sum));

@@ -5,25 +5,37 @@ import "symbols.may";
 import "sema.may";
 import "diagnostics.may";
 import "emitter.may";
-// words.may — native-word lowering for strictly typed integer functions (#92).
+// words.may — native-word lowering for strictly typed functions (#92, #132).
 //
-// A user function whose parameters and result are all `Int`, `Ptr` or `Bool`,
-// and whose body only computes with such locals and globals, raw memory access
-// (`load8`..`load64`, `store8`..`store64`), `syscall` and integer externs, compiles as native
-// 64-bit machine words, so loads and syscall results keep all 64 bits until
-// the result returns to tagged code.
+// A user function whose parameters and result are all `Int`, `Ptr`, `Bool` or
+// `Float`, and whose body only computes with such locals and globals, raw
+// memory access (`load8`..`load64`, `store8`..`store64`), `syscall`, integer
+// externs and Float arithmetic, compiles as native 64-bit machine words, so
+// loads and syscall results keep all 64 bits until the result returns to
+// tagged code.
 // Its tagged-ABI entry untags arguments and retags the result, raising the
 // ordinary `integer overflow` fault when the result leaves the tagged range.
-// Bool is 0/1 in native code (tagged 3/4). Calls between native-word
-// functions pass machine words directly. A call to a tagged function with an
-// Int/Ptr/Bool signature goes through that function's word adapter, which
-// tags the arguments (faulting outside the 61-bit range) and untags the
-// result. Calls to `extern` functions whose C types are all integers,
-// pointers or Bool (`word_foreign`) pass words to C; their native entry only
-// range-checks UInt. Globals keep tagged values, so the
-// scan marks global reads and writes (`wordGlobal`) for IR to convert.
+// Bool is 0/1 in native code (tagged 3/4). A Float is its binary64 bit pattern
+// in a word, and its operations run in XMM registers with the runtime's
+// semantics (IEEE results and ordering, a zero divisor raising the arithmetic
+// fault). Calls between native-word functions pass machine words directly. A
+// call to a tagged function with an Int/Ptr/Bool/Float signature goes through
+// that function's word adapter, which tags the arguments (faulting outside
+// the 61-bit range) and untags the result. Calls to `extern` functions whose C
+// types are all integers, pointers or Bool (`word_foreign`) pass words to C;
+// their native entry only range-checks UInt. Globals keep tagged values, so
+// the scan marks global reads and writes (`wordGlobal`) for IR to convert.
+//
+// Float support is limited to straight-line bodies for now: a Float-typed
+// function that contains a loop stays tagged, because the native loop body
+// would keep Float locals in frame slots and lose to the fat backend's XMM
+// homes. Float globals are rejected for the same reason (globals are tagged).
+// Everything is skipped under --no-opt, which also keeps the oracle test.'s
+// unoptimized path on the tagged backend.
 
 let WORD_ARITHMETIC: Any = [TK_PLUS, TK_MINUS, TK_STAR, TK_SLASH, TK_PCT, TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR];
+// Float arithmetic in native code. `%` and the bitwise operators stay tagged.
+let WORD_FLOAT_ARITHMETIC: Any = [TK_PLUS, TK_MINUS, TK_STAR, TK_SLASH];
 let WORD_ORDERING: Any = [TK_EQ, TK_NE, TK_LT, TK_LE, TK_GT, TK_GE];
 // Builtins lowered natively, with their minimum and maximum argument counts.
 // `syscall` takes the raw path.
@@ -76,7 +88,7 @@ mut WORD_NAMES: Any = {};
 mut WORD_PENDING: Any = [];
 mut WORD_LABELS: Any = [];
 
-struct WordScan { ctx: Any, rec: Any, result: Any, names: Any, scopes: Any, calls: Any, valid: Any }
+struct WordScan { ctx: Any, rec: Any, result: Any, names: Any, scopes: Any, calls: Any, valid: Any, floats: Any, loops: Any }
 
 fun word_type(t: Any, name: Any) -> Any {
     return t != nil and t != 0 and t.name == name and len(t.arguments ?? []) == 0;
@@ -85,17 +97,23 @@ fun word_type(t: Any, name: Any) -> Any {
 // Ptr shares the tagged Int representation, so it untags and retags the same way.
 fun word_int(t: Any) -> Any { return word_type(t, "Int") or word_type(t, "Ptr"); }
 
-// The native kind of a parameter, result or local: "Int" (also Ptr), "Bool" or nil.
+// The native kind of a parameter, result or local: "Int" (also Ptr), "Bool",
+// "Float" or nil. --no-opt rejects Float so the oracle test keeps the tagged
+// path for Float programs.
 fun word_kind(t: Any) -> Any {
     if (word_int(t)) { return "Int"; }
     if (word_type(t, "Bool")) { return "Bool"; }
+    if (word_type(t, "Float") and not NO_OPT) { return "Float"; }
     return nil;
 }
 
-// A value whose kind follows its static type; folded literals have none and are Int.
+// A value whose kind follows its static type. Folded integer literals have no
+// static type and are Int; a Float literal has none either and is Float.
 fun word_typed(scan: Any, node: Any) -> Any {
     if (node == 0) { return word_reject(scan); }
-    return word_value(scan, node, word_kind(node.strictType) ?? "Int");
+    mut kind: Any = word_kind(node.strictType);
+    if (kind == nil) { kind = if (node.kind == E_FLOAT) { "Float" } else { "Int" }; }
+    return word_value(scan, node, kind);
 }
 
 fun word_plain(node: Any) -> Any { return node.contract == nil or node.contract == 0; }
@@ -107,38 +125,52 @@ fun word_local(scan: Any, name: Any) -> Any {
 
 fun word_reject(scan: Any) -> Any { scan.valid = false; return false; }
 
-// Every value must be an uncontracted Int or Ptr (or Bool, for control flow only).
+// Every value must be an uncontracted Int, Ptr, Bool or (straight-line) Float.
 fun word_value(scan: Any, node: Any, expected: Any) -> Any {
     if (not scan.valid) { return false; }
     // Name resolution folds small literal arithmetic into untyped literals.
     if (node != 0 and node.kind == E_INT and expected == "Int" and word_plain(node) and node.strictType == nil) { return true; }
     if (node == 0 or not word_plain(node)) { return word_reject(scan); }
+    if (expected == "Float") { scan.floats = true; }
     // Extern results carry their C binding type (Int32, Nil, ...).
     let foreign: Any = word_extern(scan, node);
     if (foreign != 0) { return word_foreign_call(scan, node, foreign, expected); }
-    if (not (if (expected == "Int") { word_int(node.strictType) } else { word_type(node.strictType, expected) })) { return word_reject(scan); }
     let kind: Any = node.kind;
-    if (kind == E_INT) { return true; }
+    if (kind == E_FLOAT) { return expected == "Float"; }
+    if (not word_node_type(node.strictType, expected)) { return word_reject(scan); }
+    if (kind == E_INT) { return expected == "Int"; }
     if (kind == E_VAR) {
         let name: Any = symbol_name(node.name, node.length);
         if (expected == "Bool" and (name == "true" or name == "false") and not word_local(scan, name)) { return true; }
         if (word_local(scan, name)) { return true; }
-        if (glob_find(scan.ctx, node.name, node.length) < 0) { return word_reject(scan); }
+        // Globals keep tagged values, so a Float global stays tagged.
+        if (expected == "Float" or glob_find(scan.ctx, node.name, node.length) < 0) { return word_reject(scan); }
         node.wordGlobal = expected;
         return true;
     }
     if (kind == E_BIN) {
         if (has(WORD_ARITHMETIC, node.op)) {
-            return expected == "Int" and word_value(scan, node.left, "Int") and word_value(scan, node.right, "Int");
+            if (expected == "Int") { return word_value(scan, node.left, "Int") and word_value(scan, node.right, "Int"); }
+            if (expected == "Float" and has(WORD_FLOAT_ARITHMETIC, node.op)) {
+                return word_value(scan, node.left, "Float") and word_value(scan, node.right, "Float");
+            }
+            return word_reject(scan);
         }
         if (has(WORD_ORDERING, node.op) and expected == "Bool") {
-            let operand: Any = if (word_type(node.left.strictType, "Bool") and (node.op == TK_EQ or node.op == TK_NE)) { "Bool" } else { "Int" };
+            mut operand: Any = "Int";
+            if (word_type(node.left.strictType, "Bool") and (node.op == TK_EQ or node.op == TK_NE)) { operand = "Bool"; }
+            else if (word_type(node.left.strictType, "Float")) { operand = "Float"; }
             return word_value(scan, node.left, operand) and word_value(scan, node.right, operand);
         }
         return word_reject(scan);
     }
     if (kind == E_UN) {
-        if (node.op == TK_MINUS or node.op == TK_BITNOT) { return expected == "Int" and word_value(scan, node.operand, "Int"); }
+        if (node.op == TK_MINUS) {
+            if (expected == "Int") { return word_value(scan, node.operand, "Int"); }
+            if (expected == "Float") { return word_value(scan, node.operand, "Float"); }
+            return word_reject(scan);
+        }
+        if (node.op == TK_BITNOT) { return expected == "Int" and word_value(scan, node.operand, "Int"); }
         if (node.op == TK_NOT) { return expected == "Bool" and word_value(scan, node.operand, "Bool"); }
         return word_reject(scan);
     }
@@ -148,6 +180,12 @@ fun word_value(scan: Any, node: Any, expected: Any) -> Any {
     if (kind == E_CALL) {
         let name: Any = symbol_name(node.name, node.length);
         if (word_local(scan, name)) { return word_reject(scan); }
+        // to_float converts an Int, and returns a Float unchanged.
+        if (name == "to_float" and not has(scan.names, name) and glob_find(scan.ctx, node.name, node.length) < 0) {
+            if (expected != "Float" or node.args == 0 or node.args.next != 0) { return word_reject(scan); }
+            if (word_type(node.args.strictType, "Float")) { return word_value(scan, node.args, "Float"); }
+            return word_value(scan, node.args, "Int");
+        }
         if (word_builtin(scan, node, name)) {
             mut operands: Any = 0;
             mut operand: Any = node.args;
@@ -160,11 +198,11 @@ fun word_value(scan: Any, node: Any, expected: Any) -> Any {
         }
         if (not has(scan.names, name)) { return word_reject(scan); }
         let callee: Any = scan.names[name];
-        if (callee.wordCallable != true) { return word_reject(scan); }
+        if (callee.wordCallable != true or callee.nativeResult != expected) { return word_reject(scan); }
         mut count: Any = 0;
         mut arg: Any = node.args;
         while (arg != 0) {
-            if (not word_typed(scan, arg)) { return false; }
+            if (count >= callee.pc or not word_value(scan, arg, callee.nativeKinds[count])) { return false; }
             count += 1; arg = arg.next;
         }
         if (count != callee.pc) { return word_reject(scan); }
@@ -172,6 +210,12 @@ fun word_value(scan: Any, node: Any, expected: Any) -> Any {
         return true;
     }
     return word_reject(scan);
+}
+
+// Whether a static type is `expected`; Ptr shares the Int representation.
+fun word_node_type(t: Any, expected: Any) -> Any {
+    if (expected == "Int") { return word_int(t); }
+    return word_type(t, expected);
 }
 
 fun word_block(scan: Any, node: Any) -> Any {
@@ -213,8 +257,9 @@ fun word_statement(scan: Any, node: Any) -> Any {
         if (node.elseBranch != 0) { return word_block(scan, node.elseBranch); }
         return true;
     }
-    if (kind == S_WHILE) { return word_value(scan, node.condition, "Bool") and word_block(scan, node.body); }
+    if (kind == S_WHILE) { scan.loops = true; return word_value(scan, node.condition, "Bool") and word_block(scan, node.body); }
     if (kind == S_FOR) {
+        scan.loops = true;
         // Only `a..b` / `a..=b` with an Int binding; raw lowering counts directly.
         let range: Any = node.iterable;
         let contract: Any = node.bindingContract;
@@ -259,8 +304,11 @@ fun word_candidate(ctx: Any, rec: Any, names: Any) -> Any {
     if (not word_signature(ctx, rec) or len(rec.boxed) != 0) { return 0; }
     let parameters: Any = {};
     for index: Any in 0..rec.pc { parameters[symbol_name(rec.parr[index].name, rec.parr[index].length)] = true; }
-    let scan: Any = WordScan(ctx, rec, rec.nativeResult, names, [parameters], [], true);
+    let scan: Any = WordScan(ctx, rec, rec.nativeResult, names, [parameters], [], true, false, false);
     word_block(scan, rec.body);
+    // A Float loop would keep its locals in frame slots and lose to the fat
+    // backend's XMM homes (see the header); leave it tagged for now.
+    if (scan.floats and scan.loops) { return 0; }
     return if (scan.valid) { scan } else { 0 };
 }
 
@@ -286,7 +334,7 @@ fun words_mark(ctx: Any, functions: Any, names: Any) -> Any {
     for rec: Any in functions {
         if (rec.wordCallable != true) { continue; }
         let scan: Any = word_candidate(ctx, rec, names);
-        if (scan != 0) { rec.native = true; push(scans, scan); }
+        if (scan != 0) { rec.native = true; rec.nativeFloats = scan.floats; push(scans, scan); }
     }
     // Debug traces omit native frames, so under --debug a function stays
     // native only while every function it calls is native (a fixpoint).

@@ -541,6 +541,29 @@ fun st_member(object: Any, name: Any, span: Any) -> Any {
     if (record != nil and has(record.fields, name)) { return record.fields[name]; }
     diagnostic(span, "unknown field `${name}` on " + st_show(object)); return st_any();
 }
+// The entry slot of a struct field, or -1. The constructor's E_MAP entries
+// define the order, so a string-keyed entry (an operator method) before a
+// field shifts that field's slot. An enum's tag entry is always slot 0.
+fun st_record_slot(typename: Any, member: Any) -> Any {
+    if (typename == "Any") { return 0 - 1; }
+    let record: Any = ST_RECORDS[typename];
+    if (record == nil) { return 0 - 1; }
+    if (record.variants != nil) { if (member == "tag") { return 0; } return 0 - 1; }
+    for declaration: Any in STRUCT_DECLS {
+        if (declaration.strictName == typename) {
+            let entries: Any = declaration.constructor.body.tail.entries;
+            mut index: Any = 0;
+            mut entry: Any = entries;
+            while (entry != 0) {
+                let key: Any = entry.key;
+                if (key != 0 and key.kind == E_STR and symbol_name(key.span.source + key.start, key.length) == member) { return index; }
+                index += 1;
+                entry = entry.next;
+            }
+        }
+    }
+    return 0 - 1;
+}
 fun st_block(ctx: Any, node: Any) -> Any {
     st_scope(); mut statement: Any = node.statements; mut last: Any = 0;
     while (statement != 0) { st_statement(ctx, statement); last = statement; statement = statement.next; }
@@ -675,7 +698,13 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
         mut object: Any = st_expr(ctx, node.object);
         if (k == E_SAFEGET and object.name == "Nil") { return object; }
         if (k == E_SAFEGET and object.name == "Optional") { object = object.arguments[0]; }
-        let t: Any = st_member(object, symbol_name(node.span.source + node.start, node.length), node.span);
+        let member: Any = symbol_name(node.span.source + node.start, node.length);
+        let t: Any = st_member(object, member, node.span);
+        // A field of a statically known struct (or an enum's tag) has a fixed
+        // entry slot; the backend may read it by offset when the record is
+        // still in its fixed layout (#134).
+        let slot: Any = st_record_slot(object.name, member);
+        if (slot >= 0) { node.fieldIndex = slot + 1; }
         return if (k == E_SAFEGET and t.name != "Any" and t.name != "Optional") { st_type("Optional", [t]) } else { t };
     }
     if (k == E_RANGE) { st_dynamic_require(st_type("Int", []), st_expr(ctx, node.start), node.span); st_dynamic_require(st_type("Int", []), st_expr(ctx, node.end), node.span); return st_type("List", [st_type("Int", [])]); }
@@ -777,7 +806,10 @@ fun st_statement(ctx: Any, node: Any) -> Any {
         else if (object.name != "Any") { diagnostic(node.span, "indexed assignment requires a list or map"); }
     } else if (k == S_SETPROP) {
         let object: Any = st_expr(ctx, node.object); let value: Any = st_expr(ctx, node.value);
-        let field: Any = st_member(object, symbol_name(node.span.source + node.start, node.length), node.span);
+        let member: Any = symbol_name(node.span.source + node.start, node.length);
+        let field: Any = st_member(object, member, node.span);
+        let slot: Any = st_record_slot(object.name, member);
+        if (slot >= 0) { node.fieldIndex = slot + 1; }
         st_require(if (object.name == "Map") { object.arguments[1] } else { field }, value, node.span);
         node.valueContract = if (object.name == "Map") { object.arguments[1] } else { field };
     } else if (k == S_DESTRUCT) { diagnostic(node.span, "strict declarations require named, typed bindings; bind the collection first"); }

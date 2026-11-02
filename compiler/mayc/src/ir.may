@@ -80,6 +80,18 @@ fun ir_field_cache(ctx: Any) -> Any {
     return off;
 }
 
+// A payload or tag read for a match arm whose variant pattern proves the
+// entry (#134 step 4). `key` is the compiler's interned field-name bytes and
+// `field` the 1-based entry slot (the tag is slot 0, payload fields follow in
+// declaration order). The backend reads the slot when the value is still a
+// fixed-layout record and falls back to the map probe for Any, grown,
+// compacted or foreign values.
+fun ir_slot_read(ctx: Any, subject: Any, key: Any, keyLength: Any, field: Any, span: Any) -> Any {
+    return ir_operation(E_GET, {"object": subject, "start": 0, "length": 0,
+        "keyAddress": key, "keyLength": keyLength, "field": field,
+        "cache": ir_field_cache(ctx)}, span);
+}
+
 fun ir_integer(value: Any, span: Any) -> Any {
     let result: Any = ir_operation(E_INT, {"value": value}, span);
     result.kind = E_INT; result.value = value;
@@ -381,15 +393,34 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         if (IR_RAW_MODE == 1 and kind != E_COALESCE) { ir_emit(IR_BOOL, result, result, 0, 0, span); }
         return result;
     }
+    // `mapProbe` records the key type the checker proved for a receiver that is
+    // statically a Map (4 Str, 3 Float, 2 Int, 1 Bool; 0 otherwise). The fat
+    // backend inlines the map probe only at such sites: an Any receiver or a
+    // dynamically typed key keeps the runtime call (x86_64_fat.may).
     if (kind == E_INDEX) {
-        return ir_operation(kind, {"object": ir_node(ctx, node.object), "index": ir_node(ctx, node.index)}, span);
+        let object: Any = ir_node(ctx, node.object);
+        let index: Any = ir_node(ctx, node.index);
+        let receiver: Any = node.object.contract ?? node.object.strictType;
+        let key: Any = node.index.contract ?? node.index.strictType;
+        let probe: Any = if (receiver != nil and receiver != 0 and receiver.name == "Map" and key != nil and key != 0) {
+            if (key.name == "Str") { 4 }
+            else if (key.name == "Float") { 3 }
+            else if (key.name == "Int") { 2 }
+            else if (key.name == "Bool") { 1 }
+            else { 0 }
+        } else { 0 };
+        return ir_operation(kind, {"object": object, "index": index, "mapProbe": probe}, span);
     }
     if (kind == E_GET or kind == E_SAFEGET) {
         let object: Any = ir_node(ctx, node.object);
         let result: Any = ir_copy(ir_temp(span), object);
         let done: Any = newlab(ctx);
         if (kind == E_SAFEGET) { ir_emit(IR_ISNIL, 0, object, 0, done, span); }
-        ir_copy(result, ir_operation(E_GET, {"object": object, "start": node.start, "length": node.length, "cache": ir_field_cache(ctx)}, span));
+        // A statically known struct field has a fixed slot (1-based, 0 means
+        // unknown); the backend may load it by offset. Skipped under --no-opt.
+        mut field: Any = 0;
+        if (not NO_OPT) { field = node.fieldIndex ?? 0; }
+        ir_copy(result, ir_operation(E_GET, {"object": object, "start": node.start, "length": node.length, "field": field, "cache": ir_field_cache(ctx)}, span));
         ir_label(done);
         return result;
     }
@@ -410,6 +441,28 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         mut keyed: Any = 0;
         mut counted: Any = node.entries;
         while (counted != 0) { if (counted.key != 0) { keyed += 1; } counted = counted.next; }
+        // A struct or enum constructor builds one fixed-slot record (#134):
+        // rt_struct_new allocates 48 + 32n bytes and rt_struct_set fills the
+        // slots in declaration order, so nothing is hashed and the entries are
+        // never allocated separately. A declaration's E_MAP has only keyed
+        // entries (the parser rejects the fixed layout for anything else), and
+        // `keyed` is the count rt_struct_new is given, so every slot 0..n-1 is
+        // written exactly once. Skipped under --no-opt, in raw code and for the
+        // empty map, which all keep the rt_map_new path.
+        if (node.record == 1 and keyed != 0 and IR_RAW_MODE == 0 and not NO_OPT) {
+            let result: Any = ir_runtime("rt_struct_new", [ir_integer(keyed, span)], span);
+            mut slot: Any = 0;
+            mut entry: Any = node.entries;
+            while (entry != 0) {
+                if (entry.key == 0) { ir_runtime("rt_merge_into", [result, ir_node(ctx, entry.value)], span); }
+                else {
+                    ir_runtime("rt_struct_set", [result, ir_integer(slot, span), ir_node(ctx, entry.key), ir_node(ctx, entry.value)], span);
+                    slot += 1;
+                }
+                entry = entry.next;
+            }
+            return result;
+        }
         let result: Any = if (keyed == 0 or IR_RAW_MODE == 1) { ir_runtime("rt_map_new", [], span) } else { ir_runtime("rt_map_new_sized", [ir_integer(keyed, span)], span) };
         mut entry: Any = node.entries;
         while (entry != 0) {
@@ -478,12 +531,14 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
     }
     if (kind == S_SETPROP) {
         let object: Any = ir_node(ctx, node.object);
+        mut field: Any = 0;
+        if (not NO_OPT) { field = node.fieldIndex ?? 0; }
         mut previous: Any = 0;
-        if (node.compound != nil and node.compound != 0) { previous = ir_operation(E_GET, {"object": object, "start": node.start, "length": node.length, "span": span, "cache": ir_field_cache(ctx)}, span); }
+        if (node.compound != nil and node.compound != 0) { previous = ir_operation(E_GET, {"object": object, "start": node.start, "length": node.length, "field": field, "span": span, "cache": ir_field_cache(ctx)}, span); }
         mut value: Any = ir_node(ctx, node.value);
         if (previous != 0) { value = ir_operation(E_BIN, {"op": node.compound, "left": previous, "right": value}, span); }
         value = ir_contract(ctx, value, node.valueContract, span);
-        ir_emit(kind, 0, object, value, {"object": object, "start": node.start, "length": node.length, "value": value, "span": span, "cache": ir_field_cache(ctx)}, span);
+        ir_emit(kind, 0, object, value, {"object": object, "start": node.start, "length": node.length, "field": field, "value": value, "span": span, "cache": ir_field_cache(ctx)}, span);
         return value;
     }
     if (kind == S_DESTRUCT) {
@@ -571,18 +626,30 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
             } else if (arm.patternKind == 2) { ir_declare(arm.pattern, arm.length, subject, 0, span); }
             else if (arm.patternKind == 3) {
                 let key: Any = if (arm.resultPattern) { "ok" } else { "tag" };
-                let actual: Any = ir_runtime("rt_map_get", [subject, ir_operation(E_STRB, {"address": addr(key), "length": len(key)}, span)], span);
+                // A variant pattern proves the tag, so the tag and its payload
+                // entries have fixed slots in a record (tag 0, payload i+1).
+                // Result maps are ordinary maps and keep the runtime probe.
+                let slots: Any = not arm.resultPattern and IR_RAW_MODE == 0 and not NO_OPT;
+                mut actual: Any = 0;
+                if (slots) { actual = ir_slot_read(ctx, subject, addr("tag"), 3, 1, span); }
+                else { actual = ir_runtime("rt_map_get", [subject, ir_operation(E_STRB, {"address": addr(key), "length": len(key)}, span)], span); }
                 mut expected: Any = 0;
                 if (arm.resultPattern) {
                     let name: Any = if (arm.variantTag == "Ok") { "true" } else { "false" };
                     expected = ir_operation(E_VAR, {"name": addr(name), "length": len(name)}, span);
                 } else { expected = ir_operation(E_STRB, {"address": addr(arm.variantTag), "length": len(arm.variantTag)}, span); }
                 ir_emit(IR_FALSE, 0, ir_runtime("rt_eq", [actual, expected], span), 0, nextArm, span);
+                mut nested: Any = 0;
                 for binding: Any in arm.nested {
                     if (binding.name != 0) {
-                        let field: Any = ir_operation(E_STRB, {"address": addr(binding.fieldName), "length": len(binding.fieldName)}, binding.span);
-                        ir_declare(binding.name, binding.length, ir_runtime("rt_map_get", [subject, field], span), 0, binding.span);
+                        if (slots) {
+                            ir_declare(binding.name, binding.length, ir_slot_read(ctx, subject, addr(binding.fieldName), len(binding.fieldName), nested + 2, binding.span), 0, binding.span);
+                        } else {
+                            let field: Any = ir_operation(E_STRB, {"address": addr(binding.fieldName), "length": len(binding.fieldName)}, binding.span);
+                            ir_declare(binding.name, binding.length, ir_runtime("rt_map_get", [subject, field], span), 0, binding.span);
+                        }
                     }
+                    nested += 1;
                 }
             }
             if (arm.guard != 0) { ir_emit(IR_FALSE, 0, ir_node(ctx, arm.guard), 0, nextArm, span); }
@@ -716,9 +783,11 @@ fun ir_program(ctx: Any) -> Any {
             "cc": rec.cc, "boxed": rec.boxed, "caparr": rec.caparr,
             "foreign": rec.foreign, "ffiArgs": rec.ffiArgs, "ffiResult": rec.ffiResult,
             "ffiSlot": rec.ffiSlot, "library": rec.library, "symbol": rec.symbol,
-            "native": rec.native == true, "nativeLab": 0, "wordForeign": rec.wordForeign == true,
+            "native": rec.native == true, "wordCallable": rec.wordCallable == true, "nativeLab": 0,
+            "wordForeign": rec.wordForeign == true,
             "wordCalled": rec.wordCalled == true and rec.native != true, "wordLab": 0,
-            "nativeKinds": rec.nativeKinds ?? [], "nativeResult": rec.nativeResult ?? "Int"};
+            "nativeKinds": rec.nativeKinds ?? [], "nativeResult": rec.nativeResult ?? "Int",
+            "nativeFloats": rec.nativeFloats == true};
         if (rec.strictSignature != nil) { emitted.strictSignature = rec.strictSignature; }
         if (rec.behaviorSummary != nil) { emitted.behaviorSummary = behavior_ir_summary(rec); }
         push(ctx.functions, emitted);
@@ -746,6 +815,11 @@ fun ir_main_locals(ctx: Any, functions: Any) -> Any {
     let called: Any = {};
     for rec: Any in functions {
         if (rec.ir == nil or rec.ir == 0) { continue; }
+        // A bitwise expression is outlined into a synthetic __wordN function
+        // whose parameters are named after the names it reads. The body's
+        // E_VAR names resolve to those parameters, not to main's bindings, so
+        // counting them as function uses would leave every operand global.
+        if (rec.native == true and starts_with(symbol_name(rec.p, rec.l), "__word")) { continue; }
         for instruction: Any in rec.ir.code {
             let op: Any = instruction.op;
             if (op == S_LET or op == S_ASSIGN or op == E_VAR or op == E_CALL) {

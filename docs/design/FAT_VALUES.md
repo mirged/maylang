@@ -52,23 +52,37 @@ kind in the existing allocation-identity byte map: bytes (strings, buffers;
 never scanned), values (an array of 16-byte values; a payload is traced when
 its type word is a heap type, and an Int payload is checked conservatively,
 since a `Ptr` from `cstr` or `addr` may be the only reference to a heap
-block) or words (runtime-internal pointer tables; scanned conservatively). Stacks and registers are still scanned
-conservatively, accepting a word that equals an object start or the byte
-pointer `addr` returns. The `address * 8` decoding disappears.
+block), records (a struct or enum constructor's map header, scanned as words,
+followed by its entries as 16-byte values from `p + 48`) or words
+(runtime-internal pointer tables; scanned conservatively). Stacks and registers
+are still scanned conservatively, accepting a word that equals an object start
+or the byte pointer `addr` returns. The `address * 8` decoding disappears.
 
 ## Calling conventions
 
-- Compiled functions receive a pointer to their argument values and the
-  argument count, plus the closure environment, and return the payload in
-  the first return register and the type word in the second.
+- A compiled function's tagged entry finds argument `i` above the return
+  address: its type word at `[rsp + 8 + 16 i]` and its payload 8 bytes above
+  that vector. A call site that knows the callee and passes exactly its arity
+  does not build the vector: it passes up to three arguments as register pairs,
+  in RDX/RAX, RDI/RSI and R8/R9, and the callee stores its parameters from
+  those registers. The callee's vector entry adapts the vector into the same
+  registers first, so closures, function values and a legacy arity mismatch
+  keep using it. The closure environment stays in R10 and the result leaves
+  the payload in the first return register and the type word in the second.
 - Runtime functions are written in the raw subset. Each value argument
   becomes two word parameters, type word first; a value result returns its
   payload and leaves its type word in the `RTAG` global, which the caller
   reads immediately after the call. Raw code calls compiled closures with
   `__fat_apply(closure, argv, argc)` and computes on Float bits with
   `__fbits(op, a, b)`.
-- Native-word functions keep their machine-word ABI. Their tagged entry
-  becomes a fat entry that checks the type words and needs no shifts.
+- Native-word functions keep their machine-word ABI. A direct call from
+  dynamic code passes their payloads in the SysV argument registers and tags
+  the result, checking a type word only when it is not proven; their fat entry
+  checks every type word and needs no shifts, for closures and function
+  values. An `Int`, `Ptr` or `Bool` payload is the word itself and a `Float`
+  payload is its binary64 bit pattern, which the call site and the adapters
+  box as type word 3 (a `Bool` as 3 or 4); inside a Float function the values
+  live in XMM registers and only the boundary uses the words.
 
 ## Migration
 

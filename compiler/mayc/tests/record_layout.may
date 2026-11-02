@@ -1,0 +1,126 @@
+// Record layout (#134): a struct or enum constructor builds one fixed-slot
+// block instead of a map header plus a separate entry array. Everything that
+// observes a record must be identical to the map path: key order, keys and
+// to_map, indexing, identity equality, display, JSON, growth through an Any
+// alias and mutation after that growth.
+
+struct Point { x: Any, y: Any }
+let p: Any = Point(1, 2);
+print(p.x, p.y, len(p), keys(p), to_map(p) == p);
+print(str(p), json_stringify(p));
+
+// The slot count is the entry count, not the parameter count: a string-keyed
+// operator method is an entry too.
+struct Vec { x: Any, y: Any, "+": vadd }
+fun vadd(self: Any, other: Any) -> Any { return Vec(self.x + other.x, self.y + other.y) }
+let v: Any = Vec(1, 2);
+print(keys(v), len(keys(v)), str(v));
+let sum: Any = v + Vec(10, 20);
+print(sum.x, sum.y);
+
+// Enum variants are records: the tag entry first, then the payload in
+// declaration order.
+enum Shape { Circle(r: Any), Rect(w: Any, h: Any), Empty }
+let circle: Any = Circle(2.0);
+let rect: Any = Rect(3.0, 4.0);
+let empty: Any = Empty();
+print(keys(circle), keys(rect), keys(empty));
+print(circle.tag, circle.r, rect.tag, rect.w, rect.h, empty.tag);
+print(str(circle), json_stringify(rect));
+fun area(s: Any) -> Any {
+    return match (s.tag) {
+        "Circle" => 3.0 * s.r * s.r,
+        "Rect" => s.w * s.h,
+        _ => 0.0,
+    };
+}
+print(area(circle), area(rect), area(empty));
+
+// An Any alias appends a field. The entries move out of the block and every
+// earlier observation keeps working, including writes and the site caches.
+let grown: Any = Point(5, 6);
+grown.z = 7;
+print(keys(grown), grown.x, grown.z, len(keys(grown)));
+grown.x = 8;
+print(grown["x"], grown.x, str(grown), json_stringify(grown));
+let more: Any = grown;
+more["w"] = 9;
+more.extra = 10;
+print(keys(grown), len(keys(grown)), grown.w, grown.extra);
+
+// A record past the hash threshold grows a hash table; reads and writes stay
+// correct and key order keeps the declaration order first.
+struct Wide { a0: Any, a1: Any, a2: Any, a3: Any, a4: Any, a5: Any, a6: Any, a7: Any, a8: Any }
+let wide: Any = Wide(0, 1, 2, 3, 4, 5, 6, 7, 8);
+print(wide.a8, wide.a0, keys(wide));
+wide.a9 = 9;
+wide.a10 = 10;
+print(wide.a0, wide.a8, wide.a9, wide.a10, len(keys(wide)), keys(wide));
+
+// remove compacts the entries; field sites miss and re-probe.
+let removed: Any = remove(wide, "a4");
+print(len(keys(removed)), has(removed, "a4"), removed.a5, keys(removed));
+
+// Records outlive construction with dynamically added fields while the heap
+// churns. They are not collected here; gc.py and runtime_maps.py force
+// collections over grown records in a reduced heap.
+struct Cell { id: Any, left: Any, right: Any, payload: Any }
+let live: List<Any> = [];
+mut i: Any = 0;
+while (i < 4000) {
+    let c: Any = Cell(i, nil, nil, "payload" + str(i));
+    c.mark = i * 3;
+    if (i % 2 == 0) { push(live, c); }
+    i += 1;
+}
+mut j: Any = 0;
+while (j < 2000) {
+    let garbage: Any = Cell(j, nil, nil, "garbage");
+    garbage.extra = j;
+    j += 1;
+}
+mut k: Any = 0;
+mut bad: Any = 0;
+while (k < len(live)) {
+    let c: Any = live[k];
+    if (c.id != k * 2 or c.mark != k * 6 or c.payload != "payload" + str(k * 2) or c.extra != nil) { bad += 1; }
+    k += 1;
+}
+print(bad == 0, len(live), live[0].mark, live[1999].mark);
+
+// Statically typed field sites: the compiler can read the fixed slot by
+// offset. A string-keyed entry before a field shifts the field's slot, a
+// grown or compacted record must fall back to the field cache, and reads,
+// writes and compound assignment must agree with the map path either way.
+struct Odd { "+": oadd, x: Any, y: Any }
+fun oadd(self: Any, other: Any) -> Any { return Odd(self.x + other.x, self.y + other.y); }
+let odd: Odd = Odd(10, 20);
+print(odd.x, odd.y, len(keys(odd)), keys(odd));
+let oddAny: Any = odd;
+let oddSum: Any = oddAny + Odd(1, 2);
+print(oddSum.x, oddSum.y);
+
+struct Gauge { n: Int, s: Any }
+let cell: Gauge = Gauge(1, "a");
+mut t: Int = 0;
+mut step: Int = 0;
+while (step < 100) { t += cell.n; cell.n += 1; step += 1; }
+print(t, cell.n, cell.s);
+let cellAny: Any = cell;
+cellAny.extra = "grown";
+print(cell.n, cell.s, cellAny.extra, keys(cell));
+cell.n = 7;
+print(cell.n, cell.n * 2);
+let compact: Any = remove(cell, "s");
+print(compact.n, keys(compact));
+
+// A struct-typed enum payload binds its field type in the arm, so payload
+// reads use the same fixed-slot path.
+enum Payload { Box(p: Point), Empty }
+let boxed: Payload = Box(Point(3, 4));
+match (boxed) {
+    Box(p) => { print(p.x, p.y, p); },
+    Empty => { print("empty"); }
+}
+let emptyBox: Payload = Empty();
+print(boxed.tag, emptyBox.tag, keys(emptyBox));

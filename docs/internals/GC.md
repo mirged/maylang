@@ -43,6 +43,24 @@ live bytes anyway for the threshold). `compiler/mayc/tests/limits.py
 --runtime-gc-stats` uses it and cross-checks the runtime's collection count
 against the inline meter.
 
+The floor and margin are also overridable for experiments: `MAYC_GC_MIN` and
+`MAYC_GC_MARGIN` (decimal bytes) replace `GCMIN` and `GCMARGIN` at start-up.
+The values ride the same single `/proc/self/environ` probe as `MAYC_GC_STATS`,
+which `rt_init` already calls at its end, and the parsing helpers are emitted
+after the code every program depends on: `rt_init` keeps its previous code
+shape and size, so a default program keeps its previous code layout and no
+hot-path alignment changes. The accepted range is `[65536, reserve / 2]`; an absent, non-decimal
+or out-of-range value leaves the derived policy, so a typo cannot disable
+collection, and with both unset the behavior is exactly the threshold policy
+above. The overrides exist to measure the policy and to run RSS-sensitive
+workloads under a smaller threshold without rebuilding the runtime; they are
+not a new default. On binary trees, `MAYC_GC_MIN=8388608
+MAYC_GC_MARGIN=524288` cuts peak RSS from 234 MiB to 95 MiB while taking 1.75x
+as long and collecting 60 instead of 11 times, and a workload that never
+collects at the default heap is unaffected; the measured trade-off and the
+frontier-creep explanation are in
+[gc-policy.md](../../compiler/mayc/tests/backend/gc-policy.md).
+
 The table reserves one byte per eight reserved heap bytes (128 MiB for the
 default 1 GiB reservation), with pages committed on demand. Stack, global and suspended
 fiber roots are traced, including runtime metadata. Mark-stack exhaustion
@@ -59,7 +77,10 @@ encoded user addresses (`address * 8`) preserve the allocation returned by
 validation. Holding an `addr` into a string's interior still requires keeping
 the source string alive. The existing map suite
 also forces automatic collection in a reduced heap. Conservative retention,
-fixed heap capacity and nonmoving fragmentation remain limitations. A possible
+fixed heap capacity and nonmoving fragmentation remain limitations. How much a
+conservative stack and register scan actually retains, what precise stack maps
+would need from the code generator and what they are worth on the binary-trees
+RSS target are recorded in [STACK_MAPS.md](../design/STACK_MAPS.md). A possible
 successor, a collector that reclaims whole groups of objects predicted to die
 together, is planned (research only) in the
 [MOSAIC GC roadmap](../design/MOSAIC_GC.md).

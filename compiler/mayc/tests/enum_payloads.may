@@ -1,0 +1,90 @@
+// Enum payload reads by offset in match (#134 step 4). A variant pattern
+// proves the tag, so on a record the tag entry (slot 0) and the payload
+// entries (declaration order) have fixed slots; match reads them with the
+// guarded slot load and keeps the map probe for Any, grown and foreign
+// values. This fixture is in the oracle suite, so optimized and --no-opt
+// output must be identical.
+
+enum Shape { Circle(r: Float), Rect(w: Float, h: Float), Empty }
+fun area(s: Shape) -> Float {
+    match (s) {
+        Circle(r) => { return 3.0 * r * r; },
+        Rect(w, h) => { return w * h; },
+        Empty() => { return 0.0; }
+    }
+    return 0.0;
+}
+print(area(Circle(2.0)), area(Rect(3.0, 4.0)), area(Empty()));
+
+// Any-typed values take the map probe.
+let anyShape: Any = Rect(2.0, 3.0);
+print(anyShape.tag, anyShape.w, anyShape.h);
+
+// A field updated through an Any alias is still read correctly by a typed
+// match (the value is unchanged by the read path).
+let typed: Shape = Rect(5.0, 6.0);
+let alias: Any = typed;
+alias.w = 7.0;
+print(area(typed));
+match (typed) {
+    Rect(w, h) => { print(w, h); },
+    _ => { print("other"); }
+}
+
+// A grown enum record moved its entries out of the block, so the guarded
+// slot read falls back to the map probe.
+let grown: Shape = Circle(3.0);
+let grownAny: Any = grown;
+grownAny.extra = 9;
+print(area(grown), keys(grown), grownAny.extra);
+match (grown) {
+    Circle(r) => { print(r, "circle"); },
+    _ => { print("other"); }
+}
+
+// No-payload variant, guarded arms and a wildcard.
+enum Step { Go(n: Int), Stop }
+fun describe(s: Step) -> Str {
+    match (s) {
+        Go(n) if n > 2 => { return "big " + str(n); },
+        Go(n) => { return "go " + str(n); },
+        _ => { return "stop"; }
+    }
+    return "";
+}
+print(describe(Go(1)), describe(Go(5)), describe(Stop()));
+
+// Result patterns keep the map probe (Result values are ordinary maps), with
+// a nested match inside an arm.
+fun classify(v: Result<Int, Str>) -> Str {
+    match (v) {
+        Ok(n) => {
+            match (n) {
+                0 => { return "zero"; },
+                _ => { return "ok " + str(n); }
+            }
+        },
+        Err(e) => { return "err " + e; }
+    }
+    return "";
+}
+print(classify(Ok(0)), classify(Ok(7)), classify(Err("bad")));
+
+// A recursive enum: typed payload bindings feed the same match again.
+enum Expr { Num(n: Int), Add(l: Expr, r: Expr), Mul(l: Expr, r: Expr) }
+fun eval(e: Expr) -> Int {
+    match (e) {
+        Num(n) => { return n; },
+        Add(l, r) => { return eval(l) + eval(r); },
+        Mul(l, r) => { return eval(l) * eval(r); }
+    }
+    return 0;
+}
+let tree: Expr = Add(Num(2), Mul(Num(3), Add(Num(4), Num(5))));
+print(eval(tree), tree.tag);
+
+// Multi-arm matches over a typed list, as an interpreter loop does.
+let shapes: List<Shape> = [Circle(1.0), Rect(2.0, 3.0), Empty(), Circle(2.0)];
+mut total: Float = 0.0;
+for shape: Shape in shapes { total += area(shape); }
+print(total);

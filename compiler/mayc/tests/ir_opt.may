@@ -1,0 +1,129 @@
+// ir_opt.may — the phase 4 IR passes (#131) must not change observable
+// behavior: faults, evaluation order, side effects and aliasing survive dead
+// code and dead store elimination, copy propagation and common subexpression
+// elimination. Run by verify.py against legacy_behavior.json, and compiled with
+// and without --no-opt by oracle.py.
+
+struct Probe { a: Int, b: Int }
+
+mut trace: Int = 0;
+
+fun touch(n: Int) -> Int {
+    trace = trace * 10 + n;
+    return n;
+}
+
+fun repeated(p: Probe) -> Int {
+    let dead: Int = p.b;
+    return p.a + p.a;
+}
+
+fun overwritten(p: Probe) -> Int {
+    p.a = 1;
+    let first: Int = p.a;
+    p.a = 2;
+    return first * 10 + p.a;
+}
+
+fun mutated(p: Probe) -> Int { p.a = 5; return 0; }
+
+fun call_invalidates(p: Probe) -> Int {
+    let before: Int = p.a;
+    mutated(p);
+    return before * 10 + p.a;
+}
+
+fun aliased(p: Probe) -> Int {
+    let before: Int = p.a;
+    p.a = 7;
+    return before * 10 + p.a;
+}
+
+fun same_object(p: Probe, q: Probe) -> Int {
+    let before: Int = p.a;
+    q.a = 9;
+    return before * 10 + p.a;
+}
+
+fun copies(n: Int) -> Int {
+    let a: Int = n + 1;
+    let b: Int = a;
+    let c: Int = b;
+    return c;
+}
+
+fun dead_effects() -> Int {
+    let dead: Int = touch(1);
+    let dead2: Int = touch(2) + 4;
+    touch(3);
+    return trace;
+}
+
+fun dead_allocation() -> Int {
+    let xs: List<Int> = [1, 2, 3];
+    return 7;
+}
+
+fun overflow() -> Int {
+    let value: Int = 9223372036854775807 + 1;
+    return value;
+}
+
+fun divide() -> Int {
+    let zero: Int = 1 / 0;
+    return zero;
+}
+
+fun list_change(xs: List<Int>) -> Int {
+    let before: Int = xs[0];
+    xs[0] = 9;
+    return before * 10 + xs[0];
+}
+
+fun bump_list(xs: List<Int>) -> Int {
+    xs[0] = xs[0] + 1;
+    return 0;
+}
+
+fun list_call(xs: List<Int>) -> Int {
+    let before: Int = xs[0];
+    bump_list(xs);
+    return before * 10 + xs[0];
+}
+
+fun loop_sum(n: Int) -> Int {
+    mut total: Int = 0;
+    mut i: Int = 0;
+    while (i < n) {
+        total += i;
+        i += 1;
+    }
+    return total;
+}
+
+fun captured() -> Int {
+    mut n: Int = 0;
+    let inc: Any = fun() -> Any { n += 1; return n; };
+    inc();
+    inc();
+    return n;
+}
+
+let p: Probe = Probe(1, 2);
+print(repeated(p));
+print(overwritten(p));
+print(call_invalidates(p));
+print(aliased(p));
+print(same_object(p, p));
+print(copies(4));
+print(dead_effects());
+print(dead_allocation());
+let o: Any = may { overflow() } otherwise { err.kind };
+print(o);
+let z: Any = may { divide() } otherwise { err.kind };
+print(z);
+let xs: List<Int> = [1];
+print(list_change(xs));
+print(list_call(xs));
+print(loop_sum(10));
+print(captured());

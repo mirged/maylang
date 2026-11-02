@@ -1,0 +1,44 @@
+// Inline push and string equality fast paths (#101 phase 3, #133).
+// A push with spare capacity stores inline and bumps the length; growth,
+// another element type and non-list receivers still take rt_push. String
+// equality answers `false`/`true` from a byte-length mismatch.
+
+// A specialized list of Int stores eight-byte elements and grows in place.
+let ints: List<Int> = [];
+mut i: Int = 0;
+while (i < 64) { push(ints, i * 3); i = i + 1; }
+print(len(ints), ints[0], ints[63], ints[40]);
+
+// The push result is the list itself.
+let more: Any = push(ints, 7);
+print(more == ints, len(ints), ints[64]);
+
+// A value computed by a call is evaluated before the store.
+fun twice(x: Int) -> Int { return x * 2; }
+push(ints, twice(21));
+print(len(ints), ints[65]);
+
+// Float and Bool element kinds store at their own width.
+let floats: List<Float> = [];
+push(floats, 1.5); push(floats, 2.25);
+print(len(floats), floats[1]);
+let flags: List<Bool> = [];
+push(flags, true); push(flags, false); push(flags, true);
+print(len(flags), flags[0], flags[1], flags[2]);
+
+// An Any alias can store another type, which widens the list.
+let alias: Any = ints;
+push(alias, "wide");
+print(len(ints), value_tag(ints[66]), ints[66]);
+
+// A fat list keeps arbitrary values, nil included.
+let values: List<Any> = [1, "two"];
+push(values, 3.5); push(values, nil); push(values, true);
+print(len(values), values[3] == nil, values[4]);
+
+// String equality: lengths decide without comparing content.
+print("a" == "ab", "a" != "ab", "ab" == "ab", "ab" == "ac", "ab" != "ac");
+print(len("héllo"), "héllo" == "hello");
+let left: Any = "x";
+let right: Any = 1;
+print(left == right, left != right);

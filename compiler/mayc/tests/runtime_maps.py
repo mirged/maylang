@@ -78,6 +78,58 @@ print("maps-ok");
         assert result.returncode == 0 and not result.stderr, result
         assert b'gc\n' in result.stdout and result.stdout.replace(b'gc\n', b'') == b'maps-ok\n', result
         print('PASS hash collisions, ordered iteration, replacements/removal, mixed keys and actual collections', flush=True)
+        # Records (#134) are one fixed-slot block until a dynamic field write
+        # moves their entries out. The record header must keep those entries -
+        # and its hash table - alive across real collections: the reverted
+        # prototype did not and the compiler built with it crashed.
+        source = work / 'records.may'
+        source.write_text("""
+struct Node { id: Any, next: Any, payload: Any }
+struct Wide { a0: Any, a1: Any, a2: Any, a3: Any, a4: Any, a5: Any, a6: Any, a7: Any, a8: Any }
+let keep: List<Any> = [];
+mut i: Any = 0;
+while (i < 4000) {
+    let node: Any = Node(i, nil, "p" + str(i));
+    node.extra = i;
+    if (i % 4 == 0) { push(keep, node); }
+    i += 1;
+}
+mut wide: Any = Wide(0, 1, 2, 3, 4, 5, 6, 7, 8);
+wide.a9 = 9;
+wide.a10 = 10;
+mut n: Any = 0;
+while (n < 320) {
+    let junk: Any = range(0, 4096);
+    if junk[4095] != 4095 { fail("record churn"); }
+    n += 1;
+}
+mut k: Any = 0;
+while (k < len(keep)) {
+    let node: Any = keep[k];
+    let id: Any = k * 4;
+    if node.id != id or node.extra != id or node.payload != "p" + str(id) { fail("record lost"); }
+    let ks: Any = keys(node);
+    if ks[0] != "id" or ks[3] != "extra" { fail("record order"); }
+    k += 1;
+}
+if wide.a0 != 0 or wide.a8 != 8 or wide.a9 != 9 or wide.a10 != 10 { fail("grown record lost"); }
+let first: Any = keep[0];
+first.later = 123;
+mut m: Any = 0;
+while (m < 320) {
+    let junk: Any = range(0, 4096);
+    if junk[4095] != 4095 { fail("record churn 2"); }
+    m += 1;
+}
+if first.later != 123 or first.id != 0 or first.extra != 0 { fail("record regrown lost"); }
+print("records-ok");
+""")
+        binary = work / 'records'
+        compile_source(small / 'mayc', source, binary)
+        result = subprocess.run([str(binary)], capture_output=True, timeout=40)
+        assert result.returncode == 0 and not result.stderr, result
+        assert b'gc\n' in result.stdout and result.stdout.replace(b'gc\n', b'') == b'records-ok\n', result
+        print('PASS records keep their grown entries and hash table across collections', flush=True)
 
 
 if __name__ == '__main__':

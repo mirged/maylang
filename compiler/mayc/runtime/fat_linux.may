@@ -10,7 +10,8 @@ mut HEAPEND: Any = 0;
 mut HEAPDIRTY: Any = 0;
 mut HEAPLIMIT: Any = 0;
 // One byte per heap word: 0 not an allocation start, 1 words (scanned
-// conservatively), 2 bytes (never scanned), 3 values (precise).
+// conservatively), 2 bytes (never scanned), 3 values (precise), 4 records
+// (a 48-byte map header scanned as words, then values from p + 48).
 mut GCSTARTS: Any = 0;
 mut FREELIST: Any = 0;
 mut FREEBINS: Any = 0;
@@ -77,7 +78,8 @@ fun rt_init() -> Any {
     if (MARKSTK < 0) { syscall(60, 70); }
     CSTOP = STACKTOP;
     HSTACK = rt_alloc(64 * 64);
-    // `MAYC_GC_STATS=1` turns the counters above on. The probe and its
+    // `MAYC_GC_STATS=1` turns the counters above on and the same probe applies
+    // the `MAYC_GC_MIN`/`MAYC_GC_MARGIN` policy overrides. The probe and its
     // scratch page are outside the measured window; afterwards every
     // allocation and collection is counted.
     if (rt_gc_stats_flag() == 1) {
@@ -173,7 +175,13 @@ fun rt_gc() -> Any {
         let hdr: Any = load64(p - 16);
         let end: Any = p + hdr - (hdr % 2) - 16;
         mut a: Any = p;
-        if (kind == 3) {
+        if (kind == 3 or kind == 4) {
+            // A record's first 48 bytes are a map header (count, capacity,
+            // the in-block entries pointer, the hash table pointer and its
+            // capacity): scan them as words so a record whose entries moved
+            // out on growth keeps them and its hash table. The entries
+            // themselves start on the payload's 16-byte grid at p + 48.
+            if (kind == 4) { rt_scan_range(p, p + 48); a = p + 48; }
             while (a + 16 <= end) {
                 let t: Any = load64(a);
                 // Heap types are traced; an Int may be a Ptr from cstr or addr
@@ -359,9 +367,13 @@ fun rt_write(p: Any, n: Any) -> Any {
 }
 
 // ---- collection statistics -------------------------------------------------
-// `MAYC_GC_STATS=1` is read once from /proc/self/environ: --raw programs set
-// STACKTOP to their own frame, so the initial environment vector is not
-// available there. The probe maps a page of its own and never touches the heap.
+// `MAYC_GC_STATS=1` turns the statistics counters on and the optional
+// `MAYC_GC_MIN`/`MAYC_GC_MARGIN` policy overrides are applied through the same
+// read of /proc/self/environ. The probe maps its own page and never touches
+// the heap. It is called once from rt_init, after the default floor and margin
+// have been derived; the override code lives in the helpers below rather than
+// in rt_init or in this function's loop so that the code emitted before it,
+// which includes every user function, keeps its previous layout.
 fun rt_gc_stats_flag() -> Any {
     let fd: Any = syscall(2, addr("/proc/self/environ"), 0, 0);
     if (fd < 0) { return 0; }
@@ -369,18 +381,64 @@ fun rt_gc_stats_flag() -> Any {
     if (b < 0) { syscall(3, fd); return 0; }
     let n: Any = syscall(0, fd, b, 8192);
     syscall(3, fd);
-    mut found: Any = 0;
+    mut stats: Any = 0;
     mut i: Any = 0;
-    while (found == 0 and i < n) {
+    while (i < n) {
         let start: Any = i;
         while (i < n and load8(b + i) != 0) { i += 1; }
         // "MAYC_GC_STATS=1" as four words; any other value leaves it off.
         if (i - start == 15 and load32(b + start) == 1129922893 and load32(b + start + 4) == 1598244703
-            and load32(b + start + 8) == 1413567571 and load32(b + start + 12) == 3226963) { found = 1; }
+            and load32(b + start + 8) == 1413567571 and load32(b + start + 12) == 3226963) { stats = 1; }
+        rt_gc_policy_entry(b, start, i);
         i += 1;
     }
     syscall(11, b, 8192);
-    return found;
+    return stats;
+}
+// Applies `MAYC_GC_MIN` or `MAYC_GC_MARGIN` from one environment entry, if it
+// is one of them and its value is a plain decimal number in
+// [65536, reserve / 2] bytes. Anything else keeps the derived policy, so a
+// typo cannot disable collection, and with both unset nothing changes.
+fun rt_gc_policy_entry(b: Any, start: Any, end: Any) -> Any {
+    let entry: Any = end - start;
+    if (entry > 12 and load8(b + start + 11) == 61
+        and rt_env_name(b, start, addr("MAYC_GC_MIN"), 11) == 1) {
+        let minimum: Any = rt_env_digits(b, start + 12, end);
+        if (minimum >= 65536 and minimum <= (HEAPLIMIT - HEAP) / 2) {
+            GCMIN = minimum;
+            HEAPEND = HEAP + GCMIN;
+        }
+    }
+    if (entry > 15 and load8(b + start + 14) == 61
+        and rt_env_name(b, start, addr("MAYC_GC_MARGIN"), 14) == 1) {
+        let margin: Any = rt_env_digits(b, start + 15, end);
+        if (margin >= 65536 and margin <= (HEAPLIMIT - HEAP) / 2) { GCMARGIN = margin; }
+    }
+    return 0;
+}
+// Whether the entry at `start` begins with `name` (length `namelen`).
+fun rt_env_name(b: Any, start: Any, name: Any, namelen: Any) -> Any {
+    mut same: Any = 1;
+    mut k: Any = 0;
+    while (same == 1 and k < namelen) {
+        if (load8(b + start + k) != load8(name + k)) { same = 0; }
+        k += 1;
+    }
+    return same;
+}
+// The decimal value from `at` to `end`, or -1 when it is empty, not all
+// digits, or longer than 15 digits (so it cannot overflow).
+fun rt_env_digits(b: Any, at: Any, end: Any) -> Any {
+    mut value: Any = 0;
+    mut digits: Any = 0;
+    mut j: Any = at;
+    while (j < end and load8(b + j) >= 48 and load8(b + j) <= 57) {
+        value = value * 10 + load8(b + j) - 48;
+        j += 1;
+        digits += 1;
+    }
+    if (digits == 0 or digits > 15 or j != end) { return 0 - 1; }
+    return value;
 }
 // Monotonic nanoseconds for pause accounting (CLOCK_MONOTONIC, no allocation).
 fun rt_gc_now() -> Any {

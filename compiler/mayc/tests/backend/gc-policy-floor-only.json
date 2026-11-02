@@ -1,0 +1,704 @@
+{
+  "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+  "probes": [],
+  "workloads": [],
+  "inventory": [],
+  "xlang": [
+    {
+      "workload": "fib",
+      "nominal_heap_mib": 256,
+      "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+      "runs": 5,
+      "overrides": {
+        "MAYC_GC_MIN": "8388608"
+      },
+      "base": {
+        "samples": [
+          {
+            "elapsed_s": 0.058,
+            "peak_rss_kib": 11844,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.065,
+            "peak_rss_kib": 11844,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.058,
+            "peak_rss_kib": 11844,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.057,
+            "peak_rss_kib": 11844,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.056,
+            "peak_rss_kib": 11844,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.058,
+        "min_elapsed_s": 0.056,
+        "peak_rss_kib": 11844,
+        "collections": 0
+      },
+      "tuned": {
+        "samples": [
+          {
+            "elapsed_s": 0.058,
+            "peak_rss_kib": 11844,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.057,
+            "peak_rss_kib": 11844,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.06,
+            "peak_rss_kib": 11780,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.057,
+            "peak_rss_kib": 11844,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.057,
+            "peak_rss_kib": 11844,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.057,
+        "min_elapsed_s": 0.057,
+        "peak_rss_kib": 11844,
+        "collections": 0
+      },
+      "elapsed_ratio": 0.983,
+      "rss_ratio": 1.0
+    },
+    {
+      "workload": "collatz",
+      "nominal_heap_mib": 256,
+      "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+      "runs": 5,
+      "overrides": {
+        "MAYC_GC_MIN": "8388608"
+      },
+      "base": {
+        "samples": [
+          {
+            "elapsed_s": 0.044,
+            "peak_rss_kib": 11852,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.043,
+            "peak_rss_kib": 11852,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.05,
+            "peak_rss_kib": 11852,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.044,
+            "peak_rss_kib": 11852,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.043,
+            "peak_rss_kib": 11852,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.044,
+        "min_elapsed_s": 0.043,
+        "peak_rss_kib": 11852,
+        "collections": 0
+      },
+      "tuned": {
+        "samples": [
+          {
+            "elapsed_s": 0.044,
+            "peak_rss_kib": 11852,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.044,
+            "peak_rss_kib": 11852,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.044,
+            "peak_rss_kib": 11852,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.044,
+            "peak_rss_kib": 11852,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.044,
+            "peak_rss_kib": 11856,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.044,
+        "min_elapsed_s": 0.044,
+        "peak_rss_kib": 11856,
+        "collections": 0
+      },
+      "elapsed_ratio": 1.0,
+      "rss_ratio": 1.0
+    },
+    {
+      "workload": "sieve",
+      "nominal_heap_mib": 256,
+      "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+      "runs": 5,
+      "overrides": {
+        "MAYC_GC_MIN": "8388608"
+      },
+      "base": {
+        "samples": [
+          {
+            "elapsed_s": 0.203,
+            "peak_rss_kib": 11864,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.196,
+            "peak_rss_kib": 11800,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.225,
+            "peak_rss_kib": 11864,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.218,
+            "peak_rss_kib": 11676,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.205,
+            "peak_rss_kib": 11864,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.205,
+        "min_elapsed_s": 0.196,
+        "peak_rss_kib": 11864,
+        "collections": 0
+      },
+      "tuned": {
+        "samples": [
+          {
+            "elapsed_s": 0.205,
+            "peak_rss_kib": 11864,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.195,
+            "peak_rss_kib": 11864,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.208,
+            "peak_rss_kib": 11864,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.213,
+            "peak_rss_kib": 11864,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.192,
+            "peak_rss_kib": 11864,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.205,
+        "min_elapsed_s": 0.192,
+        "peak_rss_kib": 11864,
+        "collections": 0
+      },
+      "elapsed_ratio": 1.0,
+      "rss_ratio": 1.0
+    },
+    {
+      "workload": "hashmap",
+      "nominal_heap_mib": 256,
+      "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+      "runs": 5,
+      "overrides": {
+        "MAYC_GC_MIN": "8388608"
+      },
+      "base": {
+        "samples": [
+          {
+            "elapsed_s": 0.102,
+            "peak_rss_kib": 66832,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.1,
+            "peak_rss_kib": 65792,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.105,
+            "peak_rss_kib": 65744,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.1,
+            "peak_rss_kib": 65760,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.099,
+            "peak_rss_kib": 66832,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.1,
+        "min_elapsed_s": 0.099,
+        "peak_rss_kib": 66832,
+        "collections": 0
+      },
+      "tuned": {
+        "samples": [
+          {
+            "elapsed_s": 0.137,
+            "peak_rss_kib": 54796,
+            "collections": 3,
+            "live_max": 22884752
+          },
+          {
+            "elapsed_s": 0.106,
+            "peak_rss_kib": 54800,
+            "collections": 3,
+            "live_max": 22884752
+          },
+          {
+            "elapsed_s": 0.113,
+            "peak_rss_kib": 53720,
+            "collections": 3,
+            "live_max": 22884752
+          },
+          {
+            "elapsed_s": 0.112,
+            "peak_rss_kib": 53688,
+            "collections": 3,
+            "live_max": 22884752
+          },
+          {
+            "elapsed_s": 0.109,
+            "peak_rss_kib": 54672,
+            "collections": 3,
+            "live_max": 22884752
+          }
+        ],
+        "median_elapsed_s": 0.112,
+        "min_elapsed_s": 0.106,
+        "peak_rss_kib": 54800,
+        "collections": 3
+      },
+      "elapsed_ratio": 1.12,
+      "rss_ratio": 0.82
+    },
+    {
+      "workload": "strings",
+      "nominal_heap_mib": 256,
+      "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+      "runs": 5,
+      "overrides": {
+        "MAYC_GC_MIN": "8388608"
+      },
+      "base": {
+        "samples": [
+          {
+            "elapsed_s": 0.077,
+            "peak_rss_kib": 62096,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.057,
+            "peak_rss_kib": 61084,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.058,
+            "peak_rss_kib": 61056,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.06,
+            "peak_rss_kib": 61056,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.057,
+            "peak_rss_kib": 61012,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.058,
+        "min_elapsed_s": 0.057,
+        "peak_rss_kib": 62096,
+        "collections": 0
+      },
+      "tuned": {
+        "samples": [
+          {
+            "elapsed_s": 0.117,
+            "peak_rss_kib": 43280,
+            "collections": 3,
+            "live_max": 18804864
+          },
+          {
+            "elapsed_s": 0.109,
+            "peak_rss_kib": 42240,
+            "collections": 3,
+            "live_max": 18804864
+          },
+          {
+            "elapsed_s": 0.115,
+            "peak_rss_kib": 42220,
+            "collections": 3,
+            "live_max": 18804864
+          },
+          {
+            "elapsed_s": 0.11,
+            "peak_rss_kib": 43272,
+            "collections": 3,
+            "live_max": 18804864
+          },
+          {
+            "elapsed_s": 0.121,
+            "peak_rss_kib": 42328,
+            "collections": 3,
+            "live_max": 18804864
+          }
+        ],
+        "median_elapsed_s": 0.115,
+        "min_elapsed_s": 0.109,
+        "peak_rss_kib": 43280,
+        "collections": 3
+      },
+      "elapsed_ratio": 1.983,
+      "rss_ratio": 0.697
+    },
+    {
+      "workload": "mandelbrot",
+      "nominal_heap_mib": 256,
+      "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+      "runs": 5,
+      "overrides": {
+        "MAYC_GC_MIN": "8388608"
+      },
+      "base": {
+        "samples": [
+          {
+            "elapsed_s": 0.047,
+            "peak_rss_kib": 11876,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.046,
+            "peak_rss_kib": 11876,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.047,
+            "peak_rss_kib": 11876,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.047,
+            "peak_rss_kib": 11880,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.047,
+            "peak_rss_kib": 11880,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.047,
+        "min_elapsed_s": 0.046,
+        "peak_rss_kib": 11880,
+        "collections": 0
+      },
+      "tuned": {
+        "samples": [
+          {
+            "elapsed_s": 0.046,
+            "peak_rss_kib": 11876,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.047,
+            "peak_rss_kib": 11876,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.045,
+            "peak_rss_kib": 11876,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.046,
+            "peak_rss_kib": 11876,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.047,
+            "peak_rss_kib": 11880,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.046,
+        "min_elapsed_s": 0.045,
+        "peak_rss_kib": 11880,
+        "collections": 0
+      },
+      "elapsed_ratio": 0.979,
+      "rss_ratio": 1.0
+    },
+    {
+      "workload": "nbody",
+      "nominal_heap_mib": 256,
+      "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+      "runs": 5,
+      "overrides": {
+        "MAYC_GC_MIN": "8388608"
+      },
+      "base": {
+        "samples": [
+          {
+            "elapsed_s": 0.084,
+            "peak_rss_kib": 11884,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.086,
+            "peak_rss_kib": 11884,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.078,
+            "peak_rss_kib": 11884,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.077,
+            "peak_rss_kib": 11884,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.081,
+            "peak_rss_kib": 11820,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.081,
+        "min_elapsed_s": 0.077,
+        "peak_rss_kib": 11884,
+        "collections": 0
+      },
+      "tuned": {
+        "samples": [
+          {
+            "elapsed_s": 0.081,
+            "peak_rss_kib": 11884,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.077,
+            "peak_rss_kib": 11884,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.077,
+            "peak_rss_kib": 11884,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.078,
+            "peak_rss_kib": 11884,
+            "collections": 0,
+            "live_max": 0
+          },
+          {
+            "elapsed_s": 0.083,
+            "peak_rss_kib": 11884,
+            "collections": 0,
+            "live_max": 0
+          }
+        ],
+        "median_elapsed_s": 0.078,
+        "min_elapsed_s": 0.077,
+        "peak_rss_kib": 11884,
+        "collections": 0
+      },
+      "elapsed_ratio": 0.963,
+      "rss_ratio": 1.0
+    },
+    {
+      "workload": "trees",
+      "nominal_heap_mib": 256,
+      "compiler": "/home/mirged/Workspace/dsh-workspace/wt/gc135/compiler/mayc/build/bin/mayc_new",
+      "runs": 5,
+      "overrides": {
+        "MAYC_GC_MIN": "8388608"
+      },
+      "base": {
+        "samples": [
+          {
+            "elapsed_s": 0.889,
+            "peak_rss_kib": 239120,
+            "collections": 11,
+            "live_max": 41945632
+          },
+          {
+            "elapsed_s": 0.865,
+            "peak_rss_kib": 238436,
+            "collections": 11,
+            "live_max": 41945632
+          },
+          {
+            "elapsed_s": 0.847,
+            "peak_rss_kib": 238448,
+            "collections": 11,
+            "live_max": 41945632
+          },
+          {
+            "elapsed_s": 0.884,
+            "peak_rss_kib": 238464,
+            "collections": 11,
+            "live_max": 41945632
+          },
+          {
+            "elapsed_s": 0.941,
+            "peak_rss_kib": 239376,
+            "collections": 11,
+            "live_max": 41945632
+          }
+        ],
+        "median_elapsed_s": 0.884,
+        "min_elapsed_s": 0.847,
+        "peak_rss_kib": 239376,
+        "collections": 11
+      },
+      "tuned": {
+        "samples": [
+          {
+            "elapsed_s": 1.03,
+            "peak_rss_kib": 203816,
+            "collections": 20,
+            "live_max": 48257440
+          },
+          {
+            "elapsed_s": 1.663,
+            "peak_rss_kib": 204820,
+            "collections": 20,
+            "live_max": 48257440
+          },
+          {
+            "elapsed_s": 0.963,
+            "peak_rss_kib": 203848,
+            "collections": 20,
+            "live_max": 48257440
+          },
+          {
+            "elapsed_s": 0.981,
+            "peak_rss_kib": 203932,
+            "collections": 20,
+            "live_max": 48257440
+          },
+          {
+            "elapsed_s": 0.978,
+            "peak_rss_kib": 203776,
+            "collections": 20,
+            "live_max": 48257440
+          }
+        ],
+        "median_elapsed_s": 0.981,
+        "min_elapsed_s": 0.963,
+        "peak_rss_kib": 204820,
+        "collections": 20
+      },
+      "elapsed_ratio": 1.11,
+      "rss_ratio": 0.856
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+// Map probe and coalesce measurement source (#133).
+// Builds two Str-keyed maps of n entries from equal key text: `m` stores the
+// same string objects as `keys`, and `m2` was built from its own copies, so a
+// lookup of m[keys[i]] finds the key by pointer and m2[keys[i]] compares its
+// content. `absent` holds keys that were never inserted, so the loop measures
+// the probe's hit path (no comparison), its hit path with a content comparison
+// and its miss path, without measuring string building.
+let n: Int = 100000;
+let m: Map<Str, Int> = {};
+let m2: Map<Str, Int> = {};
+let keys: List<Str> = [];
+let absent: List<Str> = [];
+mut i: Int = 0;
+while (i < n) {
+    let k: Str = "k" + str(i);
+    m[k] = i;
+    m2["k" + str(i)] = i;
+    push(keys, k);
+    push(absent, "x" + str(i));
+    i += 1;
+}
+mut sum: Int = 0;
+mut round: Int = 0;
+while (round < 10) {
+    i = 0;
+    while (i < n) { sum += m[keys[i]] ?? -1; i += 1; }
+    i = 0;
+    while (i < n) { sum += m2[keys[i]] ?? -1; i += 1; }
+    i = 0;
+    while (i < n) { sum += m[absent[i]] ?? 0; i += 1; }
+    round += 1;
+}
+print(sum, len(m), len(m2));

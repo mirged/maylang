@@ -1,0 +1,436 @@
+{
+  "results": [
+    {
+      "command": "fib-before",
+      "mean": 0.06048,
+      "stddev": 0.0047675,
+      "median": 0.057835,
+      "min": 0.057144,
+      "max": 0.068213,
+      "times": [
+        0.05721,
+        0.068213,
+        0.061996,
+        0.057835,
+        0.057144
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "fib-after",
+      "mean": 0.057548,
+      "stddev": 0.0014324,
+      "median": 0.057094,
+      "min": 0.056064,
+      "max": 0.059642,
+      "times": [
+        0.059642,
+        0.056633,
+        0.057094,
+        0.056064,
+        0.058307
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "fib-gc-before",
+      "stats": "GC collections=0 allocated=1048624 live=0 pause_ns=0 peak=1052736 threshold=134217728 rss_kb=4188"
+    },
+    {
+      "command": "fib-gc-after",
+      "stats": "GC collections=0 allocated=1048624 live=0 pause_ns=0 peak=1052736 threshold=134217728 rss_kb=4188"
+    },
+    {
+      "command": "collatz-before",
+      "mean": 0.088805,
+      "stddev": 0.002343,
+      "median": 0.087747,
+      "min": 0.086109,
+      "max": 0.091592,
+      "times": [
+        0.087747,
+        0.086109,
+        0.091592,
+        0.090922,
+        0.087655
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "collatz-after",
+      "mean": 0.090807,
+      "stddev": 0.005639,
+      "median": 0.087894,
+      "min": 0.085889,
+      "max": 0.098244,
+      "times": [
+        0.098244,
+        0.095427,
+        0.087894,
+        0.08658,
+        0.085889
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "collatz-gc-before",
+      "stats": "GC collections=0 allocated=1048640 live=0 pause_ns=0 peak=1052752 threshold=134217728 rss_kb=4184"
+    },
+    {
+      "command": "collatz-gc-after",
+      "stats": "GC collections=0 allocated=1048640 live=0 pause_ns=0 peak=1052752 threshold=134217728 rss_kb=4184"
+    },
+    {
+      "command": "sieve-before",
+      "mean": 0.193873,
+      "stddev": 0.0064544,
+      "median": 0.191624,
+      "min": 0.186826,
+      "max": 0.20215,
+      "times": [
+        0.199014,
+        0.189752,
+        0.191624,
+        0.20215,
+        0.186826
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "sieve-after",
+      "mean": 0.199313,
+      "stddev": 0.0086382,
+      "median": 0.196358,
+      "min": 0.192416,
+      "max": 0.21304,
+      "times": [
+        0.192416,
+        0.202183,
+        0.21304,
+        0.192567,
+        0.196358
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "sieve-gc-before",
+      "stats": "GC collections=0 allocated=1048704 live=0 pause_ns=0 peak=17830064 threshold=134217728 rss_kb=18520"
+    },
+    {
+      "command": "sieve-gc-after",
+      "stats": "GC collections=0 allocated=1048704 live=0 pause_ns=0 peak=17830064 threshold=134217728 rss_kb=18524"
+    },
+    {
+      "command": "hashmap-before",
+      "mean": 0.093693,
+      "stddev": 0.0047905,
+      "median": 0.093723,
+      "min": 0.087144,
+      "max": 0.100654,
+      "times": [
+        0.093723,
+        0.100654,
+        0.087144,
+        0.093052,
+        0.093894
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "hashmap-after",
+      "mean": 0.091776,
+      "stddev": 0.002155,
+      "median": 0.091421,
+      "min": 0.089254,
+      "max": 0.094642,
+      "times": [
+        0.091421,
+        0.090389,
+        0.094642,
+        0.093173,
+        0.089254
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "hashmap-gc-before",
+      "stats": "GC collections=0 allocated=65529120 live=0 pause_ns=0 peak=65533232 threshold=134217728 rss_kb=73848"
+    },
+    {
+      "command": "hashmap-gc-after",
+      "stats": "GC collections=0 allocated=65529120 live=0 pause_ns=0 peak=65533232 threshold=134217728 rss_kb=73856"
+    },
+    {
+      "command": "strings-before",
+      "mean": 0.044678,
+      "stddev": 0.0010762,
+      "median": 0.044288,
+      "min": 0.04346,
+      "max": 0.046305,
+      "times": [
+        0.04346,
+        0.04425,
+        0.046305,
+        0.044288,
+        0.045087
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "strings-after",
+      "mean": 0.047262,
+      "stddev": 0.0006387,
+      "median": 0.04742,
+      "min": 0.046582,
+      "max": 0.048056,
+      "times": [
+        0.046638,
+        0.04742,
+        0.048056,
+        0.046582,
+        0.047615
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "strings-gc-before",
+      "stats": "GC collections=0 allocated=62413360 live=0 pause_ns=0 peak=62417472 threshold=134217728 rss_kb=67700"
+    },
+    {
+      "command": "strings-gc-after",
+      "stats": "GC collections=0 allocated=62413360 live=0 pause_ns=0 peak=62417472 threshold=134217728 rss_kb=67708"
+    },
+    {
+      "command": "mandelbrot-before",
+      "mean": 0.048538,
+      "stddev": 0.0046099,
+      "median": 0.046226,
+      "min": 0.044774,
+      "max": 0.056009,
+      "times": [
+        0.049928,
+        0.045755,
+        0.044774,
+        0.046226,
+        0.056009
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "mandelbrot-after",
+      "mean": 0.047085,
+      "stddev": 0.0021408,
+      "median": 0.045985,
+      "min": 0.045383,
+      "max": 0.050163,
+      "times": [
+        0.045383,
+        0.050163,
+        0.045412,
+        0.048482,
+        0.045985
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "mandelbrot-gc-before",
+      "stats": "GC collections=0 allocated=1048624 live=0 pause_ns=0 peak=1052736 threshold=134217728 rss_kb=4188"
+    },
+    {
+      "command": "mandelbrot-gc-after",
+      "stats": "GC collections=0 allocated=1048624 live=0 pause_ns=0 peak=1052736 threshold=134217728 rss_kb=4188"
+    },
+    {
+      "command": "nbody-before",
+      "mean": 0.090011,
+      "stddev": 0.0015413,
+      "median": 0.089273,
+      "min": 0.088775,
+      "max": 0.0923,
+      "times": [
+        0.0923,
+        0.088818,
+        0.088775,
+        0.090887,
+        0.089273
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "nbody-after",
+      "mean": 0.092364,
+      "stddev": 0.0020476,
+      "median": 0.092663,
+      "min": 0.089869,
+      "max": 0.095164,
+      "times": [
+        0.092663,
+        0.093165,
+        0.089869,
+        0.090959,
+        0.095164
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "nbody-gc-before",
+      "stats": "GC collections=0 allocated=1074672 live=0 pause_ns=0 peak=1099072 threshold=134217728 rss_kb=4248"
+    },
+    {
+      "command": "nbody-gc-after",
+      "stats": "GC collections=0 allocated=1074672 live=0 pause_ns=0 peak=1099072 threshold=134217728 rss_kb=4260"
+    },
+    {
+      "command": "trees-before",
+      "mean": 1.036866,
+      "stddev": 0.0133487,
+      "median": 1.03728,
+      "min": 1.023069,
+      "max": 1.0562,
+      "times": [
+        1.025806,
+        1.03728,
+        1.0562,
+        1.023069,
+        1.041974
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "trees-after",
+      "mean": 1.020842,
+      "stddev": 0.0071788,
+      "median": 1.020028,
+      "min": 1.013849,
+      "max": 1.032708,
+      "times": [
+        1.020755,
+        1.020028,
+        1.032708,
+        1.013849,
+        1.016871
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "output_equal": true
+    },
+    {
+      "command": "trees-gc-before",
+      "stats": "GC collections=11 allocated=1885689824 live=41946144 pause_ns=294918069 peak=218103712 threshold=226492320 rss_kb=241792"
+    },
+    {
+      "command": "trees-gc-after",
+      "stats": "GC collections=11 allocated=1885689824 live=41946144 pause_ns=373096707 peak=218103712 threshold=226492320 rss_kb=241796"
+    }
+  ]
+}

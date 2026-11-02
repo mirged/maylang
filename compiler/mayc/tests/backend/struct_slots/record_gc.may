@@ -1,0 +1,26 @@
+struct Node { id: Int, left: Any, right: Any }
+
+fun tree(depth: Int) -> Node {
+    if (depth == 0) { return Node(0, nil, nil); }
+    return Node(depth, tree(depth - 1), tree(depth - 1));
+}
+
+// A long-lived tree keeps the live heap large while short-lived records churn.
+// Every round builds a batch of records and drops it, so collections run; some
+// records grow a dynamic field, which moves their entries out of the block.
+let root: Node = tree(14);
+mut i: Int = 0;
+mut total: Int = 0;
+while (i < 2000) {
+    let batch: List<Any> = [];
+    mut j: Int = 0;
+    while (j < 2000) {
+        let node: Any = Node(j, nil, nil);
+        if (j % 100 == 0) { node.tag = i + j; node.extra = "grown" + str(i); }
+        push(batch, node);
+        j += 1;
+    }
+    total += len(batch);
+    i += 1;
+}
+print(total, root.id);

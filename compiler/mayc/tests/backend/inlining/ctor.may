@@ -1,0 +1,7 @@
+struct Cell { value: Int }
+fun make(n: Int) -> Cell { return Cell(n); }
+let big: Int = 20000000;
+mut sum: Int = 0;
+mut i: Int = 0;
+while (i < big) { let c: Cell = make(i); sum += c.value; i += 1; }
+print(sum);
