@@ -224,6 +224,11 @@
     "stdout": "MAoxCjIKMwo0Cm9uZSAzCm5lZyAtMgpuZWcgLTEKbmVnIDAKMAoxMAoyMApqIDEwMApqIDEwMQpqIDEwMwpqIDEwNAowCmFueSAxCmFueSAyCmFyaXRobWV0aWM6IGludGVnZXIgb3V0c2lkZSBhbm5vdGF0ZWQgYm91bmRzCjgKMiAtMQpzdG9wClswLCAxLCAyLCAzXSBbMCwgMiwgNF0KNTAwMDAwMDAK",
     "stderr": ""
   },
+  "record_construct.may": {
+    "exit": 0,
+    "stdout": "YWJjIDEgMiAzIFsieCIsICJ5IiwgInoiXQo2IDcgWyJmaXJzdCIsICJzZWNvbmQiXQoxIDQgOCA4CjQyIDkgMSA4CjgwIFsiYSIsICJiIiwgImMiLCAiZCIsICJlIiwgImYiLCAiZyIsICJoIiwgImV4dHJhIl0KWyJ0YWciLCAiciJdIFsidGFnIiwgInciLCAiaCJdIFsidGFnIl0KQ2lyY2xlIDMgUmVjdCA0IDUgRW1wdHkKNgo0IDYgWyJ4IiwgInkiLCAieiJdIHRydWUKeyJ4IjogNCwgInkiOiA1LCAieiI6IDZ9IHsieCI6NCwieSI6NSwieiI6Nn0KYXJpdGggYXJpdGhtZXRpYwowIDAgWyJ4IiwgInkiLCAieiJdCnRydWUgMjAwMDAzMDAwMDAK",
+    "stderr": ""
+  },
   "record_dup_keys.may": {
     "exit": 0,
     "stdout": "MSBbInRhZyJdIHsidGFnIjogN30gNwoyIFsidGFnIiwgInYiXSB7InRhZyI6ICJCIiwgInYiOiAxfSBCIDEKMSBbIngiXSB7IngiOiA8ZnVuY3Rpb24+fSA8ZnVuY3Rpb24+IDxmdW5jdGlvbj4KMSBbIngiXSB7IngiOiAyfSAyCjIgWyJhImIiLCAieCJdIDMgMjcK",

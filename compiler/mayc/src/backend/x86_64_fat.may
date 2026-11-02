@@ -2147,15 +2147,18 @@ fun fat_rm_index8(ctx: Any, reg: Any, base: Any, index: Any) -> Any {
     return 0;
 }
 
-// lea reg, [base + disp8]; lea reg, [base + index + disp8]; lea reg,
-// [base + index * scale] (scale as the SIB field, 0-3).
+// lea reg, [base + disp]; the displacement is the 8-bit form when it fits.
 fun fat_lea(ctx: Any, reg: Any, base: Any, disp: Any) -> Any {
     fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, 0, if (base >= 8) { 1 } else { 0 });
-    e8(ctx, 141); e8(ctx, 64 + (reg % 8) * 8 + base % 8);
+    e8(ctx, 141);
+    if (disp >= 0 and disp <= 127) { e8(ctx, 64 + (reg % 8) * 8 + base % 8); }
+    else { e8(ctx, 128 + (reg % 8) * 8 + base % 8); }
     if (base % 8 == 4) { e8(ctx, 36); }
-    e8(ctx, disp);
+    if (disp >= 0 and disp <= 127) { e8(ctx, disp); } else { e32(ctx, disp); }
     return 0;
 }
+// lea reg, [base + index + disp8]; lea reg, [base + index * scale] (scale as
+// the SIB field, 0-3).
 fun fat_lea_index(ctx: Any, reg: Any, base: Any, index: Any, disp: Any) -> Any {
     fat_rex(ctx, 1, if (reg >= 8) { 1 } else { 0 }, if (index >= 8) { 1 } else { 0 },
         if (base >= 8) { 1 } else { 0 });
@@ -2527,6 +2530,104 @@ fun fat_coalesce_fusable(block: Any, position: Any) -> Any {
     return [following, result];
 }
 
+// ---- fixed-slot record construction (#135) --------------------------------
+//
+// A struct or enum constructor lowers to rt_struct_new(n) and one
+// rt_struct_set per entry (#134). Its body is straight-line: the keys are
+// interned string literals, the values are its parameters, and the record
+// cannot be named before it is returned. When the size reaches the backend as a
+// forwarded constant, the allocation's header writes and every slot write are
+// emitted directly instead of one runtime call per slot. The allocation itself
+// stays a runtime call (rt_alloc_record), so the block is the same kind-4
+// record block of docs/design/STRUCT_LAYOUT.md: a 48-byte map header with the
+// entries at p + 48, the hash table fields left zeroed and the entry bytes
+// exactly those rt_struct_set writes. The collector is untouched. A shape this
+// cannot prove keeps the runtime calls, and --no-opt keeps the old path.
+//
+// FAT_RECORD_STACK holds the records whose header this body wrote and whose
+// slots are still being filled: [temporary slot, size, next slot, valid].
+// Constructor bodies nest only through nested record constructors, and an inner
+// record completes before the outer record's next slot write, so a stack
+// matches the order.
+mut FAT_RECORD_STACK: Any = [];
+
+// The constant Int value of `value` when the backend forwarded one here.
+fun fat_record_const(value: Any) -> Any {
+    if (value == 0 or value == nil) { return nil; }
+    let d: Any = FAT_FORWARD[value.slot];
+    if (d == nil or d[0] != 0 or d[1] != 2) { return nil; }
+    return d[2];
+}
+
+fun fat_record_pending(slot: Any) -> Any {
+    mut i: Any = len(FAT_RECORD_STACK) - 1;
+    while (i >= 0) {
+        let entry: Any = FAT_RECORD_STACK[i];
+        if (entry[0] == slot) { return entry; }
+        i -= 1;
+    }
+    return nil;
+}
+
+// push rax.
+fun fat_push_payload(ctx: Any) -> Any { e8(ctx, 80); return 0; }
+
+// Allocate a `size`-slot record and write rt_struct_new's header: the count,
+// the capacity in values (two per entry) and the entries pointer into the
+// block at p + 48. rt_alloc_record zeroes the payload, so the hash table fields
+// at 24 and 32 stay zero exactly as the runtime leaves them.
+fun fat_record_new(ctx: Any, instruction: Any) -> Bool {
+    let args: Any = instruction.arg1;
+    if (args == 0 or args.next != 0 or instruction.result == 0) { return false; }
+    let size: Any = fat_record_const(args);
+    if (size == nil or size <= 0 or size > 4096) { return false; }
+    x86_mov_immediate(ctx, 0, size); fat_push_payload(ctx);              // push size
+    fat_rt_call(ctx, "rt_alloc_record", 1);                              // payload in rax
+    x86_mov_immediate(ctx, 2, 6);                                        // type word: record
+    x86_mov_immediate(ctx, 1, size);
+    fat_rm(ctx, 137, 1, 0, 0);                                           // mov [rax], rcx        count
+    x86_mov_immediate(ctx, 1, size * 2);
+    fat_rm(ctx, 137, 1, 0, 8);                                           // mov [rax + 8], rcx    capacity
+    fat_lea(ctx, 1, 0, 48);                                              // lea rcx, [rax + 48]
+    fat_rm(ctx, 137, 1, 0, 16);                                          // mov [rax + 16], rcx   entries
+    push(FAT_RECORD_STACK, [instruction.result.slot, size, 0, true]);
+    return true;
+}
+
+// Write entry `slot` of the record whose header `fat_record_new` wrote: the
+// key type and payload, then the value type and payload, at
+// [record + 48 + 32 * slot]. Returns false to keep the runtime call.
+fun fat_record_set(ctx: Any, instruction: Any) -> Bool {
+    let record: Any = instruction.arg1;
+    if (record == 0 or record.next == 0) { return false; }
+    let slotValue: Any = record.next;
+    if (slotValue.next == 0 or slotValue.next.next == 0) { return false; }
+    let key: Any = slotValue.next;
+    let value: Any = key.next;
+    if (value.next != 0) { return false; }
+    let entry: Any = fat_record_pending(record.slot);
+    if (entry == nil or entry[3] != true) { return false; }
+    let slot: Any = fat_record_const(slotValue);
+    if (slot == nil or slot != entry[2] or slot >= entry[1]) {
+        entry[3] = false;                                                // the rest keeps the runtime call
+        return false;
+    }
+    fat_get(ctx, record); x86_move_register(ctx, 10, 0);                 // r10 = record payload
+    fat_get(ctx, key); x86_move_register(ctx, 11, 0);                    // r11 = key payload
+    fat_lea(ctx, 1, 10, 48 + 32 * slot);                                 // rcx = entry address
+    fat_rm(ctx, 137, 2, 1, 0);                                           // mov [rcx], rdx        key type
+    fat_rm(ctx, 137, 11, 1, 8);                                          // mov [rcx + 8], r11    key payload
+    fat_get(ctx, value);
+    fat_rm(ctx, 137, 2, 1, 16);                                          // mov [rcx + 16], rdx   value type
+    fat_rm(ctx, 137, 0, 1, 24);                                          // mov [rcx + 24], rax   value payload
+    entry[2] = slot + 1;
+    if (entry[2] == entry[1]) {
+        let top: Any = FAT_RECORD_STACK[len(FAT_RECORD_STACK) - 1];
+        if (top[0] == entry[0]) { pop(FAT_RECORD_STACK); } else { entry[3] = false; }
+    }
+    return true;
+}
+
 fun fat_ir(ctx: Any, block: Any) -> Any {
     mut position: Any = 0;
     while (position < len(block.code)) {
@@ -2576,6 +2677,8 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
         }
         else if (op == IR_RUNTIME) {
             if (payload == "rt_push" and not NO_OPT and fat_count(instruction.arg1) == 2) { fat_push_fast(ctx, instruction.arg1); }
+            else if (payload == "rt_struct_new" and not NO_OPT and fat_record_new(ctx, instruction)) { }
+            else if (payload == "rt_struct_set" and not NO_OPT and fat_record_set(ctx, instruction)) { }
             else { fat_rt(ctx, payload, instruction.arg1); }
         }
         else if (op == IR_RETURN) { fat_get(ctx, instruction.arg1); jmp(ctx, ctx.returnLabel); }
@@ -2659,7 +2762,7 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
     bx_use_list(ctx, boxed);
     ctx.fatBase = fat_plan_slots(block); fat_forget(); FAT_APPLY_LOCAL = -1;
     FAT_HOME_NAMES = {}; FAT_HOME_ORDER = []; FAT_HOMES = [];
-    FAT_XMM = []; FAT_IN_BODY = false; FAT_WORD_FAULT = nil;
+    FAT_XMM = []; FAT_IN_BODY = false; FAT_WORD_FAULT = nil; FAT_RECORD_STACK = [];
     for interval: Any in FAT_INTERVALS { push(FAT_XMM, -1); }
     ctx.envCount = 0; ctx.envCaptures = [];
     return 0;
