@@ -27,14 +27,14 @@ Median whole-process wall time in ms.
 
 | Benchmark | Maylang | C | Rust | Java | Node | CPython | May/C | May/CPython |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| fib(35), recursive `Int` function | 60 | 14 | 18 | 50 | 81 | 659 | 4.3x | 0.09x |
-| Collatz, seeds 1..300000, top level | 84 | 41 | 35 | 81 | 242 | 1836 | 2.0x | 0.05x |
-| sieve, 10M `List<Bool>` | 308 | 25 | 24 | 65 | 214 | 414 | 12.3x | 0.74x |
-| map, 200k `Str` inserts + 400k lookups | 107 | 56 | 57 | 103 | 124 | 100 | 1.9x | 1.08x |
-| strings, 300k `"item-" + str(i) + ";"` + `join` | 55 | 22 | 24 | 67 | 60 | 45 | 2.5x | 1.23x |
-| Mandelbrot 600×600, 100 iterations | 44 | 35 | 35 | 56 | 57 | 771 | 1.3x | 0.06x |
-| n-body, 5 bodies × 200k steps (`struct`) | 96 | 9 | 13 | 40 | 36 | 473 | 10.4x | 0.20x |
-| binary trees, depth 16 (`struct`) | 1670 | 149 | 179 | 127 | 161 | 1967 | 11.2x | 0.85x |
+| fib(35), recursive `Int` function | 58 | 17 | 20 | 57 | 89 | 644 | 3.5x | 0.09x |
+| Collatz, seeds 1..300000, top level | 88 | 41 | 39 | 82 | 247 | 1855 | 2.2x | 0.05x |
+| sieve, 10M `List<Bool>` | 270 | 24 | 24 | 61 | 227 | 427 | 11.3x | 0.63x |
+| map, 200k `Str` inserts + 400k lookups | 109 | 70 | 54 | 108 | 131 | 106 | 1.6x | 1.02x |
+| strings, 300k `"item-" + str(i) + ";"` + `join` | 51 | 20 | 22 | 60 | 61 | 44 | 2.6x | 1.17x |
+| Mandelbrot 600×600, 100 iterations | 46 | 34 | 35 | 59 | 57 | 758 | 1.3x | 0.06x |
+| n-body, 5 bodies × 200k steps (`struct`) | 99 | 11 | 11 | 39 | 38 | 471 | 9.3x | 0.21x |
+| binary trees, depth 16 (`struct`) | 1786 | 139 | 175 | 126 | 164 | 1955 | 12.8x | 0.91x |
 
 ## Peak RSS
 
@@ -42,57 +42,52 @@ MiB, as reported for the whole process.
 
 | Benchmark | Maylang | C | Rust | Java | Node | CPython |
 | --- | --- | --- | --- | --- | --- | --- |
-| fib | 14 | 14 | 14 | 41 | 50 | 14 |
-| collatz | 14 | 14 | 14 | 41 | 50 | 14 |
-| sieve | 152 | 14 | 14 | 51 | 127 | 85 |
-| map | 64 | 16 | 18 | 106 | 85 | 33 |
-| strings | 61 | 16 | 21 | 73 | 93 | 33 |
-| mandelbrot | 14 | 14 | 14 | 41 | 51 | 14 |
-| n-body | 14 | 14 | 14 | 42 | 53 | 14 |
-| binary trees | 287 | 14 | 14 | 150 | 89 | 21 |
+| fib | 14 | 14 | 14 | 44 | 51 | 14 |
+| collatz | 14 | 14 | 14 | 45 | 52 | 14 |
+| sieve | 18 | 14 | 14 | 55 | 129 | 85 |
+| map | 67 | 15 | 18 | 110 | 87 | 33 |
+| strings | 64 | 17 | 22 | 80 | 95 | 33 |
+| mandelbrot | 14 | 14 | 14 | 45 | 53 | 14 |
+| n-body | 14 | 14 | 14 | 46 | 55 | 14 |
+| binary trees | 252 | 14 | 14 | 170 | 90 | 21 |
 
 ## Against the roadmap baseline
 
 The roadmap's baseline table was measured on `233909e`, before phases 1 to 3.
-Rerunning today's suite on the same machine:
+Rerunning today's suite on the same machine, after phases 0-3, the runtime
+audit, specialized list storage and the live-set collection threshold:
 
 | Benchmark | `233909e`, ms | now, ms |
 | --- | --- | --- |
-| fib | 123 | 60 |
-| collatz | 619 | 84 |
-| sieve | 1094 | 308 |
-| map | 274 | 107 |
-| strings | 283 | 55 |
-| mandelbrot | 803 | 44 |
-| n-body | 6226 | 96 |
-| binary trees | 19965 | 1670 |
+| fib | 123 | 58 |
+| collatz | 619 | 88 |
+| sieve | 1094 | 270 |
+| map | 274 | 109 |
+| strings | 283 | 51 |
+| mandelbrot | 803 | 46 |
+| n-body | 6226 | 99 |
+| binary trees | 19965 | 1786 |
 
 Every goal the roadmap set for phases 1 to 3 holds: Maylang beats CPython on
-seven of the eight benchmarks (map is 1.08× CPython), Mandelbrot is within 2×
-of C, and fib is within 1.3× of Java. The suite median is 3.4× C; the two
-outliers that set it are the collection-heavy ones (sieve, binary trees) and
-n-body, all of which wait on Phase 2 and Phase 5 rather than on code
-generation.
+seven of the eight benchmarks (map is 1.02x CPython), Mandelbrot is within 2x
+of C, collatz within 2.2x, and fib is within 1.0x of Java. Peak RSS on the
+sieve went from 420 MiB at `233909e` to 18 MiB.
 
 ## What is left
 
-- **sieve, 12.3× C.** `List<Bool>` stores a 16-byte fat value per element and
-  the store is a runtime check plus a 16-byte write; sieve also touches 152 MiB
-  of pages against C's 14. Specialized element storage (Phase 2) is the fix.
-- **binary trees, 11.2× C.** Every node is a map allocation with fat slots and
-  a string-keyed field cache; C's node is two pointers. Peak RSS is 287 MiB
-  against CPython's 21, so allocation and collection (Phase 5) matter as much
-  as field access.
-- **n-body, 10.4× C.** Each structure field read is an inline-cached map probe
-  (`struct-fields.md`), and each `Float` operation still moves through the
-  runtime for the general case.
-- **fib, 4.3× C.** The function compiles to native words, so the gap is call
-  overhead: arguments travel in a vector on the stack and every call rechecks
-  the count and the callee. Direct calls with register arguments (Phase 3) and
-  inlining (Phase 4) address it.
-- **map and strings** are close to the JITs already (1.9× and 2.5× C) and
-  slower than CPython only where CPython's `str`-interning and dict shortcuts
-  are hard to beat with a general hash table.
+- **binary trees, 12.8x C, 252 MiB against CPython's 21.** Every node is a map
+  allocation with fat slots and a string-keyed field cache; C's node is two
+  pointers. Struct slots and enum payloads by offset (#134) and allocation and
+  collection (#135) both move this.
+- **sieve, 11.3x C.** The storage is now one byte per flag (18 MiB), so what is
+  left is the 10M `push` calls and the runtime store path: inline `push` and a
+  store path that keeps the index live across a widening call (#133).
+- **n-body, 9.3x C.** Each structure field read is an inline-cached map probe
+  and each `Float` operation still moves through the runtime for the general
+  case: struct slots (#134) and native `Float` functions (#132).
+- **fib, 3.5x C, already within Java.** The function compiles to native words,
+  so the gap is call overhead: direct calls with register arguments (#132) and
+  inlining (#131).
 
 ## Reproducing
 

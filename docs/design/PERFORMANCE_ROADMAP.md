@@ -260,9 +260,9 @@ the CI performance job publishes a fresh report.
 | --- | --- |
 | 0 Measurement | tracked suite, `--no-opt`, oracle test and the CI report job done; GC statistics done |
 | 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
-| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots and enum payloads open |
-| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals and inline `len` done; inline `push`/string equality, native regions, native Float functions, direct calls and main-as-native open |
-| 4 IR optimizer | not started (tracked separately) |
-| 5 Allocation and collection | inline allocation, free-list return-to-OS and precise stack maps open (tracked separately) |
+| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots and enum payloads in [#134](https://github.com/mirged/maylang/issues/134) |
+| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals and inline `len` done; inline `push`/string equality, native regions, native Float functions, direct calls and main-as-native in [#132](https://github.com/mirged/maylang/issues/132), inline `push`/string equality in [#133](https://github.com/mirged/maylang/issues/133) |
+| 4 IR optimizer | not started; tracked in [#131](https://github.com/mirged/maylang/issues/131) |
+| 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation, returned pages and precise stack maps in [#135](https://github.com/mirged/maylang/issues/135) |
 | 6 Other targets | deferred (frozen) |
 | 7 Compiler throughput | baseline recorded ([report](../../compiler/mayc/tests/backend/compiler-throughput.md)); re-measure per phase |
