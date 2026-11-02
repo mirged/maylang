@@ -137,9 +137,13 @@ struct-bound ones, and no map operation is worse than amortized O(1).
   their entries at the final size
   ([report](../../compiler/mayc/tests/backend/struct-fields.md)). A struct
   as a header plus fixed fat slots would still cut each record's memory and
-  allocations; it changes how records are observed and needs its own design.
+  allocations; the design is in [STRUCT_LAYOUT.md](STRUCT_LAYOUT.md): the
+  record keeps the map header and its key objects (so `keys`, `to_map`,
+  display order and mutation through `Any` are unchanged) but allocates its
+  entries in the same block, with no hash table, and typed reads become offset
+  loads. Not implemented yet ([#134](https://github.com/mirged/maylang/issues/134)).
 - Enum variants and payloads with the same layout, so `match` reads payloads
-  by offset.
+  by offset. Covered by the same design note; it lands after struct reads.
 - Specialized list storage for homogeneous element types (`List<Int>`,
   `List<Float>` as 8-byte words, `List<Bool>`/`List<Byte>` as bytes), with
   conversion when a value of another type is stored through an `Any`
@@ -187,7 +191,12 @@ CPython's.
   argument vector and count checks and pass arguments in registers.
 - Inline fast paths for common runtime calls: `len` of lists, `push` with
   spare capacity, string equality on length mismatch, `??` on present map
-  values.
+  values. Done: `push` with spare capacity (all four element kinds, with the
+  runtime call for growth, a widening element type and non-list receivers)
+  and `==`/`!=` on two strings of different byte lengths
+  ([report](../../compiler/mayc/tests/backend/inline-paths.md)); the sieve
+  drops from 250 to 187 ms. `??` still needs map probing inlined first, so
+  there is no probe state at the branch to reuse.
 - [#94](https://github.com/mirged/maylang/issues/94): restore or remove
   native-word extern calls.
 
@@ -201,7 +210,15 @@ backend would benefit too. Each one is skipped under `--no-opt`.
 - Constant and copy propagation beyond `sem_fold`; dead code and dead store
   elimination for fat code (the raw backend's DCE as a model).
 - Inlining of small, non-recursive functions and closures with known
-  targets, with a size budget measured on the compiler's own image.
+  targets, with a size budget measured on the compiler's own image. Tried: a
+  leaf inliner (straight-line bodies ending in one return, parameter reads
+  only, 24-quad budget) cloned struct constructors and one-expression helpers
+  into their call sites; it was behaviour-clean (`make test-bootstrap` green,
+  every benchmark's output identical) but **did not pay**: binary trees
+  1.79 s before against 1.86 s after (7 runs), n-body and fib inside the
+  spread. The call is small next to the map insertion a constructor performs,
+  so the change was dropped rather than merged; a profitable inliner needs the
+  caller-side work (register arguments) from phase 3 first.
 - Common subexpression elimination for pure operations, including repeated
   field reads and `len` calls in loop conditions.
 - Loop-invariant code motion.
@@ -260,9 +277,9 @@ the CI performance job publishes a fresh report.
 | --- | --- |
 | 0 Measurement | tracked suite, `--no-opt`, oracle test and the CI report job done; GC statistics done |
 | 1 Runtime algorithms | #97, #99 done; runtime audit done ([report](../../compiler/mayc/tests/backend/runtime-audit.md)) |
-| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots and enum payloads in [#134](https://github.com/mirged/maylang/issues/134) |
-| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals and inline `len` done; inline `push`/string equality, native regions, native Float functions, direct calls and main-as-native in [#132](https://github.com/mirged/maylang/issues/132), inline `push`/string equality in [#133](https://github.com/mirged/maylang/issues/133) |
-| 4 IR optimizer | not started; tracked in [#131](https://github.com/mirged/maylang/issues/131) |
+| 2 Object layout | #98 done (field caches); specialized list storage done ([design](LIST_STORAGE.md), [report](../../compiler/mayc/tests/backend/list-storage.md)); closure environments already fixed slots; struct slots and enum payloads designed ([design](STRUCT_LAYOUT.md)) but not implemented; a prototype was reverted after it destabilised the compiler build (see the design note), [#134](https://github.com/mirged/maylang/issues/134) |
+| 3 Type-directed code generation | #96, #94 done; proven types, XMM Floats, parameter versioning, top-level main locals, inline `len`, inline `push` and string equality done ([report](../../compiler/mayc/tests/backend/inline-paths.md)); native regions, native Float functions, direct calls and main-as-native in [#132](https://github.com/mirged/maylang/issues/132); `??` on present map values still open in [#133](https://github.com/mirged/maylang/issues/133) |
+| 4 IR optimizer | leaf-function inlining tried and measured (no win, not merged); propagation, DCE, CSE, LICM, check elimination, escape analysis and monomorphization open in [#131](https://github.com/mirged/maylang/issues/131) |
 | 5 Allocation and collection | live-set thresholds and GC statistics done; inline allocation, returned pages and precise stack maps in [#135](https://github.com/mirged/maylang/issues/135) |
 | 6 Other targets | deferred (frozen) |
 | 7 Compiler throughput | baseline recorded ([report](../../compiler/mayc/tests/backend/compiler-throughput.md)); re-measure per phase |
