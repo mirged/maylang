@@ -143,6 +143,10 @@ jobs:
           python3 tools/may/tests/benchmark.py --binary "$1" --compiler "$(dirname "$1")/mayc" --report /tmp/workspace-benchmark.json
           set -- /tmp/maylang-toolchain/maylang-*/bin/mayc
           python3 compiler/mayc/tests/limits.py --compiler "$1" --backend native --iterations 2000000 --samples 5 --rounds 256 --heap-mib 4 16 64 256 --pressure 64 --functions 512 --self-test --timeout 120 --output /tmp/gc-codegen-limits
+      - name: Publish the cross-language suite without timing gates
+        run: |
+          set -- /tmp/maylang-toolchain/maylang-*/bin/mayc
+          python3 compiler/mayc/tests/backend/xlang.py --compiler "$1" --runs 5 --json /tmp/xlang.json --report /tmp/xlang.md
       - name: Upload performance measurements
         if: always()
         uses: actions/upload-artifact@v4
@@ -154,6 +158,8 @@ jobs:
             /tmp/diagnostic-benchmark.json
             /tmp/workspace-benchmark.json
             /tmp/gc-codegen-limits/
+            /tmp/xlang.json
+            /tmp/xlang.md
           if-no-files-found: ignore
   sanitizers:
     runs-on: ubuntu-24.04
