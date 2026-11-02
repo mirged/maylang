@@ -2,6 +2,35 @@
 
 ## Performance
 
+- Opt-in runtime collection statistics (`MAYC_GC_STATS=1`). The collector
+  counts collections, allocated bytes, live bytes after the last sweep, total
+  pause time and the heap and resident high-water marks, and writes one
+  parseable `GC key=value` line after each line of output and at an uncaught
+  fault exit. One start-up read of `/proc/self/environ` decides whether to
+  enable them; after that every counter and the CLOCK_MONOTONIC pause probe sit
+  behind one global flag, so a normal run pays a flag test per allocation and
+  per output write.
+  `compiler/mayc/tests/limits.py --runtime-gc-stats` runs the GC cases with the
+  variable set, adds `Live MiB` and `Runtime pause ms` columns and a `runtime`
+  object to the report, and requires the runtime's collection count to equal
+  the inline meter's. `make test-limits` exercises it.
+- Derive the collection threshold from the live bytes of each sweep instead of
+  the fixed 256 MiB default: the first cycle starts at an eighth of the
+  nominal heap, then every sweep sets `max(floor, 2 * live + margin)` with a
+  margin of one sixteenth of the nominal heap (at most 8 MiB), never below the
+  allocation frontier plus that margin and clamped to the reservation. Empty
+  tails are still reclaimed by rewinding the bump pointer; the threshold only
+  lowers, nothing is unmapped. Measured with the cross-language suite (five
+  runs; the C and Rust controls moved 7-16% between the two runs on this
+  host, so treat the times as a spread), binary trees peaks at 218 MiB instead
+  of 287 MiB and runs in 1847 ms instead of 1746 ms; sieve, whose flags list is
+  160 MiB live, keeps its RSS and runs in 331 ms instead of 433 ms. The
+  compiler's own live set no longer fits the first threshold, so `--check` of
+  `main.may` costs about 10% more (1.39 s against 1.26 s) and a small file
+  around 40% more (185 ms against 130 ms) while its peak RSS falls from 89 to
+  56 MiB. Conservative retention, not the threshold, now bounds peak RSS on
+  the benchmark workloads: the tree sweep still finds about 39 MiB live in a
+  200 MiB heap.
 - Track the cross-language suite behind the performance roadmap
   ([#101](https://github.com/mirged/maylang/issues/101)):
   `compiler/mayc/tests/backend/xlang.py` builds the eight workloads in
