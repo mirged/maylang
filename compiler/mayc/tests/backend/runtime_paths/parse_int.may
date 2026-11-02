@@ -1,0 +1,11 @@
+// parse_int: `int` of a 4 000-digit decimal string (leading zeros, so the
+// value stays small) and of a short padded number, eight times.
+let digits: Str = "0" + repeat("0", 3999) + "7";
+mut total: Int = 0;
+mut i: Int = 0;
+while (i < 8) { total += int(digits); i += 1; }
+print(len(digits), total);
+
+i = 0;
+while (i < 2000) { total += int("   -12345  "); i += 1; }
+print(total);

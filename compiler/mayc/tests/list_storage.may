@@ -1,0 +1,36 @@
+// Specialized list element storage (#101 phase 2, docs/design/LIST_STORAGE.md).
+// A typed literal starts with byte, word or fat elements; an `Any` alias that
+// stores another type widens the list, so the observable result is a fat list.
+let flags: List<Bool> = [];
+push(flags, true);
+push(flags, false);
+print(flags, flags[0], flags[1], len(flags));
+
+let ints: List<Int> = [3, 1, 2];
+ints[1] = 7;
+print(ints, join(ints, "-"), pop(ints), ints);
+
+let floats: List<Float> = [1.5, 2.25];
+print(floats, floats[0] + floats[1], floats[1] - floats[0]);
+
+// An Any alias can store a value of another type; the list widens to fat
+// values and keeps every earlier element.
+let alias: Any = ints;
+push(alias, "text");
+print(ints, len(ints), value_tag(ints[2]));
+
+let cell: Any = flags;
+cell[0] = 1.5;
+print(flags, len(flags));
+
+// Sorting, mapping and reduction read any kind.
+print(sort(ints), map(ints, fun(x: Any) -> Any { return x; }));
+
+let squares: List<Int> = [i * i for i in 0..5];
+print(squares, len(squares), squares[4]);
+
+// Nested lists, maps of lists and pops of a specialized list.
+let nested: List<List<Int>> = [ints, squares];
+print(len(nested), nested[1][2]);
+print(to_map([[1, 2], [3, 4]]));
+print(any(flags, fun(x: Any) -> Any { return x; }));

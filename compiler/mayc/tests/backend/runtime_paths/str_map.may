@@ -1,0 +1,9 @@
+// str_map: 200 000 String-keyed map inserts and 400 000 lookups, the map
+// workload of the cross-language suite, to measure `rt_str_eq` on keys.
+let m: Map<Str, Int> = {};
+mut i: Int = 0;
+while (i < 200000) { m["key-" + str(i)] = i; i += 1; }
+mut total: Int = 0;
+i = 0;
+while (i < 400000) { total += m["key-" + str(i % 200000)] ?? 0; i += 1; }
+print(len(m), total % 1000000);

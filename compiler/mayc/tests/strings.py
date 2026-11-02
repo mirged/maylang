@@ -39,6 +39,54 @@ def main():
         ])
         # Compare parsed JSON so escaping choices are independent of the oracle.
         expected.extend([fields, list(source), source[start:start + count]])
+    # Library paths rewritten by the runtime audit (trim, reverse, padding,
+    # prefix and suffix tests, search, integer parsing) against the same random
+    # inputs: Python's code point semantics are the oracle, with trimming
+    # restricted to the ASCII whitespace Maylang defines.
+    def trim_ascii(text):
+        start, end = 0, len(text)
+        while start < end and text[start] in ' \t\n\r':
+            start += 1
+        while end > start and text[end - 1] in ' \t\n\r':
+            end -= 1
+        return text[start:end]
+
+    def pad(text, width, filler, left):
+        out = text
+        while len(out) < width:
+            out = filler + out if left else out + filler
+        return out
+
+    for source, _ in cases:
+        prefix = source[:rng.randrange(len(source) + 1)]
+        suffix = source[rng.randrange(len(source) + 1):]
+        needle = source[rng.randrange(len(source) + 1):][:2]
+        width = len(source) + rng.randrange(0, 6)
+        filler = rng.choice(['a', 'ab', 'λ', '·'])
+        padded = '  ' + source + '\t '
+        statements.extend([
+            f'print(json_stringify(trim({literal(padded)})));',
+            f'print(json_stringify(reverse({literal(source)})));',
+            f'print(json_stringify(pad_left({literal(source)}, {width}, {literal(filler)})));',
+            f'print(json_stringify(pad_right({literal(source)}, {width}, {literal(filler)})));',
+            f'print(json_stringify(starts_with({literal(source)}, {literal(prefix)})));',
+            f'print(json_stringify(ends_with({literal(source)}, {literal(suffix)})));',
+            f'print(json_stringify(index_of({literal(source)}, "λ")));',
+            f'print(json_stringify(index_of({literal(source)}, {literal(needle)})));',
+        ])
+        expected.extend([
+            trim_ascii(padded),
+            source[::-1],
+            pad(source, width, filler, True),
+            pad(source, width, filler, False),
+            source.startswith(prefix),
+            source.endswith(suffix),
+            source.find('λ'),
+            source.find(needle),
+        ])
+    statements.append('print(json_stringify([int("  12  "), int("-7"), int("+9"), int("007"), '
+                      'parse_int(" -0 "), int(" 1"), int("0")]));')
+    expected.append([12, -7, 9, 7, 0, 1, 0])
     statements.extend([
         'let original: Str = "aλ🙂日本"; let copy: Str = substring(original, 1, 3);',
         'store8(addr(copy), 120); print(original == "aλ🙂日本");',

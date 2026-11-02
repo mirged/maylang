@@ -1262,6 +1262,27 @@ fun fat_math_bits(ctx: Any, name: Any, args: Any) -> Any {
     return 0;
 }
 
+// len(list) and len(map) read the header's count inline; strings count code
+// points, so they keep the runtime call (#101 phase 3 inline fast paths).
+fun fat_len_fast(ctx: Any, args: Any) -> Any {
+    let slow: Any = newlab(ctx); let done: Any = newlab(ctx); let counted: Any = newlab(ctx);
+    if (args == 0) { return fat_rt(ctx, "rt_len", args); }
+    fat_get(ctx, args);
+    for byte: Any in [72, 131, 250, 5] { e8(ctx, byte); }                    // cmp rdx, 5
+    jcc(ctx, 132, counted);                                                   // je counted
+    for byte: Any in [72, 131, 250, 6] { e8(ctx, byte); }                    // cmp rdx, 6
+    jcc(ctx, 133, slow);                                                      // jne slow
+    placelab(ctx, counted);
+    for byte: Any in [72, 139, 0] { e8(ctx, byte); }                         // mov rax, [rax]
+    x86_mov_immediate(ctx, 2, 2);
+    jmp(ctx, done);
+    placelab(ctx, slow);
+    for byte: Any in [82, 80] { e8(ctx, byte); }                             // push rdx; push rax
+    fat_rt_call(ctx, "rt_len", 2);
+    placelab(ctx, done);
+    return 0;
+}
+
 fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
     if (name == "print") {
         mut arg: Any = args;
@@ -1323,6 +1344,7 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         for byte: Any in FAT_STORES[name] { e8(ctx, byte); }                  // mov [rax], cl/cx/ecx/rcx
         return fat_set(ctx, 0, 0);
     }
+    if (name == "len") { return fat_len_fast(ctx, args); }
     if (has(FAT_BUILTINS, name)) { return fat_rt(ctx, FAT_BUILTINS[name], args); }
     if (has(FAT_MATH, name)) {
         let kernel: Any = FAT_MATH[name];
@@ -1748,6 +1770,10 @@ fun fat_index_set(ctx: Any, n: Any) -> Any {
     jcc(ctx, 133, slow);
     for byte: Any in [73, 139, 11, 72, 57, 200] { e8(ctx, byte); }           // mov rcx, [r11]; cmp rax, rcx
     jcc(ctx, 131, slow);                                                      // jae (also negative)
+    // A specialized list stores elements elsewhere; the runtime converts or
+    // widens as its kind asks (#101 phase 2).
+    for byte: Any in [73, 131, 123, 24, 0] { e8(ctx, byte); }                // cmp qword [r11 + 24], 0
+    jcc(ctx, 133, slow);                                                      // jne slow
     for byte: Any in [73, 139, 75, 16, 72, 193, 224, 4, 72, 1, 193] { e8(ctx, byte); } // mov rcx, [r11 + 16]; shl rax, 4; add rcx, rax
     fat_get(ctx, n.value);
     for byte: Any in [72, 137, 17, 72, 137, 65, 8] { e8(ctx, byte); }        // mov [rcx], rdx; mov [rcx + 8], rax
@@ -1763,6 +1789,7 @@ fun fat_index_set(ctx: Any, n: Any) -> Any {
 
 fun fat_index(ctx: Any, n: Any) -> Any {
     let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
+    let typed: Any = newlab(ctx); let bytes: Any = newlab(ctx);
     fat_operands(ctx, n.object, n.index);
     for byte: Any in [73, 131, 249, 5] { e8(ctx, byte); }                    // cmp r9, 5
     jcc(ctx, 133, slow);
@@ -1770,8 +1797,25 @@ fun fat_index(ctx: Any, n: Any) -> Any {
     jcc(ctx, 133, slow);
     for byte: Any in [77, 139, 16, 76, 57, 208] { e8(ctx, byte); }           // mov r10, [r8]; cmp rax, r10
     jcc(ctx, 131, slow);                                                      // jae (also negative)
+    // Specialized element storage (#101 phase 2): the header's kind word
+    // selects fat values, Int/Float words or Bool bytes.
+    for byte: Any in [77, 139, 88, 24] { e8(ctx, byte); }                    // mov r11, [r8 + 24]
+    for byte: Any in [77, 133, 219] { e8(ctx, byte); }                       // test r11, r11
+    jcc(ctx, 133, typed);                                                     // jne typed
     for byte: Any in [77, 139, 80, 16, 72, 193, 224, 4, 73, 1, 194,          // mov r10, [r8 + 16]; shl rax, 4; add r10, rax
         73, 139, 18, 73, 139, 66, 8] { e8(ctx, byte); }                      // mov rdx, [r10]; mov rax, [r10 + 8]
+    jmp(ctx, done);
+    placelab(ctx, typed);
+    for byte: Any in [77, 139, 80, 16] { e8(ctx, byte); }                    // mov r10, [r8 + 16]
+    for byte: Any in [73, 131, 251, 3] { e8(ctx, byte); }                    // cmp r11, 3
+    jcc(ctx, 132, bytes);                                                     // je bytes
+    for byte: Any in [72, 193, 224, 3] { e8(ctx, byte); }                    // shl rax, 3
+    for byte: Any in [73, 139, 4, 2] { e8(ctx, byte); }                      // mov rax, [r10 + rax]
+    for byte: Any in [73, 141, 83, 1] { e8(ctx, byte); }                     // lea rdx, [r11 + 1]  (Int, Float)
+    jmp(ctx, done);
+    placelab(ctx, bytes);
+    for byte: Any in [65, 15, 182, 4, 2] { e8(ctx, byte); }                  // movzx eax, byte [r10 + rax]
+    for byte: Any in [186, 1, 0, 0, 0] { e8(ctx, byte); }                    // mov edx, 1  (Bool)
     jmp(ctx, done);
     placelab(ctx, slow);
     fat_stub_call(ctx, "rt_index_get", -1);

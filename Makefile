@@ -92,7 +92,7 @@ test-sanitize:
 
 test-limits:
 	$(PYTHON) compiler/mayc/tests/test_limits.py
-	$(PYTHON) compiler/mayc/tests/limits.py --compiler "$(MAYC)" --self-test
+	$(PYTHON) compiler/mayc/tests/limits.py --compiler "$(MAYC)" --self-test --runtime-gc-stats
 
 # Cross-language suite from the performance roadmap (#101). Not a CI gate.
 bench-xlang:

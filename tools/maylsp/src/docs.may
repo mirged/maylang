@@ -602,7 +602,7 @@ let LS_REFERENCE: Any = {
     },
     "sort": {
         "signature": "sort(xs)",
-        "docs": "Return the items in ascending order using the standard comparison function. The input list is preserved.\n\n**Parameters**\n- `xs`: A list of comparable values.\n\n**Returns:** A new sorted list.\n\n**Example**\n```may\nprint(sort([3, 1, 2]));\n```",
+        "docs": "Return the items in ascending order using the standard comparison function. The input list is preserved.\n\nThe sort is a stable bottom-up merge sort over a copy of the input: O(n log n) comparisons instead of the quadratic insertion sort's O(n²). Equal items keep their input order.\n\n**Parameters**\n- `xs`: A list of comparable values.\n\n**Returns:** A new sorted list.\n\n**Example**\n```may\nprint(sort([3, 1, 2]));\n```",
         "params": [
             "xs"
         ],
@@ -612,7 +612,7 @@ let LS_REFERENCE: Any = {
     },
     "reverse": {
         "signature": "reverse(x)",
-        "docs": "Build a list with the input items in reverse order.\n\n**Parameters**\n- `x`: The input list.\n\n**Returns:** A new list.\n\n**Example**\n```may\nprint(reverse([1, 2, 3]));\n```",
+        "docs": "Build a list with the input items in reverse order.\n\nA string is reversed by bytes: each code point is copied to its mirrored byte offset, one pass over the input. The previous `char_at`/`char_from` loop re-walked the string from its start for every character, which is quadratic; a string whose width walk does not fit its byte length takes that loop instead.\n\n**Parameters**\n- `x`: The input list.\n\n**Returns:** A new list.\n\n**Example**\n```may\nprint(reverse([1, 2, 3]));\n```",
         "params": [
             "x"
         ],
@@ -770,7 +770,7 @@ let LS_REFERENCE: Any = {
     },
     "json_stringify": {
         "signature": "json_stringify(v)",
-        "docs": "Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.\n\nObject keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values.\n\n**Parameters**\n- `v`: The value to encode.\n\n**Returns:** A JSON string.\n\n**Example**\n```may\nprint(json_stringify({\"name\": \"Ada\", \"ready\": true}));\n```",
+        "docs": "Encode a value as JSON text. Strings are quoted and escaped; lists and maps are encoded recursively.\n\nObject keys are sorted before serialization and must be strings. Cyclic collections are not valid JSON trees; do not pass self-referential values. Parts are collected and joined once, so encoding is linear in the output size instead of copying the growing prefix per member.\n\n**Parameters**\n- `v`: The value to encode.\n\n**Returns:** A JSON string.\n\n**Example**\n```may\nprint(json_stringify({\"name\": \"Ada\", \"ready\": true}));\n```",
         "params": [
             "v"
         ],
@@ -1116,7 +1116,7 @@ let LS_REFERENCE: Any = {
     },
     "trim": {
         "signature": "trim(s)",
-        "docs": "Remove whitespace from the beginning and end of a string.\n\n**Parameters**\n- `s`: The input string.\n\n**Returns:** A string.\n\n**Example**\n```may\nprint(trim(\"  hello  \"));\n```",
+        "docs": "Remove whitespace from the beginning and end of a string.\n\nWhitespace is ASCII space, tab, LF and CR, and those are single bytes, so the scan runs over bytes: a code point that is not one of them cannot contain one of their bytes. Trimming a long indented string was quadratic while it indexed by code point from the start for every byte.\n\n**Parameters**\n- `s`: The input string.\n\n**Returns:** A string.\n\n**Example**\n```may\nprint(trim(\"  hello  \"));\n```",
         "params": [
             "s"
         ],

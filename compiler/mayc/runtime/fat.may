@@ -27,6 +27,9 @@ mut ERRFLAG: Any = 0;
 mut ERRVAL: Any = 0;
 mut HDEPTH: Any = 0;
 mut HSTACK: Any = 0;
+// Set while an uncaught fault prints its message, so a host that reports
+// collector statistics prints the summary once at the exit instead.
+mut GCSILENT: Any = 0;
 
 mut TRACE_STACK: Any = 0;
 mut TRACE_DEPTH: Any = 0;
@@ -130,6 +133,10 @@ fun rt_raise(t: Any, v: Any) -> Any {
 }
 
 fun rt_die_uncaught() -> Any {
+    // The diagnostic itself is output; a host that reports collector
+    // statistics keeps the summary for the exit below instead of printing it
+    // in the middle of the message and the trace.
+    GCSILENT = 1;
     mut k: Any = rt_map_lookup(ERRVAL, 4, rt_from(addr("kind"), 4));
     let kt: Any = RTAG;
     mut m: Any = rt_map_lookup(ERRVAL, 4, rt_from(addr("message"), 7));
@@ -210,7 +217,12 @@ fun rt_str_eq(a: Any, b: Any) -> Any {
     if (a == b) { return 1; }
     let la: Any = load64(a);
     if (la != load64(b)) { return 0; }
+    // Eight bytes per step: map keys and string comparisons spend most of their time here.
     mut i: Any = 0;
+    while (i + 8 <= la) {
+        if (load64(a + 8 + i) != load64(b + 8 + i)) { return 0; }
+        i = i + 8;
+    }
     while (i < la) {
         if (load8(a + 8 + i) != load8(b + 8 + i)) { return 0; }
         i = i + 1;
@@ -341,50 +353,116 @@ fun rt_display_elem(t: Any, v: Any, path: Any) -> Any {
 }
 
 fun rt_display_list(v: Any, path: Any) -> Any {
-    mut out: Any = rt_from(addr("["), 1);
     let n: Any = load64(v);
-    let d: Any = load64(v + 16);
+    if (n == 0) { return rt_from(addr("[]"), 2); }
+    // Element texts are kept in a scanned scratch block, then one allocation of the total
+    // length is filled with one copy per part, as rt_join does. Concatenating element by
+    // element copied the whole prefix again for every element (quadratic in the output).
+    let texts: Any = rt_alloc(n * 8 + 8);
+    mut total: Any = 2 + (n - 1) * 2;
     mut i: Any = 0;
     while (i < n) {
-        if (i > 0) { out = rt_concat(out, rt_from(addr(", "), 2)); }
-        out = rt_concat(out, rt_display_elem(load64(d + i * 16), load64(d + i * 16 + 8), path));
+        let text: Any = rt_display_elem(rt_element_tag(v, i), rt_element(v, i), path);
+        store64(texts + i * 8, text);
+        total = total + load64(text);
         i = i + 1;
     }
-    return rt_concat(out, rt_from(addr("]"), 1));
+    let out: Any = rt_strnew(total);
+    store8(out + 8, 91);
+    mut at: Any = out + 9;
+    i = 0;
+    while (i < n) {
+        if (i > 0) { store8(at, 44); store8(at + 1, 32); at = at + 2; }
+        let text: Any = load64(texts + i * 8);
+        rt_copy(at, text + 8, load64(text));
+        at = at + load64(text);
+        i = i + 1;
+    }
+    store8(at, 93);
+    return out;
 }
 
 // Maps display their entries sorted by key.
 fun rt_display_map(v: Any, path: Any) -> Any {
     let n: Any = load64(v);
     let d: Any = load64(v + 16);
-    let order: Any = rt_alloc_bytes(n * 8 + 8);
+    if (n == 0) { return rt_from(addr("{}"), 2); }
+    // Bottom-up merge sort of the entry pointers, by key: the insertion sort this replaces
+    // compared every key with every earlier one. Taking the left run on a tie keeps equal keys
+    // in insertion order, as before.
+    mut order: Any = rt_alloc_bytes(n * 8 + 8);
+    mut scratch: Any = rt_alloc_bytes(n * 8 + 8);
     mut i: Any = 0;
     while (i < n) { store64(order + i * 8, d + i * 32); i = i + 1; }
-    mut a: Any = 1;
-    while (a < n) {
-        let entry: Any = load64(order + a * 8);
-        mut j: Any = a;
-        while (j > 0) {
-            let previous: Any = load64(order + (j - 1) * 8);
-            if (rt_less(load64(entry), load64(entry + 8), load64(previous), load64(previous + 8)) == 1) {
-                store64(order + j * 8, previous);
-                j = j - 1;
-            } else { break; }
+    mut width: Any = 1;
+    while (width < n) {
+        mut start: Any = 0;
+        while (start < n) {
+            mut mid: Any = start + width;
+            if (mid > n) { mid = n; }
+            mut end: Any = start + 2 * width;
+            if (end > n) { end = n; }
+            mut left: Any = start;
+            mut right: Any = mid;
+            mut write: Any = start;
+            while (left < mid and right < end) {
+                let le: Any = load64(order + left * 8);
+                let re: Any = load64(order + right * 8);
+                if (rt_less(load64(re), load64(re + 8), load64(le), load64(le + 8)) == 1) {
+                    store64(scratch + write * 8, re);
+                    right = right + 1;
+                } else {
+                    store64(scratch + write * 8, le);
+                    left = left + 1;
+                }
+                write = write + 1;
+            }
+            while (left < mid) {
+                store64(scratch + write * 8, load64(order + left * 8));
+                left = left + 1;
+                write = write + 1;
+            }
+            while (right < end) {
+                store64(scratch + write * 8, load64(order + right * 8));
+                right = right + 1;
+                write = write + 1;
+            }
+            start = end;
         }
-        store64(order + j * 8, entry);
-        a = a + 1;
+        let swap: Any = order;
+        order = scratch;
+        scratch = swap;
+        width = width * 2;
     }
-    mut out: Any = rt_from(addr("{"), 1);
+    // Key and value texts in a scanned scratch block, as in rt_display_list.
+    let texts: Any = rt_alloc(n * 16 + 8);
+    mut total: Any = 2 + (n - 1) * 2 + n * 2;
     i = 0;
     while (i < n) {
-        if (i > 0) { out = rt_concat(out, rt_from(addr(", "), 2)); }
         let entry: Any = load64(order + i * 8);
-        out = rt_concat(out, rt_display_elem(load64(entry), load64(entry + 8), path));
-        out = rt_concat(out, rt_from(addr(": "), 2));
-        out = rt_concat(out, rt_display_elem(load64(entry + 16), load64(entry + 24), path));
+        let key: Any = rt_display_elem(load64(entry), load64(entry + 8), path);
+        let val: Any = rt_display_elem(load64(entry + 16), load64(entry + 24), path);
+        store64(texts + i * 16, key); store64(texts + i * 16 + 8, val);
+        total = total + load64(key) + load64(val);
         i = i + 1;
     }
-    return rt_concat(out, rt_from(addr("}"), 1));
+    let out: Any = rt_strnew(total);
+    store8(out + 8, 123);
+    mut at: Any = out + 9;
+    i = 0;
+    while (i < n) {
+        if (i > 0) { store8(at, 44); store8(at + 1, 32); at = at + 2; }
+        let key: Any = load64(texts + i * 16);
+        rt_copy(at, key + 8, load64(key));
+        at = at + load64(key);
+        store8(at, 58); store8(at + 1, 32); at = at + 2;
+        let val: Any = load64(texts + i * 16 + 8);
+        rt_copy(at, val + 8, load64(val));
+        at = at + load64(val);
+        i = i + 1;
+    }
+    store8(at, 125);
+    return out;
 }
 
 // Shortest round-trip text from runtime/math.may.
@@ -402,14 +480,14 @@ fun rt_str_of(t: Any, v: Any) -> Any { return rt_display(t, v, 0); }
 // length and one copy of each part. `s` is the separator's Str payload.
 fun rt_join(lt: Any, l: Any, st: Any, s: Any) -> Any {
     let n: Any = load64(l);
-    let d: Any = load64(l + 16);
     let sl: Any = load64(s);
     let texts: Any = rt_alloc(n * 8 + 8);
     mut total: Any = 0;
     mut i: Any = 0;
     while (i < n) {
-        mut text: Any = load64(d + i * 16 + 8);
-        if (load64(d + i * 16) != 4) { text = rt_display(load64(d + i * 16), text, 0); }
+        let t: Any = rt_element_tag(l, i);
+        mut text: Any = rt_element(l, i);
+        if (t != 4) { text = rt_display(t, text, 0); }
         store64(texts + i * 8, text);
         total = total + load64(text);
         i = i + 1;
@@ -446,13 +524,32 @@ fun rt_space() -> Any { rt_write(addr(" "), 1); RTAG = 0; return 0; }
 fun rt_newline() -> Any { rt_write(addr("\n"), 1); RTAG = 0; return 0; }
 
 // ---- lists -----------------------------------------------------------------
+//
+// A list is a 32-byte header: [0] length in elements, [8] capacity, [16] the
+// buffer, [24] the element kind. Kind 0 stores 16-byte fat values; 1 stores
+// Ints as words, 2 Floats as binary64 bits and 3 Bools as single bytes (#101
+// phase 2). A literal whose static element type is known starts specialized,
+// and a value of another type arriving through an `Any` alias widens the list
+// back to fat values, so nothing observable changes.
+fun rt_ebytes(kind: Any) -> Any {
+    if (kind == 3) { return 1; }
+    if (kind == 0) { return 16; }
+    return 8;
+}
 
-fun rt_list_raw(cap: Any) -> Any {
-    let p: Any = rt_alloc(24);
+fun rt_list_alloc(kind: Any, cap: Any) -> Any {
+    let p: Any = rt_alloc(32);
     store64(p + 8, cap);
-    store64(p + 16, rt_alloc_values(cap));
+    store64(p + 24, kind);
+    if (kind == 0) { store64(p + 16, rt_alloc_values(cap)); }
+    // Int words are scanned conservatively, as an Int may hold a Ptr; Floats
+    // and Bools can never point into the heap, so they are never scanned.
+    else if (kind == 1) { store64(p + 16, rt_alloc(cap * 8 + 8)); }
+    else { store64(p + 16, rt_alloc_bytes(cap * rt_ebytes(kind) + 8)); }
     return p;
 }
+
+fun rt_list_raw(cap: Any) -> Any { return rt_list_alloc(0, cap); }
 
 fun rt_list_new(t: Any, cap: Any) -> Any {
     mut n: Any = cap;
@@ -461,24 +558,86 @@ fun rt_list_new(t: Any, cap: Any) -> Any {
     return rt_list_raw(n);
 }
 
+// A list created where the element type is known: 1 Int, 2 Float, 3 Bool.
+// Separate entries keep the kind out of the call ABI.
+fun rt_list_int(t: Any, cap: Any) -> Any { RTAG = 5; return rt_list_alloc(1, 0); }
+fun rt_list_float(t: Any, cap: Any) -> Any { RTAG = 5; return rt_list_alloc(2, 0); }
+fun rt_list_bool(t: Any, cap: Any) -> Any { RTAG = 5; return rt_list_alloc(3, 0); }
+
+fun rt_element_tag(l: Any, i: Any) -> Any {
+    let k: Any = load64(l + 24);
+    if (k == 0) { return load64(load64(l + 16) + i * 16); }
+    if (k == 1) { return 2; }
+    if (k == 2) { return 3; }
+    return 1;
+}
+
+fun rt_element(l: Any, i: Any) -> Any {
+    let k: Any = load64(l + 24);
+    let d: Any = load64(l + 16);
+    if (k == 0) { return load64(d + i * 16 + 8); }
+    if (k == 3) { return load8(d + i); }
+    return load64(d + i * 8);
+}
+
+// Store element `i` the way the list's kind asks; 0 when it must widen first.
+fun rt_list_put(l: Any, i: Any, t: Any, v: Any) -> Any {
+    let kind: Any = load64(l + 24);
+    let d: Any = load64(l + 16);
+    if (kind == 0) { store64(d + i * 16, t); store64(d + i * 16 + 8, v); return 1; }
+    if (kind == 1 and t == 2) { store64(d + i * 8, v); return 1; }
+    if (kind == 2 and t == 3) { store64(d + i * 8, v); return 1; }
+    if (kind == 3 and t == 1) { store8(d + i, v); return 1; }
+    return 0;
+}
+
+// Convert a specialized list to fat values in place, keeping its length.
+fun rt_list_widen(l: Any) -> Any {
+    let n: Any = load64(l);
+    mut cap: Any = load64(l + 8);
+    if (cap < 4) { cap = 4; }
+    let nd: Any = rt_alloc_values(cap);
+    mut i: Any = 0;
+    while (i < n) {
+        store64(nd + i * 16, rt_element_tag(l, i));
+        store64(nd + i * 16 + 8, rt_element(l, i));
+        i += 1;
+    }
+    store64(l + 16, nd);
+    store64(l + 8, cap);
+    store64(l + 24, 0);
+    return 0;
+}
+
+fun rt_list_reserve(l: Any) -> Any {
+    let cap: Any = load64(l + 8);
+    mut nc: Any = cap * 2;
+    if (nc < 4) { nc = 4; }
+    let kind: Any = load64(l + 24);
+    let es: Any = rt_ebytes(kind);
+    // Grow in whole 16-byte units: heap blocks are 16-aligned, and a byte
+    // list asks for fewer bytes per element.
+    mut extra: Any = (nc - cap) * es;
+    let r: Any = extra % 16;
+    if (r != 0) { extra = extra + (16 - r); }
+    // A buffer that is the newest heap block grows in place (#99), as in
+    // a push loop; otherwise it moves and the old one becomes garbage.
+    if (rt_grow_in_place(load64(l + 16), extra) == 0) {
+        mut nd: Any = 0;
+        if (kind == 0) { nd = rt_alloc_values(nc); }
+        else if (kind == 1) { nd = rt_alloc(nc * 8 + 8); }
+        else { nd = rt_alloc_bytes(nc * es + 8); }
+        rt_copy(nd, load64(l + 16), cap * es);
+        store64(l + 16, nd);
+    }
+    store64(l + 8, nc);
+    return 0;
+}
+
 fun rt_list_add(l: Any, t: Any, v: Any) -> Any {
     let n: Any = load64(l);
-    let cap: Any = load64(l + 8);
-    if (n >= cap) {
-        mut nc: Any = cap * 2;
-        if (nc < 4) { nc = 4; }
-        // A buffer that is the newest heap block grows in place (#99), as in
-        // a push loop; otherwise it moves and the old one becomes garbage.
-        if (rt_grow_in_place(load64(l + 16), (nc - cap) * 16) == 0) {
-            let nd: Any = rt_alloc_values(nc);
-            rt_copy(nd, load64(l + 16), n * 16);
-            store64(l + 16, nd);
-        }
-        store64(l + 8, nc);
-    }
-    let d: Any = load64(l + 16);
-    store64(d + n * 16, t);
-    store64(d + n * 16 + 8, v);
+    if (n >= load64(l + 8)) { rt_list_reserve(l); }
+    if (rt_list_put(l, n, t, v) == 0) { rt_list_widen(l); rt_list_put(l, n, t, v); }
     store64(l, n + 1);
     return 0;
 }
@@ -493,9 +652,8 @@ fun rt_push(lt: Any, l: Any, t: Any, v: Any) -> Any {
 fun rt_extend(dt: Any, d: Any, st: Any, s: Any) -> Any {
     if (dt != 5 or st != 5) { return rt_failtype(rt_from(addr("expected List"), 13)); }
     let n: Any = load64(s);
-    let data: Any = load64(s + 16);
     mut i: Any = 0;
-    while (i < n) { rt_list_add(d, load64(data + i * 16), load64(data + i * 16 + 8)); i = i + 1; }
+    while (i < n) { rt_list_add(d, rt_element_tag(s, i), rt_element(s, i)); i = i + 1; }
     RTAG = 5;
     return d;
 }
@@ -511,9 +669,8 @@ fun rt_index_get(ot: Any, o: Any, it: Any, i: Any) -> Any {
     if (ot == 5) {
         if (it != 2) { return rt_failtype(rt_from(addr("index requires an integer"), 25)); }
         if (i < 0 or i >= load64(o)) { RTAG = 0; return 0; }
-        let d: Any = load64(o + 16);
-        RTAG = load64(d + i * 16);
-        return load64(d + i * 16 + 8);
+        RTAG = rt_element_tag(o, i);
+        return rt_element(o, i);
     }
     if (ot == 6) { return rt_map_lookup(o, it, i); }
     if (ot == 4) {
@@ -529,9 +686,7 @@ fun rt_index_get(ot: Any, o: Any, it: Any, i: Any) -> Any {
 fun rt_index_set(ot: Any, o: Any, it: Any, i: Any, t: Any, v: Any) -> Any {
     if (ot == 5) {
         if (it != 2 or i < 0 or i >= load64(o)) { return rt_failtype(rt_from(addr("invalid list assignment"), 23)); }
-        let d: Any = load64(o + 16);
-        store64(d + i * 16, t);
-        store64(d + i * 16 + 8, v);
+        if (rt_list_put(o, i, t, v) == 0) { rt_list_widen(o); rt_list_put(o, i, t, v); }
         RTAG = t;
         return v;
     }
@@ -1064,11 +1219,10 @@ fun rt_pop(lt: Any, l: Any) -> Any {
     rt_expect_list(lt);
     if (load64(l) == 0) { RTAG = 0; return 0; }
     let n: Any = load64(l) - 1;
-    let d: Any = load64(l + 16);
     store64(l, n);
-    RTAG = load64(d + n * 16);
-    let v: Any = load64(d + n * 16 + 8);
-    store64(d + n * 16, 0); store64(d + n * 16 + 8, 0);
+    RTAG = rt_element_tag(l, n);
+    let v: Any = rt_element(l, n);
+    if (load64(l + 24) == 0) { store64(load64(l + 16) + n * 16, 0); store64(load64(l + 16) + n * 16 + 8, 0); }
     return v;
 }
 
@@ -1077,13 +1231,11 @@ fun rt_to_map(lt: Any, l: Any) -> Any {
     let m: Any = rt_map_new_raw();
     if (lt == 5) {
         let n: Any = load64(l);
-        let d: Any = load64(l + 16);
         mut i: Any = 0;
         while (i < n) {
-            if (load64(d + i * 16) == 5) {
-                let pair: Any = load64(d + i * 16 + 8);
-                let pd: Any = load64(pair + 16);
-                if (load64(pair) >= 2) { rt_map_put(m, load64(pd), load64(pd + 8), load64(pd + 16), load64(pd + 24)); }
+            if (rt_element_tag(l, i) == 5) {
+                let pair: Any = rt_element(l, i);
+                if (load64(pair) >= 2) { rt_map_put(m, rt_element_tag(pair, 0), rt_element(pair, 0), rt_element_tag(pair, 1), rt_element(pair, 1)); }
             }
             i = i + 1;
         }
@@ -1092,13 +1244,20 @@ fun rt_to_map(lt: Any, l: Any) -> Any {
     return m;
 }
 
-// Keys (`offset` 0) or values (16) of a map, as a list.
+// Keys (`offset` 0) or values (16) of a map, as a list. The result is allocated at its final
+// size, so the entries are stored directly instead of through rt_list_add's growth check.
 fun rt_map_column(m: Any, offset: Any) -> Any {
     let n: Any = load64(m);
     let d: Any = load64(m + 16);
     let l: Any = rt_list_raw(n);
+    let out: Any = load64(l + 16);
     mut i: Any = 0;
-    while (i < n) { rt_list_add(l, load64(d + i * 32 + offset), load64(d + i * 32 + offset + 8)); i = i + 1; }
+    while (i < n) {
+        store64(out + i * 16, load64(d + i * 32 + offset));
+        store64(out + i * 16 + 8, load64(d + i * 32 + offset + 8));
+        i = i + 1;
+    }
+    store64(l, n);
     RTAG = 5;
     return l;
 }
@@ -1141,10 +1300,9 @@ fun rt_has(t: Any, x: Any, kt: Any, k: Any) -> Any {
     }
     if (t == 5) {
         let n: Any = load64(x);
-        let d: Any = load64(x + 16);
         mut i: Any = 0;
         while (i < n) {
-            if (rt_same(load64(d + i * 16), load64(d + i * 16 + 8), kt, k) == 1) { return 1; }
+            if (rt_same(rt_element_tag(x, i), rt_element(x, i), kt, k) == 1) { return 1; }
             i = i + 1;
         }
     }
@@ -1243,8 +1401,7 @@ fun rt_mapf(lt: Any, l: Any, ft: Any, f: Any) -> Any {
     let r: Any = rt_list_raw(n);
     mut i: Any = 0;
     while (i < n) {
-        let d: Any = load64(l + 16);
-        let v: Any = rt_call1(f, load64(d + i * 16), load64(d + i * 16 + 8));
+        let v: Any = rt_call1(f, rt_element_tag(l, i), rt_element(l, i));
         rt_list_add(r, RTAG, v);
         i = i + 1;
     }
@@ -1258,9 +1415,8 @@ fun rt_filter(lt: Any, l: Any, ft: Any, f: Any) -> Any {
     let r: Any = rt_list_raw(n);
     mut i: Any = 0;
     while (i < n) {
-        let d: Any = load64(l + 16);
-        let t: Any = load64(d + i * 16);
-        let v: Any = load64(d + i * 16 + 8);
+        let t: Any = rt_element_tag(l, i);
+        let v: Any = rt_element(l, i);
         if (rt_called_true(rt_call1(f, t, v)) == 1) { rt_list_add(r, t, v); }
         i = i + 1;
     }
@@ -1274,8 +1430,7 @@ fun rt_reduce(lt: Any, l: Any, ft: Any, f: Any, it: Any, init: Any) -> Any {
     mut acc: Any = init;
     mut i: Any = 0;
     while (i < load64(l)) {
-        let d: Any = load64(l + 16);
-        acc = rt_call2(f, acct, acc, load64(d + i * 16), load64(d + i * 16 + 8));
+        acc = rt_call2(f, acct, acc, rt_element_tag(l, i), rt_element(l, i));
         acct = RTAG;
         i = i + 1;
     }
@@ -1288,8 +1443,7 @@ fun rt_quantify(lt: Any, l: Any, ft: Any, f: Any, wanted: Any) -> Any {
     rt_expect_list(lt); rt_expect_function(ft);
     mut i: Any = 0;
     while (i < load64(l)) {
-        let d: Any = load64(l + 16);
-        if (rt_called_true(rt_call1(f, load64(d + i * 16), load64(d + i * 16 + 8))) == wanted) { RTAG = 1; return wanted; }
+        if (rt_called_true(rt_call1(f, rt_element_tag(l, i), rt_element(l, i))) == wanted) { RTAG = 1; return wanted; }
         i = i + 1;
     }
     RTAG = 1;

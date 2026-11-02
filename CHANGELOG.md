@@ -2,6 +2,54 @@
 
 ## Performance
 
+- Audit the rest of the runtime library and remove its remaining superlinear
+  and allocation-heavy paths ([report](compiler/mayc/tests/backend/runtime-audit.md)):
+  - `sort` is a stable merge sort (O(n log n) comparisons), and `unique`
+    records seen values in a map instead of scanning the result.
+  - `str` of a list or map allocates its text once and fills it with one copy
+    per part (as `join` does) instead of concatenating per element, and map
+    display sorts its keys by merge instead of by insertion.
+  - `trim`, `int`, `parse_int`, `reverse`, `starts_with`/`ends_with`,
+    `pad_left`/`pad_right` and the JSON reader and writer no longer index code
+    points in a loop (`char_at` re-walks the string from byte 0) or
+    concatenate per character; the JSON scanner works in byte offsets.
+  - `rt_str_eq` compares eight bytes per step, and `keys`/`values` fill the
+    result list directly.
+  - Measured on the new `runtime_paths` workloads, a 50 000-character `trim`
+    drops from 7 032 ms to 2.0 ms, `json_parse` of a 20 kB document from
+    615 ms to 1.5 ms, `str` of a 20 000-element list from 1 312 ms to 6.5 ms
+    and `sort` of 10 000 Ints from 292 ms to 5.1 ms, with peak RSS down from
+    up to 288 MiB to 19 MiB. `compiler/mayc/tests/strings.py` now checks the
+    rewritten string functions against Python's code point semantics.
+- Opt-in runtime collection statistics (`MAYC_GC_STATS=1`). The collector
+  counts collections, allocated bytes, live bytes after the last sweep, total
+  pause time and the heap and resident high-water marks, and writes one
+  parseable `GC key=value` line after each line of output and at an uncaught
+  fault exit. One start-up read of `/proc/self/environ` decides whether to
+  enable them; after that every counter and the CLOCK_MONOTONIC pause probe sit
+  behind one global flag, so a normal run pays a flag test per allocation and
+  per output write.
+  `compiler/mayc/tests/limits.py --runtime-gc-stats` runs the GC cases with the
+  variable set, adds `Live MiB` and `Runtime pause ms` columns and a `runtime`
+  object to the report, and requires the runtime's collection count to equal
+  the inline meter's. `make test-limits` exercises it.
+- Derive the collection threshold from the live bytes of each sweep instead of
+  the fixed 256 MiB default: the first cycle starts at half of the
+  nominal heap, then every sweep sets `max(floor, 2 * live + margin)` with a
+  margin of one sixteenth of the nominal heap (at most 8 MiB), never below the
+  allocation frontier plus that margin and clamped to the reservation. Empty
+  tails are still reclaimed by rewinding the bump pointer; the threshold only
+  lowers, nothing is unmapped. Measured with the cross-language suite (five
+  runs; the C and Rust controls moved 7-16% between the two runs on this
+  host, so treat the times as a spread), binary trees peaks at 218 MiB instead
+  of 287 MiB and runs in 1847 ms instead of 1746 ms; sieve, whose flags list is
+  160 MiB live, keeps its RSS and runs in 331 ms instead of 433 ms. The
+  compiler's own live set no longer fits the first threshold, so `--check` of
+  `main.may` costs about 10% more (1.39 s against 1.26 s) and a small file
+  around 40% more (185 ms against 130 ms) while its peak RSS falls from 89 to
+  56 MiB. Conservative retention, not the threshold, now bounds peak RSS on
+  the benchmark workloads: the tree sweep still finds about 39 MiB live in a
+  200 MiB heap.
 - Track the cross-language suite behind the performance roadmap
   ([#101](https://github.com/mirged/maylang/issues/101)):
   `compiler/mayc/tests/backend/xlang.py` builds the eight workloads in
@@ -22,6 +70,15 @@
   measurable change on its own (±3%, within the run-to-run spread): proven
   types had already removed the type checks, and the remaining gain needs
   main's body to compile as native-word code.
+- Specialized list element storage ([#101](https://github.com/mirged/maylang/issues/101)
+  phase 2): a list literal or comprehension with a known element type stores
+  `Bool` as one byte, `Int` as a word and `Float` as its binary64 bits, and a
+  value of another type arriving through an `Any` alias widens the list back
+  to 16-byte fat values, so observation is unchanged
+  ([design](docs/design/LIST_STORAGE.md),
+  [report](compiler/mayc/tests/backend/list-storage.md)). The sieve benchmark
+  drops from 152 MiB and 308 ms to 16 MiB and 263 ms; a `List<Bool>` of ten
+  million flags now costs 10 MiB instead of 160 MiB.
 
 ## Licensing
 

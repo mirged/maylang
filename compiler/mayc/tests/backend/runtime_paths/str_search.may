@@ -1,0 +1,12 @@
+// str_search: `index_of`/`has` over a 200 000-character string with needles
+// that match near the end and needles that miss.
+let hay: Str = repeat("ab", 100000);
+mut hits: Int = 0;
+mut i: Int = 0;
+while (i < 200) {
+    hits += index_of(hay, "ababababab") % 7;
+    if (has(hay, "ba")) { hits += 1; }
+    hits += index_of(hay, "zz") + 1;
+    i += 1;
+}
+print(len(hay), hits);
