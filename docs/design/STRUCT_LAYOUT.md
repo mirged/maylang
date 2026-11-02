@@ -2,8 +2,9 @@
 
 Status: implemented (roadmap phase 2, #134). Steps 1-3 are merged on
 `perf/inline-paths` and measured in
-[struct-slots.md](../../compiler/mayc/tests/backend/struct-slots.md); enum
-payload reads (`match`) are the remaining step.
+[struct-slots.md](../../compiler/mayc/tests/backend/struct-slots.md); step 4,
+enum payload reads in `match`, is implemented and measured in
+[enum-payloads.md](../../compiler/mayc/tests/backend/enum-payloads.md).
 
 Records are maps. A `struct` declaration generates a constructor function whose
 body is an `E_MAP` literal, and `Point(3, 4)` therefore allocates a 40-byte map
@@ -109,10 +110,14 @@ later step on top of this one, with the descriptor work done then.
 An enum value is also a map: the variant tag is an entry with the key `tag`
 (`ok` for `Result`), and payload fields follow. The same fixed-slot record
 covers enums: the constructor writes the tag entry first and payload entries in
-declaration order, `rt_struct_new` allocates them once, and `match` reads a
-payload by the same offset rule once the arm's pattern proves the variant.
-`match` currently probes `rt_map_get` per arm; that is the second half of this
-change and lands after struct reads are measured.
+declaration order, and `rt_struct_new` allocates them once. A variant pattern
+proves the tag, so `match` reads the tag (slot 0) and the payload bindings
+(slot `i + 1`) through the same guarded slot read as a struct field; the tag
+comparison itself stays a value comparison through `rt_eq`. `Result` patterns
+keep the runtime probe because `Ok`/`Err` are prelude maps, not records. The
+guard compares the slot key against the site's key object, which is why
+synthesized literals are interned by text: a match field name and the
+constructor's entry key are then the same object.
 
 ## Code generation
 
@@ -133,6 +138,11 @@ Implemented as follows:
 4. `x86_64_fat.may` emits the guarded offset load/store; a failed guard falls
    back to `fat_field_get`/`fat_field_set`'s cache probe. The fallback still
    needs the cache word, so the typed path does not shrink the data section.
+5. `ir.may` lowers a variant-pattern arm's tag and payload reads to the same
+   guarded slot read (`ir_slot_read`), and `ir_opt.may` names those reads by
+   their interned key text for CSE. Synthesized literals are interned by text
+   so the guard's key object is the constructor's. `Result` patterns keep
+   `rt_map_get`.
 
 Every step is skipped under `--no-opt`, and the oracle test compares both
 builds of every fixture, as it does for the existing fat passes.
@@ -162,8 +172,9 @@ builds of every fixture, as it does for the existing fat passes.
 3. Done: field slots on the IR and the guarded offset read/write
    (`e7c15f5`), measured below and in
    [struct-slots.md](../../compiler/mayc/tests/backend/struct-slots.md).
-4. Next: enum payload offsets in `match`, which currently probes the payload
-   map per arm; `match` reads the tag through `rt_map_get`, not `E_GET`.
+4. Done: enum payload reads by slot in `match` (`0e80998`), with the tag read
+   included and `Result` patterns left on the runtime probe; measured in
+   [enum-payloads.md](../../compiler/mayc/tests/backend/enum-payloads.md).
 
 Expected win: one allocation and no hashing per record, so binary trees should
 lose the entry-array and hash-table allocations entirely (the record becomes a
@@ -192,6 +203,20 @@ peak RSS and the raw samples are in
 The typed slot read is what `read_field2` and n-body gain; binary trees and the
 construction/self-compile rows are dominated by the one-allocation constructor.
 
+Step 4 was measured on top of the integrated base `62c3c45` (5 interleaved
+rounds, medians of user+system CPU time, identical output, same runtime on both
+sides):
+
+| Workload | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| `eval_tree`: recursive enum evaluator, 20 000 evaluations | 7007 ms | 1369 ms | 5.12x faster |
+| `match_loop`: 3-arm matches over a 900-value typed list | 610 ms | 164 ms | 3.71x faster |
+| `control`: Int arithmetic loop | 74.1 ms | 72.7 ms | noise |
+
+Before, every arm test cost one `rt_map_get` call for the tag plus one per
+payload binding; now the tag and payload words load behind the layout guard and
+only the tag comparison still calls `rt_eq`.
+
 ## Limits
 
 - Only the full fat runtime and Linux x86-64 are in scope
@@ -200,6 +225,9 @@ construction/self-compile rows are dominated by the one-allocation constructor.
   it; nothing shrinks it back.
 - Bare slots without keys remain out of scope until the descriptor work above
   is designed.
+- `match` still compares the tag by value (`rt_eq`) and keeps `Result` patterns
+  on the map probe; comparing tags by pointer needs its own guard because a
+  dynamically built tag string must keep matching by value.
 
 ## Prototype findings
 

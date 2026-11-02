@@ -1,0 +1,28 @@
+// A flat loop over a list of variants: three-arm matches with one, two and no
+// payload fields, including typed bindings and a wildcard arm.
+enum Shape { Circle(r: Float), Rect(w: Float, h: Float), Empty }
+
+fun area(s: Shape) -> Float {
+    match (s) {
+        Circle(r) => { return 3.0 * r * r; },
+        Rect(w, h) => { return w * h; },
+        Empty() => { return 0.0; }
+    }
+    return 0.0;
+}
+
+let shapes: List<Shape> = [];
+mut i: Int = 0;
+while (i < 300) {
+    push(shapes, Circle(to_float(i % 7)));
+    push(shapes, Rect(to_float(i % 5), to_float(i % 11 + 1)));
+    push(shapes, Empty());
+    i += 1;
+}
+mut total: Float = 0.0;
+mut round: Int = 0;
+while (round < 8000) {
+    for shape: Shape in shapes { total += area(shape); }
+    round += 1;
+}
+print(total);

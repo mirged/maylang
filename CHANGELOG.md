@@ -2,6 +2,14 @@
 
 ## Performance
 
+- Enum payload reads in `match` ([report](compiler/mayc/tests/backend/enum-payloads.md)):
+  a variant pattern proves the tag, so the tag and its payload bindings are
+  read by guarded fixed slot instead of one `rt_map_get` call per arm; the
+  runtime probe stays for `Any`/grown/foreign values and `Result` patterns.
+  A recursive-enum evaluator drops from 7007 to 1369 ms (5.1x) and a match loop
+  from 610 to 164 ms (3.7x), with identical output; both paths are off under
+  `--no-opt`, `enum_payloads.may` is pinned in the oracle suite, and an
+  objdump assertion covers the generated code. Refs #134.
 - Value propagation, dead code and block-local CSE before the fat backend
   ([report](compiler/mayc/tests/backend/ir-passes.md)): `src/ir_opt.may`
   propagates copies, eliminates repeated field and element reads in a
