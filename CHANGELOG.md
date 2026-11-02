@@ -1,5 +1,28 @@
 # Unreleased
 
+## Performance
+
+- Track the cross-language suite behind the performance roadmap
+  ([#101](https://github.com/mirged/maylang/issues/101)):
+  `compiler/mayc/tests/backend/xlang.py` builds the eight workloads in
+  Maylang, C, Rust, Java, Node and CPython, requires every language to print
+  the same output, and records median wall time and peak RSS
+  (`make bench-xlang`; not a CI gate). The baseline is
+  [xlang-baseline.md](compiler/mayc/tests/backend/xlang-baseline.md).
+- Add `--no-opt`, which turns off the fat backend's constant and variable
+  forwarding, proven operand types, register homes, XMM Float temporaries and
+  the new top-level-to-main-local pass. `compiler/mayc/tests/oracle.py` now
+  compiles every behaviour fixture both ways in `make test-compiler` and
+  requires identical exit status, stdout and stderr, so a pass that changes
+  behaviour fails there.
+- Top-level bindings that no function reads or assigns become locals of main
+  instead of data words, so they keep a frame slot, can take a register home
+  and are no longer collector roots
+  ([report](compiler/mayc/tests/backend/main-locals.md)). The suite shows no
+  measurable change on its own (±3%, within the run-to-run spread): proven
+  types had already removed the type checks, and the remaining gain needs
+  main's body to compile as native-word code.
+
 ## Licensing
 
 - Add a root MIT [LICENSE](LICENSE) that covers the compiler, tools, standard
