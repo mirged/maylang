@@ -159,6 +159,34 @@ class DeveloperTests(unittest.TestCase):
                 self.assertTrue(any(f'{path.name}: invalid UTF-8' in error for error in errors))
             self.assertTrue(any('absent.md' in error for error in errors))
 
+    def test_repository_check_keeps_licenses_and_attribution_in_step(self):
+        mit = ('MIT License\n\nCopyright (c) Maylang Contributors\n\n'
+               'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.\n')
+        with tempfile.TemporaryDirectory(prefix='may-license-') as temporary:
+            directory = Path(temporary)
+            (directory / 'editors/vscode').mkdir(parents=True)
+            (directory / 'LICENSE').write_text(mit)
+            (directory / 'editors/vscode/LICENSE').write_text(mit)
+            (directory / 'Cargo.toml').write_text('[workspace.package]\nlicense = "MIT"\n')
+            (directory / 'editors/vscode/package.json').write_text('{"license": "MIT"}\n')
+            notices = directory / 'THIRD_PARTY_NOTICES.md'
+            notices.write_text('\n'.join(checker.VENDORED) + '\n')
+            with patch.object(checker, 'ROOT', directory):
+                self.assertEqual(checker.licenses(), [])
+                notices.write_text('\n'.join(checker.VENDORED[:-1]) + '\n')
+                errors = checker.licenses()
+                self.assertTrue(any('does not attribute' in error for error in errors), errors)
+                notices.write_text('\n'.join(checker.VENDORED) + '\n')
+                (directory / 'editors/vscode/LICENSE').write_text('MIT License\n')
+                errors = checker.licenses()
+                self.assertTrue(any('byte for byte' in error for error in errors), errors)
+                (directory / 'editors/vscode/LICENSE').write_text(mit)
+                (directory / 'Cargo.toml').write_text('license = "Apache-2.0"\n')
+                errors = checker.licenses()
+                self.assertTrue(any('workspace.package' in error for error in errors), errors)
+                (directory / 'LICENSE').unlink()
+                self.assertEqual(checker.licenses(), ['LICENSE: missing the repository license'])
+
     def test_repository_check_handles_markdown_fence_variants(self):
         blocks = [
             '~~~md\n[example](absent.md)\n~~~\n',

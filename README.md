@@ -154,3 +154,13 @@ labels. The [audit](docs/AUDIT.md) records findings and validation; the
 [roadmap](ROADMAP.md) links active work. Release identity lives in `RELEASE.json`
 and `MAYC_VERSION` in [main.may](compiler/mayc/main.may); see the
 [changelog](CHANGELOG.md) and [release convention](docs/guide/RELEASING.md).
+
+## License
+
+Maylang is released under the [MIT License](LICENSE). The same license covers
+the compiler, tools, standard library, examples, native adapters and the
+[VS Code extension](editors/vscode/README.md). Vendored third-party sources
+keep their own licenses; [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+lists them and reproduces the required notices. Contributions are accepted
+under the MIT License.
+

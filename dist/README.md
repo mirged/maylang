@@ -43,7 +43,8 @@ timestamps (`SOURCE_DATE_EPOCH` can override them).
 
 It contains five tools, the native Maylang installer, runtime sidecars, `stdlib`,
 the complete Mayboard and May NES workspaces under `examples/apps/`, release
-identity, changelog, provenance and `SHA256SUMS`.
+identity, changelog, the [MIT license](../LICENSE) with
+[third-party notices](../THIRD_PARTY_NOTICES.md), provenance and `SHA256SUMS`.
 The adjacent `.sha256` checks the archive. Keep the bundle together.
 
 `make test-distribution` runs installer, migration and release source-contract
