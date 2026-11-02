@@ -751,7 +751,11 @@ fun rt_struct_new(t: Any, n: Any) -> Any {
 
 // Write entry `i` of a record that rt_struct_new allocated. The count is
 // already `n`, so the entries pointer (`m + 48`) tells a fixed record from a
-// map whose entries live elsewhere; anything else takes the map path.
+// map whose entries live elsewhere; anything else takes the map path, which
+// updates or appends by key. A constructor writes every slot before the record
+// is reachable from anywhere else (its value expressions cannot name it), so
+// the fallback is defensive only: a re-entrant or post-growth call is a map
+// write, not a slot write, and keeps map semantics.
 fun rt_struct_set(mt: Any, m: Any, it: Any, i: Any, kt: Any, k: Any, t: Any, v: Any) -> Any {
     RTAG = t;
     if (mt != 6 or load64(m + 16) != m + 48 or i < 0 or i >= load64(m)) { rt_map_put(m, kt, k, t, v); return v; }

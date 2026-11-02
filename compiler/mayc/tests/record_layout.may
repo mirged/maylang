@@ -87,3 +87,40 @@ while (k < len(live)) {
     k += 1;
 }
 print(bad == 0, len(live), live[0].mark, live[1999].mark);
+
+// Statically typed field sites: the compiler can read the fixed slot by
+// offset. A string-keyed entry before a field shifts the field's slot, a
+// grown or compacted record must fall back to the field cache, and reads,
+// writes and compound assignment must agree with the map path either way.
+struct Odd { "+": oadd, x: Any, y: Any }
+fun oadd(self: Any, other: Any) -> Any { return Odd(self.x + other.x, self.y + other.y); }
+let odd: Odd = Odd(10, 20);
+print(odd.x, odd.y, len(keys(odd)), keys(odd));
+let oddAny: Any = odd;
+let oddSum: Any = oddAny + Odd(1, 2);
+print(oddSum.x, oddSum.y);
+
+struct Gauge { n: Int, s: Any }
+let cell: Gauge = Gauge(1, "a");
+mut t: Int = 0;
+mut step: Int = 0;
+while (step < 100) { t += cell.n; cell.n += 1; step += 1; }
+print(t, cell.n, cell.s);
+let cellAny: Any = cell;
+cellAny.extra = "grown";
+print(cell.n, cell.s, cellAny.extra, keys(cell));
+cell.n = 7;
+print(cell.n, cell.n * 2);
+let compact: Any = remove(cell, "s");
+print(compact.n, keys(compact));
+
+// A struct-typed enum payload binds its field type in the arm, so payload
+// reads use the same fixed-slot path.
+enum Payload { Box(p: Point), Empty }
+let boxed: Payload = Box(Point(3, 4));
+match (boxed) {
+    Box(p) => { print(p.x, p.y, p); },
+    Empty => { print("empty"); }
+}
+let emptyBox: Payload = Empty();
+print(boxed.tag, emptyBox.tag, keys(emptyBox));

@@ -998,12 +998,43 @@ fun fat_field_operands(ctx: Any, cache: Any, key: Any) -> Any {
     return 0;
 }
 
+// A record whose entries are still inside its own block has every field at a
+// fixed slot (#134): `entries == p + 48` and slot `field - 1` holds the site's
+// key object. Leave that entry's address in RCX, or jump to `miss`. A record
+// that grew its entries out (a dynamic field write) or was compacted by
+// `remove` fails the first or the second check and falls back to the field
+// cache, so the fast path never assumes a layout the runtime did not build.
+// Clobbers R8; RDX/RAX keep the receiver so a fallback can reuse them.
+fun fat_field_slot_check(ctx: Any, key: Any, field: Any, miss: Any) -> Any {
+    let disp: Any = 48 + 32 * (field - 1);
+    for byte: Any in [72, 131, 250, 6] { e8(ctx, byte); }                             // cmp rdx, 6
+    jcc(ctx, 133, miss);
+    for byte: Any in [72, 139, 72, 16] { e8(ctx, byte); }                            // mov rcx, [rax + 16]
+    for byte: Any in [76, 141, 64, 48] { e8(ctx, byte); }                            // lea r8, [rax + 48]
+    for byte: Any in [76, 57, 193] { e8(ctx, byte); }                                // cmp rcx, r8
+    jcc(ctx, 133, miss);
+    x86_relocated_immediate(ctx, 8, 1, key);                                         // mov r8, key object
+    for byte: Any in [76, 57, 128] { e8(ctx, byte); } e32(ctx, disp + 8);            // cmp [rax + disp + 8], r8
+    jcc(ctx, 133, miss);
+    for byte: Any in [72, 141, 136] { e8(ctx, byte); } e32(ctx, disp);               // lea rcx, [rax + disp]
+    return 0;
+}
+
 // `object.name` through the site's cache (a writable word reserved by
 // ir_field_cache), else rt_field_get.
-fun fat_field_get(ctx: Any, object: Any, cache: Any, source: Any, start: Any, length: Any) -> Any {
+fun fat_field_get(ctx: Any, object: Any, cache: Any, source: Any, start: Any, length: Any, field: Any) -> Any {
     let key: Any = fat_key(ctx, source, start, length);
     let miss: Any = newlab(ctx); let done: Any = newlab(ctx);
     fat_get(ctx, object);
+    // A statically known struct field: read the fixed slot without the cache
+    // when the record is still in its fixed layout, else use the cache probe.
+    if (field > 0 and not NO_OPT) {
+        let fallback: Any = newlab(ctx);
+        fat_field_slot_check(ctx, key, field, fallback);
+        for byte: Any in [72, 139, 81, 16, 72, 139, 65, 24] { e8(ctx, byte); }        // mov rdx, [rcx + 16]; mov rax, [rcx + 24]
+        jmp(ctx, done);
+        placelab(ctx, fallback);
+    }
     fat_field_probe(ctx, 2, cache, key, miss);
     for byte: Any in [72, 139, 81, 16, 72, 139, 65, 24] { e8(ctx, byte); }             // mov rdx, [rcx + 16]; mov rax, [rcx + 24]
     jmp(ctx, done);
@@ -1016,10 +1047,20 @@ fun fat_field_get(ctx: Any, object: Any, cache: Any, source: Any, start: Any, le
 }
 
 // `object.name = value` through the site's cache, else rt_field_set.
-fun fat_field_set(ctx: Any, object: Any, value: Any, cache: Any, source: Any, start: Any, length: Any) -> Any {
+fun fat_field_set(ctx: Any, object: Any, value: Any, cache: Any, source: Any, start: Any, length: Any, field: Any) -> Any {
     let key: Any = fat_key(ctx, source, start, length);
     let miss: Any = newlab(ctx); let done: Any = newlab(ctx);
     fat_get(ctx, object);
+    // A statically known struct field: write the fixed slot while the record
+    // is still in its fixed layout, else use the cache probe.
+    if (field > 0 and not NO_OPT) {
+        let fallback: Any = newlab(ctx);
+        fat_field_slot_check(ctx, key, field, fallback);
+        fat_get(ctx, value);
+        for byte: Any in [72, 137, 81, 16, 72, 137, 65, 24] { e8(ctx, byte); }        // mov [rcx + 16], rdx; mov [rcx + 24], rax
+        jmp(ctx, done);
+        placelab(ctx, fallback);
+    }
     for byte: Any in [73, 137, 210, 73, 137, 195] { e8(ctx, byte); }                   // mov r10, rdx; mov r11, rax
     fat_field_probe(ctx, 10, cache, key, miss);
     fat_get(ctx, value);
@@ -1619,7 +1660,7 @@ fun fat_operation(ctx: Any, n: Any) -> Any {
     if (k == E_CAPVAR) { fat_env_cell(ctx, n.index); return fat_cell_load(ctx); }
     if (k == E_CLOSURE) { return fat_closure(ctx, n); }
     if (k == E_INDEX) { return fat_index(ctx, n); }
-    if (k == E_GET) { return fat_field_get(ctx, n.object, n.cache, n.span.source, n.start, n.length); }
+    if (k == E_GET) { return fat_field_get(ctx, n.object, n.cache, n.span.source, n.start, n.length, n.field ?? 0); }
     if (k == E_ICALL) { fat_get(ctx, n.callee); return fat_apply(ctx, n.args); }
     if (k == E_RANGE) {
         fat_get(ctx, n.start); fat_push(ctx); fat_get(ctx, n.end); fat_push(ctx);
@@ -2536,7 +2577,7 @@ fun fat_ir(ctx: Any, block: Any) -> Any {
         else if (op == S_ASSIGN) { fat_assign(ctx, payload); }
         else if (op == S_CASSIGN) { fat_get(ctx, payload.value); fat_env_cell(ctx, payload.index); fat_cell_store(ctx); }
         else if (op == S_SETIDX) { fat_index_set(ctx, payload); } else if (op == S_SETPROP) {
-            fat_field_set(ctx, payload.object, payload.value, payload.cache, payload.span.source, payload.start, payload.length);
+            fat_field_set(ctx, payload.object, payload.value, payload.cache, payload.span.source, payload.start, payload.length, payload.field ?? 0);
         } else { fat_operation(ctx, payload); }
         // A result nothing reads (lsra counts readers, never too few) needs no store.
         if (instruction.result != 0 and FAT_INTERVALS[instruction.result.slot].uses > 0) { fat_put(ctx, instruction.result); }

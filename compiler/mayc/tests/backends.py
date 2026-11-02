@@ -95,6 +95,34 @@ def main():
         assert subprocess.run([str(binary)], timeout=10).returncode == 0
         print('PASS signed power-of-two quotient/remainder against Python oracle', flush=True)
 
+        # Fat struct fixed-slot reads (#134): a field of a statically known
+        # struct is loaded from its declared entry slot behind the layout guard
+        # (entries == receiver + 48) instead of the field cache. The guards for
+        # slot 0 and slot 1 are distinctive instructions; --no-opt keeps the
+        # cache path and must not emit them.
+        slots = work / 'record-slots.may'
+        slots.write_text('struct Pair { x: Int, y: Int }\n'
+                         'let p: Pair = Pair(1, 2);\n'
+                         'mut total: Int = 0;\nmut i: Int = 0;\n'
+                         'while (i < 10) { total += p.x + p.y; p.x += 1; i += 1; }\n'
+                         'print(total, p.x);\n')
+        listings = {}
+        for label, options in [('optimized', ()), ('no-opt', ('--no-opt',))]:
+            binary = work / f'record-slots-{label}'
+            compile_source(compiler, slots, binary, *options)
+            run = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            assert run.returncode == 0 and run.stdout == b'75 11\n', run
+            disassembly = subprocess.check_output(
+                ['objdump', '-d', '-Mintel', '--no-show-raw-insn', str(binary)], text=True)
+            listings[label] = ' '.join(disassembly.split())
+        guard = 'lea r8,[rax+0x30]'
+        slot0 = 'cmp QWORD PTR [rax+0x38],r8'
+        slot1 = 'cmp QWORD PTR [rax+0x58],r8'
+        assert guard in listings['optimized'] and slot0 in listings['optimized'] and slot1 in listings['optimized'], \
+            'fat struct field slots are not read by offset in the optimized build'
+        assert guard not in listings['no-opt'] and slot1 not in listings['no-opt'], \
+            'fat struct field slots are read by offset under --no-opt'
+        print('PASS fat struct fields load from their fixed slot only when optimized', flush=True)
         for args, message in [(['--target', 'bogus'], b'unknown target'),
                               (['--target'], b'requires a target name'),
                               (['--target', 'arm64-linux'], b'target arm64-linux is frozen'),
