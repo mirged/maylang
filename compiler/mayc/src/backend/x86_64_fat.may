@@ -1332,7 +1332,7 @@ fun fat_direct_registers(ctx: Any, rec: Any, args: Any) -> Any {
 // is proven, then move the payload into its SysV argument register.
 fun fat_native_argument(ctx: Any, rec: Any, arg: Any, index: Any) -> Any {
     fat_get(ctx, arg);
-    let expected: Any = if (rec.nativeKinds[index] == "Bool") { 1 } else { 2 };
+    let expected: Any = fat_native_type(rec.nativeKinds[index]);
     if (fat_known_type(arg) != expected) {
         fat_cmp_immediate(ctx, 2, expected);
         jcc(ctx, 133, fat_word_fault(ctx));
@@ -1362,7 +1362,7 @@ fun fat_direct_native(ctx: Any, rec: Any, args: Any) -> Any {
     if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
     emission_reference(ctx, rec.lab);
     fat_call_begin(ctx); call(ctx, rec.nativeLab); fat_call_end(ctx);
-    x86_mov_immediate(ctx, 2, if (rec.nativeResult == "Bool") { 1 } else { 2 });
+    x86_mov_immediate(ctx, 2, fat_native_type(rec.nativeResult));
     return 0;
 }
 
@@ -2771,6 +2771,13 @@ fun fat_begin(ctx: Any, block: Any, boxed: Any) -> Any {
 // The fat entry of a native-word function (#92): check each argument's type
 // word, pass the payloads as machine words and give the result its type.
 // Fat Int and Bool payloads are the native words, so nothing is converted.
+// The fat type word of a native-word parameter or result kind.
+fun fat_native_type(kind: Any) -> Any {
+    if (kind == "Bool") { return 1; }
+    if (kind == "Float") { return 3; }
+    return 2;
+}
+
 fun fat_native_entry(ctx: Any, rec: Any) -> Any {
     if (rec.nativeLab == 0) { rec.nativeLab = newlab(ctx); }
     let fault: Any = newlab(ctx);
@@ -2779,12 +2786,12 @@ fun fat_native_entry(ctx: Any, rec: Any) -> Any {
     let registers: Any = [7, 6, 2, 1, 8, 9];
     for index: Any in 0..rec.pc {
         x86_load_register(ctx, 0, 0 - (16 + 16 * index));
-        e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, if (rec.nativeKinds[index] == "Bool") { 1 } else { 2 }); // cmp rax, type
+        e8(ctx, 72); e8(ctx, 131); e8(ctx, 248); e8(ctx, fat_native_type(rec.nativeKinds[index])); // cmp rax, type
         jcc(ctx, 133, fault);
     }
     for index: Any in 0..rec.pc { x86_load_register(ctx, registers[index], 0 - (24 + 16 * index)); }
     call(ctx, rec.nativeLab);
-    x86_mov_immediate(ctx, 2, if (rec.nativeResult == "Bool") { 1 } else { 2 });
+    x86_mov_immediate(ctx, 2, fat_native_type(rec.nativeResult));
     e8(ctx, 93); e8(ctx, 195);                                                // pop rbp; ret
     placelab(ctx, fault);
     call_rt0(ctx, addr("rt_word_type_fault"), len("rt_word_type_fault"));
@@ -2804,7 +2811,7 @@ fun fat_word_adapter(ctx: Any, rec: Any) -> Any {
     for index: Any in 0..rec.pc {
         let register: Any = registers[index];
         e8(ctx, 72); e8(ctx, 199); e8(ctx, 132); e8(ctx, 36); e32(ctx, 16 * index); // mov qword [rsp + d], type
-        e32(ctx, if (rec.nativeKinds[index] == "Bool") { 1 } else { 2 });
+        e32(ctx, fat_native_type(rec.nativeKinds[index]));
         e8(ctx, if (register >= 8) { 76 } else { 72 }); e8(ctx, 137);            // mov [rsp + d], reg
         e8(ctx, 132 + (register % 8) * 8); e8(ctx, 36); e32(ctx, 16 * index + 8);
     }

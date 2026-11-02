@@ -781,7 +781,8 @@ fun ir_program(ctx: Any) -> Any {
             "ffiSlot": rec.ffiSlot, "library": rec.library, "symbol": rec.symbol,
             "native": rec.native == true, "nativeLab": 0, "wordForeign": rec.wordForeign == true,
             "wordCalled": rec.wordCalled == true and rec.native != true, "wordLab": 0,
-            "nativeKinds": rec.nativeKinds ?? [], "nativeResult": rec.nativeResult ?? "Int"};
+            "nativeKinds": rec.nativeKinds ?? [], "nativeResult": rec.nativeResult ?? "Int",
+            "nativeFloats": rec.nativeFloats == true};
         if (rec.strictSignature != nil) { emitted.strictSignature = rec.strictSignature; }
         if (rec.behaviorSummary != nil) { emitted.behaviorSummary = behavior_ir_summary(rec); }
         push(ctx.functions, emitted);

@@ -1,0 +1,117 @@
+// Native Float functions (#132). A straight-line function whose parameters,
+// result, locals and operations are all Int/Ptr/Bool/Float compiles to
+// machine code: Float values are binary64 bit patterns in words and their
+// operations run in XMM registers. Float loop bodies stay on the tagged
+// versioned path for now (their locals keep the fat backend's XMM homes), so
+// this fixture also pins one loop.
+//
+// The expected output was produced by the compiler before Float became a
+// native-word kind, so it is an oracle for the tagged path; oracle.py also
+// compiles this with --no-opt, which keeps Float functions tagged.
+
+fun show(label: Str, value: Any) -> Nil { print(label, value); return; }
+
+fun caught(f: () -> Any) -> Str {
+    return may { str(f()) } otherwise { "${err.kind}: ${err.message}" };
+}
+
+// ------------------------------------------------ straight-line arithmetic
+fun quad(a: Float, b: Float, c: Float) -> Float { return a * a + b * b - c; }
+fun poly(x: Float) -> Float {
+    let x2: Float = x * x;
+    let x3: Float = x2 * x;
+    return x3 - 2.0 * x2 + 0.5 * x - 1.25;
+}
+fun negate(x: Float) -> Float { return -x; }
+fun divide(a: Float, b: Float) -> Float { return a / b; }
+
+// ------------------------------------------------ mixed Int/Float parameters
+fun scale(x: Float, k: Int) -> Float { return x * to_float(k); }
+fun mix_int(a: Int, b: Float) -> Float {
+    let s: Float = to_float(a) + b;
+    return s * to_float(a + 1);
+}
+fun half_int(n: Int) -> Float { let h: Float = to_float(n) / 2.0; return h; }
+fun as_float(n: Int) -> Float { return to_float(n); }
+
+// ------------------------------------------------ comparisons
+fun less(a: Float, b: Float) -> Bool { return a < b; }
+fun less_eq(a: Float, b: Float) -> Bool { return a <= b; }
+fun equal(a: Float, b: Float) -> Bool { return a == b; }
+fun not_equal(a: Float, b: Float) -> Bool { return a != b; }
+fun greater(a: Float, b: Float) -> Bool { return a > b; }
+fun greater_eq(a: Float, b: Float) -> Bool { return a >= b; }
+fun is_nan(x: Float) -> Bool { return x != x; }
+fun positive(x: Float) -> Bool { return x > 0.0; }
+fun sign(x: Float) -> Int {
+    if (less(x, 0.0)) { return 0 - 1; }
+    if (greater(x, 0.0)) { return 1; }
+    return 0;
+}
+fun classify(x: Float) -> Int { if (positive(x)) { return 1; } return 0; }
+
+// ------------------------------------------------ non-finite values
+fun infinity() -> Float { return 1.0e308 * 10.0; }
+fun not_a_number() -> Float { return infinity() - infinity(); }
+
+// ------------------------------------------------ native -> tagged boundary
+// `soft` is word-compatible but tagged: it calls print, so the word adapter
+// boxes the Float argument and untags the result.
+fun soft(x: Float) -> Float { print("soft", x); return x + 0.5; }
+fun through_soft(x: Float) -> Float { return soft(quad(x, 1.0, 0.0)); }
+
+// ------------------------------------------------ recursion
+fun power(base: Float, n: Int, acc: Float) -> Float {
+    if (n == 0) { return acc; }
+    return power(base, n - 1, acc * base);
+}
+
+// ------------------------------------------------ faults
+fun divide_fault(a: Float, b: Float) -> Float { return a / b; }
+fun int_overflow(n: Int) -> Float { return to_float(n * 1000000000000000000); }
+
+// ------------------------------------------------ loop: stays tagged
+fun sum_series(n: Int, x: Float) -> Float {
+    mut acc: Float = x;
+    mut i: Int = 0;
+    while (i < n) { acc = acc * 0.5 + 1.0; i += 1; }
+    return acc;
+}
+
+// ================================================ top level (tagged main)
+show("quad", quad(1.5, -2.0, 0.25));
+show("poly", poly(2.0));
+print("negate", negate(2.5), negate(0.0), negate(-0.0));
+show("divide", divide(7.0, 2.0));
+show("divide negative", divide(-7.0, 3.0));
+
+show("scale", scale(1.5, 4));
+show("mix int", mix_int(3, 0.5));
+show("half int", half_int(5));
+show("as float", as_float(7));
+
+print("cmp", less(1.0, 2.0), less_eq(2.0, 2.0), equal(2.0, 2.0), not_equal(2.0, 3.0));
+print("cmp two", greater(3.0, 2.0), greater_eq(2.0, 3.0));
+print("sign", sign(-2.5), sign(2.5), sign(0.0), sign(-0.0));
+print("classify", classify(1.0), classify(-1.0));
+
+let inf: Float = infinity();
+let nan: Float = not_a_number();
+print("nonfinite", inf, -inf, nan);
+print("nan compares", is_nan(nan), nan == nan, nan != nan, nan < 1.0, nan > 1.0);
+print("inf compares", greater(inf, 1.0), less(inf, 1.0), equal(inf, inf));
+
+show("through soft", through_soft(2.0));
+show("power", power(2.0, 10, 1.0));
+show("series", sum_series(10, 1.0));
+
+show("div fault", caught(fun() -> Any { return divide_fault(1.0, 0.0); }));
+show("neg zero fault", caught(fun() -> Any { return divide_fault(1.0, -0.0); }));
+show("nan div", divide_fault(1.0, nan));
+show("overflow fault", caught(fun() -> Any { return int_overflow(100); }));
+
+// A function value calls the native function's tagged entry.
+let f: Any = divide;
+show("value", f(9.0, 2.0));
+let g: Any = mix_int;
+show("value mixed", g(2, 0.25));
