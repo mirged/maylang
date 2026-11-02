@@ -394,16 +394,20 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         return result;
     }
     // `mapProbe` records the key type the checker proved for a receiver that is
-    // statically a Map (4 Str, 2 Int; 0 otherwise). The fat backend inlines the
-    // map probe only at such sites: an Any receiver or a dynamically typed key
-    // keeps the runtime call, which still has to handle both (x86_64_fat.may).
+    // statically a Map (4 Str, 3 Float, 2 Int, 1 Bool; 0 otherwise). The fat
+    // backend inlines the map probe only at such sites: an Any receiver or a
+    // dynamically typed key keeps the runtime call (x86_64_fat.may).
     if (kind == E_INDEX) {
         let object: Any = ir_node(ctx, node.object);
         let index: Any = ir_node(ctx, node.index);
         let receiver: Any = node.object.contract ?? node.object.strictType;
         let key: Any = node.index.contract ?? node.index.strictType;
         let probe: Any = if (receiver != nil and receiver != 0 and receiver.name == "Map" and key != nil and key != 0) {
-            if (key.name == "Str") { 4 } else if (key.name == "Int") { 2 } else { 0 }
+            if (key.name == "Str") { 4 }
+            else if (key.name == "Float") { 3 }
+            else if (key.name == "Int") { 2 }
+            else if (key.name == "Bool") { 1 }
+            else { 0 }
         } else { 0 };
         return ir_operation(kind, {"object": object, "index": index, "mapProbe": probe}, span);
     }

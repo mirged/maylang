@@ -2103,14 +2103,16 @@ fun fat_index_set(ctx: Any, n: Any) -> Any {
 
 // ---- inline map probe (#133) ---------------------------------------------
 //
-// `m[k]` with a receiver the checker proved `Map<K, V>` and a key proved Str or
-// Int probes the runtime's hash table inline instead of calling rt_index_get.
-// The walk is rt_map_find's exactly: the same key hash, the same three linear
-// steps then CPython's perturb sequence, and the same 32-byte entries (key type,
-// key, value type, value). Anything else - a receiver that is not a map, a key
-// of another type, a map below the hash-table threshold (rt_map_find scans those
-// linearly), a non-list non-map receiver - falls back to the runtime call, which
-// keeps growth, faults and dynamic values out of the inline code.
+// `m[k]` with a receiver the checker proved `Map<K, V>` and a key proved Str,
+// Int, Float or Bool probes the runtime's hash table inline instead of calling
+// rt_index_get. The walk is rt_map_find's exactly: the same key hash
+// (rt_key_hash), the same key equality (rt_same, including Float's -0.0/NaN
+// rules), the same three linear steps then CPython's perturb sequence, and the
+// same 32-byte entries (key type, key, value type, value). Anything else - a
+// receiver that is not a map, a key of another type, a map below the hash-table
+// threshold (rt_map_find scans those linearly), a non-list non-map receiver -
+// falls back to the runtime call, which keeps growth, faults and dynamic values
+// out of the inline code.
 //
 // rsp-relative words used by the probe (96 bytes, released on every exit):
 //   0 map payload   8 key type   16 key payload   24 step
@@ -2193,6 +2195,11 @@ fun fat_imul_imm(ctx: Any, reg: Any, imm: Any) -> Any {
     e8(ctx, 105); e8(ctx, 192 + (reg % 8) * 8 + reg % 8); e32(ctx, imm);
     return 0;
 }
+fun fat_imul(ctx: Any, dst: Any, src: Any) -> Any {
+    fat_rex(ctx, 1, if (dst >= 8) { 1 } else { 0 }, 0, if (src >= 8) { 1 } else { 0 });
+    e8(ctx, 15); e8(ctx, 175); e8(ctx, 192 + (dst % 8) * 8 + src % 8);
+    return 0;
+}
 // movzx reg32, byte [base].
 fun fat_movzx8(ctx: Any, reg: Any, base: Any) -> Any {
     fat_rex(ctx, 0, if (reg >= 8) { 1 } else { 0 }, 0, if (base >= 8) { 1 } else { 0 });
@@ -2260,7 +2267,9 @@ fun fat_map_str_hash(ctx: Any) -> Any {
 }
 
 // The runtime's Int key hash: fold the high words into the low ones. Leaves the
-// key in R9 and the hash in RSI.
+// key in R9 and the hash in RSI. Bool keys use it too: rt_key_hash's `kt <= 2`
+// branch is this formula, and a Bool payload is 0 or 1, so the fold leaves it
+// unchanged.
 fun fat_map_int_hash(ctx: Any) -> Any {
     x86_move_register(ctx, 9, 0);                                            // mov r9, rax
     fat_alu_reg(ctx, 137, 6, 0);                                             // mov rsi, rax
@@ -2269,6 +2278,34 @@ fun fat_map_int_hash(ctx: Any) -> Any {
     fat_alu_reg(ctx, 49, 6, 1);                                              // xor rsi, rcx
     fat_shift_imm(ctx, 5, 1, 48);                                            // shr rcx, 48
     fat_alu_reg(ctx, 49, 6, 1);                                              // xor rsi, rcx
+    return 0;
+}
+
+// The runtime's Float key hash (runtime/fat.may rt_key_hash): rt_hash_mix of the
+// payload bits, with the -0.0 payload folded onto mix(0) so both zeros hash to
+// the same slot (rt_same treats them as the same key). The mix is the runtime's
+// exactly: h = x*C1; h ^= h >> 32; h *= C2; h ^= (h >> 29) & (2^35 - 1), where
+// the shifts are the arithmetic shifts in the source, masked so the logical
+// ones here are identical. Leaves the key in R9 and the hash in RSI.
+fun fat_map_float_hash(ctx: Any) -> Any {
+    let set: Any = newlab(ctx);
+    x86_move_register(ctx, 9, 0);                                            // mov r9, rax
+    x86_mov_immediate(ctx, 11, 1); fat_shift_imm(ctx, 4, 11, 63);            // mov r11, 1 << 63  (-0.0)
+    fat_alu_reg(ctx, 57, 0, 11);                                             // cmp rax, r11
+    jcc(ctx, 133, set);                                                      // jne set
+    xor_eax(ctx);                                                            // x = 0 for -0.0
+    placelab(ctx, set);
+    fat_movabs(ctx, 11, 1024421277861575701); fat_imul(ctx, 0, 11);          // imul rax, C1
+    fat_alu_reg(ctx, 137, 2, 0);                                             // mov rdx, rax
+    fat_shift_imm(ctx, 5, 2, 32);                                            // shr rdx, 32
+    fat_alu_reg(ctx, 49, 0, 2);                                              // xor rax, rdx
+    fat_movabs(ctx, 11, 1105712242481227193); fat_imul(ctx, 0, 11);          // imul rax, C2
+    fat_alu_reg(ctx, 137, 2, 0);                                             // mov rdx, rax
+    fat_shift_imm(ctx, 5, 2, 29);                                            // shr rdx, 29
+    fat_movabs(ctx, 1, 34359738367);                                         // mov rcx, 2^35 - 1
+    fat_alu_reg(ctx, 33, 2, 1);                                              // and rdx, rcx
+    fat_alu_reg(ctx, 49, 0, 2);                                              // xor rax, rdx
+    fat_alu_reg(ctx, 137, 6, 0);                                             // mov rsi, rax
     return 0;
 }
 
@@ -2320,6 +2357,17 @@ fun fat_map_probe(ctx: Any, keyType: Any, done: Any) -> Any {
         fat_stack_load(ctx, 9, 72);
         fat_test(ctx, 0);                                                    // test rax, rax
         jcc(ctx, 133, called);                                               // jne called
+    } else if (keyType == 3) {
+        // Float keys compare the way rt_same does: __fbits(20, a, b) is
+        // IEEE equality -- -0.0 equals +0.0 and NaN never equals anything,
+        // including itself. ucomisd sets ZF for ordered equality and PF for
+        // unordered, so jp skips NaN and je takes ordered equality.
+        fat_rm(ctx, 139, 2, 0, 8);                                           // mov rdx, [rax + 8]
+        fat_movq_to_xmm(ctx, 0, 2);                                          // movq xmm0, rdx
+        fat_movq_to_xmm(ctx, 1, 9);                                          // movq xmm1, r9
+        fat_sse(ctx, 102, 46, 1, 0, false);                                  // ucomisd xmm1, xmm0
+        jcc(ctx, 138, next);                                                 // jp next (unordered: NaN)
+        jcc(ctx, 132, found);                                                // je found
     } else {
         fat_rm(ctx, 139, 2, 0, 8);                                           // mov rdx, [rax + 8]
         fat_alu_reg(ctx, 57, 2, 9);                                          // cmp rdx, r9
@@ -2362,8 +2410,8 @@ fun fat_map_probe(ctx: Any, keyType: Any, done: Any) -> Any {
 }
 
 // Load `object[index]` into RDX/RAX: a list element or, for a receiver the
-// checker proved a Map with a Str/Int key, an inline probe. Everything else
-// calls rt_index_get.
+// checker proved a Map with a Str, Int, Float or Bool key, an inline probe.
+// Everything else calls rt_index_get.
 fun fat_index_load(ctx: Any, n: Any) -> Any {
     let slow: Any = newlab(ctx); let done: Any = newlab(ctx);
     let typed: Any = newlab(ctx); let bytes: Any = newlab(ctx);
@@ -2371,7 +2419,7 @@ fun fat_index_load(ctx: Any, n: Any) -> Any {
     let probe: Any = if (NO_OPT) { 0 } else { n.mapProbe ?? 0 };
     fat_operands(ctx, n.object, n.index);
     for byte: Any in [73, 131, 249, 5] { e8(ctx, byte); }                    // cmp r9, 5
-    jcc(ctx, 133, if (probe == 4 or probe == 2) { mapcheck } else { slow });
+    jcc(ctx, 133, if (probe >= 1 and probe <= 4) { mapcheck } else { slow });
     for byte: Any in [72, 131, 250, 2] { e8(ctx, byte); }                    // cmp rdx, 2
     jcc(ctx, 133, slow);
     for byte: Any in [77, 139, 16, 76, 57, 208] { e8(ctx, byte); }           // mov r10, [r8]; cmp rax, r10
@@ -2396,7 +2444,7 @@ fun fat_index_load(ctx: Any, n: Any) -> Any {
     for byte: Any in [65, 15, 182, 4, 2] { e8(ctx, byte); }                  // movzx eax, byte [r10 + rax]
     for byte: Any in [186, 1, 0, 0, 0] { e8(ctx, byte); }                    // mov edx, 1  (Bool)
     jmp(ctx, done);
-    if (probe == 4 or probe == 2) {
+    if (probe >= 1 and probe <= 4) {
         placelab(ctx, mapcheck);
         for byte: Any in [73, 131, 249, 6] { e8(ctx, byte); }                // cmp r9, 6
         jcc(ctx, 133, slow);                                                  // jne slow (not a map)
@@ -2408,7 +2456,9 @@ fun fat_index_load(ctx: Any, n: Any) -> Any {
         fat_stack_store(ctx, 8, 0);                                           // map payload
         fat_stack_store(ctx, 2, 8);                                           // key type
         fat_stack_store(ctx, 0, 16);                                          // key payload
-        if (probe == 4) { fat_map_str_hash(ctx); } else { fat_map_int_hash(ctx); }
+        if (probe == 4) { fat_map_str_hash(ctx); }
+        else if (probe == 3) { fat_map_float_hash(ctx); }
+        else { fat_map_int_hash(ctx); }
         fat_map_probe(ctx, probe, done);
     }
     placelab(ctx, slow);
