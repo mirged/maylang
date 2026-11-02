@@ -2,6 +2,25 @@
 
 ## Performance
 
+- Audit the rest of the runtime library and remove its remaining superlinear
+  and allocation-heavy paths ([report](compiler/mayc/tests/backend/runtime-audit.md)):
+  - `sort` is a stable merge sort (O(n log n) comparisons), and `unique`
+    records seen values in a map instead of scanning the result.
+  - `str` of a list or map allocates its text once and fills it with one copy
+    per part (as `join` does) instead of concatenating per element, and map
+    display sorts its keys by merge instead of by insertion.
+  - `trim`, `int`, `parse_int`, `reverse`, `starts_with`/`ends_with`,
+    `pad_left`/`pad_right` and the JSON reader and writer no longer index code
+    points in a loop (`char_at` re-walks the string from byte 0) or
+    concatenate per character; the JSON scanner works in byte offsets.
+  - `rt_str_eq` compares eight bytes per step, and `keys`/`values` fill the
+    result list directly.
+  - Measured on the new `runtime_paths` workloads, a 50 000-character `trim`
+    drops from 7 032 ms to 2.0 ms, `json_parse` of a 20 kB document from
+    615 ms to 1.5 ms, `str` of a 20 000-element list from 1 312 ms to 6.5 ms
+    and `sort` of 10 000 Ints from 292 ms to 5.1 ms, with peak RSS down from
+    up to 288 MiB to 19 MiB. `compiler/mayc/tests/strings.py` now checks the
+    rewritten string functions against Python's code point semantics.
 - Track the cross-language suite behind the performance roadmap
   ([#101](https://github.com/mirged/maylang/issues/101)):
   `compiler/mayc/tests/backend/xlang.py` builds the eight workloads in
