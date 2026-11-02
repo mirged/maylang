@@ -410,6 +410,25 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         mut keyed: Any = 0;
         mut counted: Any = node.entries;
         while (counted != 0) { if (counted.key != 0) { keyed += 1; } counted = counted.next; }
+        // A struct or enum constructor builds one fixed-slot record (#134):
+        // rt_struct_new allocates 48 + 32n bytes and rt_struct_set fills the
+        // slots in declaration order, so nothing is hashed and the entries are
+        // never allocated separately. Skipped under --no-opt, in raw code and
+        // for the empty map, which all keep the rt_map_new path.
+        if (node.record == 1 and keyed != 0 and IR_RAW_MODE == 0 and not NO_OPT) {
+            let result: Any = ir_runtime("rt_struct_new", [ir_integer(keyed, span)], span);
+            mut slot: Any = 0;
+            mut entry: Any = node.entries;
+            while (entry != 0) {
+                if (entry.key == 0) { ir_runtime("rt_merge_into", [result, ir_node(ctx, entry.value)], span); }
+                else {
+                    ir_runtime("rt_struct_set", [result, ir_integer(slot, span), ir_node(ctx, entry.key), ir_node(ctx, entry.value)], span);
+                    slot += 1;
+                }
+                entry = entry.next;
+            }
+            return result;
+        }
         let result: Any = if (keyed == 0 or IR_RAW_MODE == 1) { ir_runtime("rt_map_new", [], span) } else { ir_runtime("rt_map_new_sized", [ir_integer(keyed, span)], span) };
         mut entry: Any = node.entries;
         while (entry != 0) {

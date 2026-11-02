@@ -341,6 +341,10 @@ fun parse_struct(ctx: Any) -> Any {
     entries = rev_list(entries);
     let mapn: Any = mknode(E_MAP);
     mapn.entries = entries;
+    // A record: the constructor allocates one fixed-slot block (#134). The
+    // slot count is the entry count, because a declaration may add
+    // string-keyed entries (operator methods) to its fields.
+    mapn.record = 1;
     let body: Any = mknode(S_BLOCK);
     body.statements = 0;
     body.tail = mapn;
@@ -403,6 +407,8 @@ fun parse_enum(ctx: Any) -> Any {
         entries = rev_list(entries);
         let mapn: Any = mknode(E_MAP);
         mapn.entries = entries;
+        // An enum variant is a record too: the tag entry first, then payload.
+        mapn.record = 1;
         let body: Any = mknode(S_BLOCK);
         body.statements = 0;
         body.tail = mapn;

@@ -75,7 +75,7 @@ struct LogicalAnd { kind: Any, span: Any, next: Any, left: Any, right: Any }
 struct LogicalOr { kind: Any, span: Any, next: Any, left: Any, right: Any }
 struct ListLit { kind: Any, span: Any, next: Any, items: Any }
 struct Index { kind: Any, span: Any, next: Any, object: Any, index: Any }
-struct MapLit { kind: Any, span: Any, next: Any, entries: Any }
+struct MapLit { kind: Any, span: Any, next: Any, entries: Any, record: Any }
 struct Member { kind: Any, span: Any, next: Any, object: Any, start: Any, length: Any }
 struct MapEntry { kind: Any, span: Any, next: Any, key: Any, value: Any }
 struct RangeExpr { kind: Any, span: Any, next: Any, start: Any, end: Any, inclusive: Any }
@@ -127,7 +127,7 @@ fun mknode(kind: Any) -> Any {
     if (kind == E_OR) { return LogicalOr(kind, span, 0, 0, 0); }
     if (kind == E_LIST) { return ListLit(kind, span, 0, 0); }
     if (kind == E_INDEX) { return Index(kind, span, 0, 0, 0); }
-    if (kind == E_MAP) { return MapLit(kind, span, 0, 0); }
+    if (kind == E_MAP) { return MapLit(kind, span, 0, 0, 0); }
     if (kind == E_GET) { return Member(kind, span, 0, 0, 0, 0); }
     if (kind == E_ENTRY) { return MapEntry(kind, span, 0, 0, 0); }
     if (kind == E_RANGE) { return RangeExpr(kind, span, 0, 0, 0, 0); }
