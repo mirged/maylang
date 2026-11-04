@@ -330,10 +330,16 @@ fun ir_branch(ctx: Any, node: Any, label: Any, sense: Any, span: Any) -> Any {
     return 0;
 }
 
+// Statement nodes lower to their operand's value (a `let` to its initializer,
+// an assignment to its value), so only an expression's own checked type may be
+// recorded on the result. Overwriting it from a statement node would clear the
+// type the inner lowering set.
+fun ir_expression_kind(kind: Any) -> Any { return kind >= E_INT and kind <= E_PATTERN; }
+
 fun ir_node(ctx: Any, node: Any) -> Any {
     let value: Any = ir_node_value(ctx, node);
     let result: Any = ir_contract(ctx, value, if (node == 0) { nil } else { node.contract }, if (node == 0) { 0 } else { node.span });
-    if (node != 0) { result.valueType = node.contract ?? node.strictType; }
+    if (node != 0 and ir_expression_kind(node.kind)) { result.valueType = node.contract ?? node.strictType; }
     return result;
 }
 fun ir_node_value(ctx: Any, node: Any) -> Any {
