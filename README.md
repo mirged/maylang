@@ -3,6 +3,10 @@
 An experimental programming language with a self-hosted compiler, strict
 checking by default, and direct native executable output.
 
+> **Status:** experimental and not production-ready. Linux x86-64 only. Expect
+> breaking changes between releases; see the [roadmap](ROADMAP.md) and the
+> [security policy](SECURITY.md).
+
 [![Maylang 0.15.0 — Fern](https://img.shields.io/badge/Maylang-0.15.0%20Fern-green)](https://github.com/mirged/maylang/releases/tag/v0.15.0)
 
 [Releases](https://github.com/mirged/maylang/releases) ·

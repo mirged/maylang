@@ -6,3 +6,6 @@ contact_links:
   - name: Contribution conventions
     url: https://github.com/mirged/maylang/blob/main/CONTRIBUTING.md
     about: Check validation, issue labels and pull request conventions.
+  - name: Report a security vulnerability
+    url: https://github.com/mirged/maylang/security/advisories/new
+    about: Report vulnerabilities privately; see SECURITY.md.

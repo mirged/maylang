@@ -18,6 +18,9 @@
   `mayc` directly. Release bundles and installers no longer ship `maypkg`;
   saved component lists and `--components` values that name it are ignored,
   so older installations still upgrade.
+- Added a [security policy](SECURITY.md) with private vulnerability
+  reporting, an experimental-status note in the README, and a roadmap rebuilt
+  from the open issues.
 
 ## Language
 

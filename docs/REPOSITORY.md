@@ -42,6 +42,7 @@ relative imports between `compiler/` and `tools/` siblings use
 - [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md): vendored sources and
   their licenses, shipped with the release archive.
 - [CONTRIBUTING.md](../CONTRIBUTING.md): checks, style, commits and licensing.
+- [SECURITY.md](../SECURITY.md): how to report vulnerabilities privately.
 - [AGENTS.md](../AGENTS.md): behavior, traps and commands for coding agents.
 
 Further extraction should follow tests and measured hotspots, as separate
