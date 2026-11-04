@@ -154,6 +154,7 @@ HARNESSES = [
     (["behavior_scalars.py"], "floating-point behavior contracts and pure constants"),
     (["behavior_control_flow.py"], "private scalar state and while-loop behavior contracts"),
     (["behavior_ir.py"], "behavior metadata survives frontend-to-IR snapshots"),
+    (["stack_maps.py"], "allocating-safepoint inventory for precise stack maps"),
     (["behavior_function_types.py"], "callable effect-row type operations and variance"),
     (["behavior_callbacks.py"], "source callable ceilings and callback laundering rejection"),
     (["list_guards.py"], "dynamic list type and index guards"),

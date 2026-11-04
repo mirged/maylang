@@ -228,6 +228,7 @@ fun main2() -> Any {
     mut dumpflag: Any = 0;
     mut checkflag: Any = 0;
     mut expandedflag: Any = 0;
+    mut smflag: Any = 0;
     mut k: Any = 1;
     while (k < len(argv)) {
         let ap: Any = argv[k][0];
@@ -264,6 +265,8 @@ fun main2() -> Any {
             die_str("mayc: --emit-llvm was removed; mayc emits native executables itself\n");
         } else if (name_eq(ap, al, addr("--time"), 6) == 1) {
             PROFILE_ENABLED = true;
+        } else if (name_eq(ap, al, addr("--stack-map-inventory"), 21) == 1) {
+            smflag = 1;
         } else if (name_eq(ap, al, addr("--debug"), 7) == 1) {
             DEBUG_TRACES = true;
         } else if (name_eq(ap, al, addr("--no-opt"), 8) == 1) {
@@ -406,6 +409,10 @@ fun main2() -> Any {
     }
     ir_opt_program(ctx);
     profile_mark("ir");
+    if (smflag == 1) {
+        print(json_stringify(ir_stack_map_inventory(ctx)));
+        syscall(60, 0);
+    }
     backend_emit(ctx);
     profile_mark("emit");
     pad_code(ctx);
