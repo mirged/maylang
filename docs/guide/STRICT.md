@@ -62,6 +62,15 @@ fun identity<T>(value: T) -> T { return value; }
 let point: Point = identity(Point(3, 4));
 ```
 
+A closure inside a generic function can name that function's type parameters,
+for example `fun compose<A, B, C>(f: (B) -> C, g: (A) -> B) -> (A) -> C`
+returning `fun(x: A) -> C { return f(g(x)); }`; they stay the enclosing
+function's parameters. A type parameter that no argument determines, such as
+`T` in `fun stack<T>() -> List<T>`, becomes `Never` at the call, like the
+element of an empty `[]`, so `let xs: List<Int> = stack();` is accepted. There
+is no arithmetic on type parameters, no numeric type bound, and no generic
+structs or tuple values yet.
+
 `Any` supports heterogeneous JSON, runtime maps, AST nodes, raw APIs and legacy
 operator dispatch. Concrete values can widen to `Any`. Strict mode rejects
 implicit narrowing from `Any` to a concrete type at bindings, assignments,

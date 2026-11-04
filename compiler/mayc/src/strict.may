@@ -260,19 +260,29 @@ fun st_resolve(ctx: Any, name: Any, span: Any) -> Any {
     let key: Any = st_export_name(source_module(span), replace(name, "::", "."), span, ST_GLOBALS);
     return ST_GLOBALS[key];
 }
+// A nested function (closure) may name its enclosing function's type
+// parameters. They resolve to the same rigid variables, but stay the
+// enclosing function's: the closure is not generic over them itself.
+fun st_visible_variables(rec: Any, own: Any) -> Any {
+    if (rec.nested == 0) { return own; }
+    let visible: Any = slice(own, 0, len(own));
+    for name: Any in ST_VARS { if (not has(visible, name)) { push(visible, name); } }
+    return visible;
+}
 fun st_signature(rec: Any) -> Any {
     let module: Any = source_module(rec.moduleSpan ?? rec.body.span); let variables: Any = [];
     for variable: Any in rec.typeParameters ?? [] { push(variables, variable.name); }
+    let visible: Any = st_visible_variables(rec, variables);
     let params: Any = [];
     for param: Any in rec.parr {
         // UInt and Void are C binding types; values crossing the boundary are
         // ordinary Maylang integers and nil, with ranges checked by the FFI.
         if (rec.foreign == true and param.annotation.name == "UInt") { push(params, st_type("Int", [])); }
-        else { push(params, st_annotation(param.annotation, module, variables, param.span)); }
+        else { push(params, st_annotation(param.annotation, module, visible, param.span)); }
     }
     let result: Any = if (rec.foreign == true and rec.returnType.name == "UInt") { st_type("Int", []) }
         else if (rec.foreign == true and rec.returnType.name == "Void") { st_type("Nil", []) }
-        else { st_annotation(rec.returnType, module, variables, rec.body.span) };
+        else { st_annotation(rec.returnType, module, visible, rec.body.span) };
     if (rec.foreign == true) {
         for param: Any in params { if (st_has_behavior(param)) { diagnostic(rec.moduleSpan ?? rec.body.span, "foreign callable behavior contracts are not supported"); } }
         if (st_has_behavior(result)) { diagnostic(rec.moduleSpan ?? rec.body.span, "foreign callable behavior contracts are not supported"); }
@@ -497,7 +507,8 @@ fun st_builtin(name: Any, args: Any, span: Any) -> Any {
     if (has(["push", "pop", "sort", "reverse", "slice", "sum", "map", "filter", "any", "all", "reduce"], name)) {
         st_arity(name, args, if (has(["push", "map", "filter", "any", "all"], name)) { 2 } else if (name == "slice" or name == "reduce") { 3 } else { 1 }, if (has(["push", "map", "filter", "any", "all"], name)) { 2 } else if (name == "slice" or name == "reduce") { 3 } else { 1 }, span);
         let list: Any = args[0];
-        if (list.name == "Str" and name == "reverse") { return st_type("List", [st_type("Str", [])]); }
+        // reverse of a string returns the reversed string.
+        if (list.name == "Str" and name == "reverse") { return st_type("Str", []); }
         if (list.name != "List" and list.name != "Any") { diagnostic(span, "${name} expects a list"); }
         let item: Any = if (list.name == "List") { list.arguments[0] } else { st_any() };
         if (name == "push") { st_require(item, args[1], span); return list; }
@@ -532,6 +543,12 @@ fun st_invoke(callee: Any, args: Any, span: Any) -> Any {
     // A later argument can widen a callable-valued type variable. Recheck all
     // earlier arguments against the final solution, including contravariance.
     for i: Any in 0..len(args) { st_require(st_substitute(callee.arguments[i], bindings), args[i], span); }
+    // A type variable that no argument determines, such as T in a
+    // `stack<T>() -> List<T>` constructor, becomes Never, like the element of
+    // an empty `[]` literal, so the result fits any expected instantiation.
+    for variable: Any in callee.variables ?? [] {
+        if (not has(bindings, "$" + variable)) { bindings["$" + variable] = st_type("Never", []); }
+    }
     return st_substitute(callee.result, bindings);
 }
 fun st_member(object: Any, name: Any, span: Any) -> Any {
@@ -851,9 +868,10 @@ fun st_infer_returns(ctx: Any, node: Any, result: Any) -> Any {
 fun st_infer_signature(ctx: Any, rec: Any) -> Any {
     let module: Any = source_module(rec.moduleSpan ?? rec.body.span); let variables: Any = [];
     for variable: Any in rec.typeParameters ?? [] { push(variables, variable.name); }
-    let params: Any = []; for param: Any in rec.parr { push(params, st_annotation(param.annotation, module, variables, param.span)); }
+    let visible: Any = st_visible_variables(rec, variables);
+    let params: Any = []; for param: Any in rec.parr { push(params, st_annotation(param.annotation, module, visible, param.span)); }
     let signature: Any = st_type("Function", params); signature.variables = variables;
-    let previous: Any = ST_RESULT; let oldVars: Any = ST_VARS; ST_RESULT = st_any(); ST_VARS = variables; st_scope();
+    let previous: Any = ST_RESULT; let oldVars: Any = ST_VARS; ST_RESULT = st_any(); ST_VARS = visible; st_scope();
     for i: Any in 0..len(rec.parr) { st_bind(symbol_name(rec.parr[i].name, rec.parr[i].length), params[i], rec.parr[i].span); }
     signature.result = st_infer_returns(ctx, rec.body, st_type("Never", []));
     if (signature.result.name == "Never") { signature.result = st_type("Nil", []); }
@@ -864,7 +882,7 @@ fun st_function(ctx: Any, rec: Any, signature: Any) -> Any {
     if (rec.strictChecked == true or rec.foreign == true or rec.strictSynthetic == true) { return 0; }
     rec.strictChecked = true;
     let previous: Any = ST_RESULT; let variables: Any = ST_VARS; ST_RESULT = signature.result;
-    ST_VARS = signature.variables ?? []; st_scope();
+    ST_VARS = st_visible_variables(rec, signature.variables ?? []); st_scope();
     for i: Any in 0..len(rec.parr) { st_bind(symbol_name(rec.parr[i].name, rec.parr[i].length), signature.arguments[i], rec.parr[i].span); }
     if (rec.body.kind != S_BLOCK or rec.body.tail != 0) { diagnostic(rec.body.span, "strict functions require an explicit return statement"); }
     st_block(ctx, rec.body);

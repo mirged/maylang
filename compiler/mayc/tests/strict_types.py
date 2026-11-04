@@ -17,6 +17,9 @@ PASS = {
     'basics': ('fun add(a: Int, b: Int) { return a + b; }\nlet n = add(2,3);\nprint(n);', '5\n'),
     'inferred_builtin_return': ('fun size() { return len("hello"); }\nlet n: Int = size();\nprint(n);', '5\n'),
     'pow_returns_float': ('let p: Float = pow(2, 10); let q: Float = pow(2.0, 0.5) * 0.0; print(p, q);', '1024.0 0.0\n'),
+    'closure_sees_type_parameters': ('fun compose<A, B, C>(f: (B) -> C, g: (A) -> B) -> (A) -> C { return fun(x: A) -> C { let y: B = g(x); return f(y); }; } let inc: (Int) -> Int = fun(x: Int) -> Int { return x + 1; }; let show: (Int) -> Str = fun(x: Int) -> Str { return str(x); }; let both: (Int) -> Str = compose(show, inc); print(both(41));', '42\n'),
+    'unresolved_variable_is_never': ('fun empty<T>() -> List<T> { let out: List<T> = []; return out; } let xs: List<Int> = empty(); let ys: List<Str> = empty(); push(xs, 1); print(xs, ys);', '[1] []\n'),
+    'reverse_string_is_str': ('let s: Str = reverse("abc"); print(s + "!", reverse([1, 2]));', 'cba! [2, 1]\n'),
     'ccall6_returns_int': ('fun unused() -> Int { return __ccall6(0, 0, 0, 0, 0, 0, 0); } print(1);', '1\n'),
     'inferred_handler_builtin': ('fun test_may() {\nlet result = may {\nlet bad = 10 / 0\nbad\n} otherwise {\nprint("Caught an error: ${err}");\n}\nprint(result)\nreturn nil;\n}\ntest_may()', 'Caught an error: division by zero\n0\n'),
     'branches': ('fun f(flag: Bool) -> Int { if(flag) { return 1; } else { return 2; } }\nprint(f(false));', '2\n'),
@@ -128,6 +131,10 @@ FAIL = {
     'bitwise_rejects_float': ('let f: Float = 1.5;\nprint(f & 1);', 'expected an integer, found Float'),
     'pow_rejects_string': ('print(pow("2", 1));', 'expected a number, found Str'),
     'pow_result_not_int': ('let n: Int = pow(2, 3);', 'expected Int, found Float'),
+    'closure_type_parameter_stays_rigid': ('fun wrap<T>(x: T) -> () -> T { return fun() -> T { let n: Int = x; return x; }; }', 'expected Int, found $T'),
+    'closure_without_generic_parent': ('fun f() -> Int { let g: (Int) -> Int = fun(x: T) -> Int { return 1; }; return g(1); }', 'unknown type or name `T`'),
+    'never_element_rejects_push': ('fun empty<T>() -> List<T> { let out: List<T> = []; return out; } let xs = empty(); push(xs, 1);', 'expected Never, found Int'),
+    'reverse_string_not_list': ('let xs: List<Str> = reverse("abc");', 'expected List<Str>, found Str'),
     'bitnot_rejects_float': ('let f: Float = 1.5;\nprint(~f);', 'expected an integer, found Float'),
 }
 

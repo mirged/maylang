@@ -24,6 +24,12 @@
 
 ## Language
 
+- Strict typing for generics: a closure inside a generic function can name
+  the enclosing function's type parameters (`compose<A, B, C>` can return
+  `fun(x: A) -> C`), and a type parameter no argument determines becomes
+  `Never` at the call, so `let xs: List<Int> = stack();` is accepted.
+  `reverse` of a `Str` is typed `Str`, as the runtime returns, instead of
+  `List<Str>` ([strict guide](docs/guide/STRICT.md)).
 - Hexadecimal `0xff`, octal `0o755` and binary `0b1010` integer literals, and
   `_` digit separators in every numeric literal (`1_000_000`, `0xffff_ffff`,
   `6.022_140e2_3`). Prefixes are lowercase; each `_` must sit between two
