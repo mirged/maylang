@@ -113,8 +113,20 @@
     "numbers": {
       "patterns": [
         {
+          "name": "constant.numeric.hex.maylang",
+          "match": "\\b0x[0-9a-fA-F](_?[0-9a-fA-F])*\\b"
+        },
+        {
+          "name": "constant.numeric.octal.maylang",
+          "match": "\\b0o[0-7](_?[0-7])*\\b"
+        },
+        {
+          "name": "constant.numeric.binary.maylang",
+          "match": "\\b0b[01](_?[01])*\\b"
+        },
+        {
           "name": "constant.numeric.maylang",
-          "match": "\\b\\d[\\d_]*(\\.\\d[\\d_]*)?([eE][+-]?[\\d_]+)?\\b"
+          "match": "\\b\\d(_?\\d)*(\\.\\d(_?\\d)*)?([eE][+-]?\\d(_?\\d)*)?\\b"
         }
       ]
     },

@@ -585,6 +585,35 @@ impl Lexer {
     }
 
     fn number(&mut self, first: char, line: u32) -> Result<TokenKind, LexError> {
+        // `0x`, `0o` and `0b` integers, matching the self-hosted lexer.
+        let radix = match (first, self.peek()) {
+            ('0', Some('x')) => Some((16, "hexadecimal")),
+            ('0', Some('o')) => Some((8, "octal")),
+            ('0', Some('b')) => Some((2, "binary")),
+            _ => None,
+        };
+        if let Some((radix, name)) = radix {
+            self.pos += 1;
+            let mut digits = String::new();
+            while let Some(c) = self.peek() {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    digits.push(c);
+                    self.pos += 1;
+                } else {
+                    break;
+                }
+            }
+            let cleaned: String = digits.chars().filter(|c| *c != '_').collect();
+            return match i64::from_str_radix(&cleaned, radix) {
+                Ok(v) if !cleaned.is_empty() && !cleaned.starts_with(['+', '-']) => {
+                    Ok(TokenKind::Int(v))
+                }
+                _ => Err(LexError {
+                    message: format!("invalid {name} literal `{digits}`"),
+                    line,
+                }),
+            };
+        }
         let mut text = String::new();
         text.push(first);
         while let Some(c) = self.peek() {
@@ -723,6 +752,24 @@ mod tests {
             .into_iter()
             .map(|t| t.kind)
             .collect()
+    }
+
+    #[test]
+    fn radix_literals_and_separators() {
+        assert_eq!(
+            kinds("0xff 0o17 0b1010_1010 1_000 0x7fff_ffff_ffff_ffff"),
+            vec![
+                TokenKind::Int(255),
+                TokenKind::Int(15),
+                TokenKind::Int(170),
+                TokenKind::Int(1000),
+                TokenKind::Int(i64::MAX),
+                TokenKind::Eof,
+            ]
+        );
+        for bad in ["0x", "0b102", "0o8", "0x8000_0000_0000_0000"] {
+            assert!(tokenize(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

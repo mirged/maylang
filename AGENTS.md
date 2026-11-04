@@ -214,8 +214,11 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 - Error handling uses `may { expr } otherwise { fallback }`, with `err.kind`,
   `err.message` and `err.stack` inside `otherwise`. `fail("msg")` raises.
   `return`, `break` and `continue` inside `may` remain control flow.
-- **Not in the language:** hexadecimal literals (`0x10` is a name error) and
-  destructuring in strict mode. Use `load8`/`store8` for byte work.
+- Integer literals may be `0xff`, `0o755` or `0b1010`, and `_` separates
+  digits (`1_000`). Both the self-hosted lexer and the Rust `may_lexer` used
+  by the bootstrap accept them.
+- **Not in the language:** destructuring in strict mode. Use `load8`/`store8`
+  for byte work.
 - Values of different types cannot be compared: strict mode rejects `Int` vs
   `Float` (write `0.0` or convert with `to_float`). On `Any` values `==` across
   types is `false`, `!=` is `true`, and ordering raises a `type` fault, so

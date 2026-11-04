@@ -4,8 +4,10 @@
 - Names use letters, digits and `_`, starting with a letter or `_`; names and keywords are case-sensitive.
 - Comments: `//` to end of line; `/* ... */` block comments; documentation comments use `///` immediately before a declaration, in the form given by the [doc comment standard](../guide/DOCSTRINGS.md).
 - **Literals** — integers such as `42` and `1_000`; decimal floating values such as `3.5` and `1.0e-3`; strings in double quotes; Boolean values `true`/`false`; absence `nil`.
+- Integer literals may be hexadecimal `0xff`, octal `0o755` or binary `0b1010`; the prefix is lowercase and hexadecimal digits take either case. A leading zero without a prefix is still decimal (`007` is 7), and floating literals are decimal only.
+- `_` separates digits in any numeric literal, including the fraction and exponent of a Float (`1_000_000`, `0xffff_ffff`, `6.022_140e2_3`); each `_` must sit between two digits. Separators and prefixes are source syntax only: `int("0xff")` and `float("1_000")` still fault.
 - Strings support escapes `\n`, `\t`, `\r`, `\0`, `\\`, `\"` and `\$`; interpolation embeds `${expression}`, for example `"answer: ${6 * 7}"`.
-- Values are fat on every runtime and target (a type word and a payload; see `docs/design/FAT_VALUES.md`), and integers are signed 64-bit, in [-9223372036854775808, 9223372036854775807]. Out-of-range literals and arithmetic overflow are errors.
+- Values are fat on every runtime and target (a type word and a payload; see `docs/design/FAT_VALUES.md`), and integers are signed 64-bit, in [-9223372036854775808, 9223372036854775807]. Out-of-range literals and arithmetic overflow are errors; every radix has the same range, so write `-0x8000_0000_0000_0000` for the minimum and `-1` or `~0` rather than `0xffff_ffff_ffff_ffff`.
 - Floats are binary64 payloads. Float32/F32 annotations round values at typed boundaries while keeping the binary64 representation.
 - String `len` and character indexing count Unicode codepoints. Strings can carry raw bytes; use networking `byte_length`, `bytes` and `from_bytes` for binary payloads.
 - List literal: `[1, 2, 3]`; map literal: `{"name": "May", "count": 2}` or `{name: "May"}`; empty collections are `[]` and `{}`.

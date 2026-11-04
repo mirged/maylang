@@ -75,6 +75,9 @@ def architecture(compiler):
         "type_collection.may": "expected List<Int>",
         "unterminated.may": "unterminated string",
         "exponent.may": "expected exponent digits",
+        "radix_digit.may": "invalid digit `2` in binary literal",
+        "digit_separator.may": "digit separator `_` must sit between two digits",
+        "radix_range.may": "integer literal out of range",
         "unexpected.may": "unexpected character",
     }
     for name, message in errors.items():

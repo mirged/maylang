@@ -1,0 +1,20 @@
+// Hexadecimal, octal and binary Int literals, and `_` digit separators.
+print(0xff, 0xFF, 0xDead_Beef, 0x0);
+print(0o755, 0o0, 0b1010_1010, 0b0);
+print(1_000_000, 1_2_3, 007);
+// The Int range is the same for every radix; the minimum needs unary minus.
+print(0x7fff_ffff_ffff_ffff, -0x8000_0000_0000_0000);
+print(0o777_777_777_777_777_777_777, -0o1_000_000_000_000_000_000_000);
+print(-0b1000000000000000000000000000000000000000000000000000000000000000);
+print(-9_223_372_036_854_775_808);
+// Separators in every part of a decimal Float.
+print(6.022_140_76e2_3, 1_0.2_5, 1e1_0, 0.000_1);
+// Radix literals are ordinary Int expressions.
+print(0x10 + 0b1 * 0o10, 0xff & 0b1111, 0x1E+1, 1 << 0x4);
+let xs: List<Int> = [0x1, 0x2, 0x3];
+print(xs[0b1], 0..0x3);
+mut mask: Int = 0;
+for bit: Int in 0..0b100 { mask = mask | (1 << bit); }
+print(mask == 0xf, "${0xab}");
+fun name(x: Int) -> Str { return match (x) { 0xff => "ff", 0b11 => "three", 1_000 => "k", _ => "other" }; }
+print(name(255), name(3), name(1000), name(4));

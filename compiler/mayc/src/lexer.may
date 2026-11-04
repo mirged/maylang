@@ -95,6 +95,75 @@ fun is_alnum(b: Any) -> Any {
     return is_alpha(b);
 }
 
+// Fat values (#92) hold signed 64-bit Ints; tagged targets keep 61 bits. A
+// compiler running on tagged values cannot parse wider literals at all, so they
+// stay out of range there.
+fun lex_int_narrow() -> Any {
+    let wide: Any = may { int("-9223372036854775808") } otherwise { 0 };
+    return wide == 0;
+}
+fun lex_int_minimum() -> Any {
+    let tagged: Any = 0 - int("1152921504606846975") - 1;
+    if (DYNMODE == 1 and not lex_int_narrow()) { return int("-9223372036854775808"); }
+    return tagged;
+}
+
+// Scan decimal digits from `i`; a `_` separator must sit between two digits.
+fun lex_digits(i: Any, e: Any) -> Any {
+    mut j: Any = i;
+    while (j < e) {
+        let c: Any = load8(SRC + j);
+        if (c == 95) {
+            if (is_digit(load8(SRC + j + 1)) == 0 or j == i or is_digit(load8(SRC + j - 1)) == 0) {
+                lex_error(j, 1, "digit separator `_` must sit between two digits");
+            }
+        } else if (is_digit(c) == 0) { return j; }
+        j = j + 1;
+    }
+    return j;
+}
+
+// The value of a hexadecimal, octal or binary digit, or -1.
+fun lex_radix_digit(c: Any, base: Any) -> Any {
+    mut d: Any = -1;
+    if (is_digit(c) == 1) { d = c - 48; }
+    else if (c >= 97 and c <= 102) { d = c - 87; }
+    else if (c >= 65 and c <= 70) { d = c - 55; }
+    return if (d >= base) { -1 } else { d };
+}
+
+// Lex `0x`, `0o` or `0b` at `s` and emit its TK_INT; returns the end offset.
+// The magnitude accumulates negatively like decimal literals, so the minimum
+// Int is reachable through unary minus and overflow is caught before it occurs.
+fun lex_radix(s: Any, e: Any, base: Any) -> Any {
+    let name: Any = if (base == 16) { "hexadecimal" } else if (base == 8) { "octal" } else { "binary" };
+    let minimum: Any = lex_int_minimum();
+    mut i: Any = s + 2;
+    if (lex_radix_digit(load8(SRC + i), base) < 0) { lex_error(s, i - s, "expected " + name + " digits after the prefix"); }
+    mut v: Any = 0;
+    mut overflow: Any = false;
+    while (i < e) {
+        let c: Any = load8(SRC + i);
+        if (c == 95) {
+            if (lex_radix_digit(load8(SRC + i + 1), base) < 0 or lex_radix_digit(load8(SRC + i - 1), base) < 0) {
+                lex_error(i, 1, "digit separator `_` must sit between two digits");
+            }
+        } else if (is_alnum(c) == 1) {
+            let d: Any = lex_radix_digit(c, base);
+            if (d < 0) { lex_error(i, 1, "invalid digit `" + chr(c) + "` in " + name + " literal"); }
+            if (v < (minimum + d) / base) { overflow = true; } else { v = v * base - d; }
+        } else { break; }
+        i = i + 1;
+    }
+    if (load8(SRC + i) == 46 and is_digit(load8(SRC + i + 1)) == 1) {
+        lex_error(s, i - s, name + " literals cannot have a fraction");
+    }
+    if (overflow or (DYNMODE == 1 and lex_int_narrow() and v == minimum)) { lex_error(s, i - s, "integer literal out of range"); }
+    if (v != minimum) { v = 0 - v; }
+    tok(TK_INT, s, i - s, v);
+    return i;
+}
+
 // Build a Maylang string from `n` bytes of the source buffer.
 fun slice_src(s: Any, n: Any) -> Any {
     mut out: Any = "";
@@ -255,21 +324,20 @@ fun lex_run(a: Any, e: Any) -> Any {
         }
         else if (is_digit(b) == 1) {
             let s: Any = i;
-            mut v: Any = 0;
-            while (i < e) {
-                let c: Any = load8(SRC + i);
-                if (is_digit(c) == 0) { break; }
-                i = i + 1;
+            let prefix: Any = load8(SRC + i + 1);
+            if (b == 48 and (prefix == 88 or prefix == 79 or prefix == 66)) {
+                lex_error(s, 2, "radix prefixes are lowercase: 0x, 0o or 0b");
             }
+            if (b == 48 and (prefix == 120 or prefix == 111 or prefix == 98)) {
+                i = lex_radix(s, e, if (prefix == 120) { 16 } else if (prefix == 111) { 8 } else { 2 });
+                continue;
+            }
+            i = lex_digits(i, e);
             mut isf: Any = 0;
             if (load8(SRC + i) == 46) {
                 if (is_digit(load8(SRC + i + 1)) == 1) {
                     isf = 1;
-                    i = i + 1;
-                    while (i < e) {
-                        if (is_digit(load8(SRC + i)) == 0) { break; }
-                        i = i + 1;
-                    }
+                    i = lex_digits(i + 1, e);
                 }
             }
             if (load8(SRC + i) == 101  or  load8(SRC + i) == 69) {
@@ -277,27 +345,20 @@ fun lex_run(a: Any, e: Any) -> Any {
                 i = i + 1;
                 if (load8(SRC + i) == 43  or  load8(SRC + i) == 45) { i = i + 1; }
                 if (is_digit(load8(SRC + i)) == 0) { lex_error(s, i - s, "expected exponent digits"); }
-                while (i < e) {
-                    if (is_digit(load8(SRC + i)) == 0) { break; }
-                    i = i + 1;
-                }
+                i = lex_digits(i, e);
             }
+            // The float conversion skips `_` separators in the token text.
             if (isf == 1) { tok(TK_FLOAT, s, i - s, 0); }
             else {
                 // Parse negatively so the minimum signed Int has a representation.
                 // A negative token value is reserved for its positive magnitude;
                 // only unary minus may consume that boundary token.
-                v = may { int("-" + symbol_name(SRC + s, i - s)) } otherwise {
+                mut v: Any = may { int("-" + replace(symbol_name(SRC + s, i - s), "_", "")) } otherwise {
                     lex_error(s, i - s, "integer literal out of range"); 0
                 };
-                // Fat values (#92) hold signed 64-bit Ints; tagged targets keep
-                // 61 bits. A compiler running on tagged values cannot parse
-                // wider literals at all, so they stay out of range there.
-                let tagged: Any = 0 - int("1152921504606846975") - 1;
-                let wide: Any = may { int("-9223372036854775808") } otherwise { 0 };
-                let minimum: Any = if (DYNMODE == 1 and wide != 0) { wide } else { tagged };
+                let minimum: Any = lex_int_minimum();
                 // 2^60 is an ordinary fat literal, which a tagged compiler cannot hold.
-                if (v < minimum or (DYNMODE == 1 and wide == 0 and v == tagged)) { lex_error(s, i - s, "integer literal out of range"); }
+                if (v < minimum or (DYNMODE == 1 and lex_int_narrow() and v == minimum)) { lex_error(s, i - s, "integer literal out of range"); }
                 if (v != minimum) { v = 0 - v; }
                 tok(TK_INT, s, i - s, v);
             }

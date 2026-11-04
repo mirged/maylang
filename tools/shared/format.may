@@ -62,7 +62,9 @@ fun fmt_tokens(text: Str) -> List<FormatToken> {
             if (numeric and fmt_at(cs, i) == "." and fmt_at(cs, i + 1) >= "0" and fmt_at(cs, i + 1) <= "9") {
                 i += 1; while (fmt_word(fmt_at(cs, i))) { i += 1; }
             }
-            if (numeric and has(["+", "-"], fmt_at(cs, i)) and has(["e", "E"], fmt_at(cs, i - 1))) {
+            // A hexadecimal `E` digit is not an exponent: `0x1E+1` is an addition.
+            let hex: Bool = numeric and cs[start] == "0" and fmt_at(cs, start + 1) == "x";
+            if (numeric and not hex and has(["+", "-"], fmt_at(cs, i)) and has(["e", "E"], fmt_at(cs, i - 1))) {
                 i += 1; while (fmt_word(fmt_at(cs, i))) { i += 1; }
             }
         } else {

@@ -36,6 +36,7 @@ with tempfile.TemporaryDirectory(prefix='mayfmt-test-') as directory:
         '/* hidden module\nimport "does-not-exist";\n/* nested */\n*/ print(42);',
         'let text:Str="hello\nimport does_not_exist;\nbye";print(text);',
         'print("${1 /* } \" ignored */ + 2}");',
+        'let x:Int=0x1E+1;let y:Float=6.022_140e+2_3;print(x+0b1_0+0o7+1_000);print(y);',
     ]
     for index, text in enumerate(snippets):
         source = work / f'case{index}.may'
@@ -51,6 +52,10 @@ with tempfile.TemporaryDirectory(prefix='mayfmt-test-') as directory:
         run(formatter, '--check', source)
         run(compiler, source, '-o', after)
         assert run(after).stdout == expected, (index, formatted)
+        if index == 13:
+            # Radix literals and separators are one token; a hex `E` is not an exponent.
+            for token in ('0x1E + 1', '6.022_140e+2_3', '0b1_0', '0o7', '1_000'):
+                assert token in formatted, (token, formatted)
         if index in (2, 3, 4):
             literal = text[text.index('"'):text.rindex('"') + 1]
             assert literal in formatted, (literal, formatted)

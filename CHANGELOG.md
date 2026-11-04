@@ -2,6 +2,16 @@
 
 ## Language
 
+- Hexadecimal `0xff`, octal `0o755` and binary `0b1010` integer literals, and
+  `_` digit separators in every numeric literal (`1_000_000`, `0xffff_ffff`,
+  `6.022_140e2_3`). Prefixes are lowercase; each `_` must sit between two
+  digits; every radix has the signed 64-bit range, with the minimum reached
+  through unary minus. Invalid digits, misplaced separators, uppercase
+  prefixes and radix fractions are lexer errors. `1_000` was documented
+  before but did not compile. The formatter keeps a hexadecimal `E` from
+  reading as an exponent, the VS Code grammar highlights the new forms, and
+  the Rust bootstrap lexer accepts them too. String conversions (`int`,
+  `float`) still read decimal only.
 - Behavior contracts admit the numeric conversions and rounding primitives:
   `to_float`, `float`, `int`, `trunc`, `floor`, `ceil`, `round`, `sqrt` and
   `abs` have empty effect rows when the checker can establish that their single

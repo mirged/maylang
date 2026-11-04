@@ -174,7 +174,7 @@ order:
    sustained allocation, fuzzing the frontend, typed context instead of
    frontend globals (#49), prelude parity (#51).
 3. **Language ergonomics**: features the strict language still lacks
-   (hexadecimal and binary literals, destructuring in strict mode), `Map`
+   (destructuring in strict mode; radix literals and digit separators are done), `Map`
    keys of every type behaving as expected, clearer diagnostics.
 4. **Standard library**: concrete types instead of `Any` signatures, complete
    modules with tests, documented contracts.
