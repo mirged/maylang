@@ -5,6 +5,7 @@ import "symbols.may";
 import "diagnostics.may";
 import "ast.may";
 import "strict.may";
+import "lexer.may";
 // Closed scalar effect fragment. Unsupported operations are unknown, never
 // evidence of an empty effect row. This pass precedes closure conversion.
 mut BEHAVIOR_EXPLAIN: Any = false;
@@ -44,6 +45,59 @@ fun behavior_scalar(annotation: Any, span: Any) -> Any {
 fun behavior_scope(locals: Any) -> Any {
     let scope: Any = {}; for name: Any in keys(locals) { scope[name] = locals[name]; }
     return scope;
+}
+// Establish the scalar type of an expression inside the fragment, or "" when it
+// cannot be established. Audited numeric primitives use this, not strict typing,
+// because strict typing accepts `int(true)` and `to_float(true)`.
+fun behavior_type(node: Any, locals: Any, functions: Any) -> Any {
+    if (node == 0) { return ""; }
+    let k: Any = node.kind;
+    if (k == E_INT) { return "Int"; }
+    if (k == E_FLOAT) { return "Float"; }
+    if (k == E_AND or k == E_OR) { return "Bool"; }
+    if (k == E_VAR) {
+        let name: Any = symbol_name(node.name, node.length);
+        if (has(locals, name)) { return behavior_type_name(locals[name].annotation); }
+        if (has(["true", "false"], name)) { return "Bool"; }
+        return "";
+    }
+    if (k == E_UN) {
+        if (node.op == TK_NOT) { return "Bool"; }
+        if (node.op == TK_BITNOT) { return "Int"; }
+        return behavior_type(node.operand, locals, functions);
+    }
+    if (k == E_BIN) {
+        if (node.op >= TK_EQ and node.op <= TK_GE) { return "Bool"; }
+        let left: Any = behavior_type(node.left, locals, functions);
+        let right: Any = behavior_type(node.right, locals, functions);
+        if (not has(["Int", "Float"], left) or not has(["Int", "Float"], right)) { return ""; }
+        if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], node.op)) { return "Int"; }
+        return if (left == "Float" or right == "Float") { "Float" } else { "Int" };
+    }
+    if (k == E_CALL or k == E_ICALL) {
+        let target: Any = if (k == E_ICALL) { node.callee } else { node };
+        if (k == E_ICALL and target.kind != E_VAR) { return ""; }
+        let name: Any = symbol_name(target.name, target.length);
+        if (has(locals, name)) {
+            let annotation: Any = locals[name].annotation;
+            if (annotation == nil or annotation == 0 or annotation.name != "Function") { return ""; }
+            return behavior_type_name(annotation.result);
+        }
+        let key: Any = may { st_export_name(source_module(node.span), replace(name, "::", "."), node.span, functions) } otherwise { "" };
+        if (not has(functions, key)) { return ""; }
+        let callee: Any = functions[key];
+        if (callee.primitiveEffects != nil) {
+            if (callee.primitiveResult == "argument") { return behavior_type(node.args, locals, functions); }
+            return callee.primitiveResult ?? "";
+        }
+        if (callee.behaviorUnknown == true) { return ""; }
+        return behavior_type_name(callee.returnType);
+    }
+    return "";
+}
+fun behavior_type_name(annotation: Any) -> Any {
+    if (annotation == nil or annotation == 0 or len(annotation.arguments ?? []) != 0) { return ""; }
+    return if (has(["Int", "Bool", "Float"], annotation.name)) { annotation.name } else { "" };
 }
 fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
     if (node == 0) { return 0; }
@@ -102,6 +156,9 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         let callee: Any = functions[key];
         if (callee.behaviorUnknown == true) { return behavior_error(node.span, "call to `" + name + "` has unknown behavior through a global binding"); }
         if (callee.primitiveEffects != nil) {
+            if (callee.primitiveNumeric == true and (node.args == 0 or node.args.next != 0)) {
+                return behavior_error(node.span, "`" + name + "` expects one argument");
+            }
             behavior_add_effects(callee.primitiveEffects, node.span, name);
         } else {
             push(BEHAVIOR_CURRENT.calls, {"target": callee.lab});
@@ -109,6 +166,11 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         }
         mut arg: Any = node.args;
         while (arg != 0) { behavior_node(arg, locals, functions); arg = arg.next; }
+        // A numeric primitive's argument must have an Int or Float type established
+        // here; anything else (Bool, callables, unknown) fails closed.
+        if (callee.primitiveNumeric == true and not has(["Int", "Float"], behavior_type(node.args, locals, functions))) {
+            return behavior_error(node.args.span, "`" + name + "` requires an Int or Float argument whose type the behavior checker can establish");
+        }
         return 0;
     }
     if (k == S_RETURN or k == S_EXPR) { return behavior_node(if (k == S_RETURN) { node.value } else { node.expression }, locals, functions); }
@@ -290,12 +352,20 @@ fun behavior_program() -> Any {
     }
     // These names are runtime primitives in the existing resolver. User module
     // functions and globals still take precedence over these unqualified names.
-    functions["print"] = {"primitiveEffects": ["output"]};
-    functions["time"] = {"primitiveEffects": ["clock"]};
-    functions["clock"] = {"primitiveEffects": ["clock"]};
+    functions["print"] = {"primitiveEffects": ["output"], "primitiveResult": "Nil"};
+    functions["time"] = {"primitiveEffects": ["clock"], "primitiveResult": "Int"};
+    functions["clock"] = {"primitiveEffects": ["clock"], "primitiveResult": "Float"};
     // Explicit empty rows are audited rules, never a fallback for unknown calls.
-    functions["pi"] = {"primitiveEffects": []};
-    functions["e"] = {"primitiveEffects": []};
+    functions["pi"] = {"primitiveEffects": [], "primitiveResult": "Float"};
+    functions["e"] = {"primitiveEffects": [], "primitiveResult": "Float"};
+    // Audited numeric conversions and rounding on an Int or Float argument
+    // (docs/internals/BEHAVIOR.md). `int`, `trunc` and `abs` may raise the
+    // same catchable `arithmetic` fault as `/` and overflow; failure is not an
+    // effect in this fragment.
+    for rule: Any in [["to_float", "Float"], ["float", "Float"], ["int", "Int"], ["trunc", "Int"],
+                      ["floor", "Float"], ["ceil", "Float"], ["round", "Float"], ["sqrt", "Float"], ["abs", "argument"]] {
+        functions[rule[0]] = {"primitiveEffects": [], "primitiveResult": rule[1], "primitiveNumeric": true};
+    }
     for head: Any in [RUNTIME_BODY, MAINBODY] {
         mut statement: Any = head;
         while (statement != 0) {

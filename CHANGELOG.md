@@ -1,5 +1,14 @@
 # Unreleased
 
+## Language
+
+- Behavior contracts admit the numeric conversions and rounding primitives:
+  `to_float`, `float`, `int`, `trunc`, `floor`, `ceil`, `round`, `sqrt` and
+  `abs` have empty effect rows when the checker can establish that their single
+  argument is an `Int` or `Float`. Other arguments, including `Bool`, fail
+  closed. `int`, `trunc` and `abs` can still raise catchable `arithmetic`
+  faults, as `/` can ([docs](docs/internals/BEHAVIOR.md#numeric-conversions-and-rounding)).
+
 ## Performance
 
 - Native Float loop bodies and a native Float main ([reports](compiler/mayc/tests/backend/native-float-loops.md):

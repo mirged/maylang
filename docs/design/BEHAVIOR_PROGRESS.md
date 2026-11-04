@@ -40,19 +40,30 @@ Completed checkpoints:
   immutable body-scoped Int binding and effect-checked bounds. Other iterables
   remain unknown.
 
-Active increment: scalar conversion and mathematics primitive audit. Each
-admitted primitive needs a stated accepted-type set, dispatch, failure behavior
-and runtime body review, plus positive, missing-effect, shadowing and report
-tests. Unreviewed primitives remain unknown. The audit's blocker
-([#89](https://github.com/mirged/maylang/issues/89), PR #90) is fixed: `int`
-and `trunc` raise a catchable `arithmetic` fault for NaN, infinities and
-results outside ±2^60 on full, core and LLVM runtimes; `floor`, `ceil` and
-`round` return Floats, never fault, and pass NaN, infinities and `-0.0`
-through. Admitting them therefore needs `trunc`/`int` contracts that expose
-the arithmetic failure (or an explicit failure clause), while
-`floor`/`ceil`/`round` are total on Float. Behavior checking runs before strict
-typing, so admission also needs scalar argument-type inference inside the
-fragment (fail closed when unknown).
+- Numeric conversions and rounding: `to_float`, `float`, `int`, `trunc`,
+  `floor`, `ceil`, `round`, `sqrt` and `abs` have audited empty rows on one
+  argument whose `Int` or `Float` type the behavior checker establishes itself
+  (literals, annotated bindings, operators, call result types); anything else
+  fails closed, including `int(true)`, which strict typing accepts. The
+  scalar suite covers results, NaN/infinity/`-0.0` edges, faults, arity,
+  argument effects, Bool/callable/Nil arguments and source, import, global and
+  local shadowing (184 checks).
+
+Decision (numeric faults): `int`, `trunc` and `abs` are admitted although they
+can raise a catchable `arithmetic` fault ([#89](https://github.com/mirged/maylang/issues/89)).
+`/` and integer overflow already raise the same fault inside `! pure`, and the
+[core model](../internals/BEHAVIOR_CORE.md) excludes arithmetic failure from the
+effect universe. The alternative, holding these back until an explicit failure
+clause exists, would leave operators and primitives with different failure
+treatment. The limit: a pure row says nothing about failure until typed failure
+sets (design section 9) cover operators and primitives together.
+
+Active increment: the remaining scalar mathematics. `sin`, `cos`, `tan`, `ln`,
+`log2`, `log10` and `exp` use the binary64 kernels in `runtime/math.may` and
+need a body review; `pow`, `min` and `max` take two arguments whose mixed Int
+and Float dispatch must be specified; `bool` is dynamic truthiness and stays
+unknown until its accepted types are defined. The fragment also lacks `**`
+(`E_POW`) and if-expressions, whose result types the argument check would need.
 
 Ongoing invariant: callable effects must survive every assignment,
 argument, return, substitution, and trust boundary; unannotated callable behavior
@@ -94,7 +105,7 @@ separate requirements.
 | 14: distributed protocols | No delivery or distributed consistency guarantee | Delivery/idempotency/order contracts, explicit uncertainty, failure injection and protocol-state validation |
 | 15: supply/build/platform contracts | Existing toolchain metadata is not a behavior lockfile | Canonical contract digests, transitive authority diffs, build identities, provenance and target enforcement obligations |
 | 16: unified enforcement architecture | Frontend effect pass and inspection reports | Behavior IR preservation through lowering/optimization/linking, runtime guards, capability broker and isolation supervisor |
-| 17: standard library | print/time/clock/pi/e rules; primitive audit in BEHAVIOR.md | Audited APIs, capability-based ambient facilities, precise callback/allocation/mutation/failure semantics |
+| 17: standard library | print/time/clock/pi/e and numeric conversion/rounding rules; primitive audit in BEHAVIOR.md | Audited APIs, capability-based ambient facilities, precise callback/allocation/mutation/failure semantics |
 | 18: developer experience | JSON summaries and minimal diagnostic paths | IDE behavior hover/tracing, authority/resource explanations, contract diffs and behavioral version compatibility |
 | 19: reference applications | Small scalar behavior example | Secure isolated decoder, payment uncertainty, deterministic simulation and quota-limited API with end-to-end tests |
 | 20: trust model | Supported fragment and exclusions documented | Auditable TCB, versioned assumptions, profile enforcement and policy for debug/replay/crash output channels |

@@ -67,6 +67,38 @@ fun sampled_clock() -> Float ! {clock} {
 }
 ```
 
+### Numeric conversions and rounding
+
+The runtime primitives `to_float`, `float`, `int`, `trunc`, `floor`, `ceil`,
+`round`, `sqrt` and `abs` also have audited empty rows. Each takes exactly one
+argument, and the behavior checker must itself establish that argument's type
+as `Int` or `Float`, using literals, annotated bindings, operators and the
+result types of calls. A `Bool`, a callable, a `Nil` result or any expression
+whose type it cannot establish makes the call unknown. Strict typing alone is
+not enough: it accepts `int(true)` and `to_float(true)`, which do not convert.
+
+| Primitive | Result | Semantics on Int or Float |
+| --- | --- | --- |
+| `to_float`, `float` | `Float` | Int converted to the nearest binary64; Float unchanged |
+| `floor`, `ceil`, `round` | `Float` | Never fault; NaN, infinities and `-0.0` pass through; `round` takes halfway values toward positive infinity |
+| `sqrt` | `Float` | IEEE square root; a negative argument gives NaN |
+| `int`, `trunc` | `Int` | Int unchanged; Float truncated toward zero; NaN, infinities and values outside the Int range raise a catchable `arithmetic` fault |
+| `abs` | Argument's type | Magnitude; `abs` of the smallest Int raises an `arithmetic` fault and `abs(-0.0)` is `-0.0` |
+
+```may
+fun hypotenuse(a: Int, b: Int) -> Int ! pure {
+    return trunc(sqrt(to_float(a * a + b * b)));
+}
+```
+
+The `arithmetic` faults are the same kind that `/` and integer overflow already
+raise inside `! pure` functions. Failure is not an effect in this fragment, so a
+contract does not show them; typed failure sets (design section 9) must cover
+operators and these primitives together. Shadowing follows the `pi`/`e` rules:
+source functions, imports, globals and locals named like a primitive never
+inherit its row. `bool`, the transcendental functions, `pow`, `min` and `max`
+remain unknown.
+
 Global reads/writes, collection mutation, strings, closures, generic function
 bodies, `for` loops over collections or strings, FFI, and other unsupported AST
 forms are unknown. An explicit
@@ -193,8 +225,9 @@ finite row. This increment adds no capability, memory-safety or isolation profil
 The strict checker's builtin registry in `src/strict.may` and the runtime bodies
 in `native.may` and `runtime/fat.may` are the starting points for this inventory.
 A value signature is not an effect summary. Only `print`, `time`, `clock`, `pi`,
-and `e` currently have explicit primitive behavior rules; other builtin and
-runtime calls remain unknown, including apparently scalar mathematical operations.
+`e` and the numeric conversions and rounding above currently have explicit
+primitive behavior rules; other builtin and runtime calls remain unknown,
+including the remaining apparently scalar mathematical operations.
 
 | Remaining family | Representative calls | Required semantics before admission |
 | --- | --- | --- |
@@ -204,7 +237,7 @@ runtime calls remain unknown, including apparently scalar mathematical operation
 | Scheduling and lifetime | `sleep`, `spawn`, `yield`, `run`, `exit` | Define blocking, task lifetime, cancellation and termination effects; sleep is more than a clock observation. |
 | Raw memory | `addr`, `cstr`, `ptr`, `load8`–`load64`, `store8`–`store64` | Specify ownership, aliasing, reads, writes and native-memory safety. |
 | Failure and recovery | `fail`, `rt_raise`, `__longjmp` | Define typed failure, unwinding and recovery before adding a failure row. |
-| Scalar conversions and mathematics | `int`, `bool`, `abs`, `sqrt` | Define accepted value types, dispatch, numeric failures and runtime assumptions before claiming purity. |
+| Remaining scalar mathematics | `bool`, `sin`, `exp`, `pow`, `min`, `max` | Define accepted value types, dispatch, numeric failures and runtime assumptions before claiming purity; `min`/`max` compare mixed types and `bool` is dynamic truthiness. |
 | Strings, JSON and collections | `str`, `json_parse`, `push`, `pop`, `map_set`, `sort` | Define allocation, mutation, aliasing and failure; distinguish copying operations from in-place operations. |
 | Callback traversal | `map`, `filter`, `reduce`, `any`, `all`, `each`, `times` | Carry callback effects through function types and prevent laundering effects through callbacks. |
 
