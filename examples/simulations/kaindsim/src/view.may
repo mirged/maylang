@@ -21,23 +21,28 @@ fun show_city(city: City, policy: Str) -> Nil {
     return;
 }
 
-fun result_data(city: City, config: Config) -> Any {
-    return {"policy": config.policy, "ledger": city.ledger, "frames": city.history};
+/// One policy's run in the exported document.
+struct Run { policy: Str, ledger: Ledger, frames: List<Frame> }
+/// One terrain cell in the exported document.
+struct TerrainCell { kind: Str, elevation: Int, people: Int }
+/// The exported replay document; it serializes to the `kaindsim-v1` JSON schema.
+struct Document { schema: Str, width: Int, height: Int, seed: Int, steps: Int, budget: Int, cells: List<TerrainCell>, runs: List<Run> }
+
+fun result_data(city: City, config: Config) -> Run {
+    return Run(config.policy, city.ledger, city.history);
 }
 
-fun export_results(results: List<Any>, config: Config) -> Nil {
+fun export_results(results: List<Run>, config: Config) -> Nil {
     let city: City = new_city(config.seed);
-    let terrain: List<Any> = [];
+    let terrain: List<TerrainCell> = [];
     for cell: Cell in city.cells {
-        push(terrain, {"kind": cell.kind, "elevation": cell.elevation, "people": cell.people});
+        push(terrain, TerrainCell(cell.kind, cell.elevation, cell.people));
     }
-    let document: Any = {"schema": "kaindsim-v1", "width": 12, "height": 8,
-        "seed": config.seed, "steps": config.steps, "budget": config.budget,
-        "cells": terrain, "runs": results};
+    let document: Document = Document("kaindsim-v1", 12, 8, config.seed, config.steps, config.budget, terrain, results);
     let payload: Str = json_stringify(document);
     let csv: List<Str> = ["policy,hour,rain,tide,people_exposed,exposure_index,stored,pumped,balance_error"];
-    for run: Any in results {
-        for frame: Any in run.frames {
+    for run: Run in results {
+        for frame: Frame in run.frames {
             push(csv, str(run.policy) + "," + str(frame.tick) + "," + str(frame.rain) + "," +
                 str(frame.tide) + "," + str(frame.exposed) + "," + str(frame.damage) + "," +
                 str(frame.stored) + "," + str(frame.pumped) + "," + str(frame.balance));

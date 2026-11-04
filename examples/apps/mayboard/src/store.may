@@ -14,6 +14,7 @@ pub fun default_path() -> Str {
     return home + "/.local/share/mayboard/tasks.json";
 }
 pub fun decode(text: Str) -> model.Model {
+    // JSON is dynamic: validate every field's runtime type before converting it.
     let value: Any = json_parse(text);
     if (type(value) != "Map" or value.schema != 1 or type(value.tasks) != "List" or len(value.tasks) > 10000) { fail("Invalid task file (expected schema 1, up to 10000 tasks)"); }
     let board: model.Model = model.create(); let ids: Map<Str, Bool> = {};
@@ -23,10 +24,10 @@ pub fun decode(text: Str) -> model.Model {
     }
     board.message = "All changes saved locally"; return board;
 }
+/// The saved file: schema 1 and the tasks, which serialize as `{"done", "id", "title"}`.
+struct TaskFile { schema: Int, tasks: List<model.Task> }
 pub fun encode(board: model.Model) -> Str {
-    let records: List<Any> = [];
-    for task: model.Task in board.tasks { push(records, {"id": task.id, "title": task.title, "done": task.done}); }
-    return json_stringify({"schema": 1, "tasks": records}) + "\n";
+    return json_stringify(TaskFile(1, board.tasks)) + "\n";
 }
 pub fun load(path: Str) -> model.Model { return if (file_exists(path)) { decode(read_file(path)) } else { model.create() }; }
 pub fun acquire(path: Str) -> Int {

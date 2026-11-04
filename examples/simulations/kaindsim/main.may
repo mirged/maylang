@@ -36,7 +36,7 @@ fun kaindsim_main(argv: List<Str>) -> Int {
     if (config.policy != "none" and config.policy != "homes" and config.policy != "canal") { fail("policy must be none, homes or canal"); }
     if (len(config.output) == 0) { fail("output prefix must not be empty"); }
     let policies: List<Str> = if (command == "run") { [config.policy] } else { ["none", "homes", "canal"] };
-    let results: List<Any> = [];
+    let results: List<Run> = [];
     print("KAINDSIM / the river remembers");
     print("Seed ${config.seed} / ${config.steps} hours / shared pump budget ${config.budget}");
     for policy: Str in policies {

@@ -2,7 +2,9 @@
 struct Config { steps: Int, seed: Int, policy: Str, budget: Int, output: Str }
 struct Cell { elevation: Int, kind: Str, people: Int, water: Int }
 struct Ledger { rain: Int, river: Int, sea: Int, drained: Int, soaked: Int, pumped: Int, damage: Int, peak: Int }
-struct City { cells: List<Cell>, rng: Int, tick: Int, ledger: Ledger, history: List<Any> }
+/// One simulated hour, as exported to JSON and CSV.
+struct Frame { tick: Int, rain: Int, tide: Int, water: List<Int>, exposed: Int, damage: Int, stored: Int, pumped: Int, balance: Int }
+struct City { cells: List<Cell>, rng: Int, tick: Int, ledger: Ledger, history: List<Frame> }
 
 fun smaller(a: Int, b: Int) -> Int { return if (a < b) { a } else { b }; }
 fun positive(a: Int) -> Int { return if (a > 0) { a } else { 0 }; }

@@ -89,9 +89,8 @@ fun record_frame(city: City, rain: Int) -> Nil {
     for cell: Cell in city.cells { push(water, cell.water); }
     let exposed: Int = exposed_people(city);
     if (exposed > city.ledger.peak) { city.ledger.peak = exposed; }
-    push(city.history, {"tick": city.tick, "rain": rain, "tide": tide_at(city.tick),
-        "water": water, "exposed": exposed, "damage": city.ledger.damage,
-        "stored": stored_water(city), "pumped": city.ledger.pumped, "balance": balance_error(city)});
+    push(city.history, Frame(city.tick, rain, tide_at(city.tick), water, exposed, city.ledger.damage,
+        stored_water(city), city.ledger.pumped, balance_error(city)));
     return;
 }
 

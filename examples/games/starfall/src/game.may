@@ -1,12 +1,12 @@
 import "model.may";
 // Turn rules and sector events. Actions are intentionally deterministic, so
 // pilots can learn the belt and plan around its hazards.
-fun advance(state: Any) -> Any { state.day = state.day + 1; return state; }
+fun advance(state: State) -> State { state.day = state.day + 1; return state; }
 
-fun scan_sector(state: Any) -> Any {
+fun scan_sector(state: State) -> State {
     if (state.scanned) { print("Scanner already swept this sector. Salvage or jump."); return state; }
     state.scanned = true;
-    let signal: Any = (state.sector + state.day) % 3;
+    let signal: Int = (state.sector + state.day) % 3;
     state.signal = signal;
     if (signal == 0) {
         print("SCAN: A quiet debris field. The beacon is weak, but there is metal here.");
@@ -21,11 +21,11 @@ fun scan_sector(state: Any) -> Any {
     return advance(state);
 }
 
-fun salvage(state: Any) -> Any {
+fun salvage(state: State) -> State {
     if (!state.scanned) { print("Blind salvage is a good way to become more debris. Scan first."); return state; }
     if (state.fuel <= 0) { print("No fuel for the grapple winch. Repair or jump is impossible."); return state; }
     state.fuel = state.fuel - 1;
-    let signal: Any = state.signal;
+    let signal: Int = state.signal;
     if (signal == 0) {
         state.credits = state.credits + 5;
         state.cargo = state.cargo + 1;
@@ -47,7 +47,7 @@ fun salvage(state: Any) -> Any {
     return advance(state);
 }
 
-fun repair(state: Any) -> Any {
+fun repair(state: State) -> State {
     if (state.hull >= 8) { print("Hull is already pristine."); return state; }
     if (state.credits < 6) { print("A patch kit costs 6 credits. Sell salvage by jumping sectors."); return state; }
     state.credits = state.credits - 6;
@@ -57,7 +57,7 @@ fun repair(state: Any) -> Any {
     return advance(state);
 }
 
-fun refuel(state: Any) -> Any {
+fun refuel(state: State) -> State {
     if (state.fuel >= 6) { print("Fuel tanks are already full."); return state; }
     if (state.credits < 5) { print("A relay fuel cell costs 5 credits."); return state; }
     state.credits = state.credits - 5;
@@ -67,7 +67,7 @@ fun refuel(state: Any) -> Any {
     return advance(state);
 }
 
-fun jump(state: Any) -> Any {
+fun jump(state: State) -> State {
     if (state.fuel < 2) { print("Jump drive needs 2 fuel. Salvage burns 1; plan your route."); return state; }
     state.fuel = state.fuel - 2;
     state.sector = state.sector + 1;

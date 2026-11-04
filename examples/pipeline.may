@@ -1,12 +1,12 @@
 // Pipelines: `data |> f |> g` inserts data as the first argument.
 
-fun double(x: Any) -> Any { return x * 2; }
-fun is_even(x: Any) -> Any { return x % 2 == 0; }
-fun add(a: Any, b: Any) -> Any { return a + b; }
+fun double(x: Int) -> Int { return x * 2; }
+fun is_even(x: Int) -> Bool { return x % 2 == 0; }
+fun add(a: Int, b: Int) -> Int { return a + b; }
 
-let data: Any = 1..=10;
+let data: List<Int> = 1..=10;
 
-let result: Any = data
+let result: Int = data
     |> filter(is_even)
     |> map(double)
     |> sum;
@@ -17,5 +17,5 @@ print("sum of doubled evens 1..10 =", result); // 60
 print("10 |> add(5) =", 10 |> add(5));
 
 // Lambdas work anywhere a function value is expected.
-let squares: Any = map(1..=5, fun(x: Any) -> Any { return x * x; });
+let squares: List<Int> = map(1..=5, fun(x: Int) -> Int { return x * x; });
 print("squares =", squares);

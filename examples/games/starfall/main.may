@@ -3,37 +3,37 @@ import "src/model.may";
 import "src/game.may";
 import "src/view.may";
 
-fun help() -> Any {
+fun help() -> Nil {
     print("STARFALL SALVAGE  /  recovery log");
     print("Commands: status | scan | salvage | repair | refuel | jump | log | help");
     print("Each action advances one shift. Your ship is the last thing between");
-    return print("you and a very expensive rescue beacon. Keep the hull above zero.");
+    print("you and a very expensive rescue beacon. Keep the hull above zero.");
+    return;
 }
 
-fun dispatch(state: Any, command: Any) -> Any {
+fun dispatch(state: State, command: Str) -> Nil {
     if (state.rescued && command != "status" && command != "log" && command != "help") {
         print("Flight complete. Read the recorder, or use `reset` for another run.");
-        return nil;
+        return;
     }
     if (state.hull <= 0 && command != "status" && command != "log" && command != "help") {
         print("The Wayfarer is lost. Use `reset` to begin a new flight.");
-        return nil;
+        return;
     }
-    return match (command) {
-        "status" => show_status(state),
-        "scan" => scan_sector(state),
-        "salvage" => salvage(state),
-        "repair" => repair(state),
-        "refuel" => refuel(state),
-        "jump" => jump(state),
-        "log" => show_log(state),
-        "help" => help(),
-        _ => { print("Unknown command: " + command); help(); }
-    };
+    if (command == "status") { show_status(state); }
+    else if (command == "scan") { scan_sector(state); }
+    else if (command == "salvage") { salvage(state); }
+    else if (command == "repair") { repair(state); }
+    else if (command == "refuel") { refuel(state); }
+    else if (command == "jump") { jump(state); }
+    else if (command == "log") { show_log(state); }
+    else if (command == "help") { help(); }
+    else { print("Unknown command: " + command); help(); }
+    return;
 }
 
-let argv: Any = args();
-let state: Any = if (len(argv) > 1 && argv[1] == "demo") { fresh_state() } else { load_state() };
+let argv: List<Str> = args();
+let state: State = if (len(argv) > 1 && argv[1] == "demo") { fresh_state() } else { load_state() };
 if (len(argv) <= 1 || argv[1] == "help") {
     help();
     print("");

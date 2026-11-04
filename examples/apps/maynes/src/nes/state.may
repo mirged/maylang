@@ -16,6 +16,7 @@ pub fun create() -> Model {
     let file: Str = nes.storage() + "/library.json";
     if (file_exists(file)) {
         may {
+            // JSON is dynamic: check each field's runtime type before using it.
             let value: Any = json_parse(read_file(file));
             if (type(value) != "Map" or value.schema != 1 or type(value.recent) != "List" or len(value.recent) > 6) {
                 fail("Invalid library");

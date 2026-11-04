@@ -5,44 +5,44 @@
 // `may { } otherwise { }`, optional data flows through `?.`/`??`, and the
 // closing report is assembled with pipelines and printed as JSON.
 
-struct Order { id: Any, trader: Any, side: Any, qty: Any, price: Any }
-struct Trade { seq: Any, buyer: Any, seller: Any, qty: Any, price: Any }
+struct Order { id: Int, trader: Str, side: Str, qty: Int, price: Float }
+struct Trade { seq: Int, buyer: Str, seller: Str, qty: Int, price: Float }
+struct Rejection { trader: Str, reason: Str, detail: Str }
+struct Market {
+    bids: List<Order>, asks: List<Order>, trades: List<Trade>, rejected: List<Rejection>,
+    history: List<Float>, last: Float, volume: Int, next_id: Int, seq: Int
+}
+struct LedgerRow { name: Str, bought: Int, sold: Int, position: Int, equity: Float }
 
-let TICKS: Any = 9;
-let START_PRICE: Any = 100.0;
+let TICKS: Int = 9;
+let START_PRICE: Float = 100.0;
 
 // Park-Miller PRNG so every run tells the exact same story.
-fun rng(seed: Any) -> Any {
-    mut state: Any = seed;
-    fun next() -> Any { state = (state * 16807) % 2147483647; return state; }
+fun rng(seed: Int) -> () -> Int {
+    mut state: Int = seed;
+    fun next() -> Int { state = (state * 16807) % 2147483647; return state; }
     return next;
 }
 
-let market: Any = {
-    "bids": [], "asks": [],
-    "trades": [], "rejected": [],
-    "history": [START_PRICE],
-    "last": START_PRICE,
-    "volume": 0, "next_id": 1, "seq": 0,
-};
+let market: Market = Market([], [], [], [], [START_PRICE], START_PRICE, 0, 1, 0);
 
 // ---- pretty printing helpers -------------------------------------------
-fun round2(x: Any) -> Any { return round(x * 100.0) / 100.0; }
-fun lpad(x: Any, n: Any) -> Any { return pad_left(str(x), n, " "); }
-fun rpad(x: Any, n: Any) -> Any { return pad_right(str(x), n, " "); }
-fun money(x: Any) -> Any { return lpad(round2(x), 10); }
+fun round2(x: Float) -> Float { return round(x * 100.0) / 100.0; }
+fun lpad<T>(x: T, n: Int) -> Str { return pad_left(str(x), n, " "); }
+fun rpad<T>(x: T, n: Int) -> Str { return pad_right(str(x), n, " "); }
+fun money(x: Float) -> Str { return lpad(round2(x), 10); }
 
 // ---- matching engine ----------------------------------------------------
-fun sort_orders(orders: Any, descending: Any) -> Any {
-    let a: Any = [];
-    for x: Any in orders { push(a, x); }
-    let n: Any = len(a);
-    for i: Any in 1..n {
-        let key: Any = a[i];
-        mut j: Any = i - 1;
-        mut go: Any = true;
+fun sort_orders(orders: List<Order>, descending: Bool) -> List<Order> {
+    let a: List<Order> = [];
+    for x: Order in orders { push(a, x); }
+    let n: Int = len(a);
+    for i: Int in 1..n {
+        let key: Order = a[i];
+        mut j: Int = i - 1;
+        mut go: Bool = true;
         while (j >= 0 && go) {
-            let worse: Any = if (descending) { a[j].price < key.price } else { a[j].price > key.price };
+            let worse: Bool = if (descending) { a[j].price < key.price } else { a[j].price > key.price };
             if (worse) { a[j + 1] = a[j]; j = j - 1; } else { go = false; }
         }
         a[j + 1] = key;
@@ -50,29 +50,30 @@ fun sort_orders(orders: Any, descending: Any) -> Any {
     return a;
 }
 
-fun record_trade(buyer: Any, seller: Any, qty: Any, price: Any) -> Any {
+fun record_trade(buyer: Str, seller: Str, qty: Int, price: Float) -> Nil {
     market.seq = market.seq + 1;
     push(market.trades, Trade(market.seq, buyer, seller, qty, price));
     market.last = round2(price);
     market.volume = market.volume + qty;
-    return push(market.history, round2(price));
+    push(market.history, round2(price));
+    return;
 }
 
-fun submit(trader: Any, side: Any, qty: Any, price: Any) -> Any {
+fun submit(trader: Str, side: Str, qty: Int, price: Float) -> Int {
     return may {
         if (qty <= 0) { fail("quantity must be positive"); }
         if (price <= 0.0) { fail("price must be positive"); }
         if (side != "buy" && side != "sell") { fail("unknown side"); }
-        let id: Any = market.next_id;
+        let id: Int = market.next_id;
         market.next_id = id + 1;
-        let limit: Any = round2(price);
-        mut remaining: Any = qty;
+        let limit: Float = round2(price);
+        mut remaining: Int = qty;
         if (side == "buy") {
-            let asks: Any = sort_orders(market.asks, false);
-            mut rest: Any = [];
-            for ask: Any in asks {
+            let asks: List<Order> = sort_orders(market.asks, false);
+            let rest: List<Order> = [];
+            for ask: Order in asks {
                 if (remaining > 0 && ask.price <= limit && ask.trader != trader) {
-                    let fill: Any = min(remaining, ask.qty);
+                    let fill: Int = min(remaining, ask.qty);
                     record_trade(trader, ask.trader, fill, ask.price);
                     remaining = remaining - fill;
                     if (ask.qty > fill) { ask.qty = ask.qty - fill; push(rest, ask); }
@@ -83,11 +84,11 @@ fun submit(trader: Any, side: Any, qty: Any, price: Any) -> Any {
             market.asks = rest;
             if (remaining > 0) { push(market.bids, Order(id, trader, "buy", remaining, limit)); }
         } else {
-            let bids: Any = sort_orders(market.bids, true);
-            mut rest: Any = [];
-            for bid: Any in bids {
+            let bids: List<Order> = sort_orders(market.bids, true);
+            let rest: List<Order> = [];
+            for bid: Order in bids {
                 if (remaining > 0 && bid.price >= limit && bid.trader != trader) {
-                    let fill: Any = min(remaining, bid.qty);
+                    let fill: Int = min(remaining, bid.qty);
                     record_trade(bid.trader, trader, fill, bid.price);
                     remaining = remaining - fill;
                     if (bid.qty > fill) { bid.qty = bid.qty - fill; push(rest, bid); }
@@ -100,55 +101,56 @@ fun submit(trader: Any, side: Any, qty: Any, price: Any) -> Any {
         }
         remaining
     } otherwise {
-        push(market.rejected, {"trader": trader, "reason": err.kind, "detail": err.message});
+        push(market.rejected, Rejection(trader, str(err.kind), str(err.message)));
         0
     };
 }
 
 // ---- autonomous traders (each is a cooperative fiber) -------------------
-fun noise_trader(name: Any, seed: Any) -> Any {
-    let next: Any = rng(seed);
-    mut t: Any = 0;
+fun noise_trader(name: Str, seed: Int) -> Nil {
+    let next: () -> Int = rng(seed);
+    mut t: Int = 0;
     while (t < TICKS) {
-        let side: Any = if (next() % 2 == 0) { "buy" } else { "sell" };
-        let drift: Any = ((next() % 21) - 10) * 0.5;
+        let side: Str = if (next() % 2 == 0) { "buy" } else { "sell" };
+        let drift: Float = to_float((next() % 21) - 10) * 0.5;
         submit(name, side, 1 + next() % 5, round2(market.last + drift));
         yield();
         t = t + 1;
     }
  return nil; }
 
-fun market_maker(seed: Any) -> Any {
-    let next: Any = rng(seed);
-    mut t: Any = 0;
+fun market_maker(seed: Int) -> Nil {
+    let next: () -> Int = rng(seed);
+    mut t: Int = 0;
     while (t < TICKS) {
-        let mid: Any = market.last;
-        submit("mm", "buy", 4 + next() % 4, round2(mid - 1.0 - (next() % 3) * 0.2));
-        submit("mm", "sell", 4 + next() % 4, round2(mid + 1.0 + (next() % 3) * 0.2));
+        let mid: Float = market.last;
+        submit("mm", "buy", 4 + next() % 4, round2(mid - 1.0 - to_float(next() % 3) * 0.2));
+        submit("mm", "sell", 4 + next() % 4, round2(mid + 1.0 + to_float(next() % 3) * 0.2));
         yield();
         t = t + 1;
     }
  return nil; }
 
-fun glitch_bot() -> Any {
+fun glitch_bot() -> Nil {
     submit("glitch", "buy", 0, market.last);
     yield();
     submit("glitch", "sell", 3, 0.0 - 1.0);
     yield();
     submit("glitch", "hold", 2, market.last);
-    return yield();
+    yield();
+    return;
 }
 
-spawn(fun() -> Any { return market_maker(7); });
-spawn(fun() -> Any { return noise_trader("ada", 11); });
-spawn(fun() -> Any { return noise_trader("brian", 23); });
-spawn(fun() -> Any { return noise_trader("cleo", 47); });
-spawn(fun() -> Any { return noise_trader("dmitri", 91); });
-spawn(fun() -> Any { return glitch_bot(); });
+spawn(fun() -> Nil { return market_maker(7); });
+spawn(fun() -> Nil { return noise_trader("ada", 11); });
+spawn(fun() -> Nil { return noise_trader("brian", 23); });
+spawn(fun() -> Nil { return noise_trader("cleo", 47); });
+spawn(fun() -> Nil { return noise_trader("dmitri", 91); });
+spawn(fun() -> Nil { return glitch_bot(); });
 run();
 
 // ---- trade-size classifier (pattern matching) ---------------------------
-fun size_of(q: Any) -> Any {
+fun size_of(q: Int) -> Str {
     return match (q) {
         n if n >= 5 => "block",
         n if n >= 3 => "round",
@@ -160,46 +162,47 @@ fun size_of(q: Any) -> Any {
 print("========================  maymarket close  ========================");
 print();
 
-let meta: Any = {"session": {"venue": "Maylang Exchange", "tick": TICKS}};
-let venue: Any = meta?.session?.venue ?? "unknown";
+struct Session { venue: Optional<Str>, tick: Int }
+struct Meta { session: Optional<Session> }
+let meta: Optional<Meta> = Meta(Session("Maylang Exchange", TICKS));
+let venue: Str = meta?.session?.venue ?? "unknown";
 print("venue: ${venue}  (safe navigation)");
 print();
 
 print("-- tape (first 14 fills) --");
 print("  #   buyer   <- seller   qty    price    size");
-for i: Any in 0..min(len(market.trades), 14) {
-    let t: Any = market.trades[i];
+for i: Int in 0..min(len(market.trades), 14) {
+    let t: Trade = market.trades[i];
     print("  ${lpad(t.seq, 2)}  ${rpad(t.buyer, 7)} <- ${rpad(t.seller, 7)} ${lpad(t.qty, 3)} ${money(t.price)}   ${size_of(t.qty)}");
 }
 if (len(market.trades) > 14) { print("  ... ${len(market.trades) - 14} more fills"); }
 print();
 
 // per-trader ledger
-let names: Any = sort(unique([t.buyer for t: Any in market.trades] + [t.seller for t: Any in market.trades]));
-let ledger: Any = [];
-for name: Any in names {
-    mut bought: Any = 0;
-    mut sold: Any = 0;
-    mut cost: Any = 0.0;
-    mut revenue: Any = 0.0;
-    for t: Any in market.trades {
+let names: List<Str> = sort(unique([t.buyer for t: Trade in market.trades] + [t.seller for t: Trade in market.trades]));
+let ledger: List<LedgerRow> = [];
+for name: Str in names {
+    mut bought: Int = 0;
+    mut sold: Int = 0;
+    mut cost: Float = 0.0;
+    mut revenue: Float = 0.0;
+    for t: Trade in market.trades {
         if (t.buyer == name) { bought = bought + t.qty; cost = cost + t.qty * t.price; }
         if (t.seller == name) { sold = sold + t.qty; revenue = revenue + t.qty * t.price; }
     }
-    let position: Any = bought - sold;
-    let cash: Any = revenue - cost;
-    push(ledger, {"name": name, "bought": bought, "sold": sold,
-                  "position": position, "equity": cash + position * market.last});
+    let position: Int = bought - sold;
+    let cash: Float = revenue - cost;
+    push(ledger, LedgerRow(name, bought, sold, position, cash + to_float(position) * market.last));
 }
 
-fun sort_ledger(rows: Any) -> Any {
-    let a: Any = [];
-    for r: Any in rows { push(a, r); }
-    let n: Any = len(a);
-    for i: Any in 1..n {
-        let key: Any = a[i];
-        mut j: Any = i - 1;
-        mut go: Any = true;
+fun sort_ledger(rows: List<LedgerRow>) -> List<LedgerRow> {
+    let a: List<LedgerRow> = [];
+    for r: LedgerRow in rows { push(a, r); }
+    let n: Int = len(a);
+    for i: Int in 1..n {
+        let key: LedgerRow = a[i];
+        mut j: Int = i - 1;
+        mut go: Bool = true;
         while (j >= 0 && go) {
             if (a[j].equity < key.equity) { a[j + 1] = a[j]; j = j - 1; } else { go = false; }
         }
@@ -210,27 +213,27 @@ fun sort_ledger(rows: Any) -> Any {
 
 print("-- mark-to-market (last = ${round2(market.last)}) --");
 print("  trader   bought  sold   position      equity");
-for r: Any in sort_ledger(ledger) {
+for r: LedgerRow in sort_ledger(ledger) {
     print("  ${rpad(r.name, 7)} ${lpad(r.bought, 5)} ${lpad(r.sold, 5)} ${lpad(r.position, 9)} ${money(r.equity)}");
 }
 print();
 
 // analytics via pipelines
-let fills: Any = market.trades;
-let total_qty: Any = reduce([t.qty for t: Any in fills], |a: Any, b: Any| -> Any { return a + b; }, 0);
-let notional: Any = reduce([t.qty * t.price for t: Any in fills], |a: Any, b: Any| -> Any { return a + b; }, 0.0);
-let vwap: Any = if (total_qty > 0) { notional / total_qty } else { market.last };
-let prices: Any = market.history;
-let high: Any = reduce(prices, |a: Any, b: Any| -> Any { return max(a, b); }, prices[0]);
-let low: Any = reduce(prices, |a: Any, b: Any| -> Any { return min(a, b); }, prices[0]);
+let fills: List<Trade> = market.trades;
+let total_qty: Int = reduce([t.qty for t: Trade in fills], |a: Int, b: Int| -> Int { return a + b; }, 0);
+let notional: Float = reduce([to_float(t.qty) * t.price for t: Trade in fills], |a: Float, b: Float| -> Float { return a + b; }, 0.0);
+let vwap: Float = if (total_qty > 0) { notional / to_float(total_qty) } else { market.last };
+let prices: List<Float> = market.history;
+let high: Float = reduce(prices, |a: Float, b: Float| -> Float { return max(a, b); }, prices[0]);
+let low: Float = reduce(prices, |a: Float, b: Float| -> Float { return min(a, b); }, prices[0]);
 
-fun sparkline(values: Any) -> Any {
-    let hi: Any = reduce(values, |a: Any, b: Any| -> Any { return max(a, b); }, values[0]);
-    let lo: Any = reduce(values, |a: Any, b: Any| -> Any { return min(a, b); }, values[0]);
-    let span: Any = hi - lo;
-    mut out: Any = "";
-    for v: Any in values {
-        let frac: Any = if (span <= 0.0) { 0.5 } else { (v - lo) / span };
+fun sparkline(values: List<Float>) -> Str {
+    let hi: Float = reduce(values, |a: Float, b: Float| -> Float { return max(a, b); }, values[0]);
+    let lo: Float = reduce(values, |a: Float, b: Float| -> Float { return min(a, b); }, values[0]);
+    let span: Float = hi - lo;
+    mut out: Str = "";
+    for v: Float in values {
+        let frac: Float = if (span <= 0.0) { 0.5 } else { (v - lo) / span };
         out = out + chr(9601 + int(round(frac * 7.0)));
     }
     return out;
@@ -246,15 +249,15 @@ print("  price path  ${sparkline(prices)}");
 print();
 
 // resting book depth
-let bids: Any = sort_orders(market.bids, true);
-let asks: Any = sort_orders(market.asks, false);
-let best_bid: Any = if (len(bids) > 0) { bids[0].price } else { 0.0 };
-let best_ask: Any = if (len(asks) > 0) { asks[0].price } else { 0.0 };
-let bid_depth: Any = reduce([o.qty for o: Any in bids], |a: Any, b: Any| -> Any { return a + b; }, 0);
-let ask_depth: Any = reduce([o.qty for o: Any in asks], |a: Any, b: Any| -> Any { return a + b; }, 0);
-let best_bid_txt: Any = if (best_bid > 0.0) { str(best_bid) } else { "-" };
-let best_ask_txt: Any = if (best_ask > 0.0) { str(best_ask) } else { "-" };
-let spread_txt: Any = if (best_bid > 0.0 && best_ask > 0.0) { str(round2(best_ask - best_bid)) } else { "-" };
+let bids: List<Order> = sort_orders(market.bids, true);
+let asks: List<Order> = sort_orders(market.asks, false);
+let best_bid: Float = if (len(bids) > 0) { bids[0].price } else { 0.0 };
+let best_ask: Float = if (len(asks) > 0) { asks[0].price } else { 0.0 };
+let bid_depth: Int = reduce([o.qty for o: Order in bids], |a: Int, b: Int| -> Int { return a + b; }, 0);
+let ask_depth: Int = reduce([o.qty for o: Order in asks], |a: Int, b: Int| -> Int { return a + b; }, 0);
+let best_bid_txt: Str = if (best_bid > 0.0) { str(best_bid) } else { "-" };
+let best_ask_txt: Str = if (best_ask > 0.0) { str(best_ask) } else { "-" };
+let spread_txt: Str = if (best_bid > 0.0 && best_ask > 0.0) { str(round2(best_ask - best_bid)) } else { "-" };
 print("-- resting book --");
 print("  best bid    ${best_bid_txt}  (${len(bids)} orders, depth ${bid_depth})");
 print("  best ask    ${best_ask_txt}  (${len(asks)} orders, depth ${ask_depth})");
@@ -263,13 +266,13 @@ print();
 
 // rejected orders, caught by `may otherwise`
 print("-- rejected by the risk gate (${len(market.rejected)}) --");
-for r: Any in market.rejected {
+for r: Rejection in market.rejected {
     print("  ${rpad(r.trader, 7)} ${r.reason}: ${r.detail}");
 }
 print();
 
-// machine-readable close
-let report: Any = {
+// machine-readable close: heterogeneous JSON, so a Map<Str, Any>
+let report: Map<Str, Any> = {
     "trades": len(fills),
     "volume": market.volume,
     "vwap": round2(vwap),

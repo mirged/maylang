@@ -2,51 +2,42 @@
 // Transaction Ledger & Risk Auditor
 // -------------------------------------------------------------
 
+// The transactions are an untrusted input stream, so each one stays a dynamic
+// record (`Any`): a poisoned field must fault at run time and be caught, not be
+// rejected at compile time. Everything derived from them is typed.
+struct Audit { id: Int, status: Str, user: Str, total: Str, fee: Str, note: Str }
+
 // Formatter for dollar amounts
-fun format_money(cents: Any) -> Any {
-    return "$" + (cents / 100) + "." + (cents % 100);
+fun format_money(cents: Int) -> Str {
+    return "$" + str(cents / 100) + "." + str(cents % 100);
 }
 
 // Calculates fee with a risk-adjusted multiplier.
 // FAULT HAZARD: Transactions with zero duration or corrupted
 // metrics will trigger runtime faults here.
-fun calc_risk_fee(tx: Any) -> Any {
+fun calc_risk_fee(tx: Any) -> Int {
     // Risky calculation:
     // If risk_factor is missing or 0, this divides by zero.
-    let base_fee: Any = tx.amount / 50;
-    let multiplier: Any = 100 / tx.risk_score;
+    let base_fee: Int = int(tx.amount / 50);
+    let multiplier: Int = int(100 / tx.risk_score);
 
     return base_fee * multiplier;
 }
 
 // Speculatively process each transaction
-fun audit_transaction(tx: Any) -> Any {
+fun audit_transaction(tx: Any) -> Audit {
     return may {
-        let fee: Any = calc_risk_fee(tx);
-        let total: Any = tx.amount + fee;
+        let fee: Int = calc_risk_fee(tx);
+        let total: Int = int(tx.amount + fee);
 
-        ({
-            id: tx.id,
-            status: "CLEARED",
-            user: tx.user,
-            total: format_money(total),
-            fee: format_money(fee),
-            note: "OK"
-        })
+        Audit(int(tx.id), "CLEARED", str(tx.user), format_money(total), format_money(fee), "OK")
     } otherwise {
-        ({
-            id: tx.id,
-            status: "REJECTED",
-            user: tx.user,
-            total: "$0.00",
-            fee: "$0.00",
-            note: "Audit Fault: " + err
-        })
+        Audit(int(tx.id), "REJECTED", str(tx.user), "$0.00", "$0.00", "Audit Fault: " + str(err))
     };
 }
 
 // Pipeline formatting stage
-fun format_record(record: Any, prefix: Any) -> Any {
+fun format_record(record: Audit, prefix: Str) -> Str {
     return prefix + " [" + record.status + "] " + record.user +
     " | Total: " + record.total +
     " (Fee: " + record.fee + ")" +
@@ -56,7 +47,7 @@ fun format_record(record: Any, prefix: Any) -> Any {
 // -------------------------------------------------------------
 // The Data Stream (Mix of valid and poisoned inputs)
 // -------------------------------------------------------------
-let batch: Any = [
+let batch: List<Any> = [
     { id: 101, user: "Alice",   amount: 5000, risk_score: 10 },
     { id: 102, user: "Bob",     amount: 1250, risk_score: 25 },
     { id: 103, user: "Charlie", amount: 9900, risk_score: 0  },  // Division by zero!
@@ -67,9 +58,9 @@ let batch: Any = [
 // -------------------------------------------------------------
 // Execution & Aggregation Pipeline
 // -------------------------------------------------------------
-mut processed: Any = 0;
-mut cleared: Any = 0;
-mut rejected: Any = 0;
+mut processed: Int = 0;
+mut cleared: Int = 0;
+mut rejected: Int = 0;
 
 print("==================================================");
 print("        MAYLANG TRANSACTION AUDIT REPORT          ");
@@ -78,7 +69,7 @@ print("==================================================");
 for tx: Any in batch {
     processed = processed + 1;
 
-    let audit: Any = audit_transaction(tx);
+    let audit: Audit = audit_transaction(tx);
 
     if (audit.status == "CLEARED") {
         cleared = cleared + 1;
@@ -86,12 +77,12 @@ for tx: Any in batch {
         rejected = rejected + 1;
     }
 
-    let line: Any = audit
-        |> format_record("TX #" + tx.id);
+    let line: Str = audit
+        |> format_record("TX #" + str(audit.id));
 
     print(line);
 }
 
 print("--------------------------------------------------");
-print("Summary: " + processed + " processed | " + cleared + " cleared | " + rejected + " rejected");
+print("Summary: " + str(processed) + " processed | " + str(cleared) + " cleared | " + str(rejected) + " rejected");
 print("==================================================");

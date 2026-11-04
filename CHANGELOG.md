@@ -42,6 +42,14 @@
   `Regression` struct; `random_new` returns a `Random` struct; `validate_all`
   takes `ValidationRule`s and returns a `Validation`
   ([contracts](stdlib/CONTRACTS.md)).
+- The examples use concrete types: `Any` dropped from 348 to 26 uses, all
+  commented dynamic boundaries (JSON documents, the ledger's untrusted input
+  stream, `extern_c` callables). market, game, ledger, features, maytasks,
+  starfall and kaindsim model their data with structs; their output and
+  exported files are unchanged. maytasks now skips malformed saved tasks
+  instead of listing them as `nil`, and starfall starts a fresh flight from a
+  truncated save file instead of failing with a type fault. `unique` is typed
+  as returning its list element type.
 - Hexadecimal `0xff`, octal `0o755` and binary `0b1010` integer literals, and
   `_` digit separators in every numeric literal (`1_000_000`, `0xffff_ffff`,
   `6.022_140e2_3`). Prefixes are lowercase; each `_` must sit between two

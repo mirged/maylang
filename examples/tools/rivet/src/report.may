@@ -55,6 +55,7 @@ fun parse_batch(path: Str) -> List<Operation> {
     // Large values belong in put-file, which bypasses JSON string parsing.
     let mapping: Mapping = map_file(path, 16384);
     unmap_file(mapping);
+    // JSON is dynamic: each row's fields are type-checked below before use.
     let document: Any = io_read_json(path);
     if (type(document) != "List") { fail("batch JSON must be an array"); }
     if (len(document) < 1 or len(document) > 1024) { fail("batch requires 1..1024 operations"); }

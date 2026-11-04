@@ -1,26 +1,40 @@
 // Persistent game state: one small JSON file per pilot.
-fun save_path() -> Any {
-    let home: Any = env("HOME");
-    if (home == nil || len(home) == 0) { return ".starfall.json"; }
+
+struct State {
+    day: Int, sector: Int, hull: Int, fuel: Int, credits: Int, cargo: Int,
+    scanned: Bool, signal: Int, rescued: Bool, log: List<Str>
+}
+
+fun save_path() -> Str {
+    let home: Str = env("HOME") ?? "";
+    if (len(home) == 0) { return ".starfall.json"; }
     return home + "/.starfall.json";
 }
 
-fun fresh_state() -> Any {
-    return {"day": 1, "sector": 1, "hull": 8, "fuel": 6, "credits": 14,
-     "cargo": 0, "scanned": false, "signal": -1, "rescued": false,
-     "log": ["Flight recorder online. The Starfall belt is quiet. For now."]};
+fun fresh_state() -> State {
+    return State(1, 1, 8, 6, 14, 0, false, -1, false,
+        ["Flight recorder online. The Starfall belt is quiet. For now."]);
 }
 
-fun load_state() -> Any {
-    let path: Any = save_path();
+// The save file is JSON, which is dynamic: decode it into a State here and
+// start a fresh flight when a field is missing or mistyped.
+fun decode_state(value: Any) -> State {
+    let log: List<Str> = [];
+    for line: Any in value.log { push(log, str(line)); }
+    return State(int(value.day), int(value.sector), int(value.hull), int(value.fuel), int(value.credits),
+        int(value.cargo), bool(value.scanned), int(value.signal), bool(value.rescued), log);
+}
+
+fun load_state() -> State {
+    let path: Str = save_path();
     if (!file_exists(path)) { return fresh_state(); }
-    let raw: Any = may { read_file(path) } otherwise { return fresh_state(); };
-    return may { json_parse(raw) } otherwise { fresh_state() };
+    let raw: Str = may { read_file(path) } otherwise { return fresh_state(); };
+    return may { decode_state(json_parse(raw)) } otherwise { fresh_state() };
 }
 
-fun save_state(state: Any) -> Any { return write_file(save_path(), json_stringify(state)); }
+fun save_state(state: State) -> Nil { write_file(save_path(), json_stringify(state)); return; }
 
-fun record(state: Any, message: Any) -> Any {
+fun record(state: State, message: Str) -> State {
     push(state.log, "Shift " + str(state.day) + ": " + message);
     if (len(state.log) > 8) { state.log = slice(state.log, len(state.log) - 8, len(state.log)); }
     return state;
