@@ -1,0 +1,55 @@
+// GC workload (adversarial): a graph mutated across groups on every step.
+// 128 groups of 512 nodes each; a step replaces one whole group with new
+// nodes that point into random other groups, and then rewires random nodes
+// of other groups to point at the new ones. Objects allocated together die
+// together (a group), but the old groups keep receiving pointers to young
+// objects, so every group boundary is crossed by a stream of new edges.
+struct Node { group: Int, value: Int, link: Any }
+
+fun random(state: List<Int>, bound: Int) -> Int {
+    state[0] = (state[0] * 1103515245 + 12345) % 2147483648;
+    return (state[0] / 65536) % bound;
+}
+
+let rng: List<Int> = [99];
+let groups_count: Int = 128;
+let group_size: Int = 512;
+let groups: List<List<Node>> = [];
+mut g: Int = 0;
+while (g < groups_count) {
+    let members: List<Node> = [];
+    mut k: Int = 0;
+    while (k < group_size) { push(members, Node(g, k, nil)); k += 1; }
+    push(groups, members);
+    g += 1;
+}
+mut step: Int = 0;
+while (step < 6000) {
+    let chosen: Int = random(rng, groups_count);
+    let fresh: List<Node> = [];
+    mut k: Int = 0;
+    while (k < group_size) {
+        let other: List<Node> = groups[random(rng, groups_count)];
+        push(fresh, Node(chosen, step * group_size + k, other[random(rng, group_size)]));
+        k += 1;
+    }
+    k = 0;
+    while (k < group_size / 2) {
+        let victim: Node = groups[random(rng, groups_count)][random(rng, group_size)];
+        victim.link = fresh[random(rng, group_size)];
+        k += 1;
+    }
+    groups[chosen] = fresh;
+    step += 1;
+}
+mut sum: Int = 0;
+for members: List<Node> in groups {
+    mut node: Any = members[0];
+    mut hops: Int = 0;
+    while (node != nil and hops < 8) {
+        sum += int(node.value) % 1000;
+        node = node.link;
+        hops += 1;
+    }
+}
+print(sum);

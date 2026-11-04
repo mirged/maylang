@@ -1,6 +1,7 @@
 # MOSAIC GC roadmap
 
-Status: research proposal. Nothing here is implemented. This plan replaces
+Status: research proposal. M0 and M1 are done and the M1 gate failed
+([report](../../compiler/mayc/tests/backend/mosaic-m1.md)); the rest is not planned. This plan replaces
 [Phase 5](PERFORMANCE_ROADMAP.md#phase-5-allocation-and-collection) of the
 performance roadmap only if the research gate in M1 passes; every step before
 that gate also pays off for a conventional collector.
@@ -284,11 +285,11 @@ memory may not grow by more than 10%. Otherwise it stays opt-in
 
 | Milestone | State |
 | --- | --- |
-| M0 Measurement and workloads | not started |
-| M1 Traces and simulator (gate) | not started |
-| M2 Groundwork (bump, segments, sites, barrier) | not started (inline bump allocation is also performance Phase 5) |
-| M3 Static cohorts | blocked on M1 gate |
-| M4 Mortality learning | blocked on M3 |
-| M5 Fracturing | blocked on M3; evacuation also on precise stack maps |
-| M6 Adaptive policy | blocked on M4 |
-| M7 Evaluation | blocked on M6 |
+| M0 Measurement and workloads | done: `MAYC_GC_STATS` counters and exit reports, the [workload suite](../../compiler/mayc/tests/gc_workloads/README.md), the [baseline report](../../compiler/mayc/tests/backend/gc-baseline.md) (Mayboard left out: programs with C externs exit through libc) |
+| M1 Traces and simulator (gate) | done, **gate failed**: [report](../../compiler/mayc/tests/backend/mosaic-m1.md), [simulator](../../compiler/mayc/tests/gc_sim/README.md). Sites come from the stack rather than `--gc-sites`. An oracle that groups by real death time beats mark-sweep 2.9-6.6x on the real workloads, but no implementable policy came close: dead bytes retained by nepotism stay far above the 10% bound |
+| M2 Groundwork (bump, segments, sites, barrier) | not started; per the gate, take the conventional path (size-class segments, sticky-mark-bit generations, live-bytes thresholds) |
+| M3 Static cohorts | not planned (gate failed) |
+| M4 Mortality learning | not planned (gate failed) |
+| M5 Fracturing | not planned (gate failed) |
+| M6 Adaptive policy | not planned (gate failed) |
+| M7 Evaluation | not planned (gate failed) |

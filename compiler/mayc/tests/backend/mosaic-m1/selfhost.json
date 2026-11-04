@@ -1,0 +1,173 @@
+[
+ {
+  "workload": "selfhost",
+  "collections": 7,
+  "ms_swept_blocks": 10632577,
+  "objects": 8358558,
+  "sites": 499,
+  "ms_live_objects_total": 4193814,
+  "ms_live_bytes_total": 843322048,
+  "edges_live_total": 5495198,
+  "policies": {
+   "ms": {
+    "work": 4193814,
+    "scanned": 4193814,
+    "graph": 0,
+    "dead_retained_ratio": 0.0
+   },
+   "window": {
+    "work": 7792049,
+    "scanned": 7375684,
+    "graph": 416365,
+    "segments_reached": 46932,
+    "segment_edges": 367578,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 2.8895,
+    "segment_edges_over_live_edges": 0.0669
+   },
+   "site": {
+    "work": 6528671,
+    "scanned": 6121894,
+    "graph": 406777,
+    "segments_reached": 36947,
+    "segment_edges": 367975,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 1.9181,
+    "segment_edges_over_live_edges": 0.067
+   },
+   "learned": {
+    "work": 7829976,
+    "scanned": 7434324,
+    "graph": 395652,
+    "segments_reached": 47339,
+    "segment_edges": 346458,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 2.9212,
+    "segment_edges_over_live_edges": 0.063
+   },
+   "learned+fx": {
+    "work": 14125861,
+    "scanned": 13790778,
+    "graph": 335083,
+    "segments_reached": 46179,
+    "segment_edges": 287049,
+    "fracture_scanned": 6356454,
+    "fractured_segments": 11615,
+    "dead_retained_ratio": 1.0281,
+    "segment_edges_over_live_edges": 0.0522
+   },
+   "oracle": {
+    "work": 1465255,
+    "scanned": 1345920,
+    "graph": 119335,
+    "segments_reached": 12567,
+    "segment_edges": 104913,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 0.0,
+    "segment_edges_over_live_edges": 0.0191
+   }
+  },
+  "gate": {
+   "collections": 7,
+   "learned_vs_best_static_work": 0.462,
+   "learned_vs_ms_work": 0.297,
+   "dead_retained_ratio": 1.0281,
+   "segment_edges_over_live_edges": 0.0522,
+   "passes": false
+  },
+  "simulated_seconds": 109.9,
+  "signatures": 1048576,
+  "signatures_without_user_frame": 11437,
+  "top_sites": [
+   {
+    "site": "(no chain)",
+    "seen_at_first_collection": 2945995,
+    "survived_first": 564574,
+    "died_later": 39612,
+    "class": "persistent"
+   },
+   {
+    "site": "module20::fat_word_fault+0x3c7",
+    "seen_at_first_collection": 1058192,
+    "survived_first": 54590,
+    "died_later": 1183,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module0::side_slurp+0x12b",
+    "seen_at_first_collection": 746444,
+    "survived_first": 452891,
+    "died_later": 177206,
+    "class": "dies-2"
+   },
+   {
+    "site": "module11::st_has_contract+0x84c",
+    "seen_at_first_collection": 404843,
+    "survived_first": 86,
+    "died_later": 56,
+    "class": "ephemeral"
+   },
+   {
+    "site": "rt_alloc_record+0x52",
+    "seen_at_first_collection": 302975,
+    "survived_first": 243,
+    "died_later": 0,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module11::st_contract+0x88f",
+    "seen_at_first_collection": 264298,
+    "survived_first": 38,
+    "died_later": 13,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module11::st_has_contract+0x42",
+    "seen_at_first_collection": 192012,
+    "survived_first": 42,
+    "died_later": 33,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module11::st_contract+0x22f",
+    "seen_at_first_collection": 173109,
+    "survived_first": 25,
+    "died_later": 21,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module7::slice_src+0x11e",
+    "seen_at_first_collection": 95775,
+    "survived_first": 5,
+    "died_later": 5,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module11::st_has_contract+0x117",
+    "seen_at_first_collection": 82812,
+    "survived_first": 5,
+    "died_later": 0,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module11::st_has_contract+0x46b",
+    "seen_at_first_collection": 81034,
+    "survived_first": 8,
+    "died_later": 0,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module11::st_has_contract+0x7bf",
+    "seen_at_first_collection": 80612,
+    "survived_first": 19,
+    "died_later": 0,
+    "class": "ephemeral"
+   }
+  ],
+  "trace_policy": {}
+ }
+]

@@ -33,9 +33,20 @@ grows with it.
 `MAYC_GC_STATS=1` turns on collection statistics: count, bytes allocated,
 live bytes after the last sweep, total pause (CLOCK_MONOTONIC around the
 collector), heap high-water mark, the current threshold and the kernel's
-resident high-water mark. The runtime writes one `GC key=value` line after
-each output line it writes and from `rt_host_exit`, which an uncaught fault
-reaches, so a harness can parse the last line. One start-up read of
+resident high-water mark, then (for the [MOSAIC](../design/MOSAIC_GC.md) M0
+baseline) `objects` allocated, cumulative `marked` bytes and `marked_objects`,
+heap bytes `swept`, and the nearest-rank `pause_p50_ns`, `pause_p99_ns` and
+`pause_max_ns` over up to 8192 logged pauses. The newer counters live on the
+statistics scratch page rather than in globals, because every global is
+registered as a root in the start-up code and a new one would move the code of
+every program; the live object count is read from the allocation-start table
+after the pause clock stops. The runtime writes one `GC key=value` line after
+each output line it writes, from `rt_host_exit` (which an uncaught fault and
+the `exit` built-in reach), and on a normal return from main, so a harness can
+parse the last line even for a program that writes nothing. The normal-exit
+report is a stub after the last function: `_start` jumps to it through a jump
+and a 2-byte nop that take the place of the exit syscall, so `_start` and
+every function keep their addresses. One start-up read of
 /proc/self/environ decides whether to enable them; after that everything is
 behind one global flag, so a normal run pays a flag test per allocation and
 per write, and the collector only tests the flag per cycle (the sweep counts

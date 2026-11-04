@@ -1,0 +1,166 @@
+[
+ {
+  "workload": "cross_mutation",
+  "collections": 4,
+  "ms_swept_blocks": 3134584,
+  "objects": 3198829,
+  "sites": 12,
+  "ms_live_objects_total": 622628,
+  "ms_live_bytes_total": 107974560,
+  "edges_live_total": 887246,
+  "policies": {
+   "ms": {
+    "work": 622628,
+    "scanned": 622628,
+    "graph": 0,
+    "dead_retained_ratio": 0.0
+   },
+   "window": {
+    "work": 6994126,
+    "scanned": 2746493,
+    "graph": 4247633,
+    "segments_reached": 19358,
+    "segment_edges": 4228224,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 10.7475,
+    "segment_edges_over_live_edges": 4.7656
+   },
+   "site": {
+    "work": 6433626,
+    "scanned": 2742146,
+    "graph": 3691480,
+    "segments_reached": 17506,
+    "segment_edges": 3673923,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 9.5977,
+    "segment_edges_over_live_edges": 4.1408
+   },
+   "learned": {
+    "work": 6667969,
+    "scanned": 2741467,
+    "graph": 3926502,
+    "segments_reached": 18825,
+    "segment_edges": 3907626,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 10.402,
+    "segment_edges_over_live_edges": 4.4042
+   },
+   "learned+fx": {
+    "work": 12709490,
+    "scanned": 8952246,
+    "graph": 3757244,
+    "segments_reached": 18684,
+    "segment_edges": 3738509,
+    "fracture_scanned": 6210779,
+    "fractured_segments": 11044,
+    "dead_retained_ratio": 7.9081,
+    "segment_edges_over_live_edges": 4.2136
+   },
+   "oracle": {
+    "work": 804539,
+    "scanned": 570874,
+    "graph": 233665,
+    "segments_reached": 1597,
+    "segment_edges": 232017,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 0.0,
+    "segment_edges_over_live_edges": 0.2615
+   }
+  },
+  "gate": {
+   "collections": 4,
+   "learned_vs_best_static_work": 0.506,
+   "learned_vs_ms_work": 0.049,
+   "dead_retained_ratio": 7.9081,
+   "segment_edges_over_live_edges": 4.2136,
+   "passes": false
+  },
+  "simulated_seconds": 35.7,
+  "signatures": 46,
+  "signatures_without_user_frame": 6,
+  "top_sites": [
+   {
+    "site": "module0::Node+0x58",
+    "seen_at_first_collection": 2627073,
+    "survived_first": 565839,
+    "died_later": 399533,
+    "class": "dies-2"
+   },
+   {
+    "site": "_start+0xbb8",
+    "seen_at_first_collection": 40030,
+    "survived_first": 519,
+    "died_later": 388,
+    "class": "ephemeral"
+   },
+   {
+    "site": "_start+0x874",
+    "seen_at_first_collection": 10008,
+    "survived_first": 516,
+    "died_later": 387,
+    "class": "ephemeral"
+   },
+   {
+    "site": "_start+0x6c4",
+    "seen_at_first_collection": 1024,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "ephemeral"
+   },
+   {
+    "site": "_start+0x56d",
+    "seen_at_first_collection": 256,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "ephemeral"
+   },
+   {
+    "site": "rt_alloc_values+0x47",
+    "seen_at_first_collection": 128,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "ephemeral"
+   },
+   {
+    "site": "_start+0x7c9",
+    "seen_at_first_collection": 6,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "unknown"
+   },
+   {
+    "site": "_start+0x3f0",
+    "seen_at_first_collection": 2,
+    "survived_first": 2,
+    "died_later": 0,
+    "class": "unknown"
+   },
+   {
+    "site": "_start+0x50d",
+    "seen_at_first_collection": 2,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "unknown"
+   },
+   {
+    "site": "(no chain)",
+    "seen_at_first_collection": 1,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "unknown"
+   },
+   {
+    "site": "_start+0x57",
+    "seen_at_first_collection": 1,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "unknown"
+   }
+  ],
+  "trace_policy": {}
+ }
+]

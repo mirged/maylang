@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """GC allocation identity, retained graphs and global-root capacity."""
 import argparse
+import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -227,6 +229,92 @@ fun gc_probe() -> Any {
 """
 
 
+STATS = r"""
+// Statistics counters (MAYC_GC_STATS) against an independent heap walk.
+fun gc_stats_live_blocks() -> Any {
+    mut count: Any = 0;
+    mut p: Any = HEAP;
+    while (p < HP) {
+        let size: Any = load64(p);
+        if (load8(GCSTARTS + (p - HEAP) / 8) != 0) { count += 1; }
+        p = p + size;
+    }
+    return count;
+}
+fun gc_probe() -> Any {
+    GCSCRATCH = syscall(9, 0, 4096, 3, 34, -1, 0);
+    GCBUFFER = GCSCRATCH; GCRSSBUF = GCSCRATCH + 128; GCSTARTED = GCSCRATCH + 4080;
+    GCSTATS = 1;
+    let roots: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let keep: Any = rt_alloc(64);
+    store64(roots, keep); rt_gc_root(roots);
+    let before: Any = rt_gc_slot(2176);
+    mut i: Any = 0;
+    while (i < 1000) {
+        let block: Any = rt_alloc(32 + (i % 7) * 16);
+        if (i % 10 == 0) { store64(keep + (i / 10 % 8) * 8, block); }
+        i += 1;
+    }
+    if (rt_gc_slot(2176) - before != 1000) { syscall(60, 11); }
+    mut round: Any = 0;
+    while (round < 5) {
+        let marked: Any = rt_gc_slot(2184);
+        let markedobj: Any = rt_gc_slot(2192);
+        let swept: Any = rt_gc_slot(2200);
+        let frontier: Any = HP - HEAP;
+        rt_gc();
+        if (rt_gc_slot(2184) - marked != GCLIVE) { syscall(60, 12); }
+        if (rt_gc_slot(2192) - markedobj != gc_stats_live_blocks()) { syscall(60, 13); }
+        if (rt_gc_slot(2200) - swept != frontier) { syscall(60, 14); }
+        let garbage: Any = rt_alloc(4096 * (round + 1));
+        store64(garbage, round);
+        round += 1;
+    }
+    if (rt_gc_slot(2224) != 5) { syscall(60, 15); }
+    mut j: Any = 1;
+    while (j < rt_gc_slot(2224)) {
+        if (load64(rt_gc_slot(2216) + (j - 1) * 8) > load64(rt_gc_slot(2216) + j * 8)) { syscall(60, 16); }
+        j += 1;
+    }
+    if (rt_gc_pause_rank(1000) != rt_gc_slot(2232) or rt_gc_slot(2232) <= 0) { syscall(60, 17); }
+    if (rt_gc_pause_rank(500) != load64(rt_gc_slot(2216) + 2 * 8)) { syscall(60, 18); }
+    GCSTATS = 0;
+    syscall(1, 1, addr("PASS collection statistics match a heap walk\n"), 45);
+    return 0;
+}
+"""
+
+
+# Programs that reach the end of main or `exit` without writing a final line
+# still print the MAYC_GC_STATS summary, and keep their exit status.
+EXIT_PROGRAMS = {
+    'silent': ('let xs: List<Str> = [];\nmut i: Int = 0;\n'
+               'while (i < 2000) { push(xs, str(i)); i += 1; }\n', 0, b''),
+    'exit': ('let xs: List<Str> = [str(1), str(2)];\nexit(len(xs) + 3);\n', 5, b''),
+    'nested': ('fun quit(code: Int) -> Nil { exit(code); return; }\n'
+               'let parts: List<Str> = ["a", str(9)];\nprint(join(parts, ""));\nquit(6);\n', 6, b'a9\n'),
+}
+
+
+def exit_reports(compiler, work):
+    for name, (source, status, output) in EXIT_PROGRAMS.items():
+        path = work / f'{name}.may'; path.write_text(source)
+        binary = work / name
+        built = subprocess.run([str(compiler), str(path), '-o', str(binary)], capture_output=True, timeout=60)
+        assert built.returncode == 0, built.stderr.decode()
+        base = {key: value for key, value in os.environ.items() if not key.startswith('MAYC_GC_')}
+        plain = subprocess.run([str(binary)], capture_output=True, timeout=30, env=base)
+        assert (plain.returncode, plain.stdout, plain.stderr) == (status, output, b''), (name, plain)
+        stats = subprocess.run([str(binary)], capture_output=True, timeout=30, env=dict(base, MAYC_GC_STATS='1'))
+        assert stats.returncode == status and not stats.stderr, (name, stats)
+        lines = stats.stdout.decode().splitlines()
+        assert lines and lines[-1].startswith('GC collections='), (name, stats.stdout)
+        fields = dict(re.findall(r'(\w+)=(-?\d+)', lines[-1]))
+        assert int(fields['objects']) > 0 and 'pause_p99_ns' in fields, (name, lines[-1])
+        assert ''.join(line + '\n' for line in lines if not line.startswith('GC ')).encode() == output, (name, stats.stdout)
+    print('PASS MAYC_GC_STATS reports at a normal exit and at exit(), keeping the status')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler', type=Path, default=ROOT/'compiler/mayc/mayc_new')
@@ -261,6 +349,10 @@ def main():
         print('PASS global root capacity fails before writing outside the table')
         result = run(RECORDS)
         assert result.returncode == 0 and result.stdout == b'PASS record slots, observation and collector tracing\ndone\n', (result.returncode, result.stdout, result.stderr)
+        print(result.stdout.decode().splitlines()[0])
+        exit_reports(compiler_binary(args.compiler), work)
+        result = run(STATS)
+        assert result.returncode == 0 and result.stdout == b'PASS collection statistics match a heap walk\ndone\n', (result.returncode, result.stdout, result.stderr)
         print(result.stdout.decode().splitlines()[0])
 
 

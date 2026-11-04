@@ -141,6 +141,7 @@ HARNESSES = [
     (["runtime_maps.py"], "runtime hash tables and allocation bins"),
     (["gc.py"], "GC allocation identity and repeated collections"),
     (["gc_stress.py", "--self-test"], "seeded GC graph oracle, heap invariants and suspended closures"),
+    (["gc_workloads.py", "--self-test"], "GC workload checksums and statistics summaries"),
     (["stdlib_contracts.py"], "typed standard-library contracts"),
     (["strings.py"], "Unicode string operations and long environments"),
     (["json_controls.py"], "JSON control escaping and independent parser roundtrips"),

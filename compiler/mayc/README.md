@@ -134,8 +134,10 @@ The full runtime is [`runtime/fat.may`](runtime/fat.may) with its Linux host
 processes). The collector starts at half of the nominal heap and
 re-derives the threshold from the live bytes of every sweep, so peak resident
 memory follows the live set instead of always committing the 256 MiB default;
-`MAYC_GC_STATS=1` prints a `GC key=value` summary after each output line and
-at a fault exit (`--runtime-gc-stats` in `tests/limits.py` uses it).
+`MAYC_GC_STATS=1` prints a `GC key=value` summary after each output line, at
+a normal exit, at `exit()` and at a fault exit (`--runtime-gc-stats` in
+`tests/limits.py` and the [GC workload suite](tests/gc_workloads/README.md)
+use it).
 `runtime/math.may` is loaded with the library prelude and holds
 the shared binary64 code:
 

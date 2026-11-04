@@ -2,6 +2,18 @@
 
 ## Performance
 
+- MOSAIC GC roadmap M0 and M1 ([baseline](compiler/mayc/tests/backend/gc-baseline.md),
+  [gate report](compiler/mayc/tests/backend/mosaic-m1.md)): `MAYC_GC_STATS`
+  adds allocation count, marked bytes and objects, swept bytes and p50/p99/max
+  pauses, and now reports at a normal exit and at `exit()`, so the
+  self-compile is measurable. The counters keep user code at its old
+  addresses; later runtime functions move, and paired runs stay within
+  ±0.6%. A GC workload suite (`tests/gc_workloads.py`, with Python-checked
+  adversarial checksums) and a trace simulator (`tests/gc_sim/`) record the
+  baseline: the collector takes about 30% of the self-compile's and trees'
+  run time. The research gate failed: grouping by real death time would mark
+  2.8-3.8x less, but no implementable grouping policy controls dead-object
+  retention, so the cohort collector is not planned.
 - Inline map probing for Float and Bool keys ([report](compiler/mayc/tests/backend/map-probe-keys.md)):
   the probe's key types now match the runtime's: Float keys hash with
   `rt_hash_mix` and the `-0.0` fold and compare with `rt_same`'s IEEE equality

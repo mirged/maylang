@@ -2377,6 +2377,12 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     if (name_eq(np, nl, addr("store64"), len("store64")) == 1) { cg_store(ctx, args, 8); return 1; }
     if (name_eq(np, nl, addr("exit"), len("exit")) == 1) {
         cg_expr(ctx, args);
+        // Native-word code in a dynamic program exits through rt_host_exit,
+        // which writes the MAYC_GC_STATS report; raw programs exit directly.
+        if (ctx.dynamic == 1 and backend_find_func(ctx, addr("rt_host_exit"), len("rt_host_exit")) != 0) {
+            call_rt1(ctx, addr("rt_host_exit"), len("rt_host_exit"));
+            return 1;
+        }
         e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);
         mov_imm(ctx, 60);
         x86_syscall_instruction(ctx);
@@ -3309,7 +3315,18 @@ fun cg_program(ctx: Any) -> Any {
     if (len(ctx.foreign) > 0) { ffi_start(ctx); }
     else { call(ctx, 1); }
     e8(ctx, 49); e8(ctx, 255); // xor edi, edi
-    mov_imm(ctx, 60); x86_syscall_instruction(ctx);
+    if (ctx.dynamic == 1 and len(ctx.foreign) == 0
+        and backend_find_func(ctx, addr("rt_gc_stats_report"), len("rt_gc_stats_report")) != 0) {
+        // A normal exit reports MAYC_GC_STATS even when the program wrote
+        // no output. (A program with C externs starts and exits through
+        // libc, so it never comes back here.) The jump and a 2-byte nop take the 7 bytes of the exit
+        // syscall below, so _start and everything after it keep their
+        // layout; x86_emit places the stub after the last function.
+        ctx.reachability.exit = newlab(ctx);
+        jmp(ctx, ctx.reachability.exit); x86_nop(ctx, 2);
+    } else {
+        mov_imm(ctx, 60); x86_syscall_instruction(ctx);
+    }
 
     if (ctx.dynamic == 1) {
         // The direct-call prepass covers the inner functions whether main is
@@ -3422,13 +3439,10 @@ fun patch_all(ctx: Any) -> Any {
     return 0;
 }
 
-fun x86_emit(ctx: Any) -> Any {
-    emission_begin(ctx);
-    if (ctx.dynamic == 1) {
-        ctx.fiberLabel = newlab(ctx);
-    }
-    cg_program(ctx);
-    mut next: Any = 0;
+// Emits queued functions from position `next` until the queue is empty and
+// returns the new position.
+fun x86_drain(ctx: Any, start: Any) -> Any {
+    mut next: Any = start;
     mut draining: Any = true;
     while (draining) {
         while (next < len(ctx.reachability.queue)) {
@@ -3437,6 +3451,26 @@ fun x86_emit(ctx: Any) -> Any {
         }
         // Fat slow-path stubs can reach runtime functions not yet emitted.
         draining = ctx.dynamic == 1 and fat_emit_stubs(ctx) > 0;
+    }
+    return next;
+}
+
+fun x86_emit(ctx: Any) -> Any {
+    emission_begin(ctx);
+    if (ctx.dynamic == 1) {
+        ctx.fiberLabel = newlab(ctx);
+    }
+    cg_program(ctx);
+    mut next: Any = x86_drain(ctx, 0);
+    if (ctx.reachability.exit != 0) {
+        // The normal-exit stub of _start (status 0 is already in edi): the
+        // statistics report, which tests MAYC_GC_STATS itself, then exit.
+        placelab(ctx, ctx.reachability.exit);
+        e8(ctx, 87);                                   // push rdi
+        call_rt0(ctx, addr("rt_gc_stats_report"), len("rt_gc_stats_report"));
+        e8(ctx, 95);                                   // pop rdi
+        mov_imm(ctx, 60); x86_syscall_instruction(ctx);
+        next = x86_drain(ctx, next);
     }
     if (ctx.reachability.fiber) { x86_emit_fiber(ctx); }
     emission_finish(ctx);

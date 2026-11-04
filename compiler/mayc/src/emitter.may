@@ -35,7 +35,7 @@ fun fixups_new() -> Any { return FixupTable([], 0); }
 // Backend-generated runtime calls and function addresses are graph edges too.
 // Discover them while emitting main and then drain a deduplicated worklist.
 fun emission_begin(ctx: Any) -> Any {
-    ctx.reachability = {"labels": [], "live": [], "queue": [], "fiber": false};
+    ctx.reachability = {"labels": [], "live": [], "queue": [], "fiber": false, "exit": 0};
     mut index: Any = 0;
     while (index < len(ctx.labels)) {
         push(ctx.reachability.labels, nil); push(ctx.reachability.live, false);

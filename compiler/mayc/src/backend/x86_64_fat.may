@@ -1584,6 +1584,12 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
     }
     if (name == "exit") {
         fat_get(ctx, args);
+        // rt_host_exit writes the MAYC_GC_STATS report, as an uncaught fault
+        // and a normal return from main do, then exits with the status.
+        if (backend_find_func(ctx, addr("rt_host_exit"), len("rt_host_exit")) != 0) {
+            call_rt1(ctx, addr("rt_host_exit"), len("rt_host_exit"));
+            return 0;
+        }
         e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);                             // mov rdi, rax
         mov_imm(ctx, 60); x86_syscall_instruction(ctx);
         return 0;

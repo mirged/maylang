@@ -1,0 +1,27 @@
+// GC workload (adversarial): a long-lived cache mixed with temporaries. A
+// 20,000-entry map lives for the whole run while every step allocates
+// short-lived strings and lists; one step in sixteen replaces a cache entry,
+// so the cache keeps receiving young objects and its old values die at
+// unpredictable times.
+fun random(state: List<Int>, bound: Int) -> Int {
+    state[0] = (state[0] * 1103515245 + 12345) % 2147483648;
+    return (state[0] / 65536) % bound;
+}
+
+let rng: List<Int> = [7];
+let size: Int = 20000;
+let cache: Map<Int, List<Str>> = {};
+mut i: Int = 0;
+while (i < size) { cache[i] = ["seed", str(i)]; i += 1; }
+mut sum: Int = 0;
+mut step: Int = 0;
+while (step < 2000000) {
+    let key: Int = random(rng, size);
+    let parts: List<Str> = ["item", str(step), str(key)];
+    let text: Str = join(parts, "-");
+    if (step % 16 == 0) { cache[key] = [text, str(step), text + "!"]; }
+    let entry: List<Str> = cache[key] ?? ["missing"];
+    sum += len(entry) + len(text) % 5;
+    step += 1;
+}
+print(sum, len(cache));

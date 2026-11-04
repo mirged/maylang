@@ -134,7 +134,8 @@ child's total timing, not the completed-collection time counter.
 The runtime can measure itself as well. `--runtime-gc-stats` runs the GC cases
 with `MAYC_GC_STATS=1`, so the runtime prints one `GC collections=...
 allocated=... live=... pause_ns=... peak=... threshold=... rss_kb=...` line
-after each line of output it writes and at a fault exit. The report's `Live
+(plus the M0 fields described in [GC.md](../../../../docs/internals/GC.md))
+after each line of output it writes and at exit. The report's `Live
 MiB` and `Runtime pause ms` columns and the `runtime` object in `report.json`
 come from the last such line; its collection count must equal the inline
 meter's, so a disagreement fails the run. The meter stays authoritative for the

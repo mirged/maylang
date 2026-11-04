@@ -139,7 +139,7 @@ fun rt_scan_range(lo: Any, hi: Any) -> Any {
 fun rt_gc() -> Any {
     if (GCFLAG == 0) { return 0; }
     mut started: Any = 0;
-    if (GCSTATS != 0) { started = rt_gc_now(); }
+    if (GCSTATS != 0) { started = rt_gc_begin(); }
     MARKN = 0;
     rt_mark_word(GROOTS); rt_mark_word(HSTACK); rt_mark_word(ERRVAL); rt_mark_word(TRACE_STACK);
     rt_mark_word(FIB_TRACE0);
@@ -195,7 +195,7 @@ fun rt_gc() -> Any {
     }
     rt_sweep();
     GCCOUNT = GCCOUNT + 1;
-    if (GCSTATS != 0) { GCPAUSE = GCPAUSE + rt_gc_now() - started; }
+    if (GCSTATS != 0) { rt_gc_end(started); }
     return 0;
 }
 fun rt_sweep() -> Any {
@@ -297,7 +297,7 @@ fun rt_alloc_kind(n: Any, kind: Any) -> Any {
     mut need: Any = n + 16;
     let r: Any = need % 16;
     if (r != 0) { need = need + (16 - r); }
-    if (GCSTATS != 0) { GCALLOCATED = GCALLOCATED + need; }
+    if (GCSTATS != 0) { GCALLOCATED = rt_gc_note_alloc(need); }
     mut p: Any = 0;
     if (FREECOUNT != 0) { p = rt_fit(need, kind); }
     if (p != 0) { return p; }
@@ -446,6 +446,91 @@ fun rt_gc_now() -> Any {
     syscall(228, 1, GCSTARTED);
     return load64(GCSTARTED) * 1000000000 + load64(GCSTARTED + 8);
 }
+// M0 telemetry for the MOSAIC roadmap (docs/design/MOSAIC_GC.md). The
+// counters live on the statistics scratch page rather than in globals: every
+// global is registered as a root in the start-up code, so a new one would
+// move the code of every compiled program. Slots from GCSCRATCH: 2176
+// allocations, 2184 marked bytes, 2192 marked objects, 2200 bytes walked by
+// sweeps, 2208 the frontier at the start of the current collection, 2216 the
+// pause log, 2224 logged pauses, 2232 the longest pause.
+fun rt_gc_slot(offset: Any) -> Any {
+    return load64(GCSCRATCH + offset);
+}
+fun rt_gc_bump(offset: Any, by: Any) -> Any {
+    store64(GCSCRATCH + offset, load64(GCSCRATCH + offset) + by);
+    return 0;
+}
+// Counts one allocation of `need` bytes; returns the new byte total.
+fun rt_gc_note_alloc(need: Any) -> Any {
+    rt_gc_bump(2176, 1);
+    return GCALLOCATED + need;
+}
+// The start of a collection: remembers the frontier the sweep will walk.
+fun rt_gc_begin() -> Any {
+    store64(GCSCRATCH + 2208, HP);
+    return rt_gc_now();
+}
+// The end of a collection. The pause is taken first, so the bookkeeping
+// below (counting live allocation starts, the sorted pause log) is not part
+// of it. The sweep left a nonzero GCSTARTS byte exactly at each live block,
+// and every live block was marked once.
+fun rt_gc_end(started: Any) -> Any {
+    let pause: Any = rt_gc_now() - started;
+    GCPAUSE = GCPAUSE + pause;
+    if (pause > rt_gc_slot(2232)) { store64(GCSCRATCH + 2232, pause); }
+    rt_gc_bump(2200, rt_gc_slot(2208) - HEAP);
+    rt_gc_bump(2184, GCLIVE);
+    mut a: Any = GCSTARTS;
+    let end: Any = GCSTARTS + (HP - HEAP) / 8;
+    mut live: Any = 0;
+    while (a + 8 <= end) {
+        if (load64(a) != 0) {
+            mut k: Any = 0;
+            while (k < 8) { if (load8(a + k) != 0) { live += 1; } k += 1; }
+        }
+        a = a + 8;
+    }
+    while (a < end) { if (load8(a) != 0) { live += 1; } a = a + 1; }
+    rt_gc_bump(2192, live);
+    // Up to 8192 pauses, kept sorted by insertion; later ones only count
+    // toward the total and the maximum.
+    if (rt_gc_slot(2216) == 0) {
+        let log: Any = syscall(9, 0, 65536, 3, 34, 0 - 1, 0);
+        if (log >= 0) { store64(GCSCRATCH + 2216, log); }
+    }
+    let pauses: Any = rt_gc_slot(2216);
+    let n: Any = rt_gc_slot(2224);
+    if (pauses != 0 and n < 8192) {
+        mut j: Any = n;
+        while (j > 0 and load64(pauses + (j - 1) * 8) > pause) {
+            store64(pauses + j * 8, load64(pauses + (j - 1) * 8));
+            j -= 1;
+        }
+        store64(pauses + j * 8, pause);
+        store64(GCSCRATCH + 2224, n + 1);
+    }
+    return 0;
+}
+// The nearest-rank percentile `per` (of 1000) of the logged pauses, or 0.
+fun rt_gc_pause_rank(per: Any) -> Any {
+    let n: Any = rt_gc_slot(2224);
+    if (n == 0) { return 0; }
+    mut rank: Any = (n * per + 999) / 1000;
+    if (rank < 1) { rank = 1; }
+    return load64(rt_gc_slot(2216) + (rank - 1) * 8);
+}
+// The M0 fields of the summary line, then `n` bytes at `p` (its end).
+fun rt_gc_stats_tail(p: Any, n: Any) -> Any {
+    rt_write(addr(" objects="), 9); rt_gc_num(rt_gc_slot(2176));
+    rt_write(addr(" marked="), 8); rt_gc_num(rt_gc_slot(2184));
+    rt_write(addr(" marked_objects="), 16); rt_gc_num(rt_gc_slot(2192));
+    rt_write(addr(" swept="), 7); rt_gc_num(rt_gc_slot(2200));
+    rt_write(addr(" pause_p50_ns="), 14); rt_gc_num(rt_gc_pause_rank(500));
+    rt_write(addr(" pause_p99_ns="), 14); rt_gc_num(rt_gc_pause_rank(990));
+    rt_write(addr(" pause_max_ns="), 14); rt_gc_num(rt_gc_slot(2232));
+    rt_write(p, n);
+    return 0;
+}
 // Decimal text without allocating, so the report can run at exit.
 fun rt_gc_num(v: Any) -> Any {
     mut n: Any = v;
@@ -502,7 +587,10 @@ fun rt_gc_stats_report() -> Any {
     rt_write(addr(" peak="), 6); rt_gc_num(GCPEAK);
     rt_write(addr(" threshold="), 11); rt_gc_num(HEAPEND - HEAP);
     rt_write(addr(" rss_kb="), 8); rt_gc_num(rt_gc_rss());
-    rt_write(addr("\n"), 1);
+    // The M0 fields are written by rt_gc_stats_tail, which has rt_write's
+    // shape, so this function keeps its size and the runtime code after it
+    // keeps its layout.
+    rt_gc_stats_tail(addr("\n"), 1);
     GCPRINTING = 0;
     return 0;
 }

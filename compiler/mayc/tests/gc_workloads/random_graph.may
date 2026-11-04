@@ -1,0 +1,38 @@
+// GC workload (adversarial): a uniformly random object graph. Every step adds
+// or rewires an edge between two random nodes and replaces a random node, so
+// how long an object lives depends on edges that point at it from anywhere in
+// the heap, not on when or where it was allocated. Grouping objects by
+// allocation site or time should not help here.
+struct Node { id: Int, edges: List<Any> }
+
+// A 31-bit linear congruential generator; the state stays below 2^31, so the
+// product stays far below the Int range.
+fun random(state: List<Int>, bound: Int) -> Int {
+    state[0] = (state[0] * 1103515245 + 12345) % 2147483648;
+    return (state[0] / 65536) % bound;
+}
+
+let rng: List<Int> = [20261104];
+let count: Int = 100000;
+let nodes: List<Node> = [];
+mut i: Int = 0;
+while (i < count) { push(nodes, Node(i, [])); i += 1; }
+mut next_id: Int = count;
+mut step: Int = 0;
+while (step < 2500000) {
+    let source: Node = nodes[random(rng, count)];
+    let target: Node = nodes[random(rng, count)];
+    if (len(source.edges) < 4) { push(source.edges, target); }
+    else { source.edges[random(rng, 4)] = target; }
+    if (step % 2 == 0) {
+        nodes[random(rng, count)] = Node(next_id, []);
+        next_id += 1;
+    }
+    step += 1;
+}
+mut sum: Int = 0;
+for node: Node in nodes {
+    sum += node.id % 1000;
+    for edge: Any in node.edges { sum += int(edge.id) % 7; }
+}
+print(sum, next_id);

@@ -1,0 +1,169 @@
+[
+ {
+  "workload": "hashmap",
+  "collections": 7,
+  "ms_swept_blocks": 1544531,
+  "objects": 1200038,
+  "sites": 12,
+  "ms_live_objects_total": 769298,
+  "ms_live_bytes_total": 87171696,
+  "edges_live_total": 1129709,
+  "policies": {
+   "ms": {
+    "work": 769298,
+    "scanned": 769298,
+    "graph": 0,
+    "dead_retained_ratio": 0.0
+   },
+   "window": {
+    "work": 403821,
+    "scanned": 401800,
+    "graph": 2021,
+    "segments_reached": 810,
+    "segment_edges": 1154,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 0.2857,
+    "segment_edges_over_live_edges": 0.001
+   },
+   "site": {
+    "work": 210218,
+    "scanned": 209090,
+    "graph": 1128,
+    "segments_reached": 461,
+    "segment_edges": 610,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 0.0033,
+    "segment_edges_over_live_edges": 0.0005
+   },
+   "learned": {
+    "work": 240258,
+    "scanned": 238859,
+    "graph": 1399,
+    "segments_reached": 556,
+    "segment_edges": 786,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 0.0891,
+    "segment_edges_over_live_edges": 0.0007
+   },
+   "learned+fx": {
+    "work": 244563,
+    "scanned": 243164,
+    "graph": 1399,
+    "segments_reached": 556,
+    "segment_edges": 786,
+    "fracture_scanned": 4305,
+    "fractured_segments": 2,
+    "dead_retained_ratio": 0.0854,
+    "segment_edges_over_live_edges": 0.0007
+   },
+   "oracle": {
+    "work": 201127,
+    "scanned": 200029,
+    "graph": 1098,
+    "segments_reached": 439,
+    "segment_edges": 602,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 0.0,
+    "segment_edges_over_live_edges": 0.0005
+   }
+  },
+  "gate": {
+   "collections": 7,
+   "learned_vs_best_static_work": 0.86,
+   "learned_vs_ms_work": 3.146,
+   "dead_retained_ratio": 0.0854,
+   "segment_edges_over_live_edges": 0.0007,
+   "passes": false
+  },
+  "simulated_seconds": 6.4,
+  "signatures": 61,
+  "signatures_without_user_frame": 21,
+  "top_sites": [
+   {
+    "site": "_start+0x59e",
+    "seen_at_first_collection": 287602,
+    "survived_first": 2,
+    "died_later": 0,
+    "class": "ephemeral"
+   },
+   {
+    "site": "_start+0x980",
+    "seen_at_first_collection": 260724,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "ephemeral"
+   },
+   {
+    "site": "_start+0x4f1",
+    "seen_at_first_collection": 200033,
+    "survived_first": 14,
+    "died_later": 11,
+    "class": "ephemeral"
+   },
+   {
+    "site": "rt_grow_in_place_untraced+0x464",
+    "seen_at_first_collection": 82980,
+    "survived_first": 56102,
+    "died_later": 0,
+    "class": "persistent"
+   },
+   {
+    "site": "rt_binary+0x7ff",
+    "seen_at_first_collection": 80048,
+    "survived_first": 80048,
+    "died_later": 0,
+    "class": "persistent"
+   },
+   {
+    "site": "_start+0x91e",
+    "seen_at_first_collection": 39327,
+    "survived_first": 39327,
+    "died_later": 0,
+    "class": "persistent"
+   },
+   {
+    "site": "rt_grow_in_place_untraced+0x6df",
+    "seen_at_first_collection": 24523,
+    "survived_first": 24523,
+    "died_later": 0,
+    "class": "persistent"
+   },
+   {
+    "site": "_start+0x3ea",
+    "seen_at_first_collection": 2,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "unknown"
+   },
+   {
+    "site": "(no chain)",
+    "seen_at_first_collection": 1,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "unknown"
+   },
+   {
+    "site": "_start+0x50",
+    "seen_at_first_collection": 1,
+    "survived_first": 1,
+    "died_later": 0,
+    "class": "unknown"
+   },
+   {
+    "site": "_start+0x445",
+    "seen_at_first_collection": 1,
+    "survived_first": 0,
+    "died_later": 0,
+    "class": "unknown"
+   }
+  ],
+  "trace_policy": {
+   "MAYC_GC_MIN": "8388608",
+   "MAYC_GC_MARGIN": "524288"
+  }
+ }
+]

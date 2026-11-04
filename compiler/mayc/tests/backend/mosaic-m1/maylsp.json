@@ -1,0 +1,173 @@
+[
+ {
+  "workload": "maylsp",
+  "collections": 12,
+  "ms_swept_blocks": 22777905,
+  "objects": 22343358,
+  "sites": 719,
+  "ms_live_objects_total": 2570837,
+  "ms_live_bytes_total": 312932832,
+  "edges_live_total": 2746319,
+  "policies": {
+   "ms": {
+    "work": 2570837,
+    "scanned": 2570837,
+    "graph": 0,
+    "dead_retained_ratio": 0.0
+   },
+   "window": {
+    "work": 21552566,
+    "scanned": 20365810,
+    "graph": 1186756,
+    "segments_reached": 153604,
+    "segment_edges": 1031502,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 33.9641,
+    "segment_edges_over_live_edges": 0.3756
+   },
+   "site": {
+    "work": 12072067,
+    "scanned": 11712630,
+    "graph": 359437,
+    "segments_reached": 92146,
+    "segment_edges": 265641,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 18.4862,
+    "segment_edges_over_live_edges": 0.0967
+   },
+   "learned": {
+    "work": 18475588,
+    "scanned": 17772282,
+    "graph": 703306,
+    "segments_reached": 118351,
+    "segment_edges": 583305,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 26.3546,
+    "segment_edges_over_live_edges": 0.2124
+   },
+   "learned+fx": {
+    "work": 36526583,
+    "scanned": 36181399,
+    "graph": 345184,
+    "segments_reached": 64969,
+    "segment_edges": 278565,
+    "fracture_scanned": 18409117,
+    "fractured_segments": 35501,
+    "dead_retained_ratio": 5.9406,
+    "segment_edges_over_live_edges": 0.1014
+   },
+   "oracle": {
+    "work": 933337,
+    "scanned": 899663,
+    "graph": 33674,
+    "segments_reached": 4608,
+    "segment_edges": 27416,
+    "fracture_scanned": 0,
+    "fractured_segments": 0,
+    "dead_retained_ratio": 0.0,
+    "segment_edges_over_live_edges": 0.01
+   }
+  },
+  "gate": {
+   "collections": 12,
+   "learned_vs_best_static_work": 0.331,
+   "learned_vs_ms_work": 0.07,
+   "dead_retained_ratio": 5.9406,
+   "segment_edges_over_live_edges": 0.1014,
+   "passes": false
+  },
+  "simulated_seconds": 211.6,
+  "signatures": 83096,
+  "signatures_without_user_frame": 3944,
+  "top_sites": [
+   {
+    "site": "module1::ls_width+0x1b3",
+    "seen_at_first_collection": 5956171,
+    "survived_first": 538,
+    "died_later": 514,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module11::lex_span+0x431",
+    "seen_at_first_collection": 4382873,
+    "survived_first": 271579,
+    "died_later": 203512,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module3::ls_scan+0x541",
+    "seen_at_first_collection": 1289744,
+    "survived_first": 32,
+    "died_later": 27,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module1::ls_join+0x129",
+    "seen_at_first_collection": 1183134,
+    "survived_first": 37,
+    "died_later": 35,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module3::ls_token+0x90",
+    "seen_at_first_collection": 679920,
+    "survived_first": 495340,
+    "died_later": 375202,
+    "class": "dies-2"
+   },
+   {
+    "site": "module3::ls_index+0x2197",
+    "seen_at_first_collection": 668612,
+    "survived_first": 10,
+    "died_later": 10,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module3::ls_scan+0x5db0",
+    "seen_at_first_collection": 643136,
+    "survived_first": 21,
+    "died_later": 19,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module1::ls_join+0x49d",
+    "seen_at_first_collection": 598009,
+    "survived_first": 31,
+    "died_later": 29,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module3::ls_scan+0x66e1",
+    "seen_at_first_collection": 548696,
+    "survived_first": 20,
+    "died_later": 18,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module3::ls_scan+0x616",
+    "seen_at_first_collection": 542746,
+    "survived_first": 38,
+    "died_later": 37,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module2::ls_quote+0x57",
+    "seen_at_first_collection": 493558,
+    "survived_first": 9,
+    "died_later": 9,
+    "class": "ephemeral"
+   },
+   {
+    "site": "module3::ls_scan+0x3d23",
+    "seen_at_first_collection": 371218,
+    "survived_first": 6,
+    "died_later": 6,
+    "class": "ephemeral"
+   }
+  ],
+  "trace_policy": {}
+ }
+]

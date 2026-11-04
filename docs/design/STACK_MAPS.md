@@ -157,9 +157,12 @@ affect them at all (peak RSS is just the allocation extent):
 (`sieve` allocates only 1 MB of blocks because its one growing list buffer is
 the newest block and `rt_grow_in_place` extends it; nothing else allocates.)
 
-The compiler compiling itself is the largest real heap. `MAYC_GC_STATS` is not
-enough for it because a program that writes no output never reaches the runtime
-report, so a metered compiler copy was used (section 9). It registers **318
+The compiler compiling itself is the largest real heap. When this was
+measured, `MAYC_GC_STATS` was not enough for it because a program that wrote no
+output never reached the runtime report, so a metered compiler copy was used
+(section 9); the runtime now also reports at a normal exit, and the
+[GC workload suite](../../compiler/mayc/tests/gc_workloads/README.md) measures
+the self-compile directly. It registers **318
 global roots** and its seven sweeps report live 60, 70, 70, 81, 98, 165 and
 191 MiB (in sweep order) while the post-sweep `extent` reaches 338 MiB and the
 threshold 390 MiB. The true live set is not computable from outside, so no
