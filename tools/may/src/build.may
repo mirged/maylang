@@ -13,13 +13,13 @@ pub fun acquire(ws: workspace.Workspace) -> Int {
     if (descriptor < 0 or syscall(73, descriptor, 2) != 0) { fail("may: cannot lock workspace build"); }
     return descriptor;
 }
-fun module_visit(ws: workspace.Workspace, path: Str, seen: Any, result: List<Str>) -> Nil {
+fun module_visit(ws: workspace.Workspace, path: Str, seen: Map<Str, Bool>, result: List<Str>) -> Nil {
     if (has(seen, path)) { return; }
     if (not file_exists(path)) { fail("may: cannot resolve module: " + path); }
     seen[path] = true; push(result, path);
-    for module: Str in workspace.strings(imports.scan_imports(read_file(path)), "module paths") {
-        let name: Str = if (str(fs.extname(module)) == "") { module + ".may" } else { module };
-        mut resolved: Str = workspace.absolute(str(fs.dirname(path)), name);
+    for module: Str in imports.scan_imports(read_file(path)) {
+        let name: Str = if (fs.extname(module) == "") { module + ".may" } else { module };
+        mut resolved: Str = workspace.absolute(fs.dirname(path), name);
         if (not file_exists(resolved)) {
             for directory: Str in ws.module_paths {
                 let candidate: Str = workspace.absolute(directory, name);
@@ -32,8 +32,9 @@ fun module_visit(ws: workspace.Workspace, path: Str, seen: Any, result: List<Str
 }
 pub fun variables(ws: workspace.Workspace) -> List<Str> {
     let libraries: List<Str> = [];
-    for name: Str in sort(workspace.names(ws.built)) {
-        if ((ws.built[name] ?? ({})).kind == "native") { push(libraries, str((ws.built[name] ?? ({})).directory)); }
+    for name: Str in sort(keys(ws.built)) {
+        let built: workspace.Artifact = workspace.built_of(ws, name);
+        if (built.kind == "native") { push(libraries, built.directory); }
     }
     let previous: Str = env("LD_LIBRARY_PATH") ?? "";
     if (previous != "") { push(libraries, previous); }
@@ -42,21 +43,22 @@ pub fun variables(ws: workspace.Workspace) -> List<Str> {
 fun substitute(ws: workspace.Workspace, value: Str, output: Str) -> Str {
     mut result: Str = replace(replace(replace(value, "{root}", ws.root), "{stdlib}", ws.stdlib), "{out}", output);
     result = replace(result, "{profile}", ws.profile);
-    for name: Str in workspace.names(ws.built) { result = replace(result, "{target:" + name + "}", (ws.built[name] ?? ({})).directory); }
-    for name: Str in workspace.names(ws.config.dependencies) {
-        result = replace(result, "{dep:" + name + "}", workspace.absolute(ws.root, str(ws.config.dependencies[name].path)));
+    for name: Str in keys(ws.built) { result = replace(result, "{target:" + name + "}", workspace.built_of(ws, name).directory); }
+    for name: Str in keys(ws.config.dependencies) {
+        let dependency: workspace.Dependency = ws.config.dependencies[name] ?? workspace.Dependency("", "");
+        result = replace(result, "{dep:" + name + "}", workspace.absolute(ws.root, dependency.path));
     }
     return result;
 }
-fun input_files(ws: workspace.Workspace, spec: Any, entry: Str) -> List<Str> {
+fun input_files(ws: workspace.Workspace, spec: workspace.TargetSpec, entry: Str) -> List<Str> {
     let result: List<Str> = [ws.root + "/may.json"];
     if (entry != "") { module_visit(ws, entry, {}, result); }
-    for name: Str in workspace.strings(spec.inputs, "target inputs") {
+    for name: Str in spec.inputs {
         for path: Str in workspace.files(workspace.absolute(ws.root, substitute(ws, name, ""))) { push(result, path); }
     }
     if (entry != "") {
         push(result, ws.compiler);
-        let directory: Str = str(fs.dirname(ws.compiler));
+        let directory: Str = fs.dirname(ws.compiler);
         let binary: Str = directory + "/build/bin/mayc_new";
         if (file_exists(binary)) { push(result, binary); }
         for path: Str in [directory + "/native.may", ws.stdlib + "/prelude.may"] {
@@ -65,12 +67,13 @@ fun input_files(ws: workspace.Workspace, spec: Any, entry: Str) -> List<Str> {
         if (file_exists(directory + "/runtime")) {
             for path: Str in workspace.files(directory + "/runtime") { push(result, path); }
         }
-    } else { push(result, proc.executable(substitute(ws, str(spec.command[0]), ""))); }
+    } else { push(result, proc.executable(substitute(ws, spec.command[0], ""))); }
     return sort(result);
 }
 fun cache_valid(ws: workspace.Workspace, directory: Str, outputs: List<Str>, executable_output: Bool) -> Bool {
     if (not file_exists(directory + "/artifact.json")) { return false; }
     return may {
+        // artifact.json is JSON written by an earlier build; compare it field by field.
         let saved: Any = json_parse(read_file(directory + "/artifact.json"));
         let command: List<Str> = ["sha256sum", "--zero", "--"];
         for output: Str in outputs {
@@ -84,35 +87,40 @@ fun cache_valid(ws: workspace.Workspace, directory: Str, outputs: List<Str>, exe
         status == 0 and executable_ok and hashes == saved.hashes and json_stringify(saved.outputs) == json_stringify(outputs)
     } otherwise { false };
 }
+/// The current profile's compiler flags.
+fun profile_flags(ws: workspace.Workspace) -> List<Str> {
+    let none: List<Str> = [];
+    return (ws.config.profiles[ws.profile] ?? workspace.Profile(none)).flags;
+}
 mut STAGE_COUNTER: Int = 0;
-pub fun artifact(ws: workspace.Workspace, name: Str, spec: Any, entry: Str) -> Any {
+pub fun artifact(ws: workspace.Workspace, name: Str, spec: workspace.TargetSpec, entry: Str) -> workspace.Artifact {
     let inputs: List<Str> = input_files(ws, spec, entry);
-    let dependencies: Any = {};
-    for dependency: Str in workspace.strings(spec.depends, "target depends") { dependencies[dependency] = (ws.built[dependency] ?? ({})).key; }
+    let dependencies: Map<Str, Str> = {};
+    for dependency: Str in spec.depends { dependencies[dependency] = workspace.built_of(ws, dependency).key; }
     // Declared variables join the identity by value; unset (null) differs from empty.
-    let environment: Any = {};
-    for variable: Str in sort(workspace.strings(spec.env, "target env")) { environment[variable] = env(variable); }
+    let environment: Map<Str, Optional<Str>> = {};
+    for variable: Str in sort(spec.env) { environment[variable] = env(variable); }
     let salt: Str = json_stringify({"schema": 1, "target": spec, "entry": entry, "profile": ws.profile,
-        "flags": ws.config.profiles[ws.profile].flags, "dependencies": dependencies, "modules": ws.module_paths,
+        "flags": profile_flags(ws), "dependencies": dependencies, "modules": ws.module_paths,
         "environment": environment});
     let key: Str = workspace.digest(ws, inputs, salt);
     let directory: Str = ws.root + "/.may/store/" + key;
-    let outputs: List<Str> = if (entry != "") { [name] } else { workspace.strings(spec.outputs, "target outputs") };
+    let outputs: List<Str> = if (entry != "") { [name] } else { spec.outputs };
     if (cache_valid(ws, directory, outputs, entry != "")) {
         log("cached " + name + " (" + substring(key, 0, 12) + ")");
-        return {"directory": directory, "key": key, "outputs": outputs, "kind": spec.kind};
+        return workspace.Artifact(directory, key, outputs, spec.kind);
     }
     STAGE_COUNTER += 1;
     let stage: Str = ws.root + "/.may/tmp/build-" + str(syscall(39)) + "-" + str(STAGE_COUNTER);
     fs.mkdirs(stage); fs.mkdirs(ws.root + "/.may/store");
     let command: List<Str> = [];
     if (entry != "") {
-        push(command, ws.compiler); push(command, "--target"); push(command, str(spec.target));
-        push(command, "--runtime"); push(command, str(spec.runtime));
-        for flag: Str in workspace.strings(ws.config.profiles[ws.profile].flags, "profile flags") { push(command, flag); }
-        for flag: Str in workspace.strings(spec.flags, "target flags") { push(command, flag); }
+        push(command, ws.compiler); push(command, "--target"); push(command, spec.target);
+        push(command, "--runtime"); push(command, spec.runtime);
+        for flag: Str in profile_flags(ws) { push(command, flag); }
+        for flag: Str in spec.flags { push(command, flag); }
         push(command, entry); push(command, "-o"); push(command, stage + "/" + name);
-    } else { for argument: Str in workspace.strings(spec.command, "target command") { push(command, substitute(ws, argument, stage)); } }
+    } else { for argument: Str in spec.command { push(command, substitute(ws, argument, stage)); } }
     log("build " + name);
     let status: Int = proc.run(command, ws.root, variables(ws));
     if (status != 0) {
@@ -140,51 +148,52 @@ pub fun artifact(ws: workspace.Workspace, name: Str, spec: Any, entry: Str) -> A
         if (syscall(82, cstr(directory), cstr(directory + ".corrupt-" + str(syscall(39)))) != 0) { fail("may: cannot quarantine damaged cache artifact"); }
     }
     if (syscall(82, cstr(stage), cstr(directory)) != 0) { fail("may: cannot publish completed artifact"); }
-    return {"directory": directory, "key": key, "outputs": outputs, "kind": spec.kind};
+    return workspace.Artifact(directory, key, outputs, spec.kind);
 }
-pub fun target(ws: workspace.Workspace, name: Str) -> Any {
+pub fun target(ws: workspace.Workspace, name: Str) -> workspace.Artifact {
     if (not has(ws.config.targets, name)) { fail("may: unknown target: " + name); }
-    if (has(ws.built, name)) { return ws.built[name]; }
+    if (has(ws.built, name)) { return workspace.built_of(ws, name); }
     if (has(ws.visiting, name)) { fail("may: target cycle: " + join(ws.visiting + [name], " -> ")); }
     push(ws.visiting, name);
-    let spec: Any = ws.config.targets[name];
-    for dependency: Str in workspace.strings(spec.depends, "target depends") { target(ws, dependency); }
+    let spec: workspace.TargetSpec = workspace.spec_of(ws, name);
+    for dependency: Str in spec.depends { target(ws, dependency); }
     if (spec.kind == "test") { fail("may: use may test for test groups"); }
     if (spec.kind == "task") {
         let command: List<Str> = [];
-        for argument: Str in workspace.strings(spec.command, "target command") { push(command, substitute(ws, argument, ws.root)); }
+        for argument: Str in spec.command { push(command, substitute(ws, argument, ws.root)); }
         proc.require(command, ws.root, variables(ws));
-        ws.built[name] = {"directory": ws.root, "key": "task:" + name, "outputs": [], "kind": "task"};
+        let none: List<Str> = [];
+        ws.built[name] = workspace.Artifact(ws.root, "task:" + name, none, "task");
     } else {
-        let entry: Str = if (spec.kind == "app") { workspace.absolute(ws.root, str(spec.entry)) } else { "" };
+        let entry: Str = if (spec.kind == "app") { workspace.absolute(ws.root, spec.entry) } else { "" };
         ws.built[name] = artifact(ws, name, spec, entry);
     }
-    pop(ws.visiting); return ws.built[name];
+    pop(ws.visiting); return workspace.built_of(ws, name);
 }
 pub fun tests(ws: workspace.Workspace, name: Str) -> Int {
-    let spec: Any = ws.config.targets[name];
-    for dependency: Str in workspace.strings(spec.depends, "target depends") { target(ws, dependency); }
+    let spec: workspace.TargetSpec = workspace.spec_of(ws, name);
+    for dependency: Str in spec.depends { target(ws, dependency); }
     mut passed: Int = 0; mut failed: Int = 0;
-    for path: Str in workspace.files(workspace.absolute(ws.root, str(spec.root))) {
+    for path: Str in workspace.files(workspace.absolute(ws.root, spec.root)) {
         if (not ends_with(path, ".test.may")) { continue; }
-        let label: Str = replace(str(fs.basename(path)), ".may", "");
+        let label: Str = replace(fs.basename(path), ".may", "");
         let result: Bool = may {
-            let compiled: Any = artifact(ws, label, spec, path);
-            proc.run([str(compiled.directory) + "/" + label], ws.root, variables(ws)) == 0
+            let compiled: workspace.Artifact = artifact(ws, label, spec, path);
+            proc.run([compiled.directory + "/" + label], ws.root, variables(ws)) == 0
         } otherwise { log(str(err.message)); false };
-        if (result) { passed += 1; print("PASS", str(fs.basename(path))); }
-        else { failed += 1; print("FAIL", str(fs.basename(path))); }
+        if (result) { passed += 1; print("PASS", fs.basename(path)); }
+        else { failed += 1; print("FAIL", fs.basename(path)); }
     }
-    if (passed + failed == 0) { fail("may: no .test.may files in " + str(spec.root)); }
+    if (passed + failed == 0) { fail("may: no .test.may files in " + spec.root); }
     print("tests:", passed, "passed,", failed, "failed");
     return if (failed == 0) { 0 } else { 1 };
 }
 pub fun snapshot(ws: workspace.Workspace, selected: Str) -> Str {
     let collected: List<Str> = [];
-    for name: Str in workspace.names(ws.config.targets) {
-        let spec: Any = ws.config.targets[name];
+    for name: Str in keys(ws.config.targets) {
+        let spec: workspace.TargetSpec = workspace.spec_of(ws, name);
         if (spec.kind == "app" or spec.kind == "native") {
-            let entry: Str = if (spec.kind == "app") { workspace.absolute(ws.root, str(spec.entry)) } else { "" };
+            let entry: Str = if (spec.kind == "app") { workspace.absolute(ws.root, spec.entry) } else { "" };
             for path: Str in input_files(ws, spec, entry) { push(collected, path); }
         }
     }

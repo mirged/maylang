@@ -1,11 +1,42 @@
 import "../../shared/fs.may" as fs;
 import "process.may" as proc;
 
+/// One validated `may.json` target. Fields a target kind does not use are empty.
+pub struct TargetSpec {
+    kind: Str, entry: Str, root: Str, depends: List<Str>, inputs: List<Str>, outputs: List<Str>,
+    command: List<Str>, target: Str, runtime: Str, flags: List<Str>, env: List<Str>
+}
+/// A build profile: extra compiler flags.
+pub struct Profile { flags: List<Str> }
+/// A local dependency: its directory and the module directory inside it.
+pub struct Dependency { path: Str, modules: Str }
+/// The validated workspace configuration.
+pub struct Config {
+    name: Str, default: Str, targets: Map<Str, TargetSpec>, dependencies: Map<Str, Dependency>,
+    profiles: Map<Str, Profile>
+}
+/// A built target: where its outputs live, its cache key and what it produced.
+pub struct Artifact { directory: Str, key: Str, outputs: List<Str>, kind: Str }
+/// One `may.lock` entry; it serializes as `{"modules", "path", "sha256"}`.
+pub struct LockEntry { modules: Str, path: Str, sha256: Str }
 pub struct Workspace {
-    root: Str, config: Any, compiler: Str, stdlib: Str,
-    module_paths: List<Str>, built: Map<Str, Any>, visiting: List<Str>, profile: Str
+    root: Str, config: Config, compiler: Str, stdlib: Str,
+    module_paths: List<Str>, built: Map<Str, Artifact>, visiting: List<Str>, profile: Str
 }
 
+/// The target `name`, which validation guarantees exists.
+pub fun spec_of(ws: Workspace, name: Str) -> TargetSpec {
+    let none: List<Str> = [];
+    return ws.config.targets[name] ?? TargetSpec("", "", "", none, none, none, none, "", "", none, none);
+}
+/// The built artifact for `name`; callers check `has(ws.built, name)` first.
+pub fun built_of(ws: Workspace, name: Str) -> Artifact {
+    let none: List<Str> = [];
+    return ws.built[name] ?? Artifact("", "", none, "");
+}
+
+// may.json is JSON, so validation below works on dynamic values (`Any`) and
+// decodes them into the structs above.
 pub fun names(value: Any) -> List<Str> { return strings(keys(value), "object keys"); }
 pub fun absolute(root: Str, path: Str) -> Str {
     return str(fs.normpath(if (starts_with(path, "/")) { path } else { str(fs.join_path(root, path)) }));
@@ -38,7 +69,7 @@ fun fields(value: Any, allowed: List<Str>, label: Str) -> Nil {
     for name: Str in names(value) { if (not has(allowed, name)) { fail("may: unknown " + label + " field: " + name); } }
     return;
 }
-fun visit_target(config: Any, name: Str, seen: Any, stack: List<Str>) -> Nil {
+fun visit_target(config: Any, name: Str, seen: Map<Str, Bool>, stack: List<Str>) -> Nil {
     if (has(stack, name)) { fail("may: target cycle: " + join(stack + [name], " -> ")); }
     if (has(seen, name)) { return; }
     push(stack, name);
@@ -97,7 +128,7 @@ pub fun load() -> Workspace {
             if (not has(config.targets, dependency)) { fail("may: unknown target dependency: " + dependency); }
         }
     }
-    let validated: Any = {};
+    let validated: Map<Str, Bool> = {};
     for name: Str in names(config.targets) { visit_target(config, name, validated, []); }
     config.default = config.default ?? keys(config.targets)[0];
     if (type(config.default) != "Str" or not has(config.targets, config.default)) { fail("may: default must name a target"); }
@@ -113,7 +144,27 @@ pub fun load() -> Workspace {
     fs.use_compiler(compiler_path, root);
     let stdlib: Str = str(fs.stdlib_path());
     if (stdlib == "") { fail("may: cannot locate stdlib beside the selected compiler; set MAYLANG_STDLIB"); }
-    return Workspace(root, config, compiler_path, stdlib, [stdlib], {}, [], "dev");
+    let targets: Map<Str, TargetSpec> = {};
+    for name: Str in names(config.targets) {
+        let spec: Any = config.targets[name];
+        let none: List<Str> = [];
+        targets[name] = TargetSpec(str(spec.kind), str(spec.entry ?? ""), str(spec.root ?? ""), strings(spec.depends, "target depends"),
+            strings(spec.inputs, "target inputs"), strings(spec.outputs, "target outputs"),
+            if (spec.kind == "native" or spec.kind == "task") { strings(spec.command, "target command") } else { none },
+            str(spec.target), str(spec.runtime), strings(spec.flags, "target flags"), strings(spec.env, "target env"));
+    }
+    let profiles: Map<Str, Profile> = {};
+    for name: Str in names(config.profiles) { profiles[name] = Profile(strings(config.profiles[name].flags, "profile flags")); }
+    let dependencies: Map<Str, Dependency> = {};
+    for name: Str in names(config.dependencies) {
+        if (not valid_name(name)) { fail("may: invalid dependency name: " + name); }
+        let dependency: Any = config.dependencies[name];
+        fields(dependency, ["path", "modules"], "dependency " + name);
+        if (type(dependency.path) != "Str" or dependency.path == "") { fail("may: dependencies need explicit local paths: " + name); }
+        dependencies[name] = Dependency(str(dependency.path), str(dependency.modules ?? "."));
+    }
+    let typed: Config = Config(str(config.name), str(config.default), targets, dependencies, profiles);
+    return Workspace(root, typed, compiler_path, stdlib, [stdlib], {}, [], "dev");
 }
 fun scan_files(path: Str, depth: Int, output: List<Str>) -> Nil {
     if (depth > 32) { fail("may: directory nesting exceeds 32: " + path); }
@@ -152,15 +203,12 @@ pub fun digest(ws: Workspace, inputs: List<Str>, salt: Str) -> Str {
     syscall(87, cstr(temporary)); syscall(87, cstr(temporary + ".result"));
     return hash;
 }
-pub fun dependency_state(ws: Workspace) -> Any {
-    let result: Any = {}; ws.module_paths = [];
-    for name: Str in sort(names(ws.config.dependencies)) {
-        if (not valid_name(name)) { fail("may: invalid dependency name: " + name); }
-        let dependency: Any = ws.config.dependencies[name];
-        fields(dependency, ["path", "modules"], "dependency " + name);
-        if (type(dependency.path) != "Str" or dependency.path == "") { fail("may: dependencies need explicit local paths: " + name); }
-        let path: Str = absolute(ws.root, str(dependency.path));
-        let modules: Str = absolute(path, str(dependency.modules ?? "."));
+pub fun dependency_state(ws: Workspace) -> Map<Str, LockEntry> {
+    let result: Map<Str, LockEntry> = {}; ws.module_paths = [];
+    for name: Str in sort(keys(ws.config.dependencies)) {
+        let dependency: Dependency = ws.config.dependencies[name] ?? Dependency("", "");
+        let path: Str = absolute(ws.root, dependency.path);
+        let modules: Str = absolute(path, dependency.modules);
         if (not file_exists(modules)) { fail("may: dependency module directory missing: " + name); }
         DIGEST_COUNTER += 1; fs.mkdirs(ws.root + "/.may/tmp");
         let temporary: Str = ws.root + "/.may/tmp/dependency-" + str(syscall(39)) + "-" + str(DIGEST_COUNTER);
@@ -174,7 +222,7 @@ pub fun dependency_state(ws: Workspace) -> Any {
         if (proc.capture(["sha256sum", "--zero", "--", temporary], ws.root, [], temporary + ".result") != 0) { fail("may: cannot hash dependency identity"); }
         let hash: Str = substring(read_file(temporary + ".result"), 0, 64);
         syscall(87, cstr(temporary)); syscall(87, cstr(temporary + ".result"));
-        result[name] = {"path": str(fs.normpath(dependency.path)), "modules": str(fs.normpath(dependency.modules ?? ".")), "sha256": hash};
+        result[name] = LockEntry(fs.normpath(dependency.modules), fs.normpath(dependency.path), hash);
         push(ws.module_paths, modules);
     }
     push(ws.module_paths, ws.stdlib);
@@ -185,9 +233,10 @@ pub fun lock(ws: Workspace) -> Nil {
     print("locked", len(keys(ws.config.dependencies)), "local dependencies"); return;
 }
 pub fun verify_dependencies(ws: Workspace) -> Nil {
-    let actual: Any = dependency_state(ws);
+    let actual: Map<Str, LockEntry> = dependency_state(ws);
     if (len(keys(actual)) == 0) { return; }
     if (not file_exists(ws.root + "/may.lock")) { fail("may: missing may.lock; run may lock"); }
+    // may.lock is JSON; compare its serialized dependencies with the current state.
     let pinned: Any = json_parse(read_file(ws.root + "/may.lock"));
     if (pinned.schema != 1 or json_stringify(pinned.dependencies) != json_stringify(actual)) { fail("may: local dependencies changed; review them and run may lock"); }
     return;

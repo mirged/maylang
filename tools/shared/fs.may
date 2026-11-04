@@ -5,22 +5,22 @@
 // Consumers are listed in README.md; keep this file free of tool-specific
 // policy so that `may` and the installer can both depend on it.
 
-pub fun cwd() -> Any {
-    let buffer: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
+pub fun cwd() -> Str {
+    let buffer: Int = syscall(9, 0, 4096, 3, 34, -1, 0);
     if (buffer < 0) { fail("cannot allocate current-directory buffer"); }
-    let count: Any = syscall(79, buffer, 4096);
+    let count: Int = syscall(79, buffer, 4096);
     if (count <= 0) { syscall(11, buffer, 4096); fail("cannot read current directory"); }
-    mut result: Any = "";
-    mut i: Any = 0;
+    mut result: Str = "";
+    mut i: Int = 0;
     while (i < count - 1) {
-        let first: Any = load8(buffer + i); mut codepoint: Any = first; mut width: Any = 1;
+        let first: Int = load8(buffer + i); mut codepoint: Int = first; mut width: Int = 1;
         if (first >= 194 and first <= 223) { codepoint = first % 32; width = 2; }
         else if (first >= 224 and first <= 239) { codepoint = first % 16; width = 3; }
         else if (first >= 240 and first <= 244) { codepoint = first % 8; width = 4; }
         else if (first >= 128) { syscall(11, buffer, 4096); fail("current directory is not valid UTF-8"); }
         if (i + width > count - 1) { syscall(11, buffer, 4096); fail("truncated UTF-8 current directory"); }
-        for offset: Any in 1..width {
-            let byte: Any = load8(buffer + i + offset);
+        for offset: Int in 1..width {
+            let byte: Int = load8(buffer + i + offset);
             if (byte < 128 or byte > 191) { syscall(11, buffer, 4096); fail("invalid UTF-8 current directory"); }
             codepoint = codepoint * 64 + byte % 64;
         }
@@ -31,94 +31,94 @@ pub fun cwd() -> Any {
     }
     syscall(11, buffer, 4096); return result;
 }
-pub fun home() -> Any { return env("HOME") ?? "."; }
+pub fun home() -> Str { return env("HOME") ?? "."; }
 
-pub fun exists(path: Any) -> Any { return file_exists(path); }
+pub fun exists(path: Str) -> Bool { return file_exists(path); }
 
-pub fun read_or(path: Any, fallback: Any) -> Any {
+pub fun read_or(path: Str, fallback: Str) -> Str {
     return may { read_file(path) } otherwise { fallback };
 }
 
-pub fun write(path: Any, content: Any) -> Any {
+pub fun write(path: Str, content: Str) -> Nil {
     write_file(path, content);
-    return nil;
+    return;
 }
 
 /// Publish a complete file with a same-directory rename. Existing readers see
 /// either the old file or the completed replacement, never a truncated state.
-pub fun write_atomic(path: Any, content: Any) -> Any {
-    let temporary: Any = path + ".tmp." + str(syscall(39));
-    return may {
+pub fun write_atomic(path: Str, content: Str) -> Nil {
+    let temporary: Str = path + ".tmp." + str(syscall(39));
+    may {
         write_file(temporary, content);
         if (syscall(82, cstr(temporary), cstr(path)) != 0) { fail("cannot replace file: " + path); }
-        nil
     } otherwise {
         syscall(87, cstr(temporary));
         fail("cannot publish complete file: " + path);
-    };
+    }
+    return;
 }
 
-pub fun is_abs(p: Any) -> Any { return starts_with(p, "/"); }
+pub fun is_abs(p: Str) -> Bool { return starts_with(p, "/"); }
 
 /// Directory entries of `path` (empty when it is not a readable directory).
-pub fun list(path: Any) -> Any {
+pub fun list(path: Str) -> List<Str> {
     return may { read_dir(path) } otherwise { [] };
 }
 
 /// `mkdir -p`: create `path` and any missing parents.
-pub fun mkdirs(path: Any) -> Any {
-    let p: Any = normpath(path);
-    if (p == "." || p == "/" || exists(p)) { return nil; }
+pub fun mkdirs(path: Str) -> Nil {
+    let p: Str = normpath(path);
+    if (p == "." || p == "/" || exists(p)) { return; }
     mkdirs(dirname(p));
-    may { mkdir(p) } otherwise { nil };
-    return nil;
+    may { mkdir(p); } otherwise { nil; }
+    return;
 }
 
-pub fun join_path(a: Any, b: Any) -> Any {
+pub fun join_path(a: Str, b: Str) -> Str {
     if (len(a) == 0) { return b; }
     if (len(b) == 0) { return a; }
     if (ends_with(a, "/")) { return a + b; }
     return a + "/" + b;
 }
 
-fun substr(s: Any, a: Any, b: Any) -> Any { return substring(s, a, b - a); }
+fun substr(s: Str, a: Int, b: Int) -> Str { return substring(s, a, b - a); }
 
-fun last_char(s: Any, ch: Any) -> Any {
-    mut r: Any = -1;
-    mut i: Any = 0;
-    for c: Any in chars(s) {
+fun last_char(s: Str, ch: Str) -> Int {
+    mut r: Int = -1;
+    mut i: Int = 0;
+    for c: Str in chars(s) {
         if (c == ch) { r = i; }
         i = i + 1;
     }
     return r;
 }
 
-pub fun dirname(p: Any) -> Any {
-    let i: Any = last_char(p, "/");
+pub fun dirname(p: Str) -> Str {
+    let i: Int = last_char(p, "/");
     if (i < 0) { return "."; }
     if (i == 0) { return "/"; }
     return substr(p, 0, i);
 }
 
-pub fun basename(p: Any) -> Any {
-    let i: Any = last_char(p, "/");
+pub fun basename(p: Str) -> Str {
+    let i: Int = last_char(p, "/");
     if (i < 0) { return p; }
     return substr(p, i + 1, len(p));
 }
 
-pub fun extname(p: Any) -> Any {
-    let b: Any = basename(p);
-    let i: Any = last_char(b, ".");
+pub fun extname(p: Str) -> Str {
+    let b: Str = basename(p);
+    let i: Int = last_char(b, ".");
     if (i <= 0) { return ""; }
     return substr(b, i + 1, len(b));
 }
 
 /// Collapse `.`, `..` and repeated slashes without touching the filesystem.
-pub fun normpath(p: Any) -> Any {
-    let abs: Any = is_abs(p);
-    let parts: Any = split(p, "/");
-    mut out: Any = [];
-    for part: Any in parts {
+pub fun normpath(p: Str) -> Str {
+    let abs: Bool = is_abs(p);
+    let parts: List<Str> = split(p, "/");
+    mut out: List<Str> = [];
+    for part: Str in parts {
         if (part == "" || part == ".") { continue; }
         if (part == "..") {
             if (len(out) > 0 && out[len(out) - 1] != "..") {
@@ -130,7 +130,7 @@ pub fun normpath(p: Any) -> Any {
             push(out, part);
         }
     }
-    let j: Any = join(out, "/");
+    let j: Str = join(out, "/");
     if (abs) { return "/" + j; }
     if (j == "") { return "."; }
     return j;
@@ -139,19 +139,19 @@ pub fun normpath(p: Any) -> Any {
 /// Directories searched for `import`ed modules, mirroring the compiler:
 /// `$MAYLANG_STDLIB` (colon-separated), project stdlib, then directories
 /// beside and above the selected compiler.
-mut SELECTED_COMPILER: Any = "";
-mut SELECTED_ROOT: Any = "";
-pub fun use_compiler(path: Any, root: Any) -> Any { SELECTED_COMPILER = path; SELECTED_ROOT = root; return nil; }
+mut SELECTED_COMPILER: Str = "";
+mut SELECTED_ROOT: Str = "";
+pub fun use_compiler(path: Str, root: Str) -> Nil { SELECTED_COMPILER = path; SELECTED_ROOT = root; return; }
 
-pub fun stdlib_dirs() -> Any {
-    let root: Any = if (SELECTED_ROOT != "") { SELECTED_ROOT } else { cwd() };
-    let dirs: Any = [];
-    for directory: Any in split(env("MAYLANG_STDLIB") ?? "", ":") {
+pub fun stdlib_dirs() -> List<Str> {
+    let root: Str = if (SELECTED_ROOT != "") { SELECTED_ROOT } else { cwd() };
+    let dirs: List<Str> = [];
+    for directory: Str in split(env("MAYLANG_STDLIB") ?? "", ":") {
         if (directory != "") { push(dirs, normpath(if (is_abs(directory)) { directory } else { join_path(root, directory) })); }
     }
     push(dirs, join_path(root, "stdlib"));
-    let executable: Any = if (SELECTED_COMPILER != "") { SELECTED_COMPILER } else { args()[0] ?? "" };
-    mut directory: Any = dirname(if (is_abs(executable)) { executable } else { join_path(cwd(), executable) });
+    let executable: Str = if (SELECTED_COMPILER != "") { SELECTED_COMPILER } else { args()[0] ?? "" };
+    mut directory: Str = dirname(if (is_abs(executable)) { executable } else { join_path(cwd(), executable) });
     while (directory != "" and directory != "/") {
         push(dirs, join_path(directory, "stdlib")); directory = dirname(directory);
     }
@@ -160,8 +160,8 @@ pub fun stdlib_dirs() -> Any {
 
 /// The first stdlib directory that actually contains `prelude.may`, or "". An
 /// empty result means the compiler's own default search should be left alone.
-pub fun stdlib_path() -> Any {
-    for d: Any in stdlib_dirs() {
+pub fun stdlib_path() -> Str {
+    for d: Str in stdlib_dirs() {
         if (file_exists(join_path(d, "prelude.may"))) { return d; }
     }
     return "";

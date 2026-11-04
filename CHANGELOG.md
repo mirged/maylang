@@ -50,6 +50,14 @@
   instead of listing them as `nil`, and starfall starts a fresh flight from a
   truncated save file instead of failing with a type fault. `unique` is typed
   as returning its list element type.
+- `may` and the shared tool modules use concrete types: `may.json` is
+  validated as JSON as before, then decoded into `TargetSpec`, `Profile`,
+  `Dependency` and `Config` structs, and builds return `Artifact`s. Because a
+  target's cache identity includes its serialized spec, existing `.may/`
+  caches rebuild once. `tools/shared/imports.may` keeps only the import
+  scanner `may` uses; its graph traversal and brace checker were dead code
+  after the `maypkg` removal. An empty `[]` or `{}` now joins with a typed
+  collection (`xs ?? []`).
 - Hexadecimal `0xff`, octal `0o755` and binary `0b1010` integer literals, and
   `_` digit separators in every numeric literal (`1_000_000`, `0xffff_ffff`,
   `6.022_140e2_3`). Prefixes are lowercase; each `_` must sit between two

@@ -96,11 +96,13 @@ pub fun capture(argv: List<Str>, directory: Str, variables: List<Str>, output: S
     let child: Int = launch(argv, directory, variables, fd);
     syscall(3, fd); return wait(child);
 }
-pub fun observe(pid: Int) -> Any {
+/// Whether a child is still running, and its exit status once it is not.
+pub struct ProcessState { running: Bool, exit: Int }
+pub fun observe(pid: Int) -> ProcessState {
     let buffer: Ptr = ptr(syscall(9, 0, 4096, 3, 34, -1, 0));
     let waited: Int = syscall(61, pid, buffer, 1, 0);
     let status: Int = load32(buffer); syscall(11, buffer, 4096);
-    return {"running": waited == 0, "exit": if (status % 128 != 0) { 128 + status % 128 } else { status / 256 % 256 }};
+    return ProcessState(waited == 0, if (status % 128 != 0) { 128 + status % 128 } else { status / 256 % 256 });
 }
 /// Milliseconds a stopped process group has to exit after SIGTERM before SIGKILL.
 pub let STOP_GRACE_MS: Int = 2000;

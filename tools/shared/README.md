@@ -8,7 +8,7 @@ repository; change them together with every consumer listed here.
 | --- | --- | --- |
 | `format.may` | Formatter core | `mayfmt/main.may`, `may/main.may`, `maylsp/src/features.may` |
 | `fs.may` | Path math, `mkdirs`, directory listing, atomic writes, stdlib search path | `may/main.may`, `may/src/{build,process,workspace}.may`, `../dist/installer.may` |
-| `imports.may` | Comment/string-aware import scanner, resolution and graph traversal | `may/src/build.may` |
+| `imports.may` | Comment/string-aware scanner for a module's import paths | `may/src/build.may` |
 
 Tools must not import another tool's `src/` directory; move reusable code here
 instead. `scripts/check_repository.py` (run by `make check`) rejects imports of
