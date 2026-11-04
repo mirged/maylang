@@ -21,6 +21,7 @@ PASS = {
     'unresolved_variable_is_never': ('fun empty<T>() -> List<T> { let out: List<T> = []; return out; } let xs: List<Int> = empty(); let ys: List<Str> = empty(); push(xs, 1); print(xs, ys);', '[1] []\n'),
     'unique_keeps_element_type': ('let xs: List<Str> = unique(["b", "a", "b"]); print(sort(xs));', '["a", "b"]\n'),
     'empty_collections_join': ('fun f(ok: Bool) -> List<Str> { return may { if (ok) { ["a"] } else { fail("x") } } otherwise { [] }; } let m: Map<Str, List<Int>> = {}; let xs: List<Int> = m["k"] ?? []; print(f(true), f(false), xs);', '["a"] [] []\n'),
+    'optional_narrowing': ('struct P { line: Int } fun find(ok: Bool) -> Optional<P> { if (ok) { return P(3); } return nil; } fun guard(o: Optional<P>) -> Int { if (o == nil) { return -1; } return o.line; } fun total(xs: List<Optional<P>>) -> Int { mut t: Int = 0; for x: Optional<P> in xs { if (x == nil) { continue; } t += x.line; } return t; } let d: Optional<P> = find(true); let e: Optional<P> = find(false); if (d != nil) { print(d.line); } if (e == nil) { print(0); } else { print(e.line); } print(d != nil and d.line == 3, e == nil or e.line > 0, guard(d), guard(e), total([d, e, d]));', '3\n0\ntrue true 3 -1 6\n'),
     'reverse_string_is_str': ('let s: Str = reverse("abc"); print(s + "!", reverse([1, 2]));', 'cba! [2, 1]\n'),
     'ccall6_returns_int': ('fun unused() -> Int { return __ccall6(0, 0, 0, 0, 0, 0, 0); } print(1);', '1\n'),
     'inferred_handler_builtin': ('fun test_may() {\nlet result = may {\nlet bad = 10 / 0\nbad\n} otherwise {\nprint("Caught an error: ${err}");\n}\nprint(result)\nreturn nil;\n}\ntest_may()', 'Caught an error: division by zero\n0\n'),
@@ -138,6 +139,10 @@ FAIL = {
     'never_element_rejects_push': ('fun empty<T>() -> List<T> { let out: List<T> = []; return out; } let xs = empty(); push(xs, 1);', 'expected Never, found Int'),
     'unique_rejects_wrong_element': ('let xs: List<Int> = unique(["a"]);', 'expected List<Int>, found List<Str>'),
     'nonempty_lists_do_not_join': ('let ok: Bool = true; let xs: List<Int> = if (ok) { [1] } else { ["a"] };', 'expected List<Int>'),
+    'narrowing_needs_a_check': ('struct P { line: Int } fun find(ok: Bool) -> Optional<P> { if (ok) { return P(3); } return nil; } let n: Optional<P> = find(true); print(n.line);', 'unknown field `line` on Optional<P>'),
+    'narrowing_ends_with_branch': ('struct P { line: Int } fun find(ok: Bool) -> Optional<P> { if (ok) { return P(3); } return nil; } let n: Optional<P> = find(true); if (n != nil) { print(1); } print(n.line);', 'unknown field `line` on Optional<P>'),
+    'narrowing_not_through_or': ('struct P { line: Int } fun find(ok: Bool) -> Optional<P> { if (ok) { return P(3); } return nil; } let n: Optional<P> = find(true); if (n != nil or true) { print(n.line); }', 'unknown field `line` on Optional<P>'),
+    'narrowing_skips_assigned': ('struct P { line: Int } fun find(ok: Bool) -> Optional<P> { if (ok) { return P(3); } return nil; } fun f(o: Optional<P>) -> Int { if (o != nil) { o = nil; } if (o != nil) { return o.line; } return 0; }', 'unknown field `line` on Optional<P>'),
     'reverse_string_not_list': ('let xs: List<Str> = reverse("abc");', 'expected List<Str>, found Str'),
     'bitnot_rejects_float': ('let f: Float = 1.5;\nprint(~f);', 'expected an integer, found Float'),
 }

@@ -83,7 +83,11 @@ fun parser_recover(start: Any) -> Any {
     return 0;
 }
 
+// Every plain or compound assignment node, so strict typing can tell which
+// names a module never reassigns (see st_narrowable).
+mut PARSED_ASSIGNMENTS: Any = [];
 fun parse_program(ctx: Any) -> Any {
+    PARSED_ASSIGNMENTS = [];
     POS = 0;
     TYPE_GT_PENDING = 0;
     DECLARATIONS = [];
@@ -804,6 +808,7 @@ fun parse_statement(ctx: Any) -> Any {
             s.name = np;
             s.length = nl;
             s.value = e;
+            push(PARSED_ASSIGNMENTS, s);
             return s;
         }
     }

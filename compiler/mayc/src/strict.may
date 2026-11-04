@@ -604,10 +604,83 @@ fun st_record_slot(typename: Any, member: Any) -> Any {
     }
     return 0 - 1;
 }
+// ---- Optional narrowing ------------------------------------------------
+// `if (x != nil)` narrows x from Optional<T> to T in the then-branch (and
+// `x == nil` in the else-branch); `x != nil and ...` narrows the right side.
+// A guard `if (x == nil) { return/fail/break/continue }` narrows the rest of
+// the block. Only names their module never assigns are narrowed, so the value
+// cannot change inside the narrowed region (closures included). Optional is
+// the value or nil at run time, so narrowing changes checking, not code.
+mut ST_ASSIGNED: Any = {};
+fun st_assigned_names() -> Any {
+    ST_ASSIGNED = {};
+    for node: Any in PARSED_ASSIGNMENTS { ST_ASSIGNED[source_module(node.span) + ":" + symbol_name(node.name, node.length)] = true; }
+    return 0;
+}
+fun st_nil_literal(node: Any) -> Any {
+    return node != 0 and node.kind == E_VAR and node.moduleObject == nil and symbol_name(node.name, node.length) == "nil";
+}
+// The narrowings that hold when `condition` evaluates to `truth`: a list of
+// [name, type] pairs.
+fun st_narrowings(ctx: Any, condition: Any, truth: Any) -> Any {
+    let out: Any = [];
+    if (condition == 0) { return out; }
+    let k: Any = condition.kind;
+    if (k == E_BIN and (condition.op == TK_NE or condition.op == TK_EQ)) {
+        let subject: Any = if (st_nil_literal(condition.right)) { condition.left } else if (st_nil_literal(condition.left)) { condition.right } else { 0 };
+        if (subject == 0 or subject.kind != E_VAR or subject.moduleObject != nil) { return out; }
+        // `x != nil` is true exactly when x is present; `x == nil` when false.
+        if ((condition.op == TK_NE) != truth) { return out; }
+        let name: Any = symbol_name(subject.name, subject.length);
+        let local: Any = st_local(ctx, name);
+        // A plain assignment only targets its own module's bindings, so a
+        // local or module global narrows when its module never assigns the name.
+        let current: Any = local ?? (may { st_resolve(ctx, name, subject.span) } otherwise { nil });
+        if (current == nil or current.name != "Optional" or has(ST_ASSIGNED, source_module(subject.span) + ":" + name)) { return out; }
+        push(out, [name, current.arguments[0]]);
+        return out;
+    }
+    if ((k == E_AND and truth) or (k == E_OR and not truth)) {
+        for item: Any in st_narrowings(ctx, condition.left, truth) { push(out, item); }
+        for item: Any in st_narrowings(ctx, condition.right, truth) { push(out, item); }
+        return out;
+    }
+    if (k == E_UN and condition.op == TK_NOT) { return st_narrowings(ctx, condition.operand, not truth); }
+    return out;
+}
+// Open a scope binding each narrowed name to its present type.
+fun st_narrow(narrowings: Any, span: Any) -> Any {
+    st_scope();
+    for item: Any in narrowings { let scope: Any = ST_SCOPES[len(ST_SCOPES) - 1]; scope[item[0]] = item[1]; }
+    return 0;
+}
+// Whether control never continues past `node`: return, break, continue,
+// fail or exit, or a block or both branches of an if that always do.
+fun st_exits(node: Any) -> Any {
+    if (node == 0) { return false; }
+    let k: Any = node.kind;
+    if (k == S_RETURN or k == S_BREAK or k == S_CONT) { return true; }
+    if (k == S_EXPR and node.expression.kind == E_CALL and node.expression.moduleObject == nil) {
+        let name: Any = symbol_name(node.expression.name, node.expression.length);
+        return (name == "fail" or name == "exit") and st_local(0, name) == nil;
+    }
+    if (k == S_BLOCK) { mut statement: Any = node.statements; while (statement != 0) { if (st_exits(statement)) { return true; } statement = statement.next; } return false; }
+    if (k == S_IF) { return node.elseBranch != 0 and st_exits(node.thenBranch) and st_exits(node.elseBranch); }
+    return false;
+}
 fun st_block(ctx: Any, node: Any) -> Any {
-    st_scope(); mut statement: Any = node.statements; mut last: Any = 0;
-    while (statement != 0) { st_statement(ctx, statement); last = statement; statement = statement.next; }
+    st_scope(); mut statement: Any = node.statements; mut last: Any = 0; mut guards: Any = 0;
+    while (statement != 0) {
+        st_statement(ctx, statement); last = statement;
+        // After `if (x == nil) { return ...; }`, x is present for the rest of the block.
+        if (statement.kind == S_IF and statement.elseBranch == 0 and st_exits(statement.thenBranch)) {
+            let narrowings: Any = st_narrowings(ctx, statement.condition, false);
+            if (len(narrowings) > 0) { st_narrow(narrowings, statement.span); guards += 1; }
+        }
+        statement = statement.next;
+    }
     let result: Any = if (node.tail != 0) { st_expr(ctx, node.tail) } else if (st_returns(node)) { st_type("Never", []) } else if (last != 0 and last.kind == S_IF) { st_expr(ctx, last) } else if (last != 0 and last.kind == S_EXPR) { st_expr(ctx, last.expression) } else { st_type("Nil", []) };
+    while (guards > 0) { pop(ST_SCOPES); guards -= 1; }
     pop(ST_SCOPES); return result;
 }
 fun st_variant_pattern(ctx: Any, arm: Any, subject: Any) -> Any {
@@ -669,7 +742,11 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
         st_function(ctx, rec, signature); return signature;
     }
     if (k == E_BIN or k == E_POW or k == E_AND or k == E_OR or k == E_COALESCE) {
-        let left: Any = st_expr(ctx, node.left); let right: Any = st_expr(ctx, node.right);
+        let left: Any = st_expr(ctx, node.left);
+        // `x != nil and x.field`: the right side runs only when the left holds.
+        if (k == E_AND or k == E_OR) { st_narrow(st_narrowings(ctx, node.left, k == E_AND), node.span); }
+        let right: Any = st_expr(ctx, node.right);
+        if (k == E_AND or k == E_OR) { pop(ST_SCOPES); }
         if (k == E_COALESCE) { return st_join(if (left.name == "Optional") { left.arguments[0] } else if (left.name == "Nil") { st_type("Never", []) } else { left }, right, node.span); }
         if (k == E_AND or k == E_OR) { st_dynamic_require(st_type("Bool", []), left, node.span); st_dynamic_require(st_type("Bool", []), right, node.span); return if (left.name == "Any" or right.name == "Any") { st_any() } else { st_type("Bool", []) }; }
         if (k == E_BIN and has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], node.op)) {
@@ -751,7 +828,9 @@ fun st_expr_type(ctx: Any, node: Any) -> Any {
     if (k == S_BLOCK) { return st_block(ctx, node); }
     if (k == S_IF) {
         st_dynamic_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span);
-        return st_join(st_expr(ctx, node.thenBranch), st_expr(ctx, node.elseBranch), node.span);
+        st_narrow(st_narrowings(ctx, node.condition, true), node.span); let present: Any = st_expr(ctx, node.thenBranch); pop(ST_SCOPES);
+        st_narrow(st_narrowings(ctx, node.condition, false), node.span); let absent: Any = st_expr(ctx, node.elseBranch); pop(ST_SCOPES);
+        return st_join(present, absent, node.span);
     }
     if (k == E_MAY) { return st_join(st_expr(ctx, node.body), st_expr(ctx, node.fallback), node.span); }
     if (k == E_COMP) {
@@ -828,8 +907,8 @@ fun st_statement(ctx: Any, node: Any) -> Any {
     else if (k == S_BLOCK) { st_block(ctx, node); }
     else if (k == S_IF) {
         st_dynamic_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span);
-        st_scope(); st_statement(ctx, node.thenBranch); pop(ST_SCOPES);
-        if (node.elseBranch != 0) { st_scope(); st_statement(ctx, node.elseBranch); pop(ST_SCOPES); }
+        st_narrow(st_narrowings(ctx, node.condition, true), node.span); st_statement(ctx, node.thenBranch); pop(ST_SCOPES);
+        if (node.elseBranch != 0) { st_narrow(st_narrowings(ctx, node.condition, false), node.span); st_statement(ctx, node.elseBranch); pop(ST_SCOPES); }
     } else if (k == S_WHILE) { st_dynamic_require(st_type("Bool", []), st_expr(ctx, node.condition), node.span); st_scope(); st_statement(ctx, node.body); pop(ST_SCOPES); }
     else if (k == S_FOR) {
         let iterable: Any = st_expr(ctx, node.iterable);
@@ -920,6 +999,7 @@ fun strict_program(ctx: Any) -> Any {
     behavior_program();
     if (not STRICT_TYPES) { return 0; }
     ST_GLOBALS = {}; ST_RECORDS = {}; ST_SCOPES = []; ST_FUNCTIONS = {}; ST_RESULT = 0; ST_VARS = [];
+    st_assigned_names();
     for record: Any in STRUCT_DECLS { let module: Any = source_module(record.span); let key: Any = if (module == "") { record.name } else { module + "::" + record.name }; ST_RECORDS[key] = {"fields": {}}; record.strictName = key; }
     for enumeration: Any in ENUM_DECLS { let module: Any = source_module(enumeration.span); let key: Any = if (module == "") { enumeration.name } else { module + "::" + enumeration.name }; ST_RECORDS[key] = {"fields": {"tag": st_type("Str", [])}, "variants": []}; enumeration.strictName = key; }
     for record: Any in STRUCT_DECLS {

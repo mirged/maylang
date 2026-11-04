@@ -71,6 +71,13 @@ element of an empty `[]`, so `let xs: List<Int> = stack();` is accepted. There
 is no arithmetic on type parameters, no numeric type bound, and no generic
 structs or tuple values yet.
 
+A check against `nil` narrows an `Optional<T>` to `T`: inside
+`if (x != nil) { ... }`, in the else-branch of `if (x == nil)`, on the right of
+`x != nil and ...` or `x == nil or ...`, and for the rest of a block after
+`if (x == nil) { return ...; }` (or `fail`, `break`, `continue`). Narrowing
+applies to locals, parameters and module globals that their module never
+assigns, so the value cannot change inside the narrowed code.
+
 `Any` supports heterogeneous JSON, runtime maps, AST nodes, raw APIs and legacy
 operator dispatch. Concrete values can widen to `Any`. Strict mode rejects
 implicit narrowing from `Any` to a concrete type at bindings, assignments,

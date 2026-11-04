@@ -24,6 +24,11 @@
 
 ## Language
 
+- Strict typing narrows `Optional<T>` to `T` after a `nil` check: inside
+  `if (x != nil)`, in the else-branch of `if (x == nil)`, on the right of
+  `x != nil and ...`, and for the rest of a block after an
+  `if (x == nil) { return ...; }` guard. Only names their module never
+  assigns narrow ([strict guide](docs/guide/STRICT.md)).
 - Strict typing for generics: a closure inside a generic function can name
   the enclosing function's type parameters (`compose<A, B, C>` can return
   `fun(x: A) -> C`), and a type parameter no argument determines becomes
