@@ -5,17 +5,22 @@
 - Visibility: all top-level declarations are exported because this module has no `pub` declarations.
 - Source: [implementation](../../../stdlib/stats.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
-- **stats_mean** — `fun stats_mean(xs: Any) -> Any` — Return the floating arithmetic mean, or `nil` for empty input.
-- **stats_sum_squares** — `fun stats_sum_squares(xs: Any) -> Any` — Return the sum of squared values, starting at `0.0`.
-- **stats_variance** — `fun stats_variance(xs: Any) -> Any` — Return population variance (divide by `n`), or `nil` when empty.
-- **stats_sample_variance** — `fun stats_sample_variance(xs: Any) -> Any` — Return sample variance (divide by `n - 1`), or `nil` for fewer than two inputs.
-- **stats_stddev** — `fun stats_stddev(xs: Any) -> Any` — Return the square root of population variance, or `nil` when empty.
-- **stats_zscores** — `fun stats_zscores(xs: Any) -> Any` — Return standardized values using population deviation; empty/constant inputs produce zeros.
-- **stats_quantile** — `fun stats_quantile(xs: Any, q: Any) -> Any` — Sort and linearly interpolate at `q * (n - 1)`; empty input returns `nil`; nonempty input requires `q` in `[0, 1]`.
+- **Regression** — `struct Regression { slope: Float, intercept: Float, r: Optional<Float> }` — A least-squares line `y = slope * x + intercept`, with the correlation `r`, or nil when the y values are constant.
+- **stats_floats** — `fun stats_floats<T>(xs: List<T>) -> List<Float>` — Convert each Int or Float input to Float; internal stats helper.
+- **stats_float_mean** — `fun stats_float_mean(xs: List<Float>) -> Float` — Return the mean of nonempty Floats; internal stats helper.
+- **stats_float_sum_squares** — `fun stats_float_sum_squares(xs: List<Float>) -> Float` — Return the sum of squared Floats; internal stats helper.
+- **stats_float_sample_variance** — `fun stats_float_sample_variance(xs: List<Float>) -> Float` — Return the sample variance of two or more Floats; internal stats helper.
+- **stats_mean** — `fun stats_mean<T>(xs: List<T>) -> Optional<Float>` — Return the floating arithmetic mean, or `nil` for empty input.
+- **stats_sum_squares** — `fun stats_sum_squares<T>(xs: List<T>) -> Float` — Return the sum of squared values, starting at `0.0`.
+- **stats_variance** — `fun stats_variance<T>(xs: List<T>) -> Optional<Float>` — Return population variance (divide by `n`), or `nil` when empty.
+- **stats_sample_variance** — `fun stats_sample_variance<T>(xs: List<T>) -> Optional<Float>` — Return sample variance (divide by `n - 1`), or `nil` for fewer than two inputs.
+- **stats_stddev** — `fun stats_stddev<T>(xs: List<T>) -> Optional<Float>` — Return the square root of population variance, or `nil` when empty.
+- **stats_zscores** — `fun stats_zscores<T>(xs: List<T>) -> List<Float>` — Return standardized values using population deviation; empty/constant inputs produce zeros.
+- **stats_quantile** — `fun stats_quantile<T>(xs: List<T>, q: Float) -> Optional<Float>` — Sort and linearly interpolate at `q * (n - 1)`; empty input returns `nil`; nonempty input requires `q` in `[0, 1]`.
 - `stats_quantile` explicit fault strings: `"quantile must be in [0, 1]"`; runtime/callback faults can also propagate.
-- **stats_median** — `fun stats_median(xs: Any) -> Any` — Return `stats_quantile(xs, 0.5)`.
-- **stats_mode** — `fun stats_mode(xs: Any) -> Any` — Return a most frequent original value, or `nil`; counts use stringified keys.
-- **stats_covariance** — `fun stats_covariance(xs: Any, ys: Any) -> Any` — Return sample covariance of the common prefix, or `nil` for fewer than two pairs.
-- **stats_correlation** — `fun stats_correlation(xs: Any, ys: Any) -> Any` — Return covariance divided by the two sample deviations; return `nil` for insufficient/constant data. Use equal input lengths for consistent normalization.
-- **stats_linear_regression** — `fun stats_linear_regression(xs: Any, ys: Any) -> Any` — Return `{slope, intercept, r}` using the common prefix; require at least two points and varying x values.
+- **stats_median** — `fun stats_median<T>(xs: List<T>) -> Optional<Float>` — Return `stats_quantile(xs, 0.5)`.
+- **stats_mode** — `fun stats_mode<T>(xs: List<T>) -> Optional<T>` — Return a most frequent original value, or `nil`; counts use stringified keys.
+- **stats_covariance** — `fun stats_covariance<T, U>(xs: List<T>, ys: List<U>) -> Optional<Float>` — Return sample covariance of the common prefix, or `nil` for fewer than two pairs.
+- **stats_correlation** — `fun stats_correlation<T, U>(xs: List<T>, ys: List<U>) -> Optional<Float>` — Return covariance divided by the two sample deviations; return `nil` for insufficient/constant data. Use equal input lengths for consistent normalization.
+- **stats_linear_regression** — `fun stats_linear_regression<T, U>(xs: List<T>, ys: List<U>) -> Regression` — Return the least-squares line through the common prefix; require at least two points and varying x values.
 - `stats_linear_regression` explicit fault strings: `"linear regression needs at least two points"`, `"linear regression x values must vary"`; runtime/callback faults can also propagate.

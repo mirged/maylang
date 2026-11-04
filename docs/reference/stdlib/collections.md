@@ -9,23 +9,23 @@
 - Queue pop advances a head index; consumed elements are retained in the backing list.
 - stack_peek on an empty stack uses out-of-range indexing and can fault; guard with stack_empty.
 - Sets use map keys and true values; set_remove returns a new map rather than mutating the original.
-- **stack** — `fun stack() -> Any` — Create an empty stack.
-- **stack_push** — `fun stack_push(st: Any, value: Any) -> Any` — Push `value` onto `st` and return it.
-- **stack_pop** — `fun stack_pop(st: Any) -> Any` — Pop the top of `st`, or `nil` when empty.
-- **stack_peek** — `fun stack_peek(st: Any) -> Any` — Return the top of `st` without removing it.
-- **stack_size** — `fun stack_size(st: Any) -> Any` — Count the items on `st`.
-- **stack_empty** — `fun stack_empty(st: Any) -> Any` — Report whether `st` is empty.
-- **queue** — `fun queue() -> Any` — Create an empty queue.
-- **queue_push** — `fun queue_push(q: Any, value: Any) -> Any` — Enqueue `value`.
-- **queue_pop** — `fun queue_pop(q: Any) -> Any` — Dequeue the oldest value, or `nil` when empty.
-- **queue_size** — `fun queue_size(q: Any) -> Any` — Count the queued items.
-- **queue_empty** — `fun queue_empty(q: Any) -> Any` — Report whether `q` is empty.
-- **set_new** — `fun set_new() -> Any` — Create an empty set.
-- **set_add** — `fun set_add(s: Any, value: Any) -> Any` — Add `value` to `s` and return it.
-- **set_has** — `fun set_has(s: Any, value: Any) -> Any` — Report whether `value` is in `s`.
-- **set_remove** — `fun set_remove(s: Any, value: Any) -> Any` — Return a copy of `s` without `value`.
-- **set_values** — `fun set_values(s: Any) -> Any` — Return the members of `s` in sorted order.
-- **set_size** — `fun set_size(s: Any) -> Any` — Count the members of `s`.
-- **set_union** — `fun set_union(a: Any, b: Any) -> Any` — Return the union of two sets.
-- **set_intersect** — `fun set_intersect(a: Any, b: Any) -> Any` — Return the intersection of two sets.
-- **set_difference** — `fun set_difference(a: Any, b: Any) -> Any` — Return the elements in `a` but not in `b`.
+- **stack** — `fun stack<T>() -> List<T>` — Create an empty stack.
+- **stack_push** — `fun stack_push<T>(st: List<T>, value: T) -> List<T>` — Push `value` onto `st` and return it.
+- **stack_pop** — `fun stack_pop<T>(st: List<T>) -> Optional<T>` — Pop the top of `st`, or `nil` when empty.
+- **stack_peek** — `fun stack_peek<T>(st: List<T>) -> Optional<T>` — Return the top of `st` without removing it, or `nil` when empty.
+- **stack_size** — `fun stack_size<T>(st: List<T>) -> Int` — Count the items on `st`.
+- **stack_empty** — `fun stack_empty<T>(st: List<T>) -> Bool` — Report whether `st` is empty.
+- **queue** — `fun queue<T>() -> List<List<T>>` — Create an empty queue.
+- **queue_push** — `fun queue_push<T>(q: List<List<T>>, value: T) -> List<List<T>>` — Enqueue `value`.
+- **queue_pop** — `fun queue_pop<T>(q: List<List<T>>) -> Optional<T>` — Dequeue the oldest value, or `nil` when empty.
+- **queue_size** — `fun queue_size<T>(q: List<List<T>>) -> Int` — Count the queued items.
+- **queue_empty** — `fun queue_empty<T>(q: List<List<T>>) -> Bool` — Report whether `q` is empty.
+- **set_new** — `fun set_new<T>() -> Map<T, Bool>` — Create an empty set.
+- **set_add** — `fun set_add<T>(s: Map<T, Bool>, value: T) -> Map<T, Bool>` — Add `value` to `s` and return it.
+- **set_has** — `fun set_has<T>(s: Map<T, Bool>, value: T) -> Bool` — Report whether `value` is in `s`.
+- **set_remove** — `fun set_remove<T>(s: Map<T, Bool>, value: T) -> Map<T, Bool>` — Return a copy of `s` without `value`.
+- **set_values** — `fun set_values<T>(s: Map<T, Bool>) -> List<T>` — Return the members of `s` in sorted order.
+- **set_size** — `fun set_size<T>(s: Map<T, Bool>) -> Int` — Count the members of `s`.
+- **set_union** — `fun set_union<T>(a: Map<T, Bool>, b: Map<T, Bool>) -> Map<T, Bool>` — Return the union of two sets.
+- **set_intersect** — `fun set_intersect<T>(a: Map<T, Bool>, b: Map<T, Bool>) -> Map<T, Bool>` — Return the intersection of two sets.
+- **set_difference** — `fun set_difference<T>(a: Map<T, Bool>, b: Map<T, Bool>) -> Map<T, Bool>` — Return the elements in `a` but not in `b`.

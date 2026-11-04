@@ -6,13 +6,13 @@
 - Source: [implementation](../../../stdlib/test.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
 - Assertions record failures and keep running. Call test_summary to fail the program when any assertion failed. Counters are shared module state.
-- **__passed** — `mut __passed: Any = 0;` — Mutable module-wide count of successful recorded assertions, initially zero.
-- **__failed** — `mut __failed: Any = 0;` — Mutable module-wide count of failed recorded assertions, initially zero.
-- **check** — `fun check(condition: Any, label: Any) -> Any` — Increment passed/failed counters and print `FAIL: label` for false conditions; continue running the suite.
-- **assert_true** — `fun assert_true(condition: Any, label: Any) -> Any` — Record the supplied condition through `check`.
-- **assert_equal** — `fun assert_equal(actual: Any, expected: Any, label: Any) -> Any` — Record equality; include actual/expected display values in a failure label.
-- **assert_not_equal** — `fun assert_not_equal(actual: Any, unexpected: Any, label: Any) -> Any` — Record inequality against the unexpected value.
-- **assert_contains** — `fun assert_contains(haystack: Any, needle: Any, label: Any) -> Any` — Record membership through `has`.
-- **assert_near** — `fun assert_near(actual: Any, expected: Any, tolerance: Any, label: Any) -> Any` — Record whether absolute numeric difference is at most tolerance.
-- **test_summary** — `fun test_summary() -> Any` — Print totals and raise `fail` if any recorded assertion failed.
+- **__passed** — `mut __passed: Int = 0;` — Mutable module-wide count of successful recorded assertions, initially zero.
+- **__failed** — `mut __failed: Int = 0;` — Mutable module-wide count of failed recorded assertions, initially zero.
+- **check** — `fun check(condition: Bool, label: Str) -> Nil` — Increment passed/failed counters and print `FAIL: label` for false conditions; continue running the suite.
+- **assert_true** — `fun assert_true(condition: Bool, label: Str) -> Nil` — Record the supplied condition through `check`.
+- **assert_equal** — `fun assert_equal<T>(actual: T, expected: T, label: Str) -> Nil` — Record equality; include actual/expected display values in a failure label.
+- **assert_not_equal** — `fun assert_not_equal<T>(actual: T, unexpected: T, label: Str) -> Nil` — Record inequality against the unexpected value.
+- **assert_contains** — `fun assert_contains<T>(haystack: Any, needle: T, label: Str) -> Nil` — Record membership through `has`; the haystack may be a list, map or string.
+- **assert_near** — `fun assert_near(actual: Float, expected: Float, tolerance: Float, label: Str) -> Nil` — Record whether absolute numeric difference is at most tolerance.
+- **test_summary** — `fun test_summary() -> Nil` — Print totals and raise `fail` if any recorded assertion failed.
 - `test_summary` explicit fault strings: `"test suite failed"`; runtime/callback faults can also propagate.

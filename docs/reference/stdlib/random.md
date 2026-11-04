@@ -6,14 +6,15 @@
 - Source: [implementation](../../../stdlib/random.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
 - All draws mutate the explicit RNG state. This generator is intended for repeatable tests/simulations; it is not a cryptographic generator.
-- **RANDOM_MODULUS** — `let RANDOM_MODULUS: Any = 2147483647;` — Park–Miller modulus, 2147483647.
-- **random_new** — `fun random_new(seed: Any) -> Any` — Return `{state}` with seed normalized to `abs(int(seed)) % 2147483646 + 1`.
-- **random_next_int** — `fun random_next_int(rng: Any) -> Any` — Advance `rng.state` using multiplier 48271 modulo 2147483647; return the new positive integer state.
-- **random_float** — `fun random_float(rng: Any) -> Any` — Advance the generator and return a value strictly between zero and one.
-- **random_int** — `fun random_int(rng: Any, lo: Any, hi: Any) -> Any` — Advance the generator and return an integer in inclusive `[lo, hi]`; reject reversed bounds.
+- **RANDOM_MODULUS** — `let RANDOM_MODULUS: Int = 2147483647;` — Park–Miller modulus, 2147483647.
+- **Random** — `struct Random { state: Int }` — A generator; `state` advances with every draw.
+- **random_new** — `fun random_new(seed: Int) -> Random` — Return a generator whose state is the seed normalized to `abs(seed) % 2147483646 + 1`.
+- **random_next_int** — `fun random_next_int(rng: Random) -> Int` — Advance `rng.state` using multiplier 48271 modulo 2147483647; return the new positive integer state.
+- **random_float** — `fun random_float(rng: Random) -> Float` — Advance the generator and return a value strictly between zero and one.
+- **random_int** — `fun random_int(rng: Random, lo: Int, hi: Int) -> Int` — Advance the generator and return an integer in inclusive `[lo, hi]`; reject reversed bounds.
 - `random_int` explicit fault strings: `"random_int upper bound is below lower bound"`; runtime/callback faults can also propagate.
-- **random_choice** — `fun random_choice(rng: Any, xs: Any) -> Any` — Return a randomly chosen input element; empty input returns `nil` without drawing.
-- **random_shuffle** — `fun random_shuffle(rng: Any, xs: Any) -> Any` — Return a shallow shuffled list copy using Fisher–Yates, advancing `rng`.
-- **random_sample** — `fun random_sample(rng: Any, xs: Any, count: Any) -> Any` — Shuffle and return `count` entries without replacement; require `0 <= count <= len(xs)`.
+- **random_choice** — `fun random_choice<T>(rng: Random, xs: List<T>) -> Optional<T>` — Return a randomly chosen input element; empty input returns `nil` without drawing.
+- **random_shuffle** — `fun random_shuffle<T>(rng: Random, xs: List<T>) -> List<T>` — Return a shallow shuffled list copy using Fisher–Yates, advancing `rng`.
+- **random_sample** — `fun random_sample<T>(rng: Random, xs: List<T>, count: Int) -> List<T>` — Shuffle and return `count` entries without replacement; require `0 <= count <= len(xs)`.
 - `random_sample` explicit fault strings: `"sample count must be between 0 and list length"`; runtime/callback faults can also propagate.
-- **random_normal** — `fun random_normal(rng: Any, mean: Any, stddev: Any) -> Any` — Return a Box–Muller normal draw centered at `mean` with multiplier `stddev`; advance the generator twice.
+- **random_normal** — `fun random_normal(rng: Random, mean: Float, stddev: Float) -> Float` — Return a Box–Muller normal draw centered at `mean` with multiplier `stddev`; advance the generator twice.

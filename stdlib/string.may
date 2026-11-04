@@ -1,73 +1,73 @@
 // string.may — helpers built on the native string methods.
 
 /// Report whether `s` has no characters.
-pub fun is_empty(s: Any) -> Any { return len(s) == 0; }
+pub fun is_empty(s: Str) -> Bool { return len(s) == 0; }
 
 /// Repeat `s` `n` times.
-pub fun repeat(s: Any, n: Any) -> Any {
-    mut out: Any = "";
-    for _: Any in 1..=n { out = out + s; }
+pub fun repeat(s: Str, n: Int) -> Str {
+    mut out: Str = "";
+    for _: Int in 1..=n { out = out + s; }
     return out;
 }
 
 /// Uppercase the first character, leaving the rest unchanged.
-pub fun capitalize(s: Any) -> Any {
-    let cs: Any = chars(s);
+pub fun capitalize(s: Str) -> Str {
+    let cs: List<Str> = chars(s);
     if (len(cs) == 0) { return s; }
-    mut out: Any = cs[0].to_upper();
-    for i: Any in 1..len(cs) { out = out + cs[i]; }
+    mut out: Str = cs[0].to_upper();
+    for i: Int in 1..len(cs) { out = out + cs[i]; }
     return out;
 }
 
 /// Split on ASCII space/tab/newline/carriage return, dropping empty pieces.
-pub fun words(s: Any) -> Any {
-    let normalized: Any = replace(replace(replace(s, "\t", " "), "\n", " "), "\r", " ");
-    return filter(normalized.split(" "), |w: Any| -> Any { return len(w) > 0; });
+pub fun words(s: Str) -> List<Str> {
+    let normalized: Str = replace(replace(replace(s, "\t", " "), "\n", " "), "\r", " ");
+    return filter(normalized.split(" "), |w: Str| -> Bool { return len(w) > 0; });
 }
 
 /// Split `s` into lines.
-pub fun lines(s: Any) -> Any { return s.split("\n"); }
+pub fun lines(s: Str) -> List<Str> { return s.split("\n"); }
 
 /// Split a comma-separated line, trimming each field.
-pub fun csv(s: Any) -> Any { return map(s.split(","), |part: Any| -> Any { return part.trim(); }); }
+pub fun csv(s: Str) -> List<Str> { return map(s.split(","), |part: Str| -> Str { return part.trim(); }); }
 
 /// Return the characters of `s` in reverse order.
-pub fun reverse_str(s: Any) -> Any { return reverse(s); }
+pub fun reverse_str(s: Str) -> Str { return reverse(s); }
 
 /// Left-pad `s` with `ch` until it is `width` characters wide.
-pub fun pad_left(s: Any, width: Any, ch: Any) -> Any {
+pub fun pad_left(s: Str, width: Int, ch: Str) -> Str {
     if (len(ch) == 0 and len(s) < width) { fail("padding must not be empty"); }
-    mut out: Any = s;
+    mut out: Str = s;
     while (len(out) < width) { out = ch + out; }
     return out;
 }
 
 /// Right-pad `s` with `ch` until it is `width` characters wide.
-pub fun pad_right(s: Any, width: Any, ch: Any) -> Any {
+pub fun pad_right(s: Str, width: Int, ch: Str) -> Str {
     if (len(ch) == 0 and len(s) < width) { fail("padding must not be empty"); }
-    mut out: Any = s;
+    mut out: Str = s;
     while (len(out) < width) { out = out + ch; }
     return out;
 }
 
 /// Report whether `s` begins with any of `prefixes`.
-pub fun starts_with_any(s: Any, prefixes: Any) -> Any {
-    return any(prefixes, |p: Any| -> Any { return s.starts_with(p); });
+pub fun starts_with_any(s: Str, prefixes: List<Str>) -> Bool {
+    return any(prefixes, |p: Str| -> Bool { return s.starts_with(p); });
 }
 
 /// Count non-overlapping occurrences of `needle` in `s`.
-pub fun count_occurrences(s: Any, needle: Any) -> Any {
+pub fun count_occurrences(s: Str, needle: Str) -> Int {
     if (len(needle) == 0) { return 0; }
-    let parts: Any = s.split(needle);
+    let parts: List<Str> = s.split(needle);
     return len(parts) - 1;
 }
 
 /// Shorten `s` to `width` characters, appending `ellipsis` when truncated.
-pub fun truncate(s: Any, width: Any, ellipsis: Any) -> Any {
+pub fun truncate(s: Str, width: Int, ellipsis: Str) -> Str {
     if (len(s) <= width) { return s; }
-    let keep: Any = max(0, width - len(ellipsis));
-    let cs: Any = chars(s);
-    mut out: Any = "";
-    for i: Any in 0..keep { out = out + cs[i]; }
+    let keep: Int = max(0, width - len(ellipsis));
+    let cs: List<Str> = chars(s);
+    mut out: Str = "";
+    for i: Int in 0..keep { out = out + cs[i]; }
     return out + ellipsis;
 }

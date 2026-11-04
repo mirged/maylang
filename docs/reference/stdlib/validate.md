@@ -5,11 +5,14 @@
 - Visibility: all top-level declarations are exported because this module has no `pub` declarations.
 - Source: [implementation](../../../stdlib/validate.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
-- **validate_nonempty** — `fun validate_nonempty(s: Any) -> Any` — Report whether a string has non-whitespace content after trimming.
-- **validate_in_range** — `fun validate_in_range(x: Any, lo: Any, hi: Any) -> Any` — Report whether an Int/Float lies within the inclusive bounds; false for other types.
-- **validate_email** — `fun validate_email(s: Any) -> Any` — Apply a simple @/domain-dot heuristic; this is not a complete email parser.
-- **validate_url** — `fun validate_url(s: Any) -> Any` — Report whether a string begins with `http://` or `https://`.
-- **validate_all** — `fun validate_all(value: Any, rules: Any) -> Any` — Apply rules shaped `{check: unary predicate, message: string}` and return `{ok, errors, value}`.
-- **validate_required_fields** — `fun validate_required_fields(value: Any, fields: Any) -> Any` — Return `{ok, missing}`; absent keys and nil-valued fields are missing.
-- **validate_int_string** — `fun validate_int_string(s: Any) -> Any` — Check a nonempty string by attempting trimmed integer conversion and catching faults.
-- **validate_float_string** — `fun validate_float_string(s: Any) -> Any` — Validate signed decimal syntax with optional dot and exponent; exponent digits are required.
+- **ValidationRule** — `struct ValidationRule { check: (Any) -> Bool, message: Str }` — One validation rule: a predicate and the message reported when it fails.
+- **Validation** — `struct Validation { ok: Bool, errors: List<Str>, value: Any }` — The outcome of `validate_all`: whether every rule passed, the failed rules' messages, and the value that was checked.
+- **RequiredFields** — `struct RequiredFields { ok: Bool, missing: List<Str> }` — The outcome of `validate_required_fields`: whether every field is present, and the missing ones.
+- **validate_nonempty** — `fun validate_nonempty(s: Any) -> Bool` — Report whether a value is a string with non-whitespace content after trimming.
+- **validate_in_range** — `fun validate_in_range(x: Any, lo: Float, hi: Float) -> Bool` — Report whether an Int/Float lies within the inclusive bounds; false for other types.
+- **validate_email** — `fun validate_email(s: Str) -> Bool` — Apply a simple @/domain-dot heuristic; this is not a complete email parser.
+- **validate_url** — `fun validate_url(s: Str) -> Bool` — Report whether a string begins with `http://` or `https://`.
+- **validate_all** — `fun validate_all(value: Any, rules: List<ValidationRule>) -> Validation` — Apply each rule to `value` and collect the messages of the rules that fail.
+- **validate_required_fields** — `fun validate_required_fields(value: Map<Str, Any>, fields: List<Str>) -> RequiredFields` — Report which `fields` are missing from `value`; absent keys and nil-valued fields are missing.
+- **validate_int_string** — `fun validate_int_string(s: Any) -> Bool` — Check a nonempty string by attempting trimmed integer conversion and catching faults.
+- **validate_float_string** — `fun validate_float_string(s: Any) -> Bool` — Validate signed decimal syntax with optional dot and exponent; exponent digits are required.

@@ -14,7 +14,7 @@
 - **Address** — `pub struct Address { host: Str, port: Int }` — IPv4 host/port record; use address() for validation and canonicalization.
 - **Socket** — `pub struct Socket { fd: Int, kind: Str, timeout_ms: Int }` — Owned descriptor, socket kind and operation timeout record; aliases share the descriptor and close state.
 - **Datagram** — `pub struct Datagram { data: Str, sender: Address }` — UDP byte payload with its sender Address.
-- **net_fault** — `fun net_fault(operation: Str, code: Int, detail: Str) -> Any` — Construct and raise a network error with operation and positive errno.
+- **net_fault** — `fun net_fault(operation: Str, code: Int, detail: Str) -> Never` — Construct and raise a network error with operation and positive errno.
 - `net_fault`: private implementation helper; unavailable to importing modules.
 - **net_check** — `fun net_check(operation: Str, status: Int) -> Int` — Return nonnegative syscall status or raise a network fault from the negated status.
 - `net_check`: private implementation helper; unavailable to importing modules.
@@ -62,7 +62,7 @@
 - `net_ready`: private implementation helper; unavailable to importing modules.
 - **socket_local_address** — `pub fun socket_local_address(s: Socket) -> Address` — Return the bound/local Address, including an OS-assigned ephemeral port.
 - **socket_peer_address** — `pub fun socket_peer_address(s: Socket) -> Address` — Return the connected peer Address.
-- **with_socket** — `pub fun with_socket(s: Socket, action: (Socket) -> Any) -> Any` — Run an action and close the socket on success or a raised error.
+- **with_socket** — `pub fun with_socket<T>(s: Socket, action: (Socket) -> T) -> T` — Run an action and close the socket on success or a raised error.
 - **tcp_connect** — `pub fun tcp_connect(host: Str, port: Int) -> Socket` — Connect with a 30-second timeout. host is IPv4 or localhost.
 - **tcp_connect_timeout** — `pub fun tcp_connect_timeout(host: Str, port: Int, ms: Int) -> Socket` — Connect to an IPv4 peer with an explicit timeout; reject port zero; clean up on failure and return Socket on success.
 - `tcp_connect_timeout` explicit fault strings: `"connect"`; runtime/callback faults can also propagate.

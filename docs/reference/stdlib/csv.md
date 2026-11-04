@@ -5,8 +5,8 @@
 - Visibility: all top-level declarations are exported because this module has no `pub` declarations.
 - Source: [implementation](../../../stdlib/csv.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
-- **csv_parse** — `fun csv_parse(text: Any) -> List<List<Str>>` — Return rows of string cells; handle quoted commas/newlines, doubled quotes and CRLF; reject unterminated quotes; skip blank unquoted lines.
+- **csv_parse** — `fun csv_parse(text: Str) -> List<List<Str>>` — Return rows of string cells; handle quoted commas/newlines, doubled quotes and CRLF; reject unterminated quotes; skip blank unquoted lines.
 - `csv_parse` explicit fault strings: `"unterminated quoted CSV field"`; runtime/callback faults can also propagate.
-- **csv_escape** — `fun csv_escape(cell: Any) -> Any` — Stringify and quote empty cells or cells containing commas, quotes or line breaks; double embedded quotes.
-- **csv_stringify** — `fun csv_stringify(rows: Any) -> Any` — Serialize row lists with commas and LF between rows, without a final newline.
-- **csv_records** — `fun csv_records(headers: Any, rows: Any) -> Any` — Return a list of maps keyed by headers; short rows fill with empty strings and extra cells are ignored.
+- **csv_escape** — `fun csv_escape<T>(cell: T) -> Str` — Stringify and quote empty cells or cells containing commas, quotes or line breaks; double embedded quotes.
+- **csv_stringify** — `fun csv_stringify<T>(rows: List<List<T>>) -> Str` — Serialize row lists with commas and LF between rows, without a final newline.
+- **csv_records** — `fun csv_records(headers: List<Str>, rows: List<List<Str>>) -> List<Map<Str, Str>>` — Return a list of maps keyed by headers; short rows fill with empty strings and extra cells are ignored.

@@ -30,6 +30,18 @@
   `Never` at the call, so `let xs: List<Int> = stack();` is accepted.
   `reverse` of a `Str` is typed `Str`, as the runtime returns, instead of
   `List<Str>` ([strict guide](docs/guide/STRICT.md)).
+- The standard library uses concrete and generic types instead of `Any`:
+  `algo`, `iter`, `functional`, `collections`, `stats`, `random`, `csv`,
+  `format`, `string`, `path`, `math`, `test`, `io`, `net`, `validate` and the
+  prelude. `Any` remains only at dynamic boundaries, each commented: JSON,
+  validators that inspect runtime types, mixed-type `[a, b]` pairs, and the
+  Int-or-Float helpers `square`, `cube`, `average` and `median`. **Breaking:**
+  callers holding `Any` values must use the real types; stacks are `List<T>`,
+  queues `List<List<T>>` and sets `Map<T, Bool>`; `stats_*` results that can
+  be undefined are `Optional<Float>` and `stats_linear_regression` returns a
+  `Regression` struct; `random_new` returns a `Random` struct; `validate_all`
+  takes `ValidationRule`s and returns a `Validation`
+  ([contracts](stdlib/CONTRACTS.md)).
 - Hexadecimal `0xff`, octal `0o755` and binary `0b1010` integer literals, and
   `_` digit separators in every numeric literal (`1_000_000`, `0xffff_ffff`,
   `6.022_140e2_3`). Prefixes are lowercase; each `_` must sit between two

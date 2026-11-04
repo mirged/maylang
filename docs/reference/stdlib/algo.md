@@ -8,18 +8,18 @@
 - `chunk` validates a positive size, including for empty input; invalid sizes raise `chunk size must be positive`.
 - Quicksort and merge_sort return the original list on length zero/one; larger results are newly assembled.
 - Grouping and deduplication use dynamic maps; group_by/count_by stringify keys.
-- **quick_sort** — `fun quick_sort(xs: Any) -> Any` — Sort a list with a quicksort (pivot = first element). Returns a new list.
-- **merge_sort** — `fun merge_sort(xs: Any) -> Any` — Sort a list with a stable merge sort. Returns a new list.
-- **merge_sorted** — `fun merge_sorted(a: Any, b: Any) -> Any` — Merge two already-sorted lists into one sorted list.
-- **binary_search** — `fun binary_search(sorted: Any, target: Any) -> Any` — Return the index of `target` in a sorted list, or `-1`.
-- **dedupe** — `fun dedupe(xs: Any) -> Any` — Remove duplicates, preserving the order of first appearance.
-- **zip** — `fun zip(a: Any, b: Any) -> Any` — Pair up the elements of two lists, stopping at the shorter one.
-- **flatten** — `fun flatten(xss: Any) -> Any` — Concatenate a list of lists into a single list.
-- **range_list** — `fun range_list(a: Any, b: Any) -> Any` — Return the list `[a, a+1, ..., b-1]`.
-- **take** — `fun take(xs: Any, n: Any) -> Any` — Return the first `n` elements, or all of them when there are fewer.
-- **drop** — `fun drop(xs: Any, n: Any) -> Any` — Drop the first `n` elements.
-- **chunk** — `fun chunk(xs: Any, size: Any) -> Any` — Split a list into consecutive groups of `size`.
+- **quick_sort** — `fun quick_sort<T>(xs: List<T>) -> List<T>` — Sort a list with a quicksort (pivot = first element). Returns a new list.
+- **merge_sort** — `fun merge_sort<T>(xs: List<T>) -> List<T>` — Sort a list with a stable merge sort. Returns a new list.
+- **merge_sorted** — `fun merge_sorted<T>(a: List<T>, b: List<T>) -> List<T>` — Merge two already-sorted lists into one sorted list.
+- **binary_search** — `fun binary_search<T>(sorted: List<T>, target: T) -> Int` — Return the index of `target` in a sorted list, or `-1`.
+- **dedupe** — `fun dedupe<T>(xs: List<T>) -> List<T>` — Remove duplicates, preserving the order of first appearance.
+- **zip** — `fun zip<A, B>(a: List<A>, b: List<B>) -> List<List<Any>>` — Pair up the elements of two lists, stopping at the shorter one.
+- **flatten** — `fun flatten<T>(xss: List<List<T>>) -> List<T>` — Concatenate a list of lists into a single list.
+- **range_list** — `fun range_list(a: Int, b: Int) -> List<Int>` — Return the list `[a, a+1, ..., b-1]`.
+- **take** — `fun take<T>(xs: List<T>, n: Int) -> List<T>` — Return the first `n` elements, or all of them when there are fewer.
+- **drop** — `fun drop<T>(xs: List<T>, n: Int) -> List<T>` — Drop the first `n` elements.
+- **chunk** — `fun chunk<T>(xs: List<T>, size: Int) -> List<List<T>>` — Split a list into consecutive groups of `size`.
 - `chunk` explicit fault strings: `"chunk size must be positive"`; runtime/callback faults can also propagate.
-- **partition** — `fun partition(xs: Any, pred: Any) -> Any` — Split a list into `[matching, non-matching]` by `pred`.
-- **group_by** — `fun group_by(xs: Any, key_fn: Any) -> Any` — Group elements into a map keyed by `str(key_fn(x))`.
-- **count_by** — `fun count_by(xs: Any, key_fn: Any) -> Any` — Count elements by `str(key_fn(x))`.
+- **partition** — `fun partition<T>(xs: List<T>, pred: (T) -> Bool) -> List<List<T>>` — Split a list into `[matching, non-matching]` by `pred`.
+- **group_by** — `fun group_by<T, K>(xs: List<T>, key_fn: (T) -> K) -> Map<Str, List<T>>` — Group elements into a map keyed by `str(key_fn(x))`.
+- **count_by** — `fun count_by<T, K>(xs: List<T>, key_fn: (T) -> K) -> Map<Str, Int>` — Count elements by `str(key_fn(x))`.

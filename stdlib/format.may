@@ -2,45 +2,52 @@
 
 /// Return a ratio multiplied by 100, rounded through `round` and decorated with `%`; `digits`
 /// controls scale, not zero-padding.
-fun format_percent(value: Any, digits: Any) -> Any {
-    let scale: Any = pow(10, digits);
-    return str(round(value * 100 * scale) / scale) + "%";
+fun format_percent(value: Float, digits: Int) -> Str {
+    let scale: Float = pow(10, digits);
+    return str(round(value * 100.0 * scale) / scale) + "%";
 }
 /// Return bytes or binary KiB/MiB/GiB/TiB notation using 1024-based scaling.
-fun format_bytes(n: Any) -> Any {
+fun format_bytes(n: Int) -> Str {
     if (to_float(abs(n)) < 1024.0) { return str(n) + " B"; }
-    let units: Any = ["KiB", "MiB", "GiB", "TiB"];
-    mut value: Any = to_float(n); mut i: Any = -1;
-    while (to_float(abs(value)) >= 1024.0 && i < len(units) - 1) { value = value / 1024.0; i = i + 1; }
-    return str(round(value * 10) / 10) + " " + units[i];
+    let units: List<Str> = ["KiB", "MiB", "GiB", "TiB"];
+    mut value: Float = to_float(n); mut i: Int = -1;
+    while (abs(value) >= 1024.0 && i < len(units) - 1) { value = value / 1024.0; i = i + 1; }
+    return str(round(value * 10.0) / 10.0) + " " + units[i];
 }
 /// Clamp negative integer seconds to zero and return `MM:SS` or `HH:MM:SS`.
-fun format_duration(seconds: Any) -> Any {
-    let s: Any = max(0, int(seconds));
-    let h: Any = s / 3600; let m: Any = (s % 3600) / 60; let sec: Any = s % 60;
+fun format_duration(seconds: Int) -> Str {
+    let s: Int = max(0, seconds);
+    let h: Int = s / 3600; let m: Int = (s % 3600) / 60; let sec: Int = s % 60;
     return if (h > 0) { pad_left(str(h), 2, "0") + ":" + pad_left(str(m), 2, "0") + ":" + pad_left(str(sec), 2, "0") }
     else { pad_left(str(m), 2, "0") + ":" + pad_left(str(sec), 2, "0") };
 }
+/// Render one table row padded to `widths`; internal format helper.
+fun format_row(cells: List<Str>, widths: List<Int>) -> Str {
+    let padded: List<Str> = [pad_right(if (i < len(cells)) { cells[i] } else { "" }, widths[i], " ") for i: Int in 0..len(widths)];
+    return "| " + join(padded, " | ") + " |";
+}
 /// Return a pipe-delimited text table with widths from headers and rows; missing cells are empty
 /// and extra columns are ignored.
-fun format_table(headers: Any, rows: Any) -> Any {
-    let widths: Any = [len(str(h)) for h: Any in headers];
-    for row: Any in rows {
-        for i: Any in 0..min(len(widths), len(row)) { widths[i] = max(widths[i], len(str(row[i]))); }
+fun format_table<T>(headers: List<Str>, rows: List<List<T>>) -> Str {
+    let texts: List<List<Str>> = [[str(cell) for cell: T in row] for row: List<T> in rows];
+    let widths: List<Int> = [len(h) for h: Str in headers];
+    for row: List<Str> in texts {
+        for i: Int in 0..min(len(widths), len(row)) { widths[i] = max(widths[i], len(row[i])); }
     }
-    let render: Any = fun(row: Any) -> Any { return "| " + join([pad_right(str(if (i < len(row)) { row[i] } else { "" }), widths[i], " ") for i: Any in 0..len(widths)], " | ") + " |"; };
-    let rule: Any = "|-" + join([repeat("-", w) for w: Any in widths], "-+-") + "-|";
-    return join([render(headers), rule] + [render(row) for row: Any in rows], "\n");
+    let rule: Str = "|-" + join([repeat("-", w) for w: Int in widths], "-+-") + "-|";
+    let lines: List<Str> = [format_row(headers, widths), rule];
+    for row: List<Str> in texts { push(lines, format_row(row, widths)); }
+    return join(lines, "\n");
 }
 /// Return newline-separated key/value lines with keys padded to `width`.
-fun format_kv(data: Any, width: Any) -> Any {
-    return join([pad_right(str(k), width, " ") + " : " + str(data[k]) for k: Any in keys(data)], "\n");
+fun format_kv<V>(data: Map<Str, V>, width: Int) -> Str {
+    return join([pad_right(k, width, " ") + " : " + str(data[k]) for k: Str in keys(data)], "\n");
 }
-/// Wrap stringified text in an ANSI SGR code and reset sequence.
-fun format_ansi(text: Any, code: Any) -> Any { return chr(27) + "[" + str(code) + "m" + text + chr(27) + "[0m"; }
+/// Wrap text in an ANSI SGR code and reset sequence.
+fun format_ansi(text: Str, code: Int) -> Str { return chr(27) + "[" + str(code) + "m" + text + chr(27) + "[0m"; }
 /// Wrap text with ANSI bold (code 1).
-fun format_bold(text: Any) -> Any { return format_ansi(text, 1); }
+fun format_bold(text: Str) -> Str { return format_ansi(text, 1); }
 /// Wrap text with ANSI dim (code 2).
-fun format_dim(text: Any) -> Any { return format_ansi(text, 2); }
+fun format_dim(text: Str) -> Str { return format_ansi(text, 2); }
 /// Wrap text with the supplied ANSI color code.
-fun format_color(text: Any, color: Any) -> Any { return format_ansi(text, color); }
+fun format_color(text: Str, color: Int) -> Str { return format_ansi(text, color); }

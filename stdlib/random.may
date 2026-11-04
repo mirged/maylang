@@ -2,52 +2,54 @@
 // Pass the same seed to random_new for repeatable simulations and tests.
 
 /// Park–Miller modulus, 2147483647.
-let RANDOM_MODULUS: Any = 2147483647;
+let RANDOM_MODULUS: Int = 2147483647;
 
-/// Return `{state}` with seed normalized to `abs(int(seed)) % 2147483646 + 1`.
-fun random_new(seed: Any) -> Any {
-    let s: Any = abs(int(seed)) % (RANDOM_MODULUS - 1) + 1;
-    return {"state": s};
+/// A generator; `state` advances with every draw.
+struct Random { state: Int }
+
+/// Return a generator whose state is the seed normalized to `abs(seed) % 2147483646 + 1`.
+fun random_new(seed: Int) -> Random {
+    return Random(abs(seed) % (RANDOM_MODULUS - 1) + 1);
 }
 /// Advance `rng.state` using multiplier 48271 modulo 2147483647; return the new positive integer
 /// state.
-fun random_next_int(rng: Any) -> Any {
+fun random_next_int(rng: Random) -> Int {
     rng.state = (rng.state * 48271) % RANDOM_MODULUS;
     return rng.state;
 }
 /// Advance the generator and return a value strictly between zero and one.
-fun random_float(rng: Any) -> Any { return random_next_int(rng) / (1.0 * RANDOM_MODULUS); }
+fun random_float(rng: Random) -> Float { return to_float(random_next_int(rng)) / to_float(RANDOM_MODULUS); }
 /// Advance the generator and return an integer in inclusive `[lo, hi]`; reject reversed bounds.
-fun random_int(rng: Any, lo: Any, hi: Any) -> Any {
+fun random_int(rng: Random, lo: Int, hi: Int) -> Int {
     if (hi < lo) { fail("random_int upper bound is below lower bound"); }
-    return lo + int(floor(random_float(rng) * (hi - lo + 1)));
+    return lo + int(floor(random_float(rng) * to_float(hi - lo + 1)));
 }
 /// Return a randomly chosen input element; empty input returns `nil` without drawing.
-fun random_choice(rng: Any, xs: Any) -> Any {
+fun random_choice<T>(rng: Random, xs: List<T>) -> Optional<T> {
     if (len(xs) == 0) { return nil; }
     return xs[random_int(rng, 0, len(xs) - 1)];
 }
 /// Return a shallow shuffled list copy using Fisher–Yates, advancing `rng`.
-fun random_shuffle(rng: Any, xs: Any) -> Any {
-    mut out: Any = slice(xs, 0, len(xs));
-    mut i: Any = len(out) - 1;
+fun random_shuffle<T>(rng: Random, xs: List<T>) -> List<T> {
+    let out: List<T> = slice(xs, 0, len(xs));
+    mut i: Int = len(out) - 1;
     while (i > 0) {
-        let j: Any = random_int(rng, 0, i);
-        let t: Any = out[i]; out[i] = out[j]; out[j] = t;
+        let j: Int = random_int(rng, 0, i);
+        let t: T = out[i]; out[i] = out[j]; out[j] = t;
         i = i - 1;
     }
     return out;
 }
 /// Shuffle and return `count` entries without replacement; require `0 <= count <= len(xs)`.
-fun random_sample(rng: Any, xs: Any, count: Any) -> Any {
+fun random_sample<T>(rng: Random, xs: List<T>, count: Int) -> List<T> {
     if (count < 0 || count > len(xs)) { fail("sample count must be between 0 and list length"); }
     return slice(random_shuffle(rng, xs), 0, count);
 }
 /// Return a Box–Muller normal draw centered at `mean` with multiplier `stddev`; advance the
 /// generator twice.
-fun random_normal(rng: Any, mean: Any, stddev: Any) -> Any {
+fun random_normal(rng: Random, mean: Float, stddev: Float) -> Float {
     // Box–Muller transform; clamp away from log(0).
-    let u1: Any = max(0.000000001, random_float(rng));
-    let u2: Any = random_float(rng);
+    let u1: Float = max(0.000000001, random_float(rng));
+    let u2: Float = random_float(rng);
     return mean + stddev * sqrt(-2.0 * ln(u1)) * cos(2.0 * pi() * u2);
 }

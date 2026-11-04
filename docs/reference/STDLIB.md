@@ -5,7 +5,7 @@
 - [algo.may](stdlib/algo.md) — Sorting, searching, grouping and eager list transformations. 14 declarations.
 - [collections.may](stdlib/collections.md) — List-backed stacks and queues and map-backed sets. 20 declarations.
 - [csv.may](stdlib/csv.md) — Quoted comma-separated text parsing, serialization and records. 4 declarations.
-- [format.may](stdlib/format.md) — Text tables, percentages, durations, byte sizes and ANSI formatting. 9 declarations.
+- [format.may](stdlib/format.md) — Text tables, percentages, durations, byte sizes and ANSI formatting. 10 declarations.
 - [functional.may](stdlib/functional.md) — Composition, currying, partial application and memoization. 12 declarations.
 - [io.may](stdlib/io.md) — Text, line, JSON, CSV and key-value file helpers. 11 declarations.
 - [iter.may](stdlib/iter.md) — Eager list iteration, scans, windows and keyed reductions. 14 declarations.
@@ -14,10 +14,10 @@
 - [net.may](stdlib/net.md) — Synchronous IPv4 TCP/UDP sockets for full Linux x86-64 runtimes. 41 declarations.
 - [path.may](stdlib/path.md) — Lexical path operations without filesystem access. 9 declarations.
 - [prelude.may](stdlib/prelude.md) — Automatically loaded small convenience functions in full-runtime builds. 5 declarations.
-- [random.may](stdlib/random.md) — Explicit stateful Park–Miller pseudorandom streams. 9 declarations.
+- [random.may](stdlib/random.md) — Explicit stateful Park–Miller pseudorandom streams. 10 declarations.
 - [result.may](stdlib/result.md) — Map-based success/failure values and composition. 10 declarations.
-- [stats.may](stdlib/stats.md) — Descriptive statistics and simple linear regression. 12 declarations.
+- [stats.may](stdlib/stats.md) — Descriptive statistics and simple linear regression. 17 declarations.
 - [string.may](stdlib/string.md) — String transformations and simple delimiter helpers. 12 declarations.
 - [test.may](stdlib/test.md) — Counting assertions and a final test report. 9 declarations.
 - [ui.may](stdlib/ui.md) — Native Linux desktop widget trees, themes, antialiased GPU shapes/text, layout, Unicode inputs, focus, scrolling, virtual lists and software PNG snapshots; requires the May UI Sokol adapter. 56 declarations.
-- [validate.may](stdlib/validate.md) — Input predicates and structured rule/field validation. 8 declarations.
+- [validate.may](stdlib/validate.md) — Input predicates and structured rule/field validation. 11 declarations.

@@ -1,47 +1,56 @@
 // functional.may — higher-order helpers.
 
 /// Return the argument unchanged.
-fun identity(x: Any) -> Any { return x }
-/// Return a unary function that always returns `value`.
-fun constantly(value: Any) -> Any { return fun(_: Any) -> Any { return value } }
+fun identity<T>(x: T) -> T { return x; }
+// The ignored argument is `Any`: a type parameter used only in the result
+// cannot be inferred from the call site.
+/// Return a unary function that ignores its argument and returns `value`.
+fun constantly<T>(value: T) -> (Any) -> T { return fun(_: Any) -> T { return value; }; }
 
 /// Return a unary function computing `f(g(x))`.
-fun compose(f: Any, g: Any) -> Any { return fun(x: Any) -> Any { return f(g(x)) } }
+fun compose<A, B, C>(f: (B) -> C, g: (A) -> B) -> (A) -> C { return fun(x: A) -> C { return f(g(x)); }; }
 /// Return a unary function computing `f(g(h(x)))`.
-fun compose3(f: Any, g: Any, h: Any) -> Any { return fun(x: Any) -> Any { return f(g(h(x))) } }
+fun compose3<A, B, C, D>(f: (C) -> D, g: (B) -> C, h: (A) -> B) -> (A) -> D {
+    return fun(x: A) -> D { return f(g(h(x))); };
+}
 
 /// Return a binary function calling `f(b, a)`.
-fun flip(f: Any) -> Any { return fun(a: Any, b: Any) -> Any { return f(b, a) } }
+fun flip<A, B, C>(f: (A, B) -> C) -> (B, A) -> C { return fun(b: B, a: A) -> C { return f(a, b); }; }
 /// Convert a binary function into two nested unary functions.
-fun curry(f: Any) -> Any { return fun(a: Any) -> Any { return fun(b: Any) -> Any { return f(a, b) } } }
+fun curry<A, B, C>(f: (A, B) -> C) -> (A) -> (B) -> C {
+    return fun(a: A) -> (B) -> C { return fun(b: B) -> C { return f(a, b); }; };
+}
 /// Convert a curried function into one taking two arguments.
-fun uncurry(f: Any) -> Any { return fun(a: Any, b: Any) -> Any { return f(a)(b) } }
+fun uncurry<A, B, C>(f: (A) -> (B) -> C) -> (A, B) -> C { return fun(a: A, b: B) -> C { return f(a)(b); }; }
 
 /// Return the result of applying `f` to `x` `n` times; nonpositive counts leave `x` unchanged.
-fun apply_n(f: Any, x: Any, n: Any) -> Any {
-    mut out: Any = x;
-    for _: Any in 1..=n { out = f(out); }
-    return out
+fun apply_n<T>(f: (T) -> T, x: T, n: Int) -> T {
+    mut out: T = x;
+    for _: Int in 1..=n { out = f(out); }
+    return out;
 }
 
 /// Run a value through a list of functions in order.
-fun pipeline(x: Any, fs: Any) -> Any { return reduce(fs, |acc: Any, f: Any| -> Any { return f(acc); }, x) }
+fun pipeline<T>(x: T, fs: List<(T) -> T>) -> T {
+    mut out: T = x;
+    for f: (T) -> T in fs { out = f(out); }
+    return out;
+}
 
 /// Compose a list of functions into a single function.
-fun compose_all(fs: Any) -> Any { return fun(x: Any) -> Any { return pipeline(x, fs) } }
+fun compose_all<T>(fs: List<(T) -> T>) -> (T) -> T { return fun(x: T) -> T { return pipeline(x, fs); }; }
 
 /// Cache results of a single-argument function by stringified argument.
-fun memoize(f: Any) -> Any {
-    let cache: Any = {};
-    let cached: Any = fun(arg: Any) -> Any {
-        let key: Any = str(arg);
-        if (has(cache, key)) { return cache[key]; }
-        let value: Any = f(arg);
+fun memoize<T, U>(f: (T) -> U) -> (T) -> U {
+    let cache: Map<Str, U> = {};
+    return fun(arg: T) -> U {
+        let key: Str = str(arg);
+        if (has(cache, key)) { return cache[key] ?? f(arg); }
+        let value: U = f(arg);
         cache[key] = value;
-        return value
+        return value;
     };
-    return cached
 }
 
 /// Fix the first argument of the binary function `f`, returning a function of the second.
-fun partial_first(f: Any, first: Any) -> Any { return fun(rest: Any) -> Any { return f(first, rest) } }
+fun partial_first<A, B, C>(f: (A, B) -> C, first: A) -> (B) -> C { return fun(rest: B) -> C { return f(first, rest); }; }

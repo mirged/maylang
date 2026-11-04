@@ -1,7 +1,11 @@
 // math.may — integer and floating point helpers.
 //
-// The transcendental functions (sin/cos/tan/ln/...) are provided by the Rust
-// runtime; the combinatorial helpers are written here in Maylang.
+// The transcendental functions (sin/cos/tan/ln/...) are runtime built-ins; the
+// combinatorial helpers are written here in Maylang.
+//
+// `square`, `cube`, `average` and `median` work on Int and Float alike and keep
+// `Any`: strict typing has no numeric type bound, arithmetic on a type
+// parameter is rejected, and Int is not implicitly widened to Float.
 
 /// Return `x * x`.
 fun square(x: Any) -> Any { return x * x; }
@@ -10,14 +14,14 @@ fun square(x: Any) -> Any { return x * x; }
 fun cube(x: Any) -> Any { return x * x * x; }
 
 /// Restrict `x` to the closed range `[lo, hi]`.
-fun clamp(x: Any, lo: Any, hi: Any) -> Any { return max(lo, min(x, hi)); }
+fun clamp<T>(x: T, lo: T, hi: T) -> T { return max(lo, min(x, hi)); }
 
 /// Return the greatest common divisor of `a` and `b` (always non-negative).
-fun gcd(a: Any, b: Any) -> Any {
-    mut x: Any = abs(a);
-    mut y: Any = abs(b);
+fun gcd(a: Int, b: Int) -> Int {
+    mut x: Int = abs(a);
+    mut y: Int = abs(b);
     while (y != 0) {
-        let t: Any = y;
+        let t: Int = y;
         y = x % y;
         x = t;
     }
@@ -25,16 +29,16 @@ fun gcd(a: Any, b: Any) -> Any {
 }
 
 /// Return the least common multiple of `a` and `b` (`0` when either is `0`).
-fun lcm(a: Any, b: Any) -> Any {
+fun lcm(a: Int, b: Int) -> Int {
     if (a == 0 || b == 0) { return 0; }
     return abs(a * b) / gcd(a, b);
 }
 
 /// Report whether `n` is prime, by trial division up to `sqrt(n)`.
-fun is_prime(n: Any) -> Any {
+fun is_prime(n: Int) -> Bool {
     if (n < 2) { return false; }
     if (n % 2 == 0) { return n == 2; }
-    mut i: Any = 3;
+    mut i: Int = 3;
     while (i * i <= n) {
         if (n % i == 0) { return false; }
         i = i + 2;
@@ -43,18 +47,18 @@ fun is_prime(n: Any) -> Any {
 }
 
 /// Return `n!`; `0!` and `1!` are `1`.
-fun factorial(n: Any) -> Any {
-    mut acc: Any = 1;
-    for i: Any in 2..=n { acc = acc * i; }
+fun factorial(n: Int) -> Int {
+    mut acc: Int = 1;
+    for i: Int in 2..=n { acc = acc * i; }
     return acc;
 }
 
 /// Return the `n`th Fibonacci number, with `fibonacci(0) == 0`.
-fun fibonacci(n: Any) -> Any {
-    mut a: Any = 0;
-    mut b: Any = 1;
-    for _: Any in 1..=n {
-        let t: Any = a + b;
+fun fibonacci(n: Int) -> Int {
+    mut a: Int = 0;
+    mut b: Int = 1;
+    for _: Int in 1..=n {
+        let t: Int = a + b;
         a = b;
         b = t;
     }
@@ -70,27 +74,27 @@ fun average(xs: Any) -> Any {
 /// Return the median of a list (`nil` when empty), sorting a copy.
 fun median(xs: Any) -> Any {
     let sorted: Any = sort(xs);
-    let n: Any = len(sorted);
+    let n: Int = len(sorted);
     if (n == 0) { return nil; }
     if (n % 2 == 1) { return sorted[(n - 1) / 2]; }
     return (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
 }
 
 /// Convert `radians` to degrees.
-fun degrees(radians_of: Any) -> Any { return radians_of * 180.0 / pi(); }
+fun degrees(radians_of: Float) -> Float { return radians_of * 180.0 / pi(); }
 
 /// Convert `degrees` to radians.
-fun radians(degrees_of: Any) -> Any { return degrees_of * pi() / 180.0; }
+fun radians(degrees_of: Float) -> Float { return degrees_of * pi() / 180.0; }
 
 /// Return the Euclidean distance between `(x1, y1)` and `(x2, y2)`.
-fun distance(x1: Any, y1: Any, x2: Any, y2: Any) -> Any {
-    return sqrt(square(x2 - x1) + square(y2 - y1));
+fun distance(x1: Float, y1: Float, x2: Float, y2: Float) -> Float {
+    return sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
 
 /// Report whether `n` is a power of two (`n > 0`).
-fun is_power_of_two(n: Any) -> Any {
+fun is_power_of_two(n: Int) -> Bool {
     if (n <= 0) { return false; }
-    mut v: Any = n;
+    mut v: Int = n;
     while (v > 1 && v % 2 == 0) { v = v / 2; }
     return v == 1;
 }

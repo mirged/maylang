@@ -6,15 +6,15 @@
 - Source: [implementation](../../../stdlib/functional.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
 - Memoization keys use str(arg); distinct arguments with identical display strings share a cached result.
-- **identity** — `fun identity(x: Any) -> Any` — Return the argument unchanged.
-- **constantly** — `fun constantly(value: Any) -> Any` — Return a unary function that always returns `value`.
-- **compose** — `fun compose(f: Any, g: Any) -> Any` — Return a unary function computing `f(g(x))`.
-- **compose3** — `fun compose3(f: Any, g: Any, h: Any) -> Any` — Return a unary function computing `f(g(h(x)))`.
-- **flip** — `fun flip(f: Any) -> Any` — Return a binary function calling `f(b, a)`.
-- **curry** — `fun curry(f: Any) -> Any` — Convert a binary function into two nested unary functions.
-- **uncurry** — `fun uncurry(f: Any) -> Any` — Convert a curried function into one taking two arguments.
-- **apply_n** — `fun apply_n(f: Any, x: Any, n: Any) -> Any` — Return the result of applying `f` to `x` `n` times; nonpositive counts leave `x` unchanged.
-- **pipeline** — `fun pipeline(x: Any, fs: Any) -> Any` — Run a value through a list of functions in order.
-- **compose_all** — `fun compose_all(fs: Any) -> Any` — Compose a list of functions into a single function.
-- **memoize** — `fun memoize(f: Any) -> Any` — Cache results of a single-argument function by stringified argument.
-- **partial_first** — `fun partial_first(f: Any, first: Any) -> Any` — Fix the first argument of the binary function `f`, returning a function of the second.
+- **identity** — `fun identity<T>(x: T) -> T` — Return the argument unchanged.
+- **constantly** — `fun constantly<T>(value: T) -> (Any) -> T` — Return a unary function that ignores its argument and returns `value`.
+- **compose** — `fun compose<A, B, C>(f: (B) -> C, g: (A) -> B) -> (A) -> C` — Return a unary function computing `f(g(x))`.
+- **compose3** — `fun compose3<A, B, C, D>(f: (C) -> D, g: (B) -> C, h: (A) -> B) -> (A) -> D` — Return a unary function computing `f(g(h(x)))`.
+- **flip** — `fun flip<A, B, C>(f: (A, B) -> C) -> (B, A) -> C` — Return a binary function calling `f(b, a)`.
+- **curry** — `fun curry<A, B, C>(f: (A, B) -> C) -> (A) -> (B) -> C` — Convert a binary function into two nested unary functions.
+- **uncurry** — `fun uncurry<A, B, C>(f: (A) -> (B) -> C) -> (A, B) -> C` — Convert a curried function into one taking two arguments.
+- **apply_n** — `fun apply_n<T>(f: (T) -> T, x: T, n: Int) -> T` — Return the result of applying `f` to `x` `n` times; nonpositive counts leave `x` unchanged.
+- **pipeline** — `fun pipeline<T>(x: T, fs: List<(T) -> T>) -> T` — Run a value through a list of functions in order.
+- **compose_all** — `fun compose_all<T>(fs: List<(T) -> T>) -> (T) -> T` — Compose a list of functions into a single function.
+- **memoize** — `fun memoize<T, U>(f: (T) -> U) -> (T) -> U` — Cache results of a single-argument function by stringified argument.
+- **partial_first** — `fun partial_first<A, B, C>(f: (A, B) -> C, first: A) -> (B) -> C` — Fix the first argument of the binary function `f`, returning a function of the second.

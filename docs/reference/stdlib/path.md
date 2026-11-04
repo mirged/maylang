@@ -6,13 +6,13 @@
 - Source: [implementation](../../../stdlib/path.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
 - Operations are lexical; they do not resolve symlinks or access the filesystem. path_relative requires matching roots and returns `.` for identical paths.
-- **path_substr** — `fun path_substr(s: Any, start: Any, stop: Any) -> Any` — Return characters from inclusive `start` to exclusive `stop` as a string.
-- **path_is_absolute** — `fun path_is_absolute(p: Any) -> Any` — Recognize leading `/` or a drive letter followed by `:/` or `:\`.
-- **path_normalize** — `fun path_normalize(p: Any) -> Any` — Replace backslashes with `/`, remove repeated separators and `.`, resolve lexical `..`, preserve roots; empty relative paths become `.`.
-- **path_join** — `fun path_join(a: Any, b: Any) -> Any` — Join and normalize two paths; an absolute second path replaces the first.
-- **path_basename** — `fun path_basename(p: Any) -> Any` — Return the final component after normalization; the root `/` yields an empty string.
-- **path_dirname** — `fun path_dirname(p: Any) -> Any` — Return the normalized parent path, preserving roots; a lone relative component has parent `.`.
-- **path_extension** — `fun path_extension(p: Any) -> Any` — Return the extension without its dot; dotfiles and trailing dots produce an empty string.
-- **path_stem** — `fun path_stem(p: Any) -> Any` — Return the basename without its final extension.
-- **path_relative** — `fun path_relative(base_path: Any, target_path: Any) -> Any` — Return a lexical relative path; equal paths produce `.` and mismatched roots raise a fault.
+- **path_substr** — `fun path_substr(s: Str, start: Int, stop: Int) -> Str` — Return characters from inclusive `start` to exclusive `stop` as a string.
+- **path_is_absolute** — `fun path_is_absolute(p: Str) -> Bool` — Recognize leading `/` or a drive letter followed by `:/` or `:\`.
+- **path_normalize** — `fun path_normalize(p: Str) -> Str` — Replace backslashes with `/`, remove repeated separators and `.`, resolve lexical `..`, preserve roots; empty relative paths become `.`.
+- **path_join** — `fun path_join(a: Str, b: Str) -> Str` — Join and normalize two paths; an absolute second path replaces the first.
+- **path_basename** — `fun path_basename(p: Str) -> Str` — Return the final component after normalization; the root `/` yields an empty string.
+- **path_dirname** — `fun path_dirname(p: Str) -> Str` — Return the normalized parent path, preserving roots; a lone relative component has parent `.`.
+- **path_extension** — `fun path_extension(p: Str) -> Str` — Return the extension without its dot; dotfiles and trailing dots produce an empty string.
+- **path_stem** — `fun path_stem(p: Str) -> Str` — Return the basename without its final extension.
+- **path_relative** — `fun path_relative(base_path: Str, target_path: Str) -> Str` — Return a lexical relative path; equal paths produce `.` and mismatched roots raise a fault.
 - `path_relative` explicit fault strings: `"relative paths must have the same root"`; runtime/callback faults can also propagate.

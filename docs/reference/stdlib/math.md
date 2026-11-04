@@ -9,15 +9,15 @@
 - factorial/fibonacci do not reject negative arguments; their empty loops return 1 and 0 respectively.
 - **square** — `fun square(x: Any) -> Any` — Return `x * x`.
 - **cube** — `fun cube(x: Any) -> Any` — Return `x * x * x`.
-- **clamp** — `fun clamp(x: Any, lo: Any, hi: Any) -> Any` — Restrict `x` to the closed range `[lo, hi]`.
-- **gcd** — `fun gcd(a: Any, b: Any) -> Any` — Return the greatest common divisor of `a` and `b` (always non-negative).
-- **lcm** — `fun lcm(a: Any, b: Any) -> Any` — Return the least common multiple of `a` and `b` (`0` when either is `0`).
-- **is_prime** — `fun is_prime(n: Any) -> Any` — Report whether `n` is prime, by trial division up to `sqrt(n)`.
-- **factorial** — `fun factorial(n: Any) -> Any` — Return `n!`; `0!` and `1!` are `1`.
-- **fibonacci** — `fun fibonacci(n: Any) -> Any` — Return the `n`th Fibonacci number, with `fibonacci(0) == 0`.
+- **clamp** — `fun clamp<T>(x: T, lo: T, hi: T) -> T` — Restrict `x` to the closed range `[lo, hi]`.
+- **gcd** — `fun gcd(a: Int, b: Int) -> Int` — Return the greatest common divisor of `a` and `b` (always non-negative).
+- **lcm** — `fun lcm(a: Int, b: Int) -> Int` — Return the least common multiple of `a` and `b` (`0` when either is `0`).
+- **is_prime** — `fun is_prime(n: Int) -> Bool` — Report whether `n` is prime, by trial division up to `sqrt(n)`.
+- **factorial** — `fun factorial(n: Int) -> Int` — Return `n!`; `0!` and `1!` are `1`.
+- **fibonacci** — `fun fibonacci(n: Int) -> Int` — Return the `n`th Fibonacci number, with `fibonacci(0) == 0`.
 - **average** — `fun average(xs: Any) -> Any` — Return the arithmetic mean of a list (`0` when empty).
 - **median** — `fun median(xs: Any) -> Any` — Return the median of a list (`nil` when empty), sorting a copy.
-- **degrees** — `fun degrees(radians_of: Any) -> Any` — Convert `radians` to degrees.
-- **radians** — `fun radians(degrees_of: Any) -> Any` — Convert `degrees` to radians.
-- **distance** — `fun distance(x1: Any, y1: Any, x2: Any, y2: Any) -> Any` — Return the Euclidean distance between `(x1, y1)` and `(x2, y2)`.
-- **is_power_of_two** — `fun is_power_of_two(n: Any) -> Any` — Report whether `n` is a power of two (`n > 0`).
+- **degrees** — `fun degrees(radians_of: Float) -> Float` — Convert `radians` to degrees.
+- **radians** — `fun radians(degrees_of: Float) -> Float` — Convert `degrees` to radians.
+- **distance** — `fun distance(x1: Float, y1: Float, x2: Float, y2: Float) -> Float` — Return the Euclidean distance between `(x1, y1)` and `(x2, y2)`.
+- **is_power_of_two** — `fun is_power_of_two(n: Int) -> Bool` — Report whether `n` is a power of two (`n > 0`).

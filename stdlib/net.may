@@ -10,7 +10,7 @@ pub struct Socket { fd: Int, kind: Str, timeout_ms: Int }
 pub struct Datagram { data: Str, sender: Address }
 
 /// Construct and raise a network error with operation and positive errno.
-fun net_fault(operation: Str, code: Int, detail: Str) -> Any {
+fun net_fault(operation: Str, code: Int, detail: Str) -> Never {
     let e: Any = make_error("network", operation + ": " + detail);
     e.operation = operation; e.errno = code;
     return rt_raise(e);
@@ -182,8 +182,8 @@ pub fun socket_peer_address(s: Socket) -> Address {
     return net_decode(data);
 }
 /// Run an action and close the socket on success or a raised error.
-pub fun with_socket(s: Socket, action: (Socket) -> Any) -> Any {
-    let result: Any = may { action(s) } otherwise {
+pub fun with_socket<T>(s: Socket, action: (Socket) -> T) -> T {
+    let result: T = may { action(s) } otherwise {
         let caught: Any = err; net_discard(s); return rt_raise(caught);
     };
     socket_close(s); return result;

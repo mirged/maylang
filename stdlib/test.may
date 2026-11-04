@@ -1,26 +1,27 @@
 // test.may — a minimal assertion / test harness.
 
 /// Mutable module-wide count of successful recorded assertions, initially zero.
-mut __passed: Any = 0;
+mut __passed: Int = 0;
 /// Mutable module-wide count of failed recorded assertions, initially zero.
-mut __failed: Any = 0;
+mut __failed: Int = 0;
 
 /// Increment passed/failed counters and print `FAIL: label` for false conditions; continue running
 /// the suite.
-fun check(condition: Any, label: Any) -> Any {
-    return if (condition) {
+fun check(condition: Bool, label: Str) -> Nil {
+    if (condition) {
         __passed = __passed + 1;
     } else {
         __failed = __failed + 1;
         print("FAIL:", label);
-    };
+    }
+    return;
 }
 
 /// Record the supplied condition through `check`.
-fun assert_true(condition: Any, label: Any) -> Any { return check(condition, label); }
+fun assert_true(condition: Bool, label: Str) -> Nil { return check(condition, label); }
 
 /// Record equality; include actual/expected display values in a failure label.
-fun assert_equal(actual: Any, expected: Any, label: Any) -> Any {
+fun assert_equal<T>(actual: T, expected: T, label: Str) -> Nil {
     return check(
         actual == expected,
         label + " (got " + str(actual) + ", want " + str(expected) + ")"
@@ -28,23 +29,24 @@ fun assert_equal(actual: Any, expected: Any, label: Any) -> Any {
 }
 
 /// Record inequality against the unexpected value.
-fun assert_not_equal(actual: Any, unexpected: Any, label: Any) -> Any {
+fun assert_not_equal<T>(actual: T, unexpected: T, label: Str) -> Nil {
     return check(actual != unexpected, label);
 }
 
-/// Record membership through `has`.
-fun assert_contains(haystack: Any, needle: Any, label: Any) -> Any {
+/// Record membership through `has`; the haystack may be a list, map or string.
+fun assert_contains<T>(haystack: Any, needle: T, label: Str) -> Nil {
     return check(has(haystack, needle), label);
 }
 
 /// Record whether absolute numeric difference is at most tolerance.
-fun assert_near(actual: Any, expected: Any, tolerance: Any, label: Any) -> Any {
-    let delta: Any = abs(actual - expected);
+fun assert_near(actual: Float, expected: Float, tolerance: Float, label: Str) -> Nil {
+    let delta: Float = abs(actual - expected);
     return check(delta <= tolerance, label + " (delta " + str(delta) + ")");
 }
 
 /// Print totals and raise `fail` if any recorded assertion failed.
-fun test_summary() -> Any {
+fun test_summary() -> Nil {
     print("tests:", __passed, "passed,", __failed, "failed");
-    return if (__failed > 0) { fail("test suite failed"); };
+    if (__failed > 0) { fail("test suite failed"); }
+    return;
 }

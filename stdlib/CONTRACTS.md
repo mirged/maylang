@@ -3,9 +3,13 @@
 The active compiler is self-hosted `mayc`; its runtime is written in Maylang.
 The archived Rust runtime is not the contract for current programs. The
 [generated API inventory](../docs/reference/STDLIB.md) and [JSON inventory](../docs/reference/inventory.json) list source
-signatures, public declarations and runtime/platform restrictions. Many APIs
-retain `Any` annotations: callers must supply the documented value shapes.
-An `Any` parameter is not a guarantee that arbitrary inputs are accepted.
+signatures, public declarations and runtime/platform restrictions. Library
+functions use concrete and generic types. `Any` remains only at real dynamic
+boundaries, each explained beside its declaration: JSON values, validators that
+inspect a value's runtime type, `[a, b]` pairs of two element types (the
+language has no tuple values or generic structs), and the numeric helpers in
+`math.may` that accept Int and Float alike (there is no numeric type bound).
+An `Any` parameter is still not a guarantee that arbitrary inputs are accepted.
 
 ## Runtime and platform
 

@@ -5,8 +5,8 @@
 - Visibility: all top-level declarations are exported because this module has no `pub` declarations.
 - Source: [implementation](../../../stdlib/prelude.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
-- **id** — `fun id(x: Any) -> Any` — Return `x` unchanged.
-- **inc** — `fun inc(x: Any) -> Any` — Return `x + 1`.
-- **dec** — `fun dec(x: Any) -> Any` — Return `x - 1`.
-- **truthy** — `fun truthy(x: Any) -> Any` — Convert a dynamic value to Boolean using runtime truthiness.
-- **default** — `fun default(value: Any, fallback: Any) -> Any` — Return the fallback only when the value is `nil`.
+- **id** — `fun id<T>(x: T) -> T` — Return `x` unchanged.
+- **inc** — `fun inc(x: Int) -> Int` — Return `x + 1`.
+- **dec** — `fun dec(x: Int) -> Int` — Return `x - 1`.
+- **truthy** — `fun truthy(x: Any) -> Bool` — Convert a dynamic value to Boolean using runtime truthiness.
+- **default** — `fun default<T>(value: Optional<T>, fallback: T) -> T` — Return the fallback only when the value is `nil`.

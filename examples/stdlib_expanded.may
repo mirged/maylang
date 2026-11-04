@@ -8,28 +8,28 @@ import "validate.may";
 import "format.may";
 import "io.may";
 
-if (abs(stats_mean([1.0, 2.0, 3.0, 4.0]) - 2.5) > 0.0001) { fail("stats mean"); }
-if (abs(stats_correlation([1.0, 2.0, 3.0], [2.0, 4.0, 6.0]) - 1.0) > 0.0001) { fail("stats correlation"); }
-let rng_a: Any = random_new(17); let rng_b: Any = random_new(17);
+if (abs((stats_mean([1.0, 2.0, 3.0, 4.0]) ?? 0.0) - 2.5) > 0.0001) { fail("stats mean"); }
+if (abs((stats_correlation([1.0, 2.0, 3.0], [2.0, 4.0, 6.0]) ?? 0.0) - 1.0) > 0.0001) { fail("stats correlation"); }
+let rng_a: Random = random_new(17); let rng_b: Random = random_new(17);
 if (random_next_int(rng_a) != random_next_int(rng_b)) { fail("seeded PRNG reproducibility"); }
-let rows: Any = [["name", "note"], ["May", "says, \"hello\""], ["Lang", "two\nlines"]];
-let parsed: Any = csv_parse(csv_stringify(rows));
+let rows: List<List<Str>> = [["name", "note"], ["May", "says, \"hello\""], ["Lang", "two\nlines"]];
+let parsed: List<List<Str>> = csv_parse(csv_stringify(rows));
 if (len(parsed) != 3 || parsed[1][1] != rows[1][1] || parsed[2][1] != rows[2][1]) { fail("CSV round-trip"); }
-let record: Any = csv_records(["name", "note"], [["May", "friendly"]])[0];
-if (record.name != "May" || record.note != "friendly") { fail("CSV records"); }
-let empty_field: Any = csv_parse(csv_stringify([[""]]));
+let record: Map<Str, Str> = csv_records(["name", "note"], [["May", "friendly"]])[0];
+if (record["name"] != "May" || record["note"] != "friendly") { fail("CSV records"); }
+let empty_field: List<List<Str>> = csv_parse(csv_stringify([[""]]));
 if (len(empty_field) != 1 || len(empty_field[0]) != 1 || empty_field[0][0] != "") { fail("CSV empty field"); }
 if (path_normalize("alpha/./beta/../gamma.may") != "alpha/gamma.may") { fail("path normalization"); }
 if (path_extension(".profile") != "" || path_dirname("/file") != "/") { fail("path edge cases"); }
 if (path_normalize("C:\\alpha\\..\\beta") != "C:/beta") { fail("drive path normalization"); }
 if (path_extension("archive.tar.gz") != "gz" || path_stem("archive.tar.gz") != "archive.tar") { fail("path extension/stem"); }
 if (path_relative("a/b", "a/c/file") != "../c/file") { fail("relative paths"); }
-if (abs(stats_quantile([1.0, 2.0, 3.0, 4.0], 0.25) - 1.75) > 0.0001) { fail("quantile interpolation"); }
-if (sum_by([1, 2, 3], |x: Any| -> Any { return x * x; }) != 14) { fail("iter sum_by"); }
+if (abs((stats_quantile([1.0, 2.0, 3.0, 4.0], 0.25) ?? 0.0) - 1.75) > 0.0001) { fail("quantile interpolation"); }
+if (sum_by([1, 2, 3], |x: Int| -> Int { return x * x; }) != 14) { fail("iter sum_by"); }
 if (!validate_email("pilot@maylang.dev") || validate_email("not-an-email") || validate_email("p@il@ot.dev")) { fail("email validation"); }
 if (!validate_int_string("-0") || validate_int_string("2.4")) { fail("integer validation"); }
 if (!validate_float_string("-2.5") || validate_float_string("nope")) { fail("float validation"); }
-let validation: Any = validate_all("", [{"check": |x: Any| -> Any { return validate_nonempty(x); }, "message": "required"}]);
+let validation: Validation = validate_all("", [ValidationRule(|x: Any| -> Bool { return validate_nonempty(x); }, "required")]);
 if (validation.ok || validation.errors[0] != "required") { fail("composable validation"); }
 if (format_duration(3661) != "01:01:01") { fail("duration formatting"); }
 if (format_table(["key"], [["val"]]) != "| key |\n|-----|\n| val |") { fail("table formatting"); }

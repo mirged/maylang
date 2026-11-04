@@ -6,7 +6,7 @@
 - Comprehension: `let squares: List<Int> = [x * x for x in [1, 2, 3] if (x > 1)]; print(squares);` — prints [4, 9].
 - Optional map lookup: `let counts: Map<Str, Int> = {"apple": 2}; let count: Int = counts["pear"] ?? 0; print(count);` — prints 0.
 - Record: `struct Point { x: Int, y: Int } let p: Point = Point(3, 4); print(p.x + p.y);` — prints 7.
-- Recovery: `let number: Any = may { int("oops") } otherwise { 42 }; print(number);` — prints 42.
+- Recovery: `let number: Int = may { int("oops") } otherwise { 42 }; print(number);` — prints 42.
 - Fault inspection: `may { fail("demo"); } otherwise { print(err.kind, err.message); };` — prints a fail category and message.
 - Match: `let label: Str = match (2) { 1 => "one", 2 => "two", _ => "other" }; print(label);` — prints two.
 - Pipeline: `fun twice(x: Int) -> Int { return x * 2; } print(3 |> twice |> twice);` — prints 12.
@@ -16,11 +16,11 @@
 - Algorithms import: `import "algo" as algo;`.
 - Algorithms call: `print(algo.binary_search(algo.merge_sort([3, 1, 2]), 2));` — prints 1.
 - Collections import: `import "collections" as collections;`.
-- Collections call: `let st: Any = collections.stack(); collections.stack_push(st, "May"); print(collections.stack_pop(st));` — prints May.
+- Collections call: `let st: List<Str> = collections.stack(); collections.stack_push(st, "May"); print(collections.stack_pop(st) ?? "");` — prints May.
 - CSV import: `import "csv" as csv;`.
 - CSV call: `print(csv.csv_parse("a,\"b,c\"\n"));` — produces one row with two cells.
 - Random import: `import "random" as random;`.
-- Random call: `let rng: Any = random.random_new(42); print(random.random_int(rng, 1, 6));` — produces a repeatable integer in [1,6].
+- Random call: `let rng: random.Random = random.random_new(42); print(random.random_int(rng, 1, 6));` — produces a repeatable integer in [1,6].
 - Statistics import: `import "stats" as stats;`.
 - Statistics call: `print(stats.stats_mean([1, 2]));` — prints 1.5, avoiding integer-division truncation in math.average.
 - Result import: `import "result" as result;`.
@@ -38,4 +38,4 @@
 - [Task manager](../../examples/apps/maytasks/README.md) — application state and commands.
 - [Starfall game](../../examples/games/starfall/README.md) — complete game project.
 - [MayWar](../../examples/games/maywar/README.md) — Core War arena: a Redcode assembler, ICWS'94 simulator and live terminal view.
-- Run repository programs with their documented runtime/target settings; older tours may retain Any boundaries or legacy syntax.
+- Run repository programs with their documented runtime/target settings; some programs keep Any at JSON or other dynamic boundaries.

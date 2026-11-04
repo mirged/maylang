@@ -7,10 +7,10 @@
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
 - **io_read_text** — `fun io_read_text(path: Str) -> Str` — Read an entire text file; propagate read errors.
 - **io_read_or** — `fun io_read_or(path: Str, fallback: Str) -> Str` — Read text or return `fallback` on a caught runtime fault.
-- **io_write_text** — `fun io_write_text(path: Str, text: Any) -> Str` — Write `str(text)` and return the supplied path.
+- **io_write_text** — `fun io_write_text<T>(path: Str, text: T) -> Str` — Write `str(text)` and return the supplied path.
 - **io_read_lines** — `fun io_read_lines(path: Str) -> List<Str>` — Read a file and split on LF; a trailing newline yields a trailing empty entry.
 - **io_write_lines** — `fun io_write_lines(path: Str, lines: List<Str>) -> Str` — Join lines with LF, write without an added final newline, and return the path.
-- **io_read_json** — `fun io_read_json(path: Str) -> Any` — Read and parse JSON; propagate I/O and parse errors.
+- **io_read_json** — `fun io_read_json(path: Str) -> Any` — Read and parse JSON; propagate I/O and parse errors. The result is dynamic `Any`, as JSON is.
 - **io_read_json_or** — `fun io_read_json_or(path: Str, fallback: Any) -> Any` — Read and parse JSON, returning `fallback` on any caught fault.
 - **io_write_json** — `fun io_write_json(path: Str, value: Any) -> Str` — Serialize JSON, write it and return the path.
 - **io_read_csv** — `fun io_read_csv(path: Str) -> List<List<Str>>` — Read a file and return parsed CSV rows.
