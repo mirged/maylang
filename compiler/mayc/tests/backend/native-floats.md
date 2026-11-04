@@ -154,12 +154,11 @@ win.
 
 ## Limits and follow-ups
 
-- **Float loop bodies** are the main remaining piece. They need XMM homes for
-  Float locals and temporaries in a loop body of a native function, which is
-  the same scheme the fat backend already uses; the raw backend's loop
-  register allocation assumes machine words, so this was left out of this
-  increment and the loop stays on the tagged versioned path, which is already
-  fast.
+- **Float loop bodies** are implemented in
+  [`native-float-loops.md`](native-float-loops.md): Float locals keep XMM
+  homes across iterations, a leaf body also keeps the raw backend's integer
+  registers and fusions, and a function whose value escapes to dynamic code is
+  demoted to the tagged ABI.
 - **Float globals** are tagged and keep a function from being native; a Float
   global would need a boxing conversion at its reads and writes.
 - **More operations:** `%`, bitwise operators, `int(Float)`, `sqrt`, `floor`,

@@ -1,0 +1,11 @@
+// A top-level Float loop: the native main keeps the accumulator and the
+// temporaries in XMM registers and inlines the conversions and SSE arithmetic.
+mut total: Float = 0.0;
+mut i: Int = 0;
+while (i < 20000000) {
+    let x: Float = to_float(i) * 0.5;
+    let y: Float = x * x - 1.25;
+    total = total + y / (x + 2.0);
+    i += 1;
+}
+print(total);

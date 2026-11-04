@@ -1,0 +1,258 @@
+// Native Float loop bodies (#132). A Float function that contains a loop now
+// compiles as native-word code: loop-carried Float locals keep XMM homes
+// (spilled and reloaded around calls), Float literals and temporaries compute
+// as SSE with the runtime's binary64 semantics, and Int code inside the body
+// keeps the raw backend's local registers and fusions.
+//
+// The expected output was produced by the compiler before Float loop bodies
+// became native-word code, so it is an oracle for the tagged runtime
+// semantics; oracle.py also compiles this file with --no-opt, which keeps Float
+// loops on the tagged path, and requires the same output.
+fun show(label: Str, value: Any) -> Nil { print(label, value); return; }
+fun caught(f: () -> Any) -> Str {
+    return may { str(f()) } otherwise { "${err.kind}: ${err.message}" };
+}
+
+// ------------------------------------------------ loop-carried locals
+fun accumulate(n: Int, x: Float) -> Float {
+    mut acc: Float = x;
+    mut i: Int = 0;
+    while (i < n) { acc = acc * 1.5 + 0.25; i += 1; }
+    return acc;
+}
+
+// Two interacting loop-carried locals, including a per-iteration `let` copy.
+fun exchange(n: Int) -> Float {
+    mut a: Float = 1.0;
+    mut b: Float = 2.0;
+    mut i: Int = 0;
+    while (i < n) { let t: Float = a; a = b * 0.5 + t; b = b + 1.0; i += 1; }
+    return a + b;
+}
+
+// A mutable local read into a `let` before the local is written again: the
+// copy must keep the old value.
+fun snapshot(m: Int, x: Float) -> Float {
+    mut a: Float = x;
+    mut total: Float = 0.0;
+    mut i: Int = 0;
+    while (i < m) { let t: Float = a; a = a + 1.0; total = total + t; i += 1; }
+    return total;
+}
+
+// ------------------------------------------------ conversions and ranges
+fun convert_range(n: Int) -> Float {
+    mut sum: Float = 0.0;
+    for i in 0..n { sum = sum + to_float(i) * 0.5; }
+    return sum;
+}
+
+fun convert_while(k: Int) -> Float {
+    mut sum: Float = 0.0;
+    mut i: Int = 0;
+    while (i < k) { sum = sum + to_float(i * 3 + 1) / 4.0; i += 1; }
+    return sum;
+}
+
+// ------------------------------------------------ control flow in the body
+fun break_continue(n: Int) -> Float {
+    mut acc: Float = 0.0;
+    mut i: Int = 0;
+    while (i < n) {
+        i += 1;
+        if (i % 3 == 0) { continue; }
+        acc = acc + 1.0;
+        if (acc > 4.5) { break; }
+    }
+    return acc;
+}
+
+fun early_return(n: Int, limit: Float) -> Float {
+    mut acc: Float = 0.0;
+    mut i: Int = 0;
+    while (i < n) {
+        acc = acc + to_float(i) * 0.25;
+        if (acc > limit) { return acc; }
+        i += 1;
+    }
+    return acc;
+}
+
+fun nested(n: Int, m: Int) -> Float {
+    mut total: Float = 0.0;
+    mut y: Int = 0;
+    while (y < n) {
+        mut row: Float = to_float(y);
+        mut x: Int = 0;
+        while (x < m) { row = row + 0.5; total = total + row * 0.25; x += 1; }
+        y += 1;
+    }
+    return total;
+}
+
+fun mandel(size: Int, limit: Int) -> Int {
+    mut inside: Int = 0;
+    mut y: Int = 0;
+    while (y < size) {
+        let ci: Float = 2.0 * to_float(y) / to_float(size) - 1.0;
+        mut x: Int = 0;
+        while (x < size) {
+            let cr: Float = 2.0 * to_float(x) / to_float(size) - 1.5;
+            mut zr: Float = 0.0;
+            mut zi: Float = 0.0;
+            mut k: Int = 0;
+            mut escaped: Bool = false;
+            while (k < limit) {
+                let tr: Float = zr * zr - zi * zi + cr;
+                zi = 2.0 * zr * zi + ci;
+                zr = tr;
+                if (zr * zr + zi * zi > 4.0) { escaped = true; break; }
+                k += 1;
+            }
+            if (!escaped) { inside += 1; }
+            x += 1;
+        }
+        y += 1;
+    }
+    return inside;
+}
+
+// ------------------------------------------------ calls and spills
+// Stays tagged (sqrt is not inlined), so a loop that keeps Float locals across
+// it exercises the XMM spill and reload.
+fun tagged_sqrt(x: Float) -> Float { return sqrt(x); }
+fun call_loop_tagged(n: Int) -> Float {
+    mut acc: Float = 4.0;
+    mut i: Int = 0;
+    while (i < n) { acc = tagged_sqrt(acc); i += 1; }
+    return acc;
+}
+
+// A native Float helper with its own XMM locals, called from a loop.
+fun squish(x: Float) -> Float {
+    let a: Float = x * 2.0;
+    mut b: Float = a + 1.0;
+    b = b * 0.5;
+    return b;
+}
+fun call_loop_native(n: Int) -> Float {
+    mut acc: Float = 0.25;
+    mut i: Int = 0;
+    while (i < n) { acc = squish(acc); i += 1; }
+    return acc;
+}
+
+fun recur(n: Int, x: Float) -> Float {
+    if (n <= 0) { return x; }
+    return recur(n - 1, x * 0.5) + 0.5;
+}
+
+// ------------------------------------------------ more than eight Float locals
+// The ninth and later stay words, so a loop touches both forms.
+fun many_locals(x: Float) -> Float {
+    let a: Float = x + 1.0; let b: Float = a + 1.0; let c: Float = b + 1.0;
+    let d: Float = c + 1.0; let e: Float = d + 1.0; let f: Float = e + 1.0;
+    let g: Float = f + 1.0; let h: Float = g + 1.0; let i: Float = h + 1.0;
+    let j: Float = i + 1.0;
+    mut out: Float = 0.0;
+    mut k: Int = 0;
+    while (k < 3) { out = out + a + b + c + d + e + f + g + h + i + j; k += 1; }
+    return out;
+}
+
+// ------------------------------------------------ NaN, infinity, signed zero
+// `>` and `>=` fuse into ucomisd + one branch; NaN must take the false side
+// for both operators and in both directions.
+fun gt(x: Float, y: Float) -> Bool { return x > y; }
+fun ge(x: Float, y: Float) -> Bool { return x >= y; }
+fun lt(x: Float, y: Float) -> Bool { return x < y; }
+fun le(x: Float, y: Float) -> Bool { return x <= y; }
+fun eq(x: Float, y: Float) -> Bool { return x == y; }
+fun ne(x: Float, y: Float) -> Bool { return x != y; }
+
+fun nan_loop(n: Int) -> Int {
+    let inf: Float = 1.0e308 * 10.0;
+    let nan: Float = inf - inf;
+    mut taken: Int = 0;
+    mut i: Int = 0;
+    while (i < n) {
+        if (nan > 4.0) { taken += 1; }
+        if (nan >= 4.0) { taken += 1; }
+        if (nan < 4.0) { taken += 1; }
+        if (nan <= 4.0) { taken += 1; }
+        if (nan == nan) { taken += 1; }
+        if (nan != nan) { taken += 1; }
+        if (4.0 > nan) { taken += 1; }
+        i += 1;
+    }
+    return taken;
+}
+
+fun zero_loop(n: Int) -> Float {
+    mut z: Float = -0.0;
+    mut i: Int = 0;
+    while (i < n) { z = z * 1.0; i += 1; }
+    return z;
+}
+
+fun infinity_loop(n: Int) -> Float {
+    mut acc: Float = 1.0e308 * 10.0;
+    mut i: Int = 0;
+    while (i < n) { acc = acc * 2.0; i += 1; }
+    return acc;
+}
+
+// ------------------------------------------------ faults
+fun divide_zero_loop(n: Int) -> Float {
+    mut acc: Float = 1.0;
+    mut i: Int = 0;
+    while (i < n) { acc = acc / 0.0; i += 1; }
+    return acc;
+}
+
+fun divide_neg_zero_loop() -> Float {
+    mut acc: Float = 1.0;
+    mut i: Int = 0;
+    while (i < 2) { acc = acc / -0.0; i += 1; }
+    return acc;
+}
+
+// An Int overflow inside a Float loop keeps the Int rule.
+fun int_overflow_loop() -> Float {
+    mut acc: Float = 0.0;
+    mut k: Int = 4611686018427387904;
+    mut i: Int = 0;
+    while (i < 4) { acc = acc + 1.0; k = k * 2; i += 1; }
+    return acc + to_float(k);
+}
+
+// ================================================ top level
+show("accumulate", accumulate(20, 1.0));
+show("exchange", exchange(10));
+show("snapshot", snapshot(5, 2.0));
+show("convert range", convert_range(100));
+show("convert while", convert_while(100));
+show("break continue", break_continue(100));
+show("early return", early_return(50, 3.0));
+show("nested", nested(5, 7));
+show("mandel", mandel(60, 50));
+show("call tagged", call_loop_tagged(20));
+show("call native", call_loop_native(30));
+show("recursion", recur(10, 1.0));
+show("many locals", many_locals(1.0));
+
+let inf: Float = 1.0e308 * 10.0;
+let nan: Float = inf - inf;
+print("gt", gt(2.0, 1.0), gt(1.0, 2.0), gt(nan, 1.0), gt(1.0, nan));
+print("ge", ge(2.0, 2.0), ge(1.0, 2.0), ge(nan, 1.0), ge(1.0, nan));
+print("lt", lt(1.0, 2.0), lt(2.0, 1.0), lt(nan, 1.0), lt(1.0, nan));
+print("le", le(2.0, 2.0), le(2.0, 1.0), le(nan, 1.0), le(1.0, nan));
+print("eq", eq(2.0, 2.0), eq(2.0, 3.0), eq(nan, nan), eq(nan, 1.0));
+print("ne", ne(2.0, 3.0), ne(2.0, 2.0), ne(nan, nan), ne(nan, 1.0));
+show("nan loop", nan_loop(3));
+show("zero loop", zero_loop(3));
+show("infinity loop", infinity_loop(4));
+
+show("divide zero", caught(fun() -> Any { return divide_zero_loop(1); }));
+show("divide neg zero", caught(fun() -> Any { return divide_neg_zero_loop(); }));
+show("int overflow", caught(fun() -> Any { return int_overflow_loop(); }));

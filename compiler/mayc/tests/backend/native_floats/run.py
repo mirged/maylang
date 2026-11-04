@@ -6,11 +6,12 @@ Usage: run.py OLD_MAYC NEW_MAYC OUT.json [--rounds N]
 Every workload beside this script, plus the two roadmap benchmarks the issue
 names (Mandelbrot and n-body, from the cross-language suite), is built by both
 compilers. The workloads here are call-bound Float helpers (`float_helper`,
-`float_chain`, `float_convert`, `float_ops`), a Float loop body that stays
-tagged (`float_loop`, `mandel_wrapped`) and the two named benchmarks. A
-straight-line Float function is native in the new compiler; a loop body is
-still tagged, and the named benchmarks keep their Float work in a tagged loop
-or read Float struct fields, so their numbers measure the tagged path.
+`float_chain`, `float_convert`, `float_ops`), three Float loop bodies
+(`float_loop`, `float_loop_math`, `mandel_wrapped`) and the two named
+benchmarks. Float functions
+with loop bodies are native in the new compiler (see `native-float-loops.md`);
+the named benchmarks keep their Float work in top-level code or read Float
+struct fields, so their numbers measure the tagged path.
 
 The runtime is read at compile time, so each compiler must sit beside its own
 runtime sidecars. Rounds are interleaved (each runs every binary once,

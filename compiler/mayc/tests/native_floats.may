@@ -1,9 +1,8 @@
-// Native Float functions (#132). A straight-line function whose parameters,
-// result, locals and operations are all Int/Ptr/Bool/Float compiles to
-// machine code: Float values are binary64 bit patterns in words and their
-// operations run in XMM registers. Float loop bodies stay on the tagged
-// versioned path for now (their locals keep the fat backend's XMM homes), so
-// this fixture also pins one loop.
+// Native Float functions (#132). A function whose parameters, result, locals
+// and operations are all Int/Ptr/Bool/Float compiles to machine code: Float
+// values are binary64 bit patterns in words and their operations run in XMM
+// registers. `native_float_loops.may` covers loop bodies; the loop here is the
+// simple series that pins the same output through both paths.
 //
 // The expected output was produced by the compiler before Float became a
 // native-word kind, so it is an oracle for the tagged path; oracle.py also
@@ -70,7 +69,7 @@ fun power(base: Float, n: Int, acc: Float) -> Float {
 fun divide_fault(a: Float, b: Float) -> Float { return a / b; }
 fun int_overflow(n: Int) -> Float { return to_float(n * 1000000000000000000); }
 
-// ------------------------------------------------ loop: stays tagged
+// ------------------------------------------------ loop
 fun sum_series(n: Int, x: Float) -> Float {
     mut acc: Float = x;
     mut i: Int = 0;

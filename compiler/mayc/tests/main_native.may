@@ -4,7 +4,8 @@
 // behavior (including a word-compatible tagged callee reached through its word
 // adapter) against the compiler before the native path existed, and against
 // --no-opt. tests/main_native_words.may is the companion that does take the
-// native path, and backends.py asserts that path is really taken.
+// native path, backends.py asserts that path is really taken, and
+// main_native_floats.may is its Float counterpart (#132b).
 //
 // The expected output was produced by the compiler before main had a native
 // path, so it is an oracle for the tagged main. The final division by zero
