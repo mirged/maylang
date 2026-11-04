@@ -5,67 +5,74 @@ import "diagnostics.may";
 import "navigation.may";
 import "workspacecache.may";
 
+/// A workspace diagnostic pull: its request, cached result ids and progress.
+struct WorkspaceJob {
+    id: Any, params: Any, previous: Any, epoch: Int, parts: List<Str>, offset: Int,
+    files: Optional<List<Str>>, started: Bool, bytes: Int, limit: Int
+}
+
 // Workspace pulls get one worker and eight queued requests. Stream individual
 // reports; retain encoded strings only when the client cannot accept partials.
-mut LS_WORKSPACE_PID: Any = 0;
-mut LS_WORKSPACE_JOB: Any = nil;
-mut LS_WORKSPACE_QUEUE: Any = [];
-mut LS_WORKSPACE_EPOCH: Any = -1;
-mut LS_WORKSPACE_BUFFER: Any = "";
-mut LS_WORKSPACE_BYTES: Any = 0;
-mut LS_WORKSPACE_DEADLINE: Any = 0;
-mut LS_WORKSPACE_LIMIT: Any = 0;
-let LS_WORKSPACE_IO: Any = syscall(9, 0, 65536, 3, 34, -1, 0);
+mut LS_WORKSPACE_PID: Int = 0;
+mut LS_WORKSPACE_JOB: Optional<WorkspaceJob> = nil;
+mut LS_WORKSPACE_QUEUE: List<WorkspaceJob> = [];
+mut LS_WORKSPACE_EPOCH: Int = -1;
+mut LS_WORKSPACE_BUFFER: Str = "";
+mut LS_WORKSPACE_BYTES: Int = 0;
+mut LS_WORKSPACE_DEADLINE: Int = 0;
+mut LS_WORKSPACE_LIMIT: Int = 0;
+let LS_WORKSPACE_IO: Int = syscall(9, 0, 65536, 3, 34, -1, 0);
 
-fun ls_workspace_progress(job: Any, value: Any) -> Any {
+fun ls_workspace_progress(job: WorkspaceJob, value: Any) -> Nil {
     if (job.params.workDoneToken != nil) { ls_notify("$/progress", {"token": job.params.workDoneToken, "value": value}); }
-    return nil;
+    return;
 }
-fun ls_workspace_stop() -> Any {
+fun ls_workspace_stop() -> Nil {
     if (LS_WORKSPACE_PID > 0) {
         syscall(62, LS_WORKSPACE_PID, 9);
-        mut waited: Any = syscall(61, LS_WORKSPACE_PID, 0, 0, 0);
+        mut waited: Int = syscall(61, LS_WORKSPACE_PID, 0, 0, 0);
         while (waited == -4) { waited = syscall(61, LS_WORKSPACE_PID, 0, 0, 0); }
     }
     if (LS_WORKSPACE_FD >= 0) { syscall(3, LS_WORKSPACE_FD); }
     LS_WORKSPACE_PID = 0; LS_WORKSPACE_FD = -1; LS_WORKSPACE_JOB = nil;
-    LS_WORKSPACE_BUFFER = ""; LS_WORKSPACE_BYTES = 0; return nil;
+    LS_WORKSPACE_BUFFER = ""; LS_WORKSPACE_BYTES = 0; return;
 }
-fun ls_workspace_abort(code: Any, message: Any) -> Any {
-    let job: Any = LS_WORKSPACE_JOB;
+fun ls_workspace_abort(code: Int, message: Str) -> Nil {
+    let job: Optional<WorkspaceJob> = LS_WORKSPACE_JOB;
     ls_workspace_stop();
     if (job != nil) { ls_workspace_progress(job, {"kind": "end", "message": message}); ls_error(job.id, code, message); }
-    return nil;
+    return;
 }
-fun ls_workspace_invalidate(code: Any, message: Any) -> Any {
+fun ls_workspace_invalidate(code: Int, message: Str) -> Nil {
     ls_workspace_abort(code, message);
-    for job: Any in LS_WORKSPACE_QUEUE { ls_error(job.id, code, message); }
-    LS_WORKSPACE_QUEUE = []; return nil;
+    for job: WorkspaceJob in LS_WORKSPACE_QUEUE { ls_error(job.id, code, message); }
+    LS_WORKSPACE_QUEUE = []; return;
 }
-fun ls_workspace_changed() -> Any {
+fun ls_workspace_changed() -> Nil {
     if (LS_WORKSPACE_EPOCH != LS_INDEX_EPOCH) {
         ls_workspace_invalidate(-32802, "Workspace changed; retry diagnostic request");
         ls_workspace_cache_reset();
         LS_WORKSPACE_EPOCH = LS_INDEX_EPOCH;
     }
-    return nil;
+    return;
 }
-fun ls_workspace_cancel(id: Any, token: Any) -> Any {
-    if (LS_WORKSPACE_JOB != nil and ((id != nil and LS_WORKSPACE_JOB.id == id) or (token != nil and LS_WORKSPACE_JOB.params.workDoneToken == token))) {
+fun ls_workspace_cancel(id: Any, token: Any) -> Nil {
+    let active: Optional<WorkspaceJob> = LS_WORKSPACE_JOB;
+    if (active != nil and ((id != nil and active.id == id) or (token != nil and active.params.workDoneToken == token))) {
         ls_workspace_abort(-32800, "Request cancelled");
     }
-    let remaining: Any = [];
-    for job: Any in LS_WORKSPACE_QUEUE {
+    let remaining: List<WorkspaceJob> = [];
+    for job: WorkspaceJob in LS_WORKSPACE_QUEUE {
         if ((id != nil and job.id == id) or (token != nil and job.params.workDoneToken == token)) { ls_error(job.id, -32800, "Request cancelled"); }
         else { push(remaining, job); }
     }
-    LS_WORKSPACE_QUEUE = remaining; return nil;
+    LS_WORKSPACE_QUEUE = remaining; return;
 }
-fun ls_diagnostic_identifier(p: Any) -> Any {
+fun ls_diagnostic_identifier(p: Any) -> Nil {
     if (p.identifier != nil and p.identifier != "maylsp") { fail("unknown diagnostic identifier"); }
-    return nil;
+    return;
 }
-fun ls_request_workspace(id: Any, p: Any) -> Any {
+fun ls_request_workspace(id: Any, p: Any) -> Nil {
     ls_diagnostic_identifier(p);
     if (value_tag(p.previousResultIds) != 5 or len(p.previousResultIds) > 10000) { fail("previousResultIds must be an array of at most 10000 entries"); }
     for token: Any in [p.workDoneToken, p.partialResultToken] {
@@ -74,89 +81,107 @@ fun ls_request_workspace(id: Any, p: Any) -> Any {
     let previous: Any = {};
     for item: Any in p.previousResultIds {
         if (value_tag(item) != 7 or value_tag(item.uri) != 1 or value_tag(item.value) != 1) { fail("invalid previous diagnostic result"); }
-        previous[ls_uri(ls_path(item.uri))] = item.value;
+        previous[ls_uri(ls_path(str(item.uri)))] = item.value;
     }
     ls_workspace_changed();
-    if (len(LS_WORKSPACE_QUEUE) >= 8) { ls_error(id, -32803, "Workspace diagnostic queue limit exceeded"); return nil; }
-    push(LS_WORKSPACE_QUEUE, {"id": id, "params": p, "previous": previous, "epoch": LS_INDEX_EPOCH, "parts": [], "offset": 0, "files": nil, "started": false, "bytes": 0});
-    return nil;
+    if (len(LS_WORKSPACE_QUEUE) >= 8) { ls_error(id, -32803, "Workspace diagnostic queue limit exceeded"); return; }
+    push(LS_WORKSPACE_QUEUE, WorkspaceJob(id, p, previous, LS_INDEX_EPOCH, [], 0, nil, false, 0, 0));
+    return;
 }
-fun ls_workspace_contains(uri: Any) -> Any {
-    let path: Any = ls_path(uri);
-    for root: Any in LS_ROOTS { if (path == root or ls_starts(path, if (root == "/") { "/" } else { root + "/" })) { return true; } }
+fun ls_workspace_contains(uri: Str) -> Bool {
+    let path: Str = ls_path(uri);
+    for root: Str in LS_ROOTS { if (path == root or ls_starts(path, if (root == "/") { "/" } else { root + "/" })) { return true; } }
     return false;
 }
-fun ls_workspace_emit(item: Any, completed: Any, total: Any) -> Any {
+fun ls_workspace_emit(item: Any, completed: Int, total: Int) -> Nil {
     return ls_write(ls_json({"item": item, "completed": completed, "total": total}) + "\n");
 }
-fun ls_workspace_compute(job: Any) -> Any {
-    let base: Any = {}; mut files: Any = job.files ?? []; let seen: Any = {};
-    for uri: Any in keys(LS_DOCS) {
-        if (LS_DOCS[uri].open) {
-            base[uri] = LS_DOCS[uri];
-            if (job.files == nil and ls_ends(LS_DOCS[uri].path, ".may")) { push(files, uri); seen[uri] = true; }
+// The encoded report for a file the client already has, when it is still valid.
+fun ls_cached_report(uri: Str, fresh: Bool) -> Optional<Str> {
+    if (not fresh) { return nil; }
+    return ls_workspace_cache_get(uri);
+}
+// A metadata-only document for a file whose diagnostics are already cached.
+fun ls_snapshot_doc(uri: Str) -> Optional<Doc> {
+    let known: Optional<Doc> = LS_DOCS[uri];
+    if (known != nil) {
+        if (known.open) { return ls_new_doc(uri, known.path, "", known.version, true); }
+    }
+    if (file_exists(ls_path(uri))) { return ls_new_doc(uri, ls_path(uri), "", nil, false); }
+    return nil;
+}
+fun ls_workspace_compute(job: WorkspaceJob) -> Nil {
+    let base: Map<Str, Doc> = {}; let known: Optional<List<Str>> = job.files; mut files: List<Str> = [];
+    if (known != nil) { files = known; }
+    let seen: Map<Str, Bool> = {};
+    for uri: Str in keys(LS_DOCS) {
+        let indexed: Optional<Doc> = LS_DOCS[uri];
+        if (indexed != nil) {
+            if (indexed.open) {
+                base[uri] = indexed;
+                if (known == nil and ls_ends(indexed.path, ".may")) { push(files, uri); seen[uri] = true; }
+            }
         }
     }
     if (len(files) > 10000) { fail("Workspace diagnostic file limit exceeded"); }
-    if (job.files == nil) {
-        for root: Any in LS_ROOTS { ls_navigation_scan(root, 0, files, seen); }
+    if (known == nil) {
+        for root: Str in LS_ROOTS { ls_navigation_scan(root, 0, files, seen); }
         // Check changed/unknown reports first, before buffering unchanged ones.
-        let fresh: Any = []; let unchanged: Any = [];
-        for uri: Any in files {
-            let resultId: Any = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
+        let fresh: List<Str> = []; let unchanged: List<Str> = [];
+        for uri: Str in files {
+            let resultId: Str = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
             if (job.previous[uri] == resultId) { push(unchanged, uri); } else { push(fresh, uri); }
         }
         files = fresh;
-        for uri: Any in unchanged { push(files, uri); }
+        for uri: Str in unchanged { push(files, uri); }
         ls_write(ls_json({"files": files}) + "\n");
     }
     ls_navigation_restore(base);
-    mut end: Any = min(job.offset + 32, len(files)); mut sourceBytes: Any = 0;
-    let documents: Any = {}; let pending: Any = []; let single: Any = {}; let ready: Any = {};
-    for index: Any in job.offset..end {
-        let uri: Any = files[index];
-        let resultId: Any = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
-        let cached: Any = if (job.previous[uri] != resultId) { ls_workspace_cache_get(uri) } else { nil };
+    mut end: Int = min(job.offset + 32, len(files)); mut sourceBytes: Int = 0;
+    let documents: Map<Str, Doc> = {}; let pending: List<Doc> = []; let single: Map<Str, Any> = {}; let ready: Map<Str, Any> = {};
+    for index: Int in job.offset..end {
+        let uri: Str = files[index];
+        let resultId: Str = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
+        let fresh: Bool = job.previous[uri] != resultId;
+        let cached: Optional<Str> = ls_cached_report(uri, fresh);
         // A matching snapshot needs only existence and version metadata, not
         // disk indexes or compiler/builtin state in a newly forked worker.
-        let doc: Any = if (job.previous[uri] == resultId or cached != nil) {
-            if (LS_DOCS[uri]?.open == true or file_exists(ls_path(uri))) { ({"uri": uri, "version": LS_DOCS[uri]?.version}) } else { nil }
-        } else { ls_document(uri) };
+        let doc: Optional<Doc> = if (job.previous[uri] == resultId or cached != nil) { ls_snapshot_doc(uri) } else { ls_document(uri) };
         // Imported entries can pull in an entire compiler/library. Combining
         // unrelated graphs into one AST also produces duplicate declarations
         // and forces expensive per-entry retries. Give these a fresh worker;
         // small independent files still share the fast 32-entry batch.
-        let expensive: Any = doc != nil and doc.text != nil and (len(doc.imports ?? []) > 0 or ls_bytes(doc.text) > 32768);
-        let bytes: Any = if (doc != nil and doc.text != nil) { ls_bytes(doc.text) } else { 0 };
+        let expensive: Bool = doc != nil and (len(doc.imports) > 0 or ls_bytes(doc.text) > 32768);
+        let bytes: Int = if (doc != nil) { ls_bytes(doc.text) } else { 0 };
         if (index > job.offset and (expensive or sourceBytes + bytes > 32768)) { end = index; break; }
         sourceBytes += bytes;
-        documents[uri] = doc;
+        if (doc != nil) { documents[uri] = doc; }
         if (doc != nil and cached != nil) { ready[uri] = ls_parse_json(cached); }
         else if (doc != nil and job.previous[uri] != resultId) { push(pending, doc); }
         if (expensive) { end = index + 1; break; }
     }
-    mut clean: Any = true;
+    mut clean: Bool = true;
     if (len(pending) > 0) {
         LS_CHECK_CACHE = {}; LS_DIAG_CACHE = {};
         ls_diagnostics_entries(pending[0], pending);
         clean = len(keys(LS_CHECK_ERRORS)) == 0;
         if (len(pending) == 1) { single[pending[0].uri] = LS_CHECK_ERRORS[pending[0].uri] ?? []; }
     }
-    for index: Any in job.offset..end {
-        let uri: Any = files[index]; let doc: Any = documents[uri]; let completed: Any = index + 1;
-        if (doc == nil) { ls_workspace_emit({"uri": uri, "version": nil, "kind": "full", "items": []}, completed, len(files)); }
+    for index: Int in job.offset..end {
+        let uri: Str = files[index]; let present: Optional<Doc> = documents[uri]; let completed: Int = index + 1;
+        if (present == nil) { ls_workspace_emit({"uri": uri, "version": nil, "kind": "full", "items": []}, completed, len(files)); }
         else {
-            let resultId: Any = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
-            let report: Any = {"uri": uri, "version": doc.version, "kind": "unchanged", "resultId": resultId};
+            let resultId: Str = "workspace:" + LS_DIAGNOSTIC_SESSION + ":" + str(job.epoch) + ":" + uri;
+            let report: Map<Str, Any> = {"uri": uri, "version": present.version, "kind": "unchanged", "resultId": resultId};
             if (job.previous[uri] != resultId) {
                 report.kind = "full"; report.items = [];
-                if (has(ready, uri)) { report.items = ready[uri].items; }
-                else if (has(single, uri)) { report.items = single[uri]; }
+                if (has(ready, uri)) { report.items = ls_map_value(ready, uri).items; }
+                else if (has(single, uri)) { report.items = ls_map_value(single, uri); }
                 else if (not clean) {
                     // Any batch error can stop lexing/resolution or hit the
                     // recovery cap. Recheck entries independently in that case.
                     LS_CHECK_CACHE = {}; LS_DIAG_CACHE = {};
-                    ls_diagnostics(doc); report.items = LS_CHECK_ERRORS[uri] ?? [];
+                    ls_diagnostics(present); report.items = LS_CHECK_ERRORS[uri] ?? [];
                 }
             }
             ls_workspace_emit(report, completed, len(files));
@@ -164,22 +189,23 @@ fun ls_workspace_compute(job: Any) -> Any {
     }
     // Reap and replace the worker after every 32 entry checks. This bounds
     // compiler allocations and conservative-GC retention across a long pull.
-    if (end < len(files)) { ls_write(ls_json({"resume": end}) + "\n"); return nil; }
-    for uri: Any in files { seen[uri] = true; }
+    if (end < len(files)) { ls_write(ls_json({"resume": end}) + "\n"); return; }
+    for uri: Str in files { seen[uri] = true; }
     for uri: Any in keys(job.previous) {
+        let key: Str = str(uri);
         // A file omitted solely by the scan limit must not have its diagnostics
         // cleared. Deleted files and documents in removed roots do get clears.
-        if (not has(seen, uri) and (not file_exists(ls_path(uri)) or not ls_workspace_contains(uri))) {
-            ls_workspace_emit({"uri": uri, "version": nil, "kind": "full", "items": []}, len(files), len(files));
+        if (not has(seen, key) and (not file_exists(ls_path(key)) or not ls_workspace_contains(key))) {
+            ls_workspace_emit({"uri": key, "version": nil, "kind": "full", "items": []}, len(files), len(files));
         }
     }
-    ls_write("{\"done\":true}\n"); return nil;
+    ls_write("{\"done\":true}\n"); return;
 }
-fun ls_workspace_start(job: Any, now: Any) -> Any {
-    if (syscall(293, LS_WORKSPACE_IO, 524288) < 0) { LS_WORKSPACE_JOB = job; ls_workspace_abort(-32803, "Workspace diagnostic pipe failed"); return nil; }
-    let readFd: Any = load32(LS_WORKSPACE_IO); let writeFd: Any = load32(LS_WORKSPACE_IO + 4);
-    let parentPid: Any = syscall(39); let pid: Any = syscall(57);
-    if (pid < 0) { syscall(3, readFd); syscall(3, writeFd); LS_WORKSPACE_JOB = job; ls_workspace_abort(-32803, "Workspace diagnostic fork failed"); return nil; }
+fun ls_workspace_start(job: WorkspaceJob, now: Int) -> Nil {
+    if (syscall(293, LS_WORKSPACE_IO, 524288) < 0) { LS_WORKSPACE_JOB = job; ls_workspace_abort(-32803, "Workspace diagnostic pipe failed"); return; }
+    let readFd: Int = load32(LS_WORKSPACE_IO); let writeFd: Int = load32(LS_WORKSPACE_IO + 4);
+    let parentPid: Int = syscall(39); let pid: Int = syscall(57);
+    if (pid < 0) { syscall(3, readFd); syscall(3, writeFd); LS_WORKSPACE_JOB = job; ls_workspace_abort(-32803, "Workspace diagnostic fork failed"); return; }
     if (pid == 0) {
         syscall(157, 1, 9, 0, 0, 0);
         if (syscall(110) != parentPid) { syscall(60, 0); }
@@ -190,7 +216,7 @@ fun ls_workspace_start(job: Any, now: Any) -> Any {
         // prints belong on stderr, never inside the JSON report stream.
         syscall(33, 2, 1); LS_OUTPUT_FD = writeFd; LS_DIAGNOSTIC_PUBLISH = false;
         may { ls_workspace_compute(job); }
-        otherwise { ls_write(ls_json({"failure": err.message}) + "\n"); }
+        otherwise { ls_write(ls_json({"failure": str(err.message)}) + "\n"); }
         syscall(3, writeFd); syscall(60, 0); exit(0);
     }
     syscall(3, writeFd); syscall(72, readFd, 4, 2048);
@@ -202,83 +228,92 @@ fun ls_workspace_start(job: Any, now: Any) -> Any {
         ls_workspace_progress(job, {"kind": "begin", "title": "Checking Maylang workspace", "cancellable": true, "percentage": 0});
     }
     LS_WORKSPACE_LIMIT = job.limit;
-    return nil;
+    return;
 }
-fun ls_workspace_event(event: Any, now: Any) -> Any {
-    if (event.failure != nil) { ls_workspace_abort(-32803, event.failure); return nil; }
-    let job: Any = LS_WORKSPACE_JOB;
+fun ls_workspace_event(event: Any, now: Int) -> Nil {
+    if (event.failure != nil) { ls_workspace_abort(-32803, str(event.failure)); return; }
+    let job: Optional<WorkspaceJob> = LS_WORKSPACE_JOB;
+    if (job == nil) { fail("workspace diagnostic job missing"); }
     if (event.files != nil) {
         if (job.files != nil or value_tag(event.files) != 5 or len(event.files) > 10000) { fail("Invalid workspace diagnostic inventory"); }
-        job.files = event.files; LS_WORKSPACE_DEADLINE = now + 30000; return nil;
+        job.files = ls_str_list(event.files); LS_WORKSPACE_DEADLINE = now + 30000; return;
     }
     if (event.resume != nil) {
-        if (value_tag(event.resume) != 0 or event.resume <= job.offset or event.resume >= len(job.files)) { fail("Invalid workspace diagnostic continuation"); }
-        job.offset = event.resume; ls_workspace_stop(); LS_WORKSPACE_JOB = job; return nil;
+        let known: Optional<List<Str>> = job.files;
+        if (value_tag(event.resume) != 0 or known == nil or int(event.resume) <= job.offset or int(event.resume) >= len(known)) { fail("Invalid workspace diagnostic continuation"); }
+        job.offset = int(event.resume); ls_workspace_stop(); LS_WORKSPACE_JOB = job; return;
     }
     if (event.done == true) {
-        let parts: Any = job.parts; ls_workspace_stop();
-        let prefix: Any = "{\"jsonrpc\":\"2.0\",\"id\":" + ls_json(job.id) + ",\"result\":{\"items\":[";
-        mut size: Any = ls_bytes(prefix) + 3 + max(0, len(parts) - 1);
-        for part: Any in parts { size += ls_bytes(part); }
+        let parts: List<Str> = job.parts; ls_workspace_stop();
+        let prefix: Str = "{\"jsonrpc\":\"2.0\",\"id\":" + ls_json(job.id) + ",\"result\":{\"items\":[";
+        mut size: Int = ls_bytes(prefix) + 3 + max(0, len(parts) - 1);
+        for part: Str in parts { size += ls_bytes(part); }
         if (size > 16777216) {
             ls_workspace_progress(job, {"kind": "end", "message": "Workspace diagnostic result limit exceeded"});
-            ls_error(job.id, -32803, "Workspace diagnostic result limit exceeded"); return nil;
+            ls_error(job.id, -32803, "Workspace diagnostic result limit exceeded"); return;
         }
         ls_workspace_progress(job, {"kind": "end", "message": "Workspace diagnostics complete"});
         // Emit one framed response without allocating another large joined body.
         ls_write("Content-Length: " + str(size) + "\r\n\r\n"); ls_write(prefix);
-        mut first: Any = true;
-        for part: Any in parts { if (not first) { ls_write(","); } first = false; ls_write(part); }
-        ls_write("]}}"); return nil;
+        mut first: Bool = true;
+        for part: Str in parts { if (not first) { ls_write(","); } first = false; ls_write(part); }
+        ls_write("]}}"); return;
     }
     let item: Any = event.item;
     if (value_tag(item) != 7 or value_tag(item.uri) != 1 or not has(["full", "unchanged"], item.kind)) { fail("Invalid workspace diagnostic worker report"); }
-    if (item.kind == "full" and item.resultId != nil) { ls_workspace_cache_put(item.uri, ls_json(item)); }
+    if (item.kind == "full" and item.resultId != nil) { ls_workspace_cache_put(str(item.uri), ls_json(item)); }
     if (job.params.partialResultToken != nil) { ls_notify("$/progress", {"token": job.params.partialResultToken, "value": {"items": [item]}}); }
     else { push(job.parts, ls_json(item)); }
     if (event.completed % 32 == 0 or event.completed == event.total) {
         ls_workspace_progress(job, {"kind": "report", "cancellable": true, "percentage": if (event.total > 0) { event.completed * 100 / event.total } else { 100 }});
     }
-    LS_WORKSPACE_DEADLINE = now + 30000; return nil;
+    LS_WORKSPACE_DEADLINE = now + 30000; return;
 }
-fun ls_workspace_tick(now: Any) -> Any {
+fun ls_workspace_tick(now: Int) -> Nil {
     ls_workspace_changed();
     if (LS_WORKSPACE_PID > 0 and (now >= LS_WORKSPACE_DEADLINE or now >= LS_WORKSPACE_LIMIT)) { ls_workspace_abort(-32803, "Workspace diagnostic time limit exceeded"); }
     if (LS_WORKSPACE_FD >= 0) {
-        mut closed: Any = false;
+        mut closed: Bool = false;
         if (ls_find(LS_WORKSPACE_BUFFER, "\n") < 0) {
-            let n: Any = syscall(0, LS_WORKSPACE_FD, LS_WORKSPACE_IO, 65536);
+            let n: Int = syscall(0, LS_WORKSPACE_FD, LS_WORKSPACE_IO, 65536);
             if (n == 0 or (n < 0 and n != -4 and n != -11)) { closed = true; }
-            if (n > 0) { LS_WORKSPACE_BUFFER = LS_WORKSPACE_BUFFER + ls_text(LS_WORKSPACE_IO, n); LS_WORKSPACE_BYTES += n; LS_WORKSPACE_JOB.bytes = LS_WORKSPACE_BYTES; }
+            if (n > 0) {
+                LS_WORKSPACE_BUFFER = LS_WORKSPACE_BUFFER + ls_text(ptr(LS_WORKSPACE_IO), n); LS_WORKSPACE_BYTES += n;
+                let running: Optional<WorkspaceJob> = LS_WORKSPACE_JOB;
+                if (running != nil) { running.bytes = LS_WORKSPACE_BYTES; }
+            }
         }
         if (LS_WORKSPACE_BYTES > 16777216) { ls_workspace_abort(-32803, "Workspace diagnostic result limit exceeded"); }
         else {
             // At most 32 reports per turn, so streaming cannot starve stdin.
-            for count: Any in 0..32 {
+            for count: Int in 0..32 {
                 if (LS_WORKSPACE_JOB == nil) { break; }
-                let boundary: Any = ls_find(LS_WORKSPACE_BUFFER, "\n");
+                let boundary: Int = ls_find(LS_WORKSPACE_BUFFER, "\n");
                 if (boundary < 0) { break; }
-                let line: Any = ls_slice(LS_WORKSPACE_BUFFER, 0, boundary);
+                let line: Str = ls_slice(LS_WORKSPACE_BUFFER, 0, boundary);
                 LS_WORKSPACE_BUFFER = ls_slice(LS_WORKSPACE_BUFFER, boundary + 1, ls_bytes(LS_WORKSPACE_BUFFER));
                 may { ls_workspace_event(ls_parse_json(line), now); }
-                otherwise { ls_workspace_abort(-32803, "Workspace diagnostic worker failed: " + err.message); }
+                otherwise { ls_workspace_abort(-32803, "Workspace diagnostic worker failed: " + str(err.message)); }
             }
             if (closed and LS_WORKSPACE_JOB != nil) {
-                mut waited: Any = syscall(61, LS_WORKSPACE_PID, LS_WORKSPACE_IO, 0, 0);
+                mut waited: Int = syscall(61, LS_WORKSPACE_PID, LS_WORKSPACE_IO, 0, 0);
                 while (waited == -4) { waited = syscall(61, LS_WORKSPACE_PID, LS_WORKSPACE_IO, 0, 0); }
-                let status: Any = load32(LS_WORKSPACE_IO);
+                let status: Int = load32(LS_WORKSPACE_IO);
                 LS_WORKSPACE_PID = 0;
-                let message: Any = if (status % 128 != 0) {
+                let message: Str = if (status % 128 != 0) {
                     "Workspace diagnostic worker terminated by signal " + str(status % 128)
                 } else { "Workspace diagnostic worker exited with status " + str(status / 256 % 256) + " before completing its report" };
                 ls_workspace_abort(-32803, message);
             }
         }
     }
-    if (LS_WORKSPACE_PID == 0 and LS_WORKSPACE_JOB != nil) { ls_workspace_start(LS_WORKSPACE_JOB, now); }
+    if (LS_WORKSPACE_PID == 0 and LS_WORKSPACE_JOB != nil) {
+        let resumed: Optional<WorkspaceJob> = LS_WORKSPACE_JOB;
+        if (resumed != nil) { ls_workspace_start(resumed, now); }
+    }
     else if (LS_WORKSPACE_PID == 0 and len(LS_WORKSPACE_QUEUE) > 0) {
-        let job: Any = LS_WORKSPACE_QUEUE[0]; LS_WORKSPACE_QUEUE = slice(LS_WORKSPACE_QUEUE, 1, len(LS_WORKSPACE_QUEUE));
+        let job: WorkspaceJob = LS_WORKSPACE_QUEUE[0]; LS_WORKSPACE_QUEUE = slice(LS_WORKSPACE_QUEUE, 1, len(LS_WORKSPACE_QUEUE));
         ls_workspace_start(job, now);
     }
-    return nil;
+    return;
 }

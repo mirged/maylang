@@ -454,7 +454,7 @@ def run_documentation(binary, work):
     import re
     for filename, constant in [("src/text.may", "LS_KEYWORDS"), ("src/index.may", "LS_BUILTINS")]:
         source = (ROOT / "tools/maylsp" / filename).read_text()
-        names = json.loads(re.search(rf"let {constant}(?:\s*:\s*Any)? = (\[.*?\]);", source).group(1))
+        names = json.loads(re.search(rf"let {constant}(?:\s*:\s*[^=]+)? = (\[.*?\]);", source).group(1))
         assert set(names) <= entries.keys(), set(names) - entries.keys()
     path = work / "documentation.may"
     text = ('let items = [1, 2];\nprint(len(items));\n'

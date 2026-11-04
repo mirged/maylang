@@ -1,44 +1,76 @@
 import "text.may";
-mut LS_DOCS: Any = {};
-mut LS_ROOTS: Any = [];
-mut LS_STDLIB: Any = "";
-mut LS_SCANNED: Any = false;
-mut LS_INDEX_EPOCH: Any = 0;
-mut LS_BUILTIN_PATH: Any = "";
-mut LS_BUILTIN_URIS: Any = [];
-fun ls_builtin_uris() -> Any {
+/// A lexical token: its kind, spelling, byte range and scope; `pair` links matching brackets.
+struct Token { kind: Str, name: Str, a: Int, b: Int, scope: Int, pair: Int, bodyScope: Int }
+/// A lexical scope: its parent scope and byte range.
+struct Scope { parent: Int, a: Int, b: Int }
+/// Lexer progress: the byte offset, current scope and open brackets.
+struct LexState { i: Int, scope: Int, stack: List<Int> }
+/// A declaration: its spelling, LSP symbol kind, range, signature, documentation and inferred types.
+struct Def {
+    id: Str, uri: Str, name: Str, kind: Int, scope: Int, a: Int, b: Int, start: Int, end: Int,
+    signature: Str, params: List<Str>, public: Bool, docs: Str, type: Str, members: List<Def>,
+    hasAnnotation: Bool, ownerType: Str, initFirst: Int, initLast: Int, returnType: Str,
+    typeParams: List<Str>, inferredType: Str, inferredEpoch: Int
+}
+/// One resolved reference to a declaration: the file and the token's range.
+struct Occurrence { uri: Str, range: Range }
+/// An import directive and the module it resolved to at `cacheEpoch`.
+struct Import {
+    path: Str, alias: Str, plain: Bool, selected: List<Str>, a: Int, b: Int, start: Int, end: Int,
+    targetUri: Optional<Str>, cacheEpoch: Int
+}
+/// An indexed document. Semantic-token results are protocol JSON objects.
+struct Doc {
+    uri: Str, path: Str, text: Str, version: Any, open: Bool, tokens: List<Token>, comments: List<Token>,
+    scopes: List<Scope>, defs: List<Def>, imports: List<Import>, declared: Map<Str, Def>, explicit: Bool,
+    named: Map<Str, List<Def>>, exports: Map<Str, Def>, occurrences: Map<Str, List<Int>>,
+    externalNames: Map<Str, Def>, externalMissing: Map<Str, Bool>, externalEpoch: Int,
+    semanticHistory: List<Map<Str, Any>>, semanticCache: Optional<Map<Str, Any>>, semanticEpoch: Int
+}
+/// A new, unindexed document; ls_index fills in its indexes.
+fun ls_new_doc(uri: Str, path: Str, text: Str, version: Any, open: Bool) -> Doc {
+    return Doc(uri, path, text, version, open, [], [], [], [], [], {}, false, {}, {}, {}, {}, {}, -1, [], nil, -1);
+}
+mut LS_DOCS: Map<Str, Doc> = {};
+mut LS_ROOTS: List<Str> = [];
+mut LS_STDLIB: Str = "";
+mut LS_SCANNED: Bool = false;
+mut LS_INDEX_EPOCH: Int = 0;
+mut LS_BUILTIN_PATH: Str = "";
+mut LS_BUILTIN_URIS: List<Str> = [];
+fun ls_builtin_uris() -> List<Str> {
     if (LS_BUILTIN_PATH != LS_STDLIB) {
         LS_BUILTIN_PATH = LS_STDLIB;
         LS_BUILTIN_URIS = [ls_uri(LS_STDLIB + "/native.may"), ls_uri(LS_STDLIB + "/prelude.may")];
-        let math: Any = ls_math_uri();
+        let math: Optional<Str> = ls_math_uri();
         if (math != nil) { push(LS_BUILTIN_URIS, math); }
     }
     return LS_BUILTIN_URIS;
 }
 // The compiler loads runtime/math.may after the native library: beside the
 // checkout's compiler, or under bin/ in an installed bundle.
-fun ls_math_uri() -> Any {
-    for candidate: Any in [LS_STDLIB + "/../compiler/mayc/runtime/math.may", LS_STDLIB + "/../bin/runtime/math.may"] {
+fun ls_math_uri() -> Optional<Str> {
+    for candidate: Str in [LS_STDLIB + "/../compiler/mayc/runtime/math.may", LS_STDLIB + "/../bin/runtime/math.may"] {
         if (file_exists(candidate)) { return ls_uri(ls_normal(candidate)); }
     }
     return nil;
 }
-let LS_BUILTINS: Any = ["print", "len", "str", "int", "bool", "push", "pop", "map", "filter", "reduce", "sum", "any", "all", "min", "max", "abs", "sort", "reverse", "slice", "keys", "values", "has", "map_get", "map_set", "read_file", "write_file", "read_dir", "file_exists", "json_parse", "json_stringify", "input", "read_stdin", "clock", "time", "sleep", "spawn", "yield", "run", "fail", "exit", "syscall", "addr", "cstr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "ccall", "extern_c", "sqrt", "floor", "ceil", "sin", "cos", "tan", "env", "args"];
-let LS_TYPES: Any = ["Any", "Bool", "Str", "Nil", "Void", "Never", "Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Byte", "Float", "Float32", "Float64", "F32", "F64", "Ptr", "RawPtr", "List", "Map", "Slice", "Array", "Optional", "Option", "Result", "Tuple"];
-fun ls_token(kind: Any, name: Any, a: Any, b: Any, scope: Any) -> Any { return {"kind": kind, "name": name, "a": a, "b": b, "scope": scope, "pair": -1}; }
-fun ls_scan(doc: Any, state: Any, interpolation: Any) -> Any {
-    let s: Any = doc.text; let ts: Any = doc.tokens; let stack: Any = state.stack;
-    let base: Any = len(stack);
+let LS_BUILTINS: List<Str> = ["print", "len", "str", "int", "bool", "push", "pop", "map", "filter", "reduce", "sum", "any", "all", "min", "max", "abs", "sort", "reverse", "slice", "keys", "values", "has", "map_get", "map_set", "read_file", "write_file", "read_dir", "file_exists", "json_parse", "json_stringify", "input", "read_stdin", "clock", "time", "sleep", "spawn", "yield", "run", "fail", "exit", "syscall", "addr", "cstr", "load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64", "ccall", "extern_c", "sqrt", "floor", "ceil", "sin", "cos", "tan", "env", "args"];
+let LS_TYPES: List<Str> = ["Any", "Bool", "Str", "Nil", "Void", "Never", "Int", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Byte", "Float", "Float32", "Float64", "F32", "F64", "Ptr", "RawPtr", "List", "Map", "Slice", "Array", "Optional", "Option", "Result", "Tuple"];
+fun ls_token(kind: Str, name: Str, a: Int, b: Int, scope: Int) -> Token { return Token(kind, name, a, b, scope, -1, -1); }
+fun ls_scan(doc: Doc, state: LexState, interpolation: Bool) -> Nil {
+    let s: Str = doc.text; let ts: List<Token> = doc.tokens; let stack: List<Int> = state.stack;
+    let base: Int = len(stack);
     while (state.i < ls_bytes(s)) {
-        let a: Any = state.i; let c: Any = ls_byte(s, a);
-        if (interpolation and c == 125 and len(stack) == base) { return nil; }
+        let a: Int = state.i; let c: Int = ls_byte(s, a);
+        if (interpolation and c == 125 and len(stack) == base) { return; }
         if (has([32, 9, 10, 13], c)) { state.i += 1; continue; }
         if (c == 47 and ls_byte(s, a + 1) == 47) {
             while (state.i < ls_bytes(s) and ls_byte(s, state.i) != 10) { state.i += 1; }
             push(doc.comments, ls_token("comment", ls_slice(s, a, state.i), a, state.i, state.scope)); continue;
         }
         if (c == 47 and ls_byte(s, a + 1) == 42) {
-            state.i += 2; mut depth: Any = 1;
+            state.i += 2; mut depth: Int = 1;
             while (state.i < ls_bytes(s) and depth > 0) {
                 if (ls_byte(s, state.i) == 47 and ls_byte(s, state.i + 1) == 42) { depth += 1; state.i += 2; }
                 else if (ls_byte(s, state.i) == 42 and ls_byte(s, state.i + 1) == 47) { depth -= 1; state.i += 2; }
@@ -46,7 +78,7 @@ fun ls_scan(doc: Any, state: Any, interpolation: Any) -> Any {
             }
             push(doc.comments, ls_token("comment", ls_slice(s, a, state.i), a, state.i, state.scope)); continue;
         }
-        mut kind: Any = "punct";
+        mut kind: Str = "punct";
         if (ls_ident_start(c)) {
             kind = "identifier"; state.i += 1;
             while (ls_ident(ls_byte(s, state.i))) { state.i += 1; }
@@ -54,9 +86,9 @@ fun ls_scan(doc: Any, state: Any, interpolation: Any) -> Any {
             kind = "number"; state.i += 1;
             while (ls_ident(ls_byte(s, state.i)) or (ls_byte(s, state.i) == 46 and ls_byte(s, state.i + 1) >= 48 and ls_byte(s, state.i + 1) <= 57)) { state.i += 1; }
         } else if (c == 34) {
-            state.i += 1; mut segment: Any = a;
+            state.i += 1; mut segment: Int = a;
             while (state.i < ls_bytes(s)) {
-                let b: Any = ls_byte(s, state.i);
+                let b: Int = ls_byte(s, state.i);
                 if (b == 92) { state.i += 2; }
                 else if (b == 34) { state.i += 1; break; }
                 else if (b == 36 and ls_byte(s, state.i + 1) == 123) {
@@ -70,66 +102,68 @@ fun ls_scan(doc: Any, state: Any, interpolation: Any) -> Any {
             continue;
         } else {
             state.i += ls_width(c);
-            let pair: Any = ls_slice(s, a, min(a + 2, ls_bytes(s)));
+            let pair: Str = ls_slice(s, a, min(a + 2, ls_bytes(s)));
             if (has(["||", "&&", "|>", "=>", "->", "??", "?.", "..", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "**"], pair)) { state.i = a + 2; }
             if (pair == ".." and has([46, 61], ls_byte(s, state.i))) { state.i += 1; }
         }
-        let name: Any = ls_slice(s, a, min(state.i, ls_bytes(s)));
+        let name: Str = ls_slice(s, a, min(state.i, ls_bytes(s)));
         if (has(LS_KEYWORDS, name)) { kind = "keyword"; }
-        let t: Any = ls_token(kind, name, a, min(state.i, ls_bytes(s)), state.scope);
+        let t: Token = ls_token(kind, name, a, min(state.i, ls_bytes(s)), state.scope);
         if (name == "}" and len(stack) > base and ts[stack[len(stack) - 1]].name == "{") {
             doc.scopes[state.scope].b = state.i; state.scope = doc.scopes[state.scope].parent;
         }
         t.scope = state.scope; push(ts, t);
         if (has(["{", "(", "["], name)) {
             push(stack, len(ts) - 1);
-            if (name == "{") { push(doc.scopes, {"parent": state.scope, "a": a, "b": ls_bytes(s)}); state.scope = len(doc.scopes) - 1; t.bodyScope = state.scope; }
+            if (name == "{") { push(doc.scopes, Scope(state.scope, a, ls_bytes(s))); state.scope = len(doc.scopes) - 1; t.bodyScope = state.scope; }
         } else if (has(["}", ")", "]"], name) and len(stack) > base) {
-            let opener: Any = ts[stack[len(stack) - 1]].name;
+            let opener: Str = ts[stack[len(stack) - 1]].name;
             if ((opener == "{" and name == "}") or (opener == "(" and name == ")") or (opener == "[" and name == "]")) {
-                let start: Any = pop(stack); ts[start].pair = len(ts) - 1; t.pair = start;
+                let start: Optional<Int> = pop(stack);
+                if (start != nil) { ts[start].pair = len(ts) - 1; t.pair = start; }
             }
         }
     }
-    return nil;
+    return;
 }
-fun ls_lex(doc: Any) -> Any {
-    doc.tokens = []; doc.comments = []; doc.scopes = [{"parent": -1, "a": 0, "b": ls_bytes(doc.text)}];
-    return ls_scan(doc, {"i": 0, "scope": 0, "stack": []}, false);
+fun ls_lex(doc: Doc) -> Nil {
+    doc.tokens = []; doc.comments = []; doc.scopes = [Scope(-1, 0, ls_bytes(doc.text))];
+    return ls_scan(doc, LexState(0, 0, []), false);
 }
-fun ls_at(ts: Any, i: Any) -> Any { if (i < 0 or i >= len(ts)) { return ""; } return ts[i].name; }
-fun ls_comment(doc: Any, start: Any) -> Any {
-    mut end: Any = start;
+fun ls_at(ts: List<Token>, i: Int) -> Str { if (i < 0 or i >= len(ts)) { return ""; } return ts[i].name; }
+fun ls_comment(doc: Doc, start: Int) -> Str {
+    mut end: Int = start;
     while (end > 0 and ls_byte(doc.text, end - 1) != 10) { end -= 1; }
-    let out: Any = [];
+    let out: List<Str> = [];
     while (end > 0) {
-        end -= 1; mut begin: Any = end;
+        end -= 1; mut begin: Int = end;
         while (begin > 0 and ls_byte(doc.text, begin - 1) != 10) { begin -= 1; }
-        let line: Any = ls_trim(ls_slice(doc.text, begin, end));
+        let line: Str = ls_trim(ls_slice(doc.text, begin, end));
         if (not ls_starts(line, "//")) { break; }
         // Keep indentation after the marker and one space: it carries fenced
         // examples and list continuations (docs/guide/DOCSTRINGS.md).
-        mut n: Any = if (ls_starts(line, "///")) { 3 } else { 2 };
+        mut n: Int = if (ls_starts(line, "///")) { 3 } else { 2 };
         if (ls_byte(line, n) == 32) { n += 1; }
         push(out, ls_slice(line, n, ls_bytes(line))); end = begin;
     }
     return join(reverse(out), "\n");
 }
-fun ls_add_def(doc: Any, token: Any, kind: Any, scope: Any, start: Any, end: Any, signature: Any, params: Any, public: Any) -> Any {
-    let d: Any = {"id": doc.uri + ":" + str(token.a), "uri": doc.uri, "name": token.name, "kind": kind, "scope": scope, "a": token.a, "b": token.b, "start": start, "end": end, "signature": signature, "params": params, "public": public, "docs": ls_comment(doc, start), "type": "Any"};
+fun ls_add_def(doc: Doc, token: Token, kind: Int, scope: Int, start: Int, end: Int, signature: Str, params: List<Str>, public: Bool) -> Def {
+    let d: Def = Def(doc.uri + ":" + str(token.a), doc.uri, token.name, kind, scope, token.a, token.b, start, end, signature, params, public, ls_comment(doc, start), "Any", [], false, "", -1, -1, "", [], "Any", -1);
     push(doc.defs, d); doc.declared[str(token.a)] = d; return d;
 }
-fun ls_pattern_defs(doc: Any, first: Any, last: Any, scope: Any, label: Any) -> Any {
-    let ts: Any = doc.tokens;
-    for i: Any in first..last {
-        let t: Any = ts[i];
+fun ls_pattern_defs(doc: Doc, first: Int, last: Int, scope: Int, label: Str) -> Nil {
+    let ts: List<Token> = doc.tokens;
+    for i: Int in first..last {
+        let t: Token = ts[i];
         if (t.kind == "identifier" and t.name != "_" and ls_at(ts, i + 1) != ":" and not has(doc.declared, str(t.a))) {
             ls_add_def(doc, t, 13, scope, t.a, t.b, label + t.name, [], false);
         }
     }
- return nil; }
-fun ls_expression_end(doc: Any, first: Any) -> Any {
-    let ts: Any = doc.tokens; mut i: Any = first;
+    return;
+}
+fun ls_expression_end(doc: Doc, first: Int) -> Int {
+    let ts: List<Token> = doc.tokens; mut i: Int = first;
     if (i < len(ts) and ts[i].name == "{" and ts[i].pair >= 0) { return ts[i].pair + 1; }
     while (i < len(ts)) {
         if (has([",", ";", ")", "]", "}"], ts[i].name)) { return i; }
@@ -138,74 +172,75 @@ fun ls_expression_end(doc: Any, first: Any) -> Any {
     }
     return i;
 }
-fun ls_synthetic_scope(doc: Any, first: Any, last: Any, parent: Any) -> Any {
-    let ts: Any = doc.tokens;
+fun ls_synthetic_scope(doc: Doc, first: Int, last: Int, parent: Int) -> Int {
+    let ts: List<Token> = doc.tokens;
     if (first >= len(ts) or last <= first) { return parent; }
-    let a: Any = ts[first].a; let b: Any = ts[last - 1].b;
-    let id: Any = len(doc.scopes); push(doc.scopes, {"parent": parent, "a": a, "b": b});
-    for i: Any in 0..id {
-        let s: Any = doc.scopes[i];
+    let a: Int = ts[first].a; let b: Int = ts[last - 1].b;
+    let id: Int = len(doc.scopes); push(doc.scopes, Scope(parent, a, b));
+    for i: Int in 0..id {
+        let s: Scope = doc.scopes[i];
         if (s.parent == parent and s.a >= a and s.b <= b) { s.parent = id; }
     }
-    for i: Any in first..last { if (ts[i].scope == parent) { ts[i].scope = id; } }
+    for i: Int in first..last { if (ts[i].scope == parent) { ts[i].scope = id; } }
     return id;
 }
-fun ls_for_in(ts: Any, i: Any) -> Any {
+fun ls_for_in(ts: List<Token>, i: Int) -> Int {
     if (ls_at(ts, i) != "for" or i + 1 >= len(ts) or ts[i + 1].kind != "identifier") { return -1; }
-    mut j: Any = i + 2;
+    mut j: Int = i + 2;
     if (ls_at(ts, j) == ":") { while (j < len(ts) and not has(["in", "{", ";"], ts[j].name)) { j += 1; } }
     return if (ls_at(ts, j) == "in") { j } else { -1 };
 }
-fun ls_special_bindings(doc: Any) -> Any {
-    let ts: Any = doc.tokens; let brackets: Any = [];
-    for i: Any in 0..len(ts) {
+fun ls_special_bindings(doc: Doc) -> Nil {
+    let ts: List<Token> = doc.tokens; let brackets: List<Int> = [];
+    for i: Int in 0..len(ts) {
         while (len(brackets) > 0 and ts[brackets[len(brackets) - 1]].pair <= i) { pop(brackets); }
         if (ts[i].name == "[" and ts[i].pair > i) { push(brackets, i); }
         if (ls_for_in(ts, i) >= 0) {
-            let bracket: Any = if (len(brackets) > 0) { brackets[len(brackets) - 1] } else { -1 };
+            let bracket: Int = if (len(brackets) > 0) { brackets[len(brackets) - 1] } else { -1 };
             if (bracket >= 0) {
-                let scope: Any = ls_synthetic_scope(doc, bracket + 1, ts[bracket].pair, ts[i].scope);
+                let scope: Int = ls_synthetic_scope(doc, bracket + 1, ts[bracket].pair, ts[i].scope);
                 ls_add_def(doc, ts[i + 1], 13, scope, ts[i + 1].a, ts[i + 1].b, "parameter " + ts[i + 1].name, [], false);
             }
         }
-        mut first: Any = -1; mut last: Any = -1; mut body: Any = -1;
+        mut first: Int = -1; mut last: Int = -1; mut body: Int = -1;
         if (ts[i].name == "fun" and ls_at(ts, i + 1) == "(" and ts[i + 1].pair >= 0) {
             first = i + 2; last = ts[i + 1].pair; body = last + 1;
         } else if (ts[i].name == "|") {
             // A closing bar is preceded by a parameter. Only opening bars start a lambda.
             if (i > 0 and (ts[i - 1].kind == "identifier" or ts[i - 1].name == "|")) { continue; }
-            mut j: Any = i + 1;
+            mut j: Int = i + 1;
             while (j < len(ts) and (ts[j].kind == "identifier" or ts[j].name == ",")) { j += 1; }
             if (ls_at(ts, j) == "|") { first = i + 1; last = j; body = j + 1; }
         } else if (ts[i].kind == "identifier" and ls_at(ts, i + 1) == "=>") {
             // Both short lambdas and identifier match patterns bind within their expression.
             first = i; last = i + 1; body = i + 2;
         } else if (ts[i].kind == "identifier" and ls_at(ts, i + 1) == "if" and has(["{", ","], ls_at(ts, i - 1))) {
-            mut j: Any = i + 2;
+            mut j: Int = i + 2;
             while (j < len(ts) and not has(["=>", ",", "}"], ts[j].name)) { if (ts[j].pair > j) { j = ts[j].pair; } j += 1; }
             if (ls_at(ts, j) == "=>") { first = i; last = i + 1; body = j + 1; }
         }
         if (body >= 0 and body < len(ts)) {
-            let end: Any = ls_expression_end(doc, body);
-            let scope: Any = ls_synthetic_scope(doc, first, end, ts[i].scope);
-            for k: Any in first..last {
+            let end: Int = ls_expression_end(doc, body);
+            let scope: Int = ls_synthetic_scope(doc, first, end, ts[i].scope);
+            for k: Int in first..last {
                 if (ts[k].kind == "identifier" and ls_at(ts, k - 1) != ":") {
                     ls_add_def(doc, ts[k], 13, scope, ts[k].a, ts[k].b, "parameter " + ts[k].name, [], false);
                 }
             }
         }
     }
- return nil; }
-fun ls_index(doc: Any) -> Any {
+    return;
+}
+fun ls_index(doc: Doc) -> Nil {
     ls_lex(doc); doc.defs = []; doc.imports = []; doc.declared = {}; doc.explicit = false;
     ls_special_bindings(doc);
-    let ts: Any = doc.tokens; mut i: Any = 0;
+    let ts: List<Token> = doc.tokens; mut i: Int = 0;
     while (i < len(ts)) {
-        let t: Any = ts[i]; let name: Any = t.name;
+        let t: Token = ts[i]; let name: Str = t.name;
         if ((name == "import" or name == "from") and i + 1 < len(ts) and ts[i + 1].kind == "string") {
-            let quoted: Any = ts[i + 1]; let path: Any = ls_slice(quoted.name, 1, ls_bytes(quoted.name) - 1);
-            let parts: Any = ls_split(path, "/"); mut alias: Any = if (ls_ends(parts[len(parts) - 1], ".may")) { ls_slice(parts[len(parts) - 1], 0, ls_bytes(parts[len(parts) - 1]) - 4) } else { parts[len(parts) - 1] };
-            mut plain: Any = true; let selected: Any = []; mut j: Any = i + 2;
+            let quoted: Token = ts[i + 1]; let path: Str = ls_slice(quoted.name, 1, ls_bytes(quoted.name) - 1);
+            let parts: List<Str> = ls_split(path, "/"); mut alias: Str = if (ls_ends(parts[len(parts) - 1], ".may")) { ls_slice(parts[len(parts) - 1], 0, ls_bytes(parts[len(parts) - 1]) - 4) } else { parts[len(parts) - 1] };
+            mut plain: Bool = true; let selected: List<Str> = []; mut j: Int = i + 2;
             if (ls_at(ts, j) == "as") { alias = ls_at(ts, j + 1); plain = false; j += 2; }
             else if (name == "from") {
                 alias = "";
@@ -215,14 +250,14 @@ fun ls_index(doc: Any) -> Any {
                     j += 1;
                 }
             }
-            push(doc.imports, {"path": path, "alias": alias, "plain": plain, "selected": selected, "a": quoted.a, "b": quoted.b, "start": t.a, "end": if (ls_at(ts, j) == ";") { ts[j].b } else { ts[j - 1].b }});
+            push(doc.imports, Import(path, alias, plain, selected, quoted.a, quoted.b, t.a, if (ls_at(ts, j) == ";") { ts[j].b } else { ts[j - 1].b }, nil, -1));
             i = j; continue;
         }
         if (name == "pub" and t.scope == 0) { doc.explicit = true; }
         if (has(["fun", "let", "mut", "struct", "enum"], name) and i + 1 < len(ts) and ts[i + 1].kind == "identifier") {
-            let token: Any = ts[i + 1]; let public: Any = ls_at(ts, i - 1) == "pub";
-            let kind: Any = if (name == "fun") { 12 } else if (name == "struct") { 23 } else if (name == "enum") { 10 } else if (name == "let") { 14 } else { 13 };
-            mut j: Any = i + 2; mut end: Any = token.b; mut signatureEnd: Any = token.b; let params: Any = [];
+            let token: Token = ts[i + 1]; let public: Bool = ls_at(ts, i - 1) == "pub";
+            let kind: Int = if (name == "fun") { 12 } else if (name == "struct") { 23 } else if (name == "enum") { 10 } else if (name == "let") { 14 } else { 13 };
+            mut j: Int = i + 2; mut end: Int = token.b; mut signatureEnd: Int = token.b; let params: List<Str> = [];
             if (name == "fun" or name == "struct" or name == "enum") {
                 while (j < len(ts) and ts[j].name != "{" and ts[j].name != ";") { j += 1; }
                 if (j < len(ts)) {
@@ -230,19 +265,19 @@ fun ls_index(doc: Any) -> Any {
                     end = if (ts[j].pair >= 0) { ts[ts[j].pair].b } else { ts[j].b };
                 }
             } else {
-                mut lineEnd: Any = token.a;
+                mut lineEnd: Int = token.a;
                 while (lineEnd < ls_bytes(doc.text) and ls_byte(doc.text, lineEnd) != 10) { lineEnd += 1; }
                 while (j < len(ts) and ts[j].name != ";" and ts[j].name != "}" and ts[j].a < lineEnd) { j += 1; }
                 end = if (ls_at(ts, j) == ";") { ts[j].b } else { ts[j - 1].b }; signatureEnd = end;
             }
-            let d: Any = ls_add_def(doc, token, kind, t.scope, t.a, end, ls_trim(ls_slice(doc.text, t.a, signatureEnd)), params, public);
+            let d: Def = ls_add_def(doc, token, kind, t.scope, t.a, end, ls_trim(ls_slice(doc.text, t.a, signatureEnd)), params, public);
             d.members = [];
             d.hasAnnotation = ls_at(ts, i + 2) == ":";
             if ((name == "struct" or name == "enum") and j < len(ts) and ts[j].pair > j) {
-                let stop: Any = ts[j].pair; mut k: Any = j + 1;
+                let stop: Int = ts[j].pair; mut k: Int = j + 1;
                 while (k < stop) {
                     if (ts[k].kind == "identifier" and (ls_at(ts, k - 1) == "{" or ls_at(ts, k - 1) == ",")) {
-                        let field: Any = ls_add_def(doc, ts[k], if (name == "enum") { 22 } else { 8 }, if (name == "enum") { t.scope } else { ts[j].bodyScope }, ts[k].a, ts[k].b, name + " " + token.name + "." + ts[k].name, [], public);
+                        let field: Def = ls_add_def(doc, ts[k], if (name == "enum") { 22 } else { 8 }, if (name == "enum") { t.scope } else { ts[j].bodyScope }, ts[k].a, ts[k].b, name + " " + token.name + "." + ts[k].name, [], public);
                         if (name == "enum") { field.ownerType = token.name; }
                         push(d.members, field);
                     }
@@ -251,12 +286,12 @@ fun ls_index(doc: Any) -> Any {
                 }
             }
             if ((name == "let" or name == "mut") and ls_at(ts, i + 2) == ":") {
-                mut typeEnd: Any = i + 3;
+                mut typeEnd: Int = i + 3;
                 while (typeEnd < len(ts) and ts[typeEnd].name != "=" and ts[typeEnd].name != ";" and ts[typeEnd].name != "{") { typeEnd += 1; }
                 if (typeEnd > i + 3) { d.type = ls_trim(ls_slice(doc.text, ts[i + 3].a, ts[typeEnd - 1].b)); }
             }
             if ((name == "let" or name == "mut") and ls_at(ts, i + 2) == "=" and i + 3 < len(ts)) {
-                let value: Any = ts[i + 3];
+                let value: Token = ts[i + 3];
                 d.initFirst = i + 3; d.initLast = ls_expression_end(doc, i + 3);
                 if (value.kind == "string") { d.type = "Str"; }
                 else if (value.kind == "number") { d.type = if (ls_contains(value.name, ".")) { "Float" } else { "Int" }; }
@@ -264,25 +299,25 @@ fun ls_index(doc: Any) -> Any {
                 else if (value.name == "[") { d.type = "List"; }
             }
             if (name == "fun") {
-                mut p: Any = i + 2;
+                mut p: Int = i + 2;
                 while (p < j and ls_at(ts, p) != "(") { p += 1; }
                 d.typeParams = [];
                 if (ls_at(ts, i + 2) == "<") {
-                    for k: Any in (i + 3)..p { if (ts[k].kind == "identifier") { push(d.typeParams, ts[k].name); } }
+                    for k: Int in (i + 3)..p { if (ts[k].kind == "identifier") { push(d.typeParams, ts[k].name); } }
                 }
                 if (p < j and ts[p].pair >= 0 and ls_at(ts, ts[p].pair + 1) == "->") {
-                    let first: Any = ts[p].pair + 2;
-                    mut concrete: Any = true;
-                    for k: Any in first..j { if (has(d.typeParams, ts[k].name)) { concrete = false; } }
+                    let first: Int = ts[p].pair + 2;
+                    mut concrete: Bool = true;
+                    for k: Int in first..j { if (has(d.typeParams, ts[k].name)) { concrete = false; } }
                     if (first < j and concrete) { d.returnType = ls_trim(ls_slice(doc.text, ts[first].a, ts[j - 1].b)); }
                 }
                 if (p < j and ts[p].pair >= 0 and j < len(ts) and ts[j].name == "{") {
-                    let stop: Any = ts[p].pair; p += 1;
+                    let stop: Int = ts[p].pair; p += 1;
                     while (p < stop) {
-                        let paramStart: Any = p;
+                        let paramStart: Int = p;
                         if (ts[p].kind == "identifier") {
-                            let param: Any = ts[p];
-                            mut angles: Any = 0;
+                            let param: Token = ts[p];
+                            mut angles: Int = 0;
                             while (p < stop) {
                                 if (ts[p].name == "," and angles == 0) { break; }
                                 if (ts[p].name == "<") { angles += 1; }
@@ -291,7 +326,7 @@ fun ls_index(doc: Any) -> Any {
                                 p += 1;
                             }
                             push(params, ls_trim(ls_slice(doc.text, ts[paramStart].a, ts[p - 1].b)));
-                            let parameter: Any = ls_add_def(doc, param, 13, ts[j].bodyScope, param.a, param.b, "parameter " + param.name, [], false);
+                            let parameter: Def = ls_add_def(doc, param, 13, ts[j].bodyScope, param.a, param.b, "parameter " + param.name, [], false);
                             if (ls_at(ts, paramStart + 1) == ":") { parameter.type = ls_at(ts, paramStart + 2); }
                         }
                         p += 1;
@@ -303,11 +338,11 @@ fun ls_index(doc: Any) -> Any {
             ls_pattern_defs(doc, i + 2, ts[i + 1].pair, t.scope, name + " ");
         }
         if (ls_for_in(ts, i) >= 0 and not has(doc.declared, str(ts[i + 1].a))) {
-            mut j: Any = ls_for_in(ts, i) + 1; while (j < len(ts) and ts[j].name != "{") { j += 1; }
+            mut j: Int = ls_for_in(ts, i) + 1; while (j < len(ts) and ts[j].name != "{") { j += 1; }
             if (j < len(ts)) { ls_add_def(doc, ts[i + 1], 13, ts[j].bodyScope, ts[i + 1].a, ts[i + 1].b, "loop variable " + ts[i + 1].name, [], false); }
         }
         if (name == "for" and i + 1 < len(ts) and has(["[", "{"], ts[i + 1].name) and ts[i + 1].pair >= 0) {
-            let stop: Any = ts[i + 1].pair; mut j: Any = stop + 1;
+            let stop: Int = ts[i + 1].pair; mut j: Int = stop + 1;
             while (j < len(ts) and ts[j].name != "{") { j += 1; }
             if (j < len(ts)) { ls_pattern_defs(doc, i + 2, stop, ts[j].bodyScope, "loop variable "); }
         }
@@ -316,220 +351,260 @@ fun ls_index(doc: Any) -> Any {
     // Lookups visit only definitions with the requested spelling. Semantic
     // tokens must not scan every declaration for every identifier.
     doc.named = {}; doc.exports = {}; doc.occurrences = {};
-    for d: Any in doc.defs {
+    for d: Def in doc.defs {
         if (not has(doc.named, d.name)) { doc.named[d.name] = []; }
-        push(doc.named[d.name], d);
+        let bucket: Optional<List<Def>> = doc.named[d.name];
+        if (bucket != nil) { push(bucket, d); }
         if (d.scope == 0 and (not doc.explicit or d.public) and not has(doc.exports, d.name)) { doc.exports[d.name] = d; }
     }
-    for index: Any in 0..len(ts) {
-        let token: Any = ts[index];
+    for index: Int in 0..len(ts) {
+        let token: Token = ts[index];
         if (token.kind == "identifier") {
             if (not has(doc.occurrences, token.name)) { doc.occurrences[token.name] = []; }
-            push(doc.occurrences[token.name], index);
+            let bucket: Optional<List<Int>> = doc.occurrences[token.name];
+            if (bucket != nil) { push(bucket, index); }
         }
     }
- return nil; }
-fun ls_local(doc: Any, name: Any, token: Any) -> Any {
-    mut best: Any = nil; mut bestDepth: Any = -1;
-    for d: Any in doc.named[name] ?? [] {
+    return;
+}
+fun ls_local(doc: Doc, name: Str, token: Token) -> Optional<Def> {
+    mut best: Optional<Def> = nil; mut bestDepth: Int = -1; mut bestAnchor: Int = -1;
+    for d: Def in doc.named[name] ?? [] {
         if (d.name == name and ls_ancestor(doc, d.scope, token.scope) and (d.a <= token.a or d.kind == 12 or d.scope == 0 or d.signature == "parameter " + d.name)) {
-            mut scope: Any = d.scope; mut depth: Any = 0;
+            mut scope: Int = d.scope; mut depth: Int = 0;
             while (scope >= 0) { depth += 1; scope = doc.scopes[scope].parent; }
-            if (best == nil or depth > bestDepth or (depth == bestDepth and d.a > best.a)) { best = d; bestDepth = depth; }
+            if (best == nil or depth > bestDepth or (depth == bestDepth and d.a > bestAnchor)) { best = d; bestDepth = depth; bestAnchor = d.a; }
         }
     }
     return best;
 }
-fun ls_type_def(doc: Any, name: Any) -> Any {
-    let qualified: Any = ls_split(name, ".");
+fun ls_type_def(doc: Doc, name: Str) -> Optional<Def> {
+    let qualified: List<Str> = ls_split(name, ".");
     if (len(qualified) == 2) {
-        for imp: Any in doc.imports {
-            if (imp.alias == qualified[0]) { let imported: Any = ls_import_doc(doc, imp); if (imported != nil) { return ls_export(imported, qualified[1]); } }
+        for imp: Import in doc.imports {
+            if (imp.alias == qualified[0]) {
+                let imported: Optional<Doc> = ls_import_doc(doc, imp);
+                if (imported != nil) { return ls_export(imported, qualified[1]); }
+            }
         }
         return nil;
     }
-    for d: Any in doc.named[name] ?? [] { if (d.scope == 0) { return d; } }
-    for imp: Any in doc.imports {
-        if (imp.plain and (len(imp.selected) == 0 or has(imp.selected, name))) { let imported: Any = ls_import_doc(doc, imp); if (imported != nil) { let d: Any = ls_export(imported, name); if (d != nil) { return d; } } }
+    for d: Def in doc.named[name] ?? [] { if (d.scope == 0) { return d; } }
+    for imp: Import in doc.imports {
+        if (imp.plain and (len(imp.selected) == 0 or has(imp.selected, name))) {
+            let imported: Optional<Doc> = ls_import_doc(doc, imp);
+            if (imported != nil) {
+                let exported: Optional<Def> = ls_export(imported, name);
+                if (exported != nil) { return exported; }
+            }
+        }
     }
     return nil;
 }
-fun ls_members(doc: Any, receiver: Any, token: Any) -> Any {
-    let variable: Any = ls_local(doc, receiver, token);
-    if (variable != nil) {
-        let type: Any = if (variable.kind == 23 or variable.kind == 10) { variable } else { ls_type_def(doc, ls_binding_type(doc, variable, 0)) };
-        if (type != nil) { return type.members ?? []; }
-    }
-    return [];
+fun ls_members(doc: Doc, receiver: Str, token: Token) -> List<Def> {
+    let variable: Optional<Def> = ls_local(doc, receiver, token);
+    if (variable == nil) { return []; }
+    let typeDef: Optional<Def> = if (variable.kind == 23 or variable.kind == 10) { variable } else { ls_type_def(doc, ls_binding_type(doc, variable, 0)) };
+    if (typeDef == nil) { return []; }
+    return typeDef.members;
 }
-fun ls_document(uri: Any) -> Any {
+fun ls_document(uri: Str) -> Optional<Doc> {
     if (has(LS_DOCS, uri)) { return LS_DOCS[uri]; }
-    let key: Any = ls_uri(ls_path(uri));
+    let key: Str = ls_uri(ls_path(uri));
     if (has(LS_DOCS, key)) { return LS_DOCS[key]; }
-    let path: Any = ls_path(key);
+    let path: Str = ls_path(key);
     if (not file_exists(path) or ls_is_directory(path)) { return nil; }
-    let doc: Any = {"uri": key, "path": path, "text": read_file(path), "version": nil, "open": false};
+    let doc: Doc = ls_new_doc(key, path, read_file(path), nil, false);
     LS_DOCS[key] = doc; ls_index(doc); return doc;
 }
-fun ls_set_document(uri: Any, text: Any, version: Any) -> Any {
+fun ls_set_document(uri: Str, text: Str, version: Any) -> Doc {
     LS_INDEX_EPOCH += 1;
-    let key: Any = ls_uri(ls_path(uri));
-    let doc: Any = {"uri": key, "path": ls_path(key), "text": text, "version": version, "open": true};
-    if (LS_DOCS[key]?.open) { doc.semanticHistory = LS_DOCS[key].semanticHistory; }
+    let key: Str = ls_uri(ls_path(uri));
+    let doc: Doc = ls_new_doc(key, ls_path(key), text, version, true);
+    let previous: Optional<Doc> = LS_DOCS[key];
+    if (previous != nil) {
+        if (previous.open) { doc.semanticHistory = previous.semanticHistory; }
+    }
     LS_DOCS[key] = doc; ls_index(doc); return doc;
 }
-fun ls_import_doc(doc: Any, imp: Any) -> Any {
+fun ls_import_doc(doc: Doc, imp: Import) -> Optional<Doc> {
     if (imp.cacheEpoch == LS_INDEX_EPOCH) {
-        if (imp.targetUri == nil) { return nil; }
-        if (has(LS_DOCS, imp.targetUri)) { return LS_DOCS[imp.targetUri]; }
+        let cached: Optional<Str> = imp.targetUri;
+        if (cached == nil) { return nil; }
+        if (has(LS_DOCS, cached)) { return LS_DOCS[cached]; }
     }
-    let suffix: Any = if (ls_ends(imp.path, ".may")) { "" } else { ".may" };
-    let name: Any = imp.path + suffix;
-    let paths: Any = if (ls_starts(name, "/")) { [name] } else { [ls_dir(doc.path) + "/" + name, LS_STDLIB + "/" + name] };
-    for path: Any in paths {
-        let uri: Any = ls_uri(ls_normal(path));
+    let suffix: Str = if (ls_ends(imp.path, ".may")) { "" } else { ".may" };
+    let name: Str = imp.path + suffix;
+    let paths: List<Str> = if (ls_starts(name, "/")) { [name] } else { [ls_dir(doc.path) + "/" + name, LS_STDLIB + "/" + name] };
+    for path: Str in paths {
+        let uri: Str = ls_uri(ls_normal(path));
         if (has(LS_DOCS, uri) or file_exists(path)) {
-            let target: Any = ls_document(uri); imp.targetUri = uri; imp.cacheEpoch = LS_INDEX_EPOCH; return target;
+            let target: Optional<Doc> = ls_document(uri); imp.targetUri = uri; imp.cacheEpoch = LS_INDEX_EPOCH; return target;
         }
     }
     imp.targetUri = nil; imp.cacheEpoch = LS_INDEX_EPOCH;
     return nil;
 }
-fun ls_scan_dir(path: Any, depth: Any) -> Any {
-    if (depth > 24 or len(LS_DOCS) >= 10000) { return nil; }
-    let entries: Any = may { read_dir(path) } otherwise { [] };
-    for entry: Any in entries {
+fun ls_scan_dir(path: Str, depth: Int) -> Nil {
+    if (depth > 24 or len(LS_DOCS) >= 10000) { return; }
+    let entries: List<Str> = may { read_dir(path) } otherwise { [] };
+    for entry: Str in entries {
         if (len(LS_DOCS) >= 10000) { break; }
         if (has([".", "..", ".git", ".may", "target", "node_modules", ".codex", ".agents", "build"], entry)) { continue; }
-        let child: Any = path + "/" + entry;
+        let child: Str = path + "/" + entry;
         if (ls_is_directory(child)) { ls_scan_dir(child, depth + 1); }
         else if (ls_ends(entry, ".may")) { may { ls_document(ls_uri(child)); }; }
     }
-    return nil;
+    return;
 }
-fun ls_workspace() -> Any {
-    if (LS_SCANNED) { return nil; }
+fun ls_workspace() -> Nil {
+    if (LS_SCANNED) { return; }
     LS_SCANNED = true;
-    for root: Any in LS_ROOTS { ls_scan_dir(root, 0); }
-    return nil;
+    for root: Str in LS_ROOTS { ls_scan_dir(root, 0); }
+    return;
 }
-fun ls_export(doc: Any, name: Any) -> Any {
+fun ls_export(doc: Doc, name: Str) -> Optional<Def> {
     return doc.exports[name];
 }
-fun ls_ancestor(doc: Any, parent: Any, child: Any) -> Any {
-    mut current: Any = child;
+fun ls_ancestor(doc: Doc, parent: Int, child: Int) -> Bool {
+    mut current: Int = child;
     while (current >= 0) { if (current == parent) { return true; } current = doc.scopes[current].parent; }
     return false;
 }
-fun ls_resolve(doc: Any, index: Any) -> Any {
+fun ls_resolve(doc: Doc, index: Int) -> Optional<Def> {
     if (index < 0 or index >= len(doc.tokens)) { return nil; }
-    let t: Any = doc.tokens[index];
+    let t: Token = doc.tokens[index];
     if (t.kind != "identifier") { return nil; }
-    if (has(doc.declared, str(t.a))) { return doc.declared[str(t.a)]; }
+    let declared: Optional<Def> = doc.declared[str(t.a)];
+    if (declared != nil) { return declared; }
     // Map keys and destructuring property names are literals, not references.
     if (ls_at(doc.tokens, index + 1) == ":" and has(["{", ","], ls_at(doc.tokens, index - 1))) { return nil; }
     if (index > 1 and has([".", "?."], doc.tokens[index - 1].name)) {
-        let alias: Any = doc.tokens[index - 2].name;
-        let local: Any = ls_local(doc, alias, t);
-        if (local != nil) { for field: Any in ls_members(doc, alias, t) { if (field.name == t.name) { return field; } } return nil; }
-        for imp: Any in doc.imports {
-            if (imp.alias == alias) { let imported: Any = ls_import_doc(doc, imp); if (imported != nil) { return ls_export(imported, t.name); } }
+        let alias: Str = doc.tokens[index - 2].name;
+        let local: Optional<Def> = ls_local(doc, alias, t);
+        if (local != nil) {
+            for field: Def in ls_members(doc, alias, t) { if (field.name == t.name) { return field; } }
+            return nil;
+        }
+        for imp: Import in doc.imports {
+            if (imp.alias == alias) {
+                let imported: Optional<Doc> = ls_import_doc(doc, imp);
+                if (imported != nil) { return ls_export(imported, t.name); }
+            }
         }
         return nil;
     }
-    let best: Any = ls_local(doc, t.name, t);
+    let best: Optional<Def> = ls_local(doc, t.name, t);
     if (best != nil) { return best; }
-    if (doc.externalEpoch != LS_INDEX_EPOCH) { doc.externalEpoch = LS_INDEX_EPOCH; doc.externalNames = {}; }
-    if (has(doc.externalNames, t.name)) { return doc.externalNames[t.name]; }
-    mut candidateDefinition: Any = nil;
-    for imp: Any in doc.imports {
+    if (doc.externalEpoch != LS_INDEX_EPOCH) { doc.externalEpoch = LS_INDEX_EPOCH; doc.externalNames = {}; doc.externalMissing = {}; }
+    let cached: Optional<Def> = doc.externalNames[t.name];
+    if (cached != nil) { return cached; }
+    if (has(doc.externalMissing, t.name)) { return nil; }
+    let candidates: List<Def> = [];
+    for imp: Import in doc.imports {
         if (imp.plain and (len(imp.selected) == 0 or has(imp.selected, t.name))) {
-            let imported: Any = ls_import_doc(doc, imp);
+            let imported: Optional<Doc> = ls_import_doc(doc, imp);
             if (imported != nil) {
-                let d: Any = ls_export(imported, t.name);
-                if (d != nil) {
-                    if (candidateDefinition != nil and candidateDefinition.id != d.id) { doc.externalNames[t.name] = nil; return nil; }
-                    candidateDefinition = d;
-                }
+                let exported: Optional<Def> = ls_export(imported, t.name);
+                if (exported != nil) { push(candidates, exported); }
             }
         }
     }
-    if (candidateDefinition != nil) { doc.externalNames[t.name] = candidateDefinition; return candidateDefinition; }
+    if (len(candidates) > 0) {
+        let firstId: Str = candidates[0].id;
+        mut ambiguous: Bool = false;
+        for candidate: Def in candidates { if (candidate.id != firstId) { ambiguous = true; } }
+        if (ambiguous) { doc.externalMissing[t.name] = true; return nil; }
+        doc.externalNames[t.name] = candidates[0]; return candidates[0];
+    }
     if (LS_STDLIB != "") {
-        for uri: Any in ls_builtin_uris() {
-            let builtin: Any = ls_document(uri);
-            if (builtin != nil) { let d: Any = ls_export(builtin, t.name); if (d != nil) { doc.externalNames[t.name] = d; return d; } }
+        for uri: Str in ls_builtin_uris() {
+            let builtin: Optional<Doc> = ls_document(uri);
+            if (builtin != nil) {
+                let exported: Optional<Def> = ls_export(builtin, t.name);
+                if (exported != nil) { doc.externalNames[t.name] = exported; return exported; }
+            }
         }
     }
-    doc.externalNames[t.name] = nil; return nil;
+    doc.externalMissing[t.name] = true; return nil;
 }
 // Only concrete results belong in type hints. A callee's spelling is never
 // evidence of its return type; source declarations take precedence over builtins.
-let LS_CALL_TYPES: Any = {"len": "Int", "str": "Str", "int": "Int", "bool": "Bool", "float": "Float", "to_float": "Float", "push": "List", "map": "List", "filter": "List", "any": "Bool", "all": "Bool", "sort": "List", "slice": "List", "keys": "List", "values": "List", "has": "Bool", "remove": "Map", "merge": "Map", "read_file": "Str", "write_file": "Nil", "read_dir": "List", "file_exists": "Bool", "json_stringify": "Str", "read_stdin": "Str", "clock": "Float", "time": "Int", "sleep": "Nil", "addr": "Ptr", "cstr": "Ptr", "ptr": "Ptr", "load8": "Int", "load16": "Int", "load32": "Int", "load64": "Int", "ccall": "Int", "__ccall6": "Int", "syscall": "Int", "sqrt": "Float", "sin": "Float", "cos": "Float", "tan": "Float", "args": "List", "substring": "Str", "split": "List", "join": "Str", "trim": "Str", "repeat": "Str", "range": "List"};
-fun ls_binding_type(doc: Any, d: Any, depth: Any) -> Any {
+let LS_CALL_TYPES: Map<Str, Str> = {"len": "Int", "str": "Str", "int": "Int", "bool": "Bool", "float": "Float", "to_float": "Float", "push": "List", "map": "List", "filter": "List", "any": "Bool", "all": "Bool", "sort": "List", "slice": "List", "keys": "List", "values": "List", "has": "Bool", "remove": "Map", "merge": "Map", "read_file": "Str", "write_file": "Nil", "read_dir": "List", "file_exists": "Bool", "json_stringify": "Str", "read_stdin": "Str", "clock": "Float", "time": "Int", "sleep": "Nil", "addr": "Ptr", "cstr": "Ptr", "ptr": "Ptr", "load8": "Int", "load16": "Int", "load32": "Int", "load64": "Int", "ccall": "Int", "__ccall6": "Int", "syscall": "Int", "sqrt": "Float", "sin": "Float", "cos": "Float", "tan": "Float", "args": "List", "substring": "Str", "split": "List", "join": "Str", "trim": "Str", "repeat": "Str", "range": "List"};
+fun ls_binding_type(doc: Doc, d: Def, depth: Int) -> Str {
     if (depth > 12) { return "Any"; }
     if (d.type != "Any") { return d.type; }
-    if (d.initFirst == nil or d.initLast == nil) { return "Any"; }
+    if (d.initFirst < 0 or d.initLast < 0) { return "Any"; }
     if (d.inferredEpoch == LS_INDEX_EPOCH) { return d.inferredType; }
     // Mark before following bindings to bound recursive and cyclic aliases.
     d.inferredEpoch = LS_INDEX_EPOCH; d.inferredType = "Any";
-    let first: Any = d.initFirst; let last: Any = d.initLast; let ts: Any = doc.tokens;
+    let first: Int = d.initFirst; let last: Int = d.initLast; let ts: List<Token> = doc.tokens;
     if (first >= last or ts[first].kind != "identifier") { return "Any"; }
-    mut callee: Any = first;
+    mut callee: Int = first;
     if (first + 2 < last and ls_at(ts, first + 1) == "." and ts[first + 2].kind == "identifier") { callee = first + 2; }
-    let target: Any = ls_resolve(doc, callee);
+    let target: Optional<Def> = ls_resolve(doc, callee);
     if (first + 1 == last and target != nil and target.id != d.id and has([13, 14], target.kind)) {
-        d.inferredType = ls_binding_type(ls_document(target.uri), target, depth + 1); return d.inferredType;
+        let declaring: Optional<Doc> = ls_document(target.uri);
+        if (declaring != nil) { d.inferredType = ls_binding_type(declaring, target, depth + 1); }
+        return d.inferredType;
     }
-    let open: Any = callee + 1;
+    let open: Int = callee + 1;
     if (ls_at(ts, open) != "(" or ts[open].pair != last - 1) { return "Any"; }
     if (target != nil and target.kind == 23) {
         d.inferredType = ls_trim(ls_slice(doc.text, ts[first].a, ts[callee].b));
-    } else if (target != nil and target.kind == 22 and target.ownerType != nil) {
+    } else if (target != nil and target.kind == 22 and target.ownerType != "") {
         d.inferredType = if (callee == first) { target.ownerType } else { ts[first].name + "." + target.ownerType };
     } else if (target != nil and target.kind == 12) {
-        let result: Any = target.returnType ?? "Any";
         // A generic type parameter is not a concrete inferred result.
-        if (not has(target.typeParams ?? [], result)) { d.inferredType = result; }
+        if (target.returnType != "" and not has(target.typeParams, target.returnType)) { d.inferredType = target.returnType; }
         if (d.inferredType == "Any" and has(ls_builtin_uris(), target.uri)) { d.inferredType = LS_CALL_TYPES[target.name] ?? "Any"; }
     } else if (target == nil and callee == first and has(LS_CALL_TYPES, ts[first].name)) {
         // Unresolved qualified calls and shadowed bindings do not use builtin types.
-        mut ambiguous: Any = false;
-        for imp: Any in doc.imports {
+        mut ambiguous: Bool = false;
+        for imp: Import in doc.imports {
             if (imp.plain and (len(imp.selected) == 0 or has(imp.selected, ts[first].name))) {
-                let module: Any = ls_import_doc(doc, imp);
-                if (module != nil and ls_export(module, ts[first].name) != nil) { ambiguous = true; }
+                let module: Optional<Doc> = ls_import_doc(doc, imp);
+                if (module != nil) {
+                    let exported: Optional<Def> = ls_export(module, ts[first].name);
+                    if (exported != nil) { ambiguous = true; }
+                }
             }
         }
-        if (not ambiguous) { d.inferredType = LS_CALL_TYPES[ts[first].name]; }
+        if (not ambiguous) { d.inferredType = LS_CALL_TYPES[ts[first].name] ?? "Any"; }
     }
     return d.inferredType;
 }
-fun ls_token_index(doc: Any, position: Any) -> Any {
-    let offset: Any = ls_offset(doc.text, position); let ts: Any = doc.tokens;
-    mut lo: Any = 0; mut hi: Any = len(ts);
-    while (lo < hi) { let mid: Any = (lo + hi) / 2; if (ts[mid].a <= offset) { lo = mid + 1; } else { hi = mid; } }
-    let i: Any = lo - 1;
+fun ls_token_index(doc: Doc, position: Any) -> Int {
+    let offset: Int = ls_offset(doc.text, position); let ts: List<Token> = doc.tokens;
+    mut lo: Int = 0; mut hi: Int = len(ts);
+    while (lo < hi) { let mid: Int = (lo + hi) / 2; if (ts[mid].a <= offset) { lo = mid + 1; } else { hi = mid; } }
+    let i: Int = lo - 1;
     if (i >= 0 and (offset < ts[i].b or (offset == ts[i].b and ts[i].kind == "identifier"))) { return i; }
     return -1;
 }
-fun ls_location(d: Any) -> Any { let doc: Any = ls_document(d.uri); return {"uri": d.uri, "range": ls_range(doc.text, d.a, d.b)}; }
-fun ls_document_occurrences(doc: Any, target: Any, declarations: Any) -> Any {
-    let out: Any = [];
-    for i: Any in doc.occurrences[target.name] ?? [] {
-        let t: Any = doc.tokens[i];
+fun ls_location(d: Def) -> Map<Str, Any> {
+    let doc: Optional<Doc> = ls_document(d.uri);
+    if (doc == nil) { return {"uri": d.uri, "range": ls_range("", 0, 0)}; }
+    return {"uri": d.uri, "range": ls_range(doc.text, d.a, d.b)};
+}
+fun ls_document_occurrences(doc: Doc, target: Def, declarations: Bool) -> List<Occurrence> {
+    let out: List<Occurrence> = [];
+    for i: Int in doc.occurrences[target.name] ?? [] {
+        let t: Token = doc.tokens[i];
         if (declarations or not has(doc.declared, str(t.a))) {
-            let d: Any = ls_resolve(doc, i);
-            if (d != nil and d.id == target.id) { push(out, {"uri": doc.uri, "range": ls_range(doc.text, t.a, t.b)}); }
+            let d: Optional<Def> = ls_resolve(doc, i);
+            if (d != nil and d.id == target.id) { push(out, Occurrence(doc.uri, ls_range(doc.text, t.a, t.b))); }
         }
     }
     return out;
 }
-fun ls_occurrences(target: Any, declarations: Any) -> Any {
-    ls_workspace(); let out: Any = [];
-    for uri: Any in keys(LS_DOCS) {
-        let doc: Any = LS_DOCS[uri];
-        for occurrence: Any in ls_document_occurrences(doc, target, declarations) { push(out, occurrence); }
+fun ls_occurrences(target: Def, declarations: Bool) -> List<Occurrence> {
+    ls_workspace(); let out: List<Occurrence> = [];
+    for uri: Str in keys(LS_DOCS) {
+        let doc: Optional<Doc> = LS_DOCS[uri];
+        if (doc != nil) {
+            for occurrence: Occurrence in ls_document_occurrences(doc, target, declarations) { push(out, occurrence); }
+        }
     }
     return out;
 }
