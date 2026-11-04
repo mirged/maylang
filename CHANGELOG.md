@@ -18,6 +18,12 @@
   argument is an `Int` or `Float`. Other arguments, including `Bool`, fail
   closed. `int`, `trunc` and `abs` can still raise catchable `arithmetic`
   faults, as `/` can ([docs](docs/internals/BEHAVIOR.md#numeric-conversions-and-rounding)).
+- Behavior contracts admit the scalar mathematics: `sin`, `cos`, `tan`, `ln`,
+  `log2`, `log10`, `exp`, `pow` and `**` with a `Float` operand on `Int` or
+  `Float` arguments, `min`/`max` on two arguments of the same type, and `bool`
+  on `Int`, `Float` or `Bool`. `Int ** Int` and mixed `min`/`max` stay unknown
+  ([docs](docs/internals/BEHAVIOR.md#mathematics-comparison-and-truthiness)).
+  Strict typing now types `pow` as returning `Float` instead of `Any`.
 
 ## Performance
 

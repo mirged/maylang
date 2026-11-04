@@ -386,6 +386,11 @@ fun st_builtin(name: Any, args: Any, span: Any) -> Any {
         let index: Any = if (name == "keys" or name == "map_keys") { 0 } else { 1 };
         return st_type("List", [if (args[0].name == "Map") { args[0].arguments[index] } else { st_any() }]);
     }
+    if (name == "pow") {
+        // The runtime pow converts both numbers and always returns a Float.
+        st_arity(name, args, 2, 2, span); st_number(args[0], span); st_number(args[1], span);
+        return st_type("Float", []);
+    }
     if (name == "min" or name == "max") {
         st_arity(name, args, 2, 2, span); return st_join(args[0], args[1], span);
     }

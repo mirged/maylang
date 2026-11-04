@@ -16,6 +16,7 @@ PASS = {
     'result_error_widening': ('fun source() -> Result<Int, Str> { return Err("bad"); } fun use() -> Result<Str, Str> { let n: Int = source()?; return Ok(str(n)); } print(use().error ?? "missing");', 'bad\n'),
     'basics': ('fun add(a: Int, b: Int) { return a + b; }\nlet n = add(2,3);\nprint(n);', '5\n'),
     'inferred_builtin_return': ('fun size() { return len("hello"); }\nlet n: Int = size();\nprint(n);', '5\n'),
+    'pow_returns_float': ('let p: Float = pow(2, 10); let q: Float = pow(2.0, 0.5) * 0.0; print(p, q);', '1024.0 0.0\n'),
     'ccall6_returns_int': ('fun unused() -> Int { return __ccall6(0, 0, 0, 0, 0, 0, 0); } print(1);', '1\n'),
     'inferred_handler_builtin': ('fun test_may() {\nlet result = may {\nlet bad = 10 / 0\nbad\n} otherwise {\nprint("Caught an error: ${err}");\n}\nprint(result)\nreturn nil;\n}\ntest_may()', 'Caught an error: division by zero\n0\n'),
     'branches': ('fun f(flag: Bool) -> Int { if(flag) { return 1; } else { return 2; } }\nprint(f(false));', '2\n'),
@@ -125,6 +126,8 @@ FAIL = {
     'compare_float_int': ('let f: Float = 1.5;\nprint(f > 0);', 'cannot compare Float with Int'),
     'compare_int_float': ('let n: Int = 1;\nprint(n == 1.0);', 'cannot compare Int with Float'),
     'bitwise_rejects_float': ('let f: Float = 1.5;\nprint(f & 1);', 'expected an integer, found Float'),
+    'pow_rejects_string': ('print(pow("2", 1));', 'expected a number, found Str'),
+    'pow_result_not_int': ('let n: Int = pow(2, 3);', 'expected Int, found Float'),
     'bitnot_rejects_float': ('let f: Float = 1.5;\nprint(~f);', 'expected an integer, found Float'),
 }
 

@@ -74,6 +74,7 @@ fun behavior_type(node: Any, locals: Any, functions: Any) -> Any {
         if (has([TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR], node.op)) { return "Int"; }
         return if (left == "Float" or right == "Float") { "Float" } else { "Int" };
     }
+    if (k == E_POW) { return if (behavior_float_power(node, locals, functions)) { "Float" } else { "" }; }
     if (k == E_CALL or k == E_ICALL) {
         let target: Any = if (k == E_ICALL) { node.callee } else { node };
         if (k == E_ICALL and target.kind != E_VAR) { return ""; }
@@ -87,7 +88,11 @@ fun behavior_type(node: Any, locals: Any, functions: Any) -> Any {
         if (not has(functions, key)) { return ""; }
         let callee: Any = functions[key];
         if (callee.primitiveEffects != nil) {
-            if (callee.primitiveResult == "argument") { return behavior_type(node.args, locals, functions); }
+            if (callee.primitiveResult == "argument") {
+                let found: Any = behavior_type(node.args, locals, functions);
+                if (callee.primitiveSame == true and node.args != 0 and node.args.next != 0 and behavior_type(node.args.next, locals, functions) != found) { return ""; }
+                return found;
+            }
             return callee.primitiveResult ?? "";
         }
         if (callee.behaviorUnknown == true) { return ""; }
@@ -95,9 +100,40 @@ fun behavior_type(node: Any, locals: Any, functions: Any) -> Any {
     }
     return "";
 }
+fun behavior_float_power(node: Any, locals: Any, functions: Any) -> Any {
+    let left: Any = behavior_type(node.left, locals, functions);
+    let right: Any = behavior_type(node.right, locals, functions);
+    return has(["Int", "Float"], left) and has(["Int", "Float"], right) and (left == "Float" or right == "Float");
+}
 fun behavior_type_name(annotation: Any) -> Any {
     if (annotation == nil or annotation == 0 or len(annotation.arguments ?? []) != 0) { return ""; }
     return if (has(["Int", "Bool", "Float"], annotation.name)) { annotation.name } else { "" };
+}
+fun behavior_type_list(types: Any) -> Any {
+    if (len(types) == 1) { return types[0]; }
+    return join(slice(types, 0, len(types) - 1), ", ") + " or " + types[len(types) - 1];
+}
+fun behavior_primitive_arguments(node: Any, callee: Any, name: Any, locals: Any, functions: Any) -> Any {
+    mut argument: Any = node.args; mut index: Any = 0; mut first: Any = "";
+    while (argument != 0) {
+        let accepted: Any = callee.primitiveAccepts[index];
+        let found: Any = behavior_type(argument, locals, functions);
+        if (not has(accepted, found)) {
+            let types: Any = behavior_type_list(accepted);
+            let wanted: Any = if (len(callee.primitiveAccepts) == 1) {
+                (if (has([65, 69, 73, 79, 85], char_at(types, 0))) { "an " } else { "a " }) + types + " argument whose type"
+            } else { types + " arguments whose types" };
+            return behavior_error(argument.span, "`" + name + "` requires " + wanted + " the behavior checker can establish");
+        }
+        // min and max return one of their arguments, so mixed types would make
+        // the result's type depend on the values.
+        if (callee.primitiveSame == true) {
+            if (index == 0) { first = found; }
+            else if (found != first) { return behavior_error(argument.span, "`" + name + "` requires arguments of the same type, found " + first + " and " + found); }
+        }
+        argument = argument.next; index += 1;
+    }
+    return 0;
 }
 fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
     if (node == 0) { return 0; }
@@ -129,6 +165,15 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         behavior_node(node.left, locals, functions); behavior_node(node.right, locals, functions); return 0;
     }
     if (k == E_UN) { return behavior_node(node.operand, locals, functions); }
+    if (k == E_POW) {
+        behavior_node(node.left, locals, functions); behavior_node(node.right, locals, functions);
+        // With a Float operand `**` is the total pow; Int ** Int multiplies with
+        // overflow faults and yields a Float for a negative exponent.
+        if (not behavior_float_power(node, locals, functions)) {
+            return behavior_error(node.span, "`**` requires a Float operand and an Int or Float other operand whose types the behavior checker can establish");
+        }
+        return 0;
+    }
     if (k == E_CALL or k == E_ICALL) {
         mut target: Any = node;
         if (k == E_ICALL) {
@@ -156,8 +201,13 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         let callee: Any = functions[key];
         if (callee.behaviorUnknown == true) { return behavior_error(node.span, "call to `" + name + "` has unknown behavior through a global binding"); }
         if (callee.primitiveEffects != nil) {
-            if (callee.primitiveNumeric == true and (node.args == 0 or node.args.next != 0)) {
-                return behavior_error(node.span, "`" + name + "` expects one argument");
+            if (callee.primitiveAccepts != nil) {
+                mut count: Any = 0; mut counted: Any = node.args;
+                while (counted != 0) { count += 1; counted = counted.next; }
+                let arity: Any = len(callee.primitiveAccepts);
+                if (count != arity) {
+                    return behavior_error(node.span, "`" + name + "` expects " + if (arity == 1) { "one argument" } else { str(arity) + " arguments" });
+                }
             }
             behavior_add_effects(callee.primitiveEffects, node.span, name);
         } else {
@@ -166,11 +216,9 @@ fun behavior_node(node: Any, locals: Any, functions: Any) -> Any {
         }
         mut arg: Any = node.args;
         while (arg != 0) { behavior_node(arg, locals, functions); arg = arg.next; }
-        // A numeric primitive's argument must have an Int or Float type established
-        // here; anything else (Bool, callables, unknown) fails closed.
-        if (callee.primitiveNumeric == true and not has(["Int", "Float"], behavior_type(node.args, locals, functions))) {
-            return behavior_error(node.args.span, "`" + name + "` requires an Int or Float argument whose type the behavior checker can establish");
-        }
+        // An audited primitive's arguments must have types established here,
+        // from its accepted sets; anything else (callables, unknown) fails closed.
+        if (callee.primitiveAccepts != nil) { behavior_primitive_arguments(node, callee, name, locals, functions); }
         return 0;
     }
     if (k == S_RETURN or k == S_EXPR) { return behavior_node(if (k == S_RETURN) { node.value } else { node.expression }, locals, functions); }
@@ -358,14 +406,24 @@ fun behavior_program() -> Any {
     // Explicit empty rows are audited rules, never a fallback for unknown calls.
     functions["pi"] = {"primitiveEffects": [], "primitiveResult": "Float"};
     functions["e"] = {"primitiveEffects": [], "primitiveResult": "Float"};
-    // Audited numeric conversions and rounding on an Int or Float argument
+    // Audited scalar primitives with the argument types each accepts
     // (docs/internals/BEHAVIOR.md). `int`, `trunc` and `abs` may raise the
     // same catchable `arithmetic` fault as `/` and overflow; failure is not an
     // effect in this fragment.
+    let number: Any = ["Int", "Float"];
     for rule: Any in [["to_float", "Float"], ["float", "Float"], ["int", "Int"], ["trunc", "Int"],
-                      ["floor", "Float"], ["ceil", "Float"], ["round", "Float"], ["sqrt", "Float"], ["abs", "argument"]] {
-        functions[rule[0]] = {"primitiveEffects": [], "primitiveResult": rule[1], "primitiveNumeric": true};
+                      ["floor", "Float"], ["ceil", "Float"], ["round", "Float"], ["sqrt", "Float"], ["abs", "argument"],
+                      ["sin", "Float"], ["cos", "Float"], ["tan", "Float"], ["ln", "Float"], ["log2", "Float"],
+                      ["log10", "Float"], ["exp", "Float"]] {
+        functions[rule[0]] = {"primitiveEffects": [], "primitiveResult": rule[1], "primitiveAccepts": [number]};
     }
+    // pow is total and always returns a Float; min and max return one of two
+    // arguments of the same type; bool is truthiness, true for every Int and Float.
+    functions["pow"] = {"primitiveEffects": [], "primitiveResult": "Float", "primitiveAccepts": [number, number]};
+    for name: Any in ["min", "max"] {
+        functions[name] = {"primitiveEffects": [], "primitiveResult": "argument", "primitiveAccepts": [number, number], "primitiveSame": true};
+    }
+    functions["bool"] = {"primitiveEffects": [], "primitiveResult": "Bool", "primitiveAccepts": [["Int", "Float", "Bool"]]};
     for head: Any in [RUNTIME_BODY, MAINBODY] {
         mut statement: Any = head;
         while (statement != 0) {

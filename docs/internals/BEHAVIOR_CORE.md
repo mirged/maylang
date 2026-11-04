@@ -39,6 +39,8 @@ The effect universe is `U = {output, clock}`. Covered source observations are:
 | `pi()`, `e()` | Fixed mathematical constants returning Float | none |
 | `to_float`, `float`, `floor`, `ceil`, `round`, `sqrt` on one Int/Float | Scalar conversion or rounding returning Float | none |
 | `int`, `trunc` on one Int/Float; `abs` on Int/Float | Conversion returning Int, or magnitude of the argument's type; may raise an `arithmetic` fault | none |
+| `sin`, `cos`, `tan`, `ln`, `log2`, `log10`, `exp` on one Int/Float; `pow` and `**` with Float operands | Total binary64 mathematics returning Float | none |
+| `min`, `max` on two Int or two Float; `bool` on one Int/Float/Bool | One of the arguments, or truthiness | none |
 
 A numeric primitive's argument must have a type the checker derives from
 literals, annotated bindings, operators and call result types; otherwise the call

@@ -96,8 +96,38 @@ raise inside `! pure` functions. Failure is not an effect in this fragment, so a
 contract does not show them; typed failure sets (design section 9) must cover
 operators and these primitives together. Shadowing follows the `pi`/`e` rules:
 source functions, imports, globals and locals named like a primitive never
-inherit its row. `bool`, the transcendental functions, `pow`, `min` and `max`
-remain unknown.
+inherit its row.
+
+### Mathematics, comparison and truthiness
+
+The remaining scalar mathematics also has audited empty rows, with the same
+rule that the checker must establish every argument's type itself:
+
+| Primitive | Arguments | Result | Semantics |
+| --- | --- | --- | --- |
+| `sin`, `cos`, `tan` | one Int or Float | `Float` | Never fault; NaN and infinities give NaN |
+| `ln`, `log2`, `log10` | one Int or Float | `Float` | Never fault; `0.0` gives `-inf`, negatives and NaN give NaN, `inf` gives `inf` |
+| `exp` | one Int or Float | `Float` | Never fault; saturates to `inf` and `0.0` |
+| `pow`, `**` | two Int or Float | `Float` | Never fault; C99 special cases for zeros, infinities, NaN and negative bases |
+| `min`, `max` | two of the same type, Int or Float | that type | Return one argument: the first on ties; a comparison with NaN reports greater, so `min` returns its second argument and `max` its first |
+| `bool` | one Int, Float or Bool | `Bool` | Truthiness: every Int and Float, including `0`, `0.0` and NaN, is `true` |
+
+`**` is admitted only when one operand is a `Float`. `Int ** Int` multiplies
+with overflow faults, and for a negative exponent the runtime returns a `Float`
+although strict typing calls the result `Int`, so it remains unknown. `min` and
+`max` with one `Int` and one `Float` argument also remain unknown: they return
+one of the arguments, so the result's type would depend on the values. Strict
+typing gives `pow` a `Float` result, as the runtime always returns one.
+
+```may
+fun distance(x: Float, y: Float) -> Float ! pure {
+    return sqrt(x ** 2 + y ** 2);
+}
+
+fun clamp_unit(x: Float) -> Float ! pure {
+    return max(0.0, min(x, 1.0));
+}
+```
 
 Global reads/writes, collection mutation, strings, closures, generic function
 bodies, `for` loops over collections or strings, FFI, and other unsupported AST
@@ -225,9 +255,10 @@ finite row. This increment adds no capability, memory-safety or isolation profil
 The strict checker's builtin registry in `src/strict.may` and the runtime bodies
 in `native.may` and `runtime/fat.may` are the starting points for this inventory.
 A value signature is not an effect summary. Only `print`, `time`, `clock`, `pi`,
-`e` and the numeric conversions and rounding above currently have explicit
-primitive behavior rules; other builtin and runtime calls remain unknown,
-including the remaining apparently scalar mathematical operations.
+`e`, the numeric conversions and rounding, and the mathematics, comparison and
+truthiness primitives above currently have explicit primitive behavior rules;
+other builtin and runtime calls remain unknown, including `cmp`, `clamp`,
+`Int ** Int` and mixed-type `min`/`max`.
 
 | Remaining family | Representative calls | Required semantics before admission |
 | --- | --- | --- |
@@ -237,7 +268,7 @@ including the remaining apparently scalar mathematical operations.
 | Scheduling and lifetime | `sleep`, `spawn`, `yield`, `run`, `exit` | Define blocking, task lifetime, cancellation and termination effects; sleep is more than a clock observation. |
 | Raw memory | `addr`, `cstr`, `ptr`, `load8`–`load64`, `store8`–`store64` | Specify ownership, aliasing, reads, writes and native-memory safety. |
 | Failure and recovery | `fail`, `rt_raise`, `__longjmp` | Define typed failure, unwinding and recovery before adding a failure row. |
-| Remaining scalar mathematics | `bool`, `sin`, `exp`, `pow`, `min`, `max` | Define accepted value types, dispatch, numeric failures and runtime assumptions before claiming purity; `min`/`max` compare mixed types and `bool` is dynamic truthiness. |
+| Remaining scalar operations | `cmp`, `clamp`, `Int ** Int`, mixed `min`/`max` | `cmp` and `clamp` compare dynamic values; `Int ** Int` needs its negative-exponent result type fixed; mixed `min`/`max` results depend on the values. |
 | Strings, JSON and collections | `str`, `json_parse`, `push`, `pop`, `map_set`, `sort` | Define allocation, mutation, aliasing and failure; distinguish copying operations from in-place operations. |
 | Callback traversal | `map`, `filter`, `reduce`, `any`, `all`, `each`, `times` | Carry callback effects through function types and prevent laundering effects through callbacks. |
 

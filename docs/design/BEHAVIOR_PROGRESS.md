@@ -58,12 +58,27 @@ clause exists, would leave operators and primitives with different failure
 treatment. The limit: a pure row says nothing about failure until typed failure
 sets (design section 9) cover operators and primitives together.
 
-Active increment: the remaining scalar mathematics. `sin`, `cos`, `tan`, `ln`,
-`log2`, `log10` and `exp` use the binary64 kernels in `runtime/math.may` and
-need a body review; `pow`, `min` and `max` take two arguments whose mixed Int
-and Float dispatch must be specified; `bool` is dynamic truthiness and stays
-unknown until its accepted types are defined. The fragment also lacks `**`
-(`E_POW`) and if-expressions, whose result types the argument check would need.
+- Scalar mathematics, comparison and truthiness: `sin`, `cos`, `tan`, `ln`,
+  `log2`, `log10`, `exp` and `pow` have empty rows on Int or Float arguments
+  (the `runtime/math.may` kernels and `rt_powf` never fault and always return
+  Float); `**` is admitted when one operand is a Float; `min`/`max` need two
+  arguments of the same established type; `bool` accepts Int, Float and Bool.
+  Strict typing now gives `pow` a `Float` result instead of `Any`. Primitive
+  rules declare an accepted type set per argument. The scalar suite has 318
+  checks, including NaN, infinity and `-0.0` edges and per-argument effects.
+
+Decisions (mathematics): `Int ** Int` stays unknown because the runtime returns
+a Float for a negative exponent while strict typing calls the result Int; that
+is a strict-typing soundness gap to fix before admitting it. Mixed `min`/`max`
+stay unknown because the result's type depends on the values. `bool` is
+admitted as truthiness, which is `true` for every number, rather than as a
+numeric test.
+
+Active increment: close the scalar fragment. If-expressions and scalar `match`
+need result types the argument check can establish; `cmp` and `clamp` compare
+dynamic values and need accepted types; `Int ** Int` needs the strict-typing
+fix above. After that, dependency step 2 (behavior IR and effect-bearing
+function types) begins.
 
 Ongoing invariant: callable effects must survive every assignment,
 argument, return, substitution, and trust boundary; unannotated callable behavior
@@ -105,7 +120,7 @@ separate requirements.
 | 14: distributed protocols | No delivery or distributed consistency guarantee | Delivery/idempotency/order contracts, explicit uncertainty, failure injection and protocol-state validation |
 | 15: supply/build/platform contracts | Existing toolchain metadata is not a behavior lockfile | Canonical contract digests, transitive authority diffs, build identities, provenance and target enforcement obligations |
 | 16: unified enforcement architecture | Frontend effect pass and inspection reports | Behavior IR preservation through lowering/optimization/linking, runtime guards, capability broker and isolation supervisor |
-| 17: standard library | print/time/clock/pi/e and numeric conversion/rounding rules; primitive audit in BEHAVIOR.md | Audited APIs, capability-based ambient facilities, precise callback/allocation/mutation/failure semantics |
+| 17: standard library | print/time/clock/pi/e, numeric conversion/rounding and scalar mathematics rules; primitive audit in BEHAVIOR.md | Audited APIs, capability-based ambient facilities, precise callback/allocation/mutation/failure semantics |
 | 18: developer experience | JSON summaries and minimal diagnostic paths | IDE behavior hover/tracing, authority/resource explanations, contract diffs and behavioral version compatibility |
 | 19: reference applications | Small scalar behavior example | Secure isolated decoder, payment uncertainty, deterministic simulation and quota-limited API with end-to-end tests |
 | 20: trust model | Supported fragment and exclusions documented | Auditable TCB, versioned assumptions, profile enforcement and policy for debug/replay/crash output channels |

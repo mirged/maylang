@@ -97,8 +97,9 @@ print(root());
         for name, body, error in [
             ('global', 'return shared;', 'global or captured value'),
             ('shared_mutation', 'mut x: Float = 0.0; shared = x; return x;', 'assignment to global'),
-            ('math_unknown', 'return sin(pi());', 'MB-EFFECT-001'),
-            ('conversion_unknown', 'return to_float(bool(1));', 'MB-EFFECT-001'),
+            ('math_unknown', 'return to_float(cmp(1, 2));', 'MB-EFFECT-001'),
+            ('conversion_unknown', 'return to_float(clamp(1, 0, 2));', 'MB-EFFECT-001'),
+            ('int_power_unknown', 'return to_float(2 ** 3);', '`**` requires a Float operand'),
             ('wrong_return', 'return true;', 'expected Float'),
         ]:
             check(name, 'let shared: Float = 1.0; fun root() -> Float ! {output, clock} {' + body + '}',
@@ -142,10 +143,11 @@ let a: Int = may { overflow() } otherwise { print(err.kind); 0 };
 let b: Int = may { outside(1.0e308 * 10.0) } otherwise { print(err.kind); 0 };
 let c: Int = may { invalid(-1.0) } otherwise { print(err.kind); 0 };
 ''', output='3\narithmetic\narithmetic\narithmetic\n')
-        for name in ['to_float', 'float', 'int', 'trunc', 'floor', 'ceil', 'round', 'sqrt', 'abs']:
+        for name in ['to_float', 'float', 'int', 'trunc', 'floor', 'ceil', 'round', 'sqrt', 'abs',
+                     'sin', 'cos', 'tan', 'ln', 'log2', 'log10', 'exp']:
             for contract in ['', ' ! pure', ' ! {clock, output}']:
                 check(f'numeric_{name}_{len(contract)}',
-                      f'fun root(x: Float) -> Bool{contract} {{ return to_float({name}(x)) >= 0.0; }} '
+                      f'fun root(x: Float) -> Bool{contract} {{ return to_float({name}(x)) == to_float({name}(x)); }} '
                       'print(root(2.25));', output='true\n')
             # Argument types the checker cannot establish fail closed, including
             # Bool, which strict typing accepts for int and to_float.
@@ -183,6 +185,84 @@ let c: Int = may { invalid(-1.0) } otherwise { print(err.kind); 0 };
         # Established result types feed outer arguments; abs keeps its argument's type.
         check('numeric_nested', 'fun root(n: Int) -> Int ! pure { '
               'return int(sqrt(to_float(abs(n)))) + trunc(floor(2.5)); } print(root(-16));', output='6\n')
+
+        # Transcendentals never fault: NaN and infinities pass through or saturate.
+        check('transcendental_edges', """fun edges() -> Bool ! pure {
+    let nan: Float = sqrt(-1.0);
+    let big: Float = 1.0e308 * 10.0;
+    let a: Bool = sin(big) != sin(big) and cos(nan) != cos(nan) and tan(big) != tan(big);
+    let b: Bool = ln(0.0) == 0.0 - big and ln(-1.0) != ln(-1.0) and log2(8) == 3.0 and log10(1000) == 3.0;
+    let c: Bool = exp(1000.0) == big and exp(-1000.0) == 0.0 and exp(0) == 1.0 and ln(big) == big;
+    return a and b and c;
+}
+print(edges());
+""", output='true\n')
+        # pow takes two numbers and always returns a Float; ** with a Float operand
+        # is the same total operation. Int ** Int stays unknown.
+        check('pow_rules', """fun root(x: Float, n: Int) -> Bool ! pure {
+    let big: Float = 1.0e308 * 10.0;
+    let a: Bool = pow(2, 10) == 1024.0 and pow(x, 2) == 6.25 and pow(0.0, -1.0) == big;
+    let b: Bool = x ** 2 == 6.25 and 2 ** x > 5.65 and 4.0 ** -1 == 0.25 and n ** 0.5 == 2.0;
+    let c: Bool = pow(-8.0, 1.0 / 3.0) != pow(-8.0, 1.0 / 3.0) and pow(1.0, sqrt(-1.0)) == 1.0;
+    return a and b and c;
+}
+print(root(2.5, 4));
+""", output='true\n')
+        # min/max need two arguments of one type and return one of them: the first
+        # on ties, and NaN compares greater than everything.
+        check('min_max_rules', """fun root(n: Int, x: Float) -> Bool ! pure {
+    let nan: Float = sqrt(-1.0);
+    let a: Bool = min(n, 3) == 3 and max(n, 3) == n and min(x, 1.0) == 1.0 and max(0 - x, -9.5) == 0.0 - x;
+    let b: Bool = min(nan, 1.0) == 1.0 and min(1.0, nan) != min(1.0, nan) and max(1.0, nan) == 1.0;
+    let c: Bool = min(-0.0, 0.0) ** -1.0 < 0.0 and min(0.0, -0.0) ** -1.0 > 0.0;
+    let i: Int = min(n, 3) + max(n, 3);
+    return a and b and c and i == n + 3;
+}
+print(root(7, 2.5));
+""", output='true\n')
+        # bool is truthiness: every Int and Float, including 0, 0.0 and NaN, is true.
+        check('bool_rules', """fun root(n: Int) -> Bool ! pure {
+    return bool(n) and bool(0) and bool(0.0) and bool(sqrt(-1.0)) and bool(true) and not bool(false) and bool(n < 1);
+}
+print(root(0));
+""", output='true\n')
+        for label, body, error in [
+            ('min_mixed', 'return to_float(min(1, 2.0));', 'requires arguments of the same type, found Int and Float'),
+            ('max_mixed', 'return to_float(max(x, n));', 'requires arguments of the same type, found Float and Int'),
+            ('min_bool', 'return to_float(min(true, false));', 'requires Int or Float arguments'),
+            ('pow_bool', 'return pow(true, 1.0);', 'requires Int or Float arguments'),
+            ('pow_callable', 'return pow(1.0, f);', 'requires Int or Float arguments'),
+            ('pow_arity', 'return pow(1.0);', '`pow` expects 2 arguments'),
+            ('max_arity', 'return to_float(max(1, 2, 3));', '`max` expects 2 arguments'),
+            ('bool_callable', 'if (bool(f)) { return 1.0; } return 0.0;', 'requires an Int, Float or Bool argument'),
+            ('bool_arity', 'if (bool(1, 2)) { return 1.0; } return 0.0;', '`bool` expects one argument'),
+            ('power_bool', 'return to_float(true ** 2.0);', '`**` requires a Float operand'),
+            ('power_unknown', 'return 2.0 ** to_float(cmp(1, 2));', 'MB-EFFECT-001'),
+        ]:
+            check('numeric_' + label, 'fun g(x: Int) -> Int { return x; } '
+                  'fun root(x: Float, n: Int) -> Float ! {output} { let f: Fn(Int) -> Int ! pure = g; ' + body + ' }',
+                  error=error, options=('--check',))
+        for name, body, noisy in [('pow', 'return pow(2.0, 1.0);', 'return pow(2.0, noisy());'),
+                                  ('min', 'return to_float(min(1, 2));', 'return to_float(min(1, noisy()));'),
+                                  ('max', 'return to_float(max(1, 2));', 'return to_float(max(1, noisy()));'),
+                                  ('bool', 'if (bool(1)) { return 1.0; } return 0.0;',
+                                   'if (bool(noisy())) { return 1.0; } return 0.0;')]:
+            # Effects in a later argument still count.
+            check(f'two_{name}_second_effect', 'fun noisy() -> Int { print(1); return 1; } '
+                  f'fun root() -> Float ! pure {{ {noisy} }}',
+                  error='call path: root -> noisy -> print]')
+            check(f'two_{name}_shadow_global', f'let {name}: Float = 1.0; '
+                  f'fun root() -> Float ! pure {{ {body} }}',
+                  error='unknown behavior through a global binding')
+        for name, decl, body in [
+                ('min', 'fun min(a: Int, b: Int) -> Int { print(1); return a; }', 'return to_float(min(1, 2));'),
+                ('pow', 'fun pow(a: Float, b: Float) -> Float { print(1); return a; }', 'return pow(1.0, 2.0);'),
+                ('bool', 'fun bool(a: Int) -> Bool { print(1); return true; }', 'if (bool(1)) { return 1.0; } return 0.0;')]:
+            check(f'two_{name}_shadow_source', decl + f' fun root() -> Float ! pure {{ {body} }}',
+                  error=f'call path: root -> {name} -> print]')
+        check('power_effect', 'fun noisy() -> Float { print(1); return 1.0; } '
+              'fun root() -> Float ! pure { return 2.0 ** noisy(); }', error='call path: root -> noisy -> print]')
+        check('power_clock', 'fun root() -> Float ! {clock} { return clock() ** 0.0; } print(root());', output='1.0\n')
 
         source = work / 'report.may'
         source.write_text('fun root() -> Float ! pure { return pi() + e() + floor(1.5) + sqrt(to_float(abs(-4))); }')

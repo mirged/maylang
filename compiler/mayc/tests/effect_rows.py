@@ -104,8 +104,8 @@ def main():
             ('exit', 'exit(0)'), ('sleep', 'sleep(1)'), ('yield', 'yield()'), ('run', 'run()'),
             ('exec', 'exec(["unused"])'), ('wait', 'wait(1)'),
             ('addr', 'addr(1)'), ('load64', 'load64(0)'), ('store64', 'store64(0, 0)'),
-            ('fail', 'fail("failure")'), ('bool', 'bool(1)'), ('sin', 'sin(1.0)'),
-            ('min', 'min(1, 2)'),
+            ('fail', 'fail("failure")'), ('cmp', 'cmp(1, 2)'), ('clamp', 'clamp(1, 0, 2)'),
+            ('ord', 'ord("a")'),
         ]
         for name, call in primitive_calls:
             body = '{ ' + call + '; return 0; }'
