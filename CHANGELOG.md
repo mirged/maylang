@@ -63,6 +63,14 @@
   scanner `may` uses; its graph traversal and brace checker were dead code
   after the `maypkg` removal. An empty `[]` or `{}` now joins with a typed
   collection (`xs ?? []`).
+- `maylsp` uses concrete types: indexed documents are `Doc` structs holding
+  `Token`, `Scope`, `Def` and `Import` values, ranges and positions are
+  `Range`/`Position`, and queued navigation and workspace requests and
+  diagnostic waiters are structs instead of string-keyed maps.
+  Lookups return `Optional<Def>`/`Optional<Doc>` and rely on `nil` narrowing.
+  `Any` remains at the JSON-RPC boundary — parsed messages, replies and the
+  diagnostic caches, which a forked worker serializes and the parent stores as
+  a parsed snapshot. Behavior and protocol output are unchanged.
 - Hexadecimal `0xff`, octal `0o755` and binary `0b1010` integer literals, and
   `_` digit separators in every numeric literal (`1_000_000`, `0xffff_ffff`,
   `6.022_140e2_3`). Prefixes are lowercase; each `_` must sit between two

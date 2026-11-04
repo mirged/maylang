@@ -10,52 +10,54 @@ import "../../../compiler/mayc/src/sema.may";
 import "../../../compiler/mayc/src/diagnostics.may";
 import "../../../compiler/mayc/src/modules.may";
 import "../../../compiler/mayc/src/strict.may";
-mut LS_COMPILER_READY: Any = false;
-mut LS_ARENA_BASE: Any = 0;
-mut LS_CHECK_TEXT: Any = "";
-mut LS_CHECK_ORIGINS: Any = [];
+mut LS_COMPILER_READY: Bool = false;
+mut LS_ARENA_BASE: Int = 0;
+mut LS_CHECK_TEXT: Str = "";
+mut LS_CHECK_ORIGINS: List<Map<Str, Any>> = [];
+// These caches cross a fork as JSON: a worker serializes its report and the
+// parent stores the parsed snapshot, so they stay dynamic documents.
 mut LS_CHECK_SEEN: Any = {};
 mut LS_CHECK_ERRORS: Any = {};
 mut LS_DIAG_CACHE: Any = {};
 mut LS_CHECK_CACHE: Any = {};
-mut LS_DIAGNOSTIC_PUBLISH: Any = true;
+mut LS_DIAGNOSTIC_PUBLISH: Bool = true;
 // A client that pulls diagnostics (textDocument/diagnostic) gets them only
 // that way. Pushing as well would show every error twice, because clients
 // keep pulled and pushed diagnostics in separate collections.
-mut LS_PUSH_DIAGNOSTICS: Any = true;
-mut LS_RECHECK_HOOK: Any = nil;
-mut LS_CHECK_PARTS: Any = [];
-mut LS_CHECK_LENGTH: Any = 0;
-fun ls_diagnostic_session() -> Any {
-    let buffer: Any = syscall(9, 0, 4096, 3, 34, -1, 0);
-    let read: Any = syscall(318, buffer, 16, 0);
-    let nonce: Any = if (read == 16) {
+mut LS_PUSH_DIAGNOSTICS: Bool = true;
+mut LS_RECHECK_HOOK: Optional<() -> Nil> = nil;
+mut LS_CHECK_PARTS: List<Str> = [];
+mut LS_CHECK_LENGTH: Int = 0;
+fun ls_diagnostic_session() -> Str {
+    let buffer: Int = syscall(9, 0, 4096, 3, 34, -1, 0);
+    let read: Int = syscall(318, buffer, 16, 0);
+    let nonce: Str = if (read == 16) {
         str(load32(buffer)) + ":" + str(load32(buffer + 4)) + ":" + str(load32(buffer + 8)) + ":" + str(load32(buffer + 12))
     } else { str(syscall(39)) + ":" + str(clock()) };
     syscall(11, buffer, 4096); return nonce;
 }
-let LS_DIAGNOSTIC_SESSION: Any = ls_diagnostic_session();
-fun ls_diag(doc: Any, a: Any, b: Any, message: Any) -> Any {
+let LS_DIAGNOSTIC_SESSION: Str = ls_diagnostic_session();
+fun ls_diag(doc: Doc, a: Int, b: Int, message: Str) -> Map<Str, Any> {
     return {"range": ls_range(doc.text, a, b), "severity": 1, "source": "maylsp", "message": message};
 }
 // Forked diagnostic workers need source text/imports, not editor indexes.
 // Releasing their private copies keeps the compiler AST from competing with
 // retained token, definition, reference and semantic-token graphs. The parent
 // keeps its complete indexes for hover/navigation while the worker checks.
-fun ls_check_discard_index(doc: Any) -> Any {
-    if (LS_DIAGNOSTIC_PUBLISH) { return nil; }
+fun ls_check_discard_index(doc: Doc) -> Nil {
+    if (LS_DIAGNOSTIC_PUBLISH) { return; }
     doc.tokens = []; doc.comments = []; doc.scopes = []; doc.defs = [];
     doc.declared = {}; doc.named = {}; doc.exports = {}; doc.occurrences = {};
-    doc.externalNames = {}; doc.semanticHistory = nil;
-    return nil;
+    doc.externalNames = {}; doc.externalMissing = {}; doc.semanticHistory = [];
+    return;
 }
-fun ls_check_append(doc: Any, builtin: Any) -> Any {
-    if (has(LS_CHECK_SEEN, doc.uri)) { return nil; }
+fun ls_check_append(doc: Doc, builtin: Bool) -> Nil {
+    if (has(LS_CHECK_SEEN, doc.uri)) { return; }
     LS_CHECK_SEEN[doc.uri] = true;
     if (not builtin) {
         MODULE_IMPORTS[doc.path] = [];
-        for imp: Any in doc.imports {
-            let imported: Any = ls_import_doc(doc, imp);
+        for imp: Import in doc.imports {
+            let imported: Optional<Doc> = ls_import_doc(doc, imp);
             if (imported == nil) {
                 if (not has(LS_CHECK_ERRORS, doc.uri)) { LS_CHECK_ERRORS[doc.uri] = []; }
                 push(LS_CHECK_ERRORS[doc.uri], ls_diag(doc, imp.a, imp.b, "Cannot resolve import: " + imp.path));
@@ -65,29 +67,29 @@ fun ls_check_append(doc: Any, builtin: Any) -> Any {
             }
         }
     }
-    let start: Any = LS_CHECK_LENGTH;
+    let start: Int = LS_CHECK_LENGTH;
     push(LS_CHECK_ORIGINS, {"start": start, "path": doc.path, "line": 1, "uri": doc.uri});
     // One copy per module, then blank import bytes in place. Newlines and
     // UTF-8 offsets remain identical to the original source.
-    let text: Any = ls_text(addr(doc.text), ls_bytes(doc.text));
-    for imp: Any in doc.imports {
-        for k: Any in imp.start..imp.end { if (ls_byte(text, k) != 10 and ls_byte(text, k) != 13) { store8(addr(text) + k, 32); } }
+    let text: Str = ls_text(addr(doc.text), ls_bytes(doc.text));
+    for imp: Import in doc.imports {
+        for k: Int in imp.start..imp.end { if (ls_byte(text, k) != 10 and ls_byte(text, k) != 13) { store8(addr(text) + k, 32); } }
     }
     push(LS_CHECK_PARTS, text + "\n"); LS_CHECK_LENGTH += ls_bytes(text) + 1;
     ls_check_discard_index(doc);
-    return nil;
+    return;
 }
-fun ls_diagnostics(doc: Any) -> Any {
+fun ls_diagnostics(doc: Doc) -> Nil {
     return ls_diagnostics_entries(doc, [doc]);
 }
-fun ls_diagnostics_entries(doc: Any, entries: Any) -> Any {
+fun ls_diagnostics_entries(doc: Doc, entries: List<Doc>) -> Nil {
     let cached: Any = LS_CHECK_CACHE[doc.uri];
     if (len(entries) == 1 and cached != nil and cached.epoch == LS_INDEX_EPOCH) {
         LS_CHECK_ERRORS = cached.errors; LS_CHECK_SEEN = cached.seen;
         LS_DIAG_CACHE[doc.uri] = LS_CHECK_ERRORS[doc.uri] ?? [];
-        return nil;
+        return;
     }
-    if (not LS_COMPILER_READY) { irt_init(); LS_ARENA_BASE = ARENAP; LS_COMPILER_READY = true; }
+    if (not LS_COMPILER_READY) { irt_init(); LS_ARENA_BASE = int(ARENAP); LS_COMPILER_READY = true; }
     // Drop interned names before rewinding source storage for another entry.
     symbol_cache_release();
     ARENAP = LS_ARENA_BASE;
@@ -96,19 +98,22 @@ fun ls_diagnostics_entries(doc: Any, entries: Any) -> Any {
     DIAGNOSTIC_SPAN = 0; DIAGNOSTICS = []; SOURCE_FILES = {}; MODULE_PUBLIC = {}; MODULE_EXPLICIT = {}; MODULE_IMPORTS = {};
     SEM_LOOPS = 0;
     LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_LENGTH = 0; LS_CHECK_ORIGINS = []; LS_CHECK_SEEN = {}; LS_CHECK_ERRORS = {};
-    for uri: Any in keys(LS_DOCS) { ls_check_discard_index(LS_DOCS[uri]); }
+    for uri: Str in keys(LS_DOCS) {
+        let indexed: Optional<Doc> = LS_DOCS[uri];
+        if (indexed != nil) { ls_check_discard_index(indexed); }
+    }
     let ctx: Any = emitter_new(0);
     may {
-        for name: Any in ["prelude.may", "native.may"] {
-            let builtin: Any = ls_document(ls_uri(LS_STDLIB + "/" + name));
+        for name: Str in ["prelude.may", "native.may"] {
+            let builtin: Optional<Doc> = ls_document(ls_uri(LS_STDLIB + "/" + name));
             if (builtin != nil) { ls_check_append(builtin, true); }
         }
-        let math_uri: Any = ls_math_uri();
+        let math_uri: Optional<Str> = ls_math_uri();
         if (math_uri != nil) {
-            let math: Any = ls_document(math_uri);
+            let math: Optional<Doc> = ls_document(math_uri);
             if (math != nil) { ls_check_append(math, true); }
         }
-        for entry: Any in entries { ls_check_append(entry, false); }
+        for entry: Doc in entries { ls_check_append(entry, false); }
         if (len(keys(LS_CHECK_ERRORS)) == 0) {
             LS_CHECK_TEXT = ls_join(LS_CHECK_PARTS, "");
             SRC = addr(LS_CHECK_TEXT); SRCLEN = ls_bytes(LS_CHECK_TEXT);
@@ -122,26 +127,30 @@ fun ls_diagnostics_entries(doc: Any, entries: Any) -> Any {
         let span: Any = record.span ?? 0;
         mut origin: Any = nil;
         if (span != 0) {
-            for candidate: Any in LS_CHECK_ORIGINS { if (candidate.start <= span.start) { origin = candidate; } else { break; } }
+            for candidate: Map<Str, Any> in LS_CHECK_ORIGINS { if (candidate.start <= span.start) { origin = candidate; } else { break; } }
         }
         if (origin != nil) {
-            let bad: Any = ls_document(origin.uri); let offset: Any = min(ls_bytes(bad.text), max(0, span.start - origin.start));
-            if (not has(LS_CHECK_ERRORS, bad.uri)) { LS_CHECK_ERRORS[bad.uri] = []; }
-            let item: Any = ls_diag(bad, offset, min(ls_bytes(bad.text), offset + max(1, span.length)), record.message);
-            item.code = record.code; push(LS_CHECK_ERRORS[bad.uri], item);
+            let bad: Optional<Doc> = ls_document(str(origin.uri));
+            if (bad != nil) {
+                let offset: Int = min(ls_bytes(bad.text), max(0, int(span.start) - int(origin.start)));
+                if (not has(LS_CHECK_ERRORS, bad.uri)) { LS_CHECK_ERRORS[bad.uri] = []; }
+                let item: Map<Str, Any> = ls_diag(bad, offset, min(ls_bytes(bad.text), offset + max(1, int(span.length))), str(record.message));
+                item.code = record.code; push(LS_CHECK_ERRORS[bad.uri], item);
+            }
         } else {
             if (not has(LS_CHECK_ERRORS, doc.uri)) { LS_CHECK_ERRORS[doc.uri] = []; }
-            push(LS_CHECK_ERRORS[doc.uri], ls_diag(doc, 0, 0, record.message));
+            push(LS_CHECK_ERRORS[doc.uri], ls_diag(doc, 0, 0, str(record.message)));
         }
         }
     }
     emitter_release(ctx);
     // Every open buffer in this dependency closure gets a fresh result.
     for uri: Any in keys(LS_CHECK_SEEN) {
-        let checked: Any = LS_DOCS[uri];
-        LS_DIAG_CACHE[uri] = LS_CHECK_ERRORS[uri] ?? [];
-        if (LS_DIAGNOSTIC_PUBLISH and LS_PUSH_DIAGNOSTICS and checked.open) {
-            ls_notify("textDocument/publishDiagnostics", {"uri": uri, "version": checked.version, "diagnostics": LS_CHECK_ERRORS[uri] ?? []});
+        let key: Str = str(uri);
+        let checked: Optional<Doc> = LS_DOCS[key];
+        LS_DIAG_CACHE[key] = LS_CHECK_ERRORS[key] ?? [];
+        if (LS_DIAGNOSTIC_PUBLISH and LS_PUSH_DIAGNOSTICS and checked != nil and checked.open) {
+            ls_notify("textDocument/publishDiagnostics", {"uri": key, "version": checked.version, "diagnostics": LS_CHECK_ERRORS[key] ?? []});
         }
     }
     LS_CHECK_CACHE[doc.uri] = {"epoch": LS_INDEX_EPOCH, "errors": LS_CHECK_ERRORS, "seen": LS_CHECK_SEEN};
@@ -152,12 +161,23 @@ fun ls_diagnostics_entries(doc: Any, entries: Any) -> Any {
     ST_GLOBALS = {}; ST_RECORDS = {}; ST_SCOPES = []; ST_FUNCTIONS = {}; ST_RESULT = 0; ST_VARS = [];
     symbol_cache_release();
     LS_CHECK_TEXT = ""; LS_CHECK_PARTS = []; LS_CHECK_ORIGINS = []; DIAGNOSTICS = []; DIAGNOSTIC_SPAN = 0;
-    return nil;
+    return;
 }
-fun ls_pull_diagnostics(doc: Any) -> Any {
+fun ls_pull_diagnostics(doc: Doc) -> Map<Str, Any> {
     ls_diagnostics(doc);
-    let related: Any = {};
-    for uri: Any in keys(LS_CHECK_ERRORS) { if (uri != doc.uri) { related[uri] = {"kind": "full", "items": LS_CHECK_ERRORS[uri]}; } }
+    let related: Map<Str, Any> = {};
+    for uri: Any in keys(LS_CHECK_ERRORS) {
+        let key: Str = str(uri);
+        if (key != doc.uri) { related[key] = {"kind": "full", "items": LS_CHECK_ERRORS[key]}; }
+    }
     return {"kind": "full", "items": LS_DIAG_CACHE[doc.uri] ?? [], "relatedDocuments": related};
 }
-fun ls_recheck() -> Any { if (LS_RECHECK_HOOK != nil) { return LS_RECHECK_HOOK(); } for uri: Any in keys(LS_DOCS) { if (LS_DOCS[uri].open) { ls_diagnostics(LS_DOCS[uri]); } } return nil; }
+fun ls_recheck() -> Nil {
+    let hook: Optional<() -> Nil> = LS_RECHECK_HOOK;
+    if (hook != nil) { hook(); return; }
+    for uri: Str in keys(LS_DOCS) {
+        let doc: Optional<Doc> = LS_DOCS[uri];
+        if (doc != nil) { if (doc.open) { ls_diagnostics(doc); } }
+    }
+    return;
+}

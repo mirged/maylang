@@ -4,151 +4,167 @@ import "index.may";
 import "features.may";
 import "diagnostics.may";
 
+/// A queued navigation request: its JSON-RPC id, method, params and index epoch.
+struct NavigationJob { id: Any, method: Str, params: Any, epoch: Int }
+
 // One isolated navigation worker, at most 32 queued requests. The parent owns
 // transport and cancels snapshots invalidated by edits or workspace changes.
-mut LS_NAVIGATION_PID: Any = 0;
-mut LS_NAVIGATION_JOB: Any = nil;
-mut LS_NAVIGATION_QUEUE: Any = [];
-mut LS_NAVIGATION_PARTS: Any = [];
-mut LS_NAVIGATION_BYTES: Any = 0;
-mut LS_NAVIGATION_DEADLINE: Any = 0;
-let LS_NAVIGATION_IO: Any = syscall(9, 0, 65536, 3, 34, -1, 0);
+mut LS_NAVIGATION_PID: Int = 0;
+mut LS_NAVIGATION_JOB: Optional<NavigationJob> = nil;
+mut LS_NAVIGATION_QUEUE: List<NavigationJob> = [];
+mut LS_NAVIGATION_PARTS: List<Str> = [];
+mut LS_NAVIGATION_BYTES: Int = 0;
+mut LS_NAVIGATION_DEADLINE: Int = 0;
+let LS_NAVIGATION_IO: Int = syscall(9, 0, 65536, 3, 34, -1, 0);
 
-fun ls_navigation_method(method: Any) -> Any {
+fun ls_navigation_method(method: Str) -> Bool {
     return has(["workspace/symbol", "textDocument/references", "textDocument/rename",
         "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls"], method);
 }
-fun ls_navigation_stream(method: Any, p: Any) -> Any {
+fun ls_navigation_stream(method: Str, p: Any) -> Nil {
     if (method == "workspace/symbol") {
-        let query: Any = ls_lower(p.query ?? ""); mut first: Any = true;
+        let query: Str = ls_lower(str(p.query ?? "")); mut first: Bool = true;
         ls_write("{\"result\":[");
-        ls_navigation_walk(fun(doc: Any) -> Any {
-            for d: Any in doc.defs {
+        ls_navigation_walk(fun(doc: Doc) -> Nil {
+            for d: Def in doc.defs {
                 if (d.scope == 0 and ls_contains(ls_lower(d.name), query)) {
                     if (not first) { ls_write(","); } first = false;
                     ls_write(ls_json({"name": d.name, "kind": d.kind, "location": ls_location(d)}));
                 }
             }
-            return nil;
+            return;
         });
-        ls_write("]}"); return nil;
+        ls_write("]}"); return;
     }
     if (method == "callHierarchy/incomingCalls") {
         // Stream through bounded batches like references: loading the whole
         // workspace at once made the worker's heap grow with every file.
-        let target: Any = ls_call_target(p.item);
-        if (target == nil) { ls_write("{\"result\":[]}"); return nil; }
-        mut first: Any = true;
+        let targetDef: Optional<Def> = ls_call_target(p.item);
+        if (targetDef == nil) { ls_write("{\"result\":[]}"); return; }
+        let target: Def = targetDef;
+        mut first: Bool = true;
         ls_write("{\"result\":[");
-        ls_navigation_walk(fun(doc: Any) -> Any {
-            for group: Any in ls_document_incoming(doc, target) {
+        ls_navigation_walk(fun(doc: Doc) -> Nil {
+            for group: Map<Str, Any> in ls_document_incoming(doc, target) {
                 if (not first) { ls_write(","); } first = false;
                 ls_write(ls_json(group));
             }
-            return nil;
+            return;
         });
-        ls_write("]}"); return nil;
+        ls_write("]}"); return;
     }
-    if (method == "callHierarchy/outgoingCalls") { ls_write(ls_json({"result": ls_outgoing_calls(p.item)})); return nil; }
-    let doc: Any = ls_doc_param(p); let rename: Any = method == "textDocument/rename";
-    let target: Any = if (rename) { ls_rename_target(doc, p) } else { ls_target(doc, p) };
-    if (target == nil) { ls_write("{\"result\":[]}"); return nil; }
-    mut first: Any = true;
+    if (method == "callHierarchy/outgoingCalls") { ls_write(ls_json({"result": ls_outgoing_calls(p.item)})); return; }
+    let doc: Doc = ls_doc_param(p); let rename: Bool = method == "textDocument/rename";
+    let targetDef: Optional<Def> = if (rename) { ls_rename_target(doc, p) } else { ls_target(doc, p) };
+    if (targetDef == nil) { ls_write("{\"result\":[]}"); return; }
+    let target: Def = targetDef;
+    let declarations: Bool = rename or bool(p.context?.includeDeclaration ?? false);
+    mut first: Bool = true;
     ls_write(if (rename) { "{\"result\":{\"changes\":{" } else { "{\"result\":[" });
-    ls_navigation_walk(fun(using: Any) -> Any {
-        let found: Any = ls_document_occurrences(using, target, rename or (p.context?.includeDeclaration ?? false));
+    ls_navigation_walk(fun(using: Doc) -> Nil {
+        let found: List<Occurrence> = ls_document_occurrences(using, target, declarations);
         if (rename and len(found) > 0) {
-            let edits: Any = [];
-            for occurrence: Any in found { push(edits, ls_rename_edit(using, target, occurrence, p.newName)); }
+            let edits: List<Map<Str, Any>> = [];
+            for occurrence: Occurrence in found { push(edits, ls_rename_edit(using, target, occurrence, str(p.newName))); }
             if (not first) { ls_write(","); } first = false;
             ls_write(ls_quote(using.uri) + ":" + ls_json(edits));
         } else if (not rename) {
-            for occurrence: Any in found {
+            for occurrence: Occurrence in found {
                 if (not first) { ls_write(","); } first = false;
                 ls_write(ls_json(occurrence));
             }
         }
-        return nil;
+        return;
     });
-    ls_write(if (rename) { "}}}" } else { "]}" }); return nil;
+    ls_write(if (rename) { "}}}" } else { "]}" }); return;
 }
-fun ls_navigation_scan(path: Any, depth: Any, files: Any, seen: Any) -> Any {
-    if (depth > 24 or len(files) >= 10000) { return nil; }
-    let entries: Any = may { read_dir(path) } otherwise { [] };
-    for entry: Any in entries {
+fun ls_navigation_scan(path: Str, depth: Int, files: List<Str>, seen: Map<Str, Bool>) -> Nil {
+    if (depth > 24 or len(files) >= 10000) { return; }
+    let entries: List<Str> = may { read_dir(path) } otherwise { [] };
+    for entry: Str in entries {
         if (len(files) >= 10000) { break; }
         if (has([".", "..", ".git", ".may", "target", "node_modules", ".codex", ".agents", "build"], entry)) { continue; }
-        let child: Any = path + "/" + entry;
+        let child: Str = path + "/" + entry;
         if (ls_is_directory(child)) { ls_navigation_scan(child, depth + 1, files, seen); }
         else if (ls_ends(entry, ".may")) {
-            let uri: Any = ls_uri(child);
+            let uri: Str = ls_uri(child);
             if (not has(seen, uri)) { seen[uri] = true; push(files, uri); }
         }
     }
-    return nil;
+    return;
 }
-fun ls_navigation_restore(base: Any) -> Any {
-    let documents: Any = {};
-    for uri: Any in keys(base) { documents[uri] = base[uri]; }
-    LS_DOCS = documents; return nil;
+fun ls_navigation_restore(base: Map<Str, Doc>) -> Nil {
+    let documents: Map<Str, Doc> = {};
+    for uri: Str in keys(base) {
+        let kept: Optional<Doc> = base[uri];
+        if (kept != nil) { documents[uri] = kept; }
+    }
+    LS_DOCS = documents; return;
 }
-fun ls_navigation_walk(visit: Any) -> Any {
-    let base: Any = {}; let seen: Any = {}; let files: Any = keys(LS_DOCS);
-    for uri: Any in files { base[uri] = LS_DOCS[uri]; seen[uri] = true; }
-    for root: Any in LS_ROOTS { ls_navigation_scan(root, 0, files, seen); }
-    mut count: Any = 0;
-    for uri: Any in files {
-        let doc: Any = ls_document(uri);
+fun ls_navigation_walk(visit: (Doc) -> Nil) -> Nil {
+    let base: Map<Str, Doc> = {}; let seen: Map<Str, Bool> = {}; let files: List<Str> = keys(LS_DOCS);
+    for uri: Str in files {
+        let cached: Optional<Doc> = LS_DOCS[uri];
+        if (cached != nil) { base[uri] = cached; }
+        seen[uri] = true;
+    }
+    for root: Str in LS_ROOTS { ls_navigation_scan(root, 0, files, seen); }
+    mut count: Int = 0;
+    for uri: Str in files {
+        let doc: Optional<Doc> = ls_document(uri);
         if (doc != nil) { visit(doc); }
         count += 1;
         // Retain unsaved buffers and their original dependency snapshot, while
         // releasing transient indexes after each bounded batch of disk files.
         if (count % 32 == 0) { ls_navigation_restore(base); }
     }
-    ls_navigation_restore(base); return nil;
+    ls_navigation_restore(base); return;
 }
-fun ls_navigation_stop() -> Any {
+fun ls_navigation_stop() -> Nil {
     if (LS_NAVIGATION_PID > 0) {
         syscall(62, LS_NAVIGATION_PID, 9);
-        mut waited: Any = syscall(61, LS_NAVIGATION_PID, 0, 0, 0);
+        mut waited: Int = syscall(61, LS_NAVIGATION_PID, 0, 0, 0);
         while (waited == -4) { waited = syscall(61, LS_NAVIGATION_PID, 0, 0, 0); }
     }
     if (LS_NAVIGATION_FD >= 0) { syscall(3, LS_NAVIGATION_FD); }
     LS_NAVIGATION_PID = 0; LS_NAVIGATION_FD = -1; LS_NAVIGATION_JOB = nil;
-    LS_NAVIGATION_PARTS = []; LS_NAVIGATION_BYTES = 0; return nil;
+    LS_NAVIGATION_PARTS = []; LS_NAVIGATION_BYTES = 0; return;
 }
-fun ls_navigation_invalidate(code: Any, message: Any) -> Any {
-    if (LS_NAVIGATION_JOB != nil) { ls_error(LS_NAVIGATION_JOB.id, code, message); }
+fun ls_navigation_invalidate(code: Int, message: Str) -> Nil {
+    let active: Optional<NavigationJob> = LS_NAVIGATION_JOB;
+    if (active != nil) { ls_error(active.id, code, message); }
     ls_navigation_stop();
-    for job: Any in LS_NAVIGATION_QUEUE { ls_error(job.id, code, message); }
-    LS_NAVIGATION_QUEUE = []; return nil;
+    for job: NavigationJob in LS_NAVIGATION_QUEUE { ls_error(job.id, code, message); }
+    LS_NAVIGATION_QUEUE = []; return;
 }
-fun ls_navigation_changed() -> Any {
-    mut stale: Any = LS_NAVIGATION_JOB != nil and LS_NAVIGATION_JOB.epoch != LS_INDEX_EPOCH;
-    for job: Any in LS_NAVIGATION_QUEUE { if (job.epoch != LS_INDEX_EPOCH) { stale = true; } }
+fun ls_navigation_changed() -> Nil {
+    let active: Optional<NavigationJob> = LS_NAVIGATION_JOB;
+    mut stale: Bool = active != nil and active.epoch != LS_INDEX_EPOCH;
+    for job: NavigationJob in LS_NAVIGATION_QUEUE { if (job.epoch != LS_INDEX_EPOCH) { stale = true; } }
     if (stale) { ls_navigation_invalidate(-32803, "Content changed during navigation; retry request"); }
-    return nil;
+    return;
 }
-fun ls_navigation_cancel(id: Any) -> Any {
-    if (LS_NAVIGATION_JOB != nil and LS_NAVIGATION_JOB.id == id) {
+fun ls_navigation_cancel(id: Any) -> Nil {
+    let active: Optional<NavigationJob> = LS_NAVIGATION_JOB;
+    if (active != nil and active.id == id) {
         ls_navigation_stop(); ls_error(id, -32800, "Request cancelled");
     }
-    let remaining: Any = [];
-    for job: Any in LS_NAVIGATION_QUEUE {
+    let remaining: List<NavigationJob> = [];
+    for job: NavigationJob in LS_NAVIGATION_QUEUE {
         if (job.id == id) { ls_error(id, -32800, "Request cancelled"); } else { push(remaining, job); }
     }
-    LS_NAVIGATION_QUEUE = remaining; return nil;
+    LS_NAVIGATION_QUEUE = remaining; return;
 }
-fun ls_request_navigation(id: Any, method: Any, p: Any) -> Any {
-    if (len(LS_NAVIGATION_QUEUE) >= 32) { ls_error(id, -32803, "Navigation queue limit exceeded"); return nil; }
-    push(LS_NAVIGATION_QUEUE, {"id": id, "method": method, "params": p, "epoch": LS_INDEX_EPOCH});
-    return nil;
+fun ls_request_navigation(id: Any, method: Str, p: Any) -> Nil {
+    if (len(LS_NAVIGATION_QUEUE) >= 32) { ls_error(id, -32803, "Navigation queue limit exceeded"); return; }
+    push(LS_NAVIGATION_QUEUE, NavigationJob(id, method, p, LS_INDEX_EPOCH));
+    return;
 }
-fun ls_navigation_start(job: Any, now: Any) -> Any {
-    if (syscall(293, LS_NAVIGATION_IO, 524288) < 0) { ls_error(job.id, -32803, "Navigation pipe failed"); return nil; }
-    let readFd: Any = load32(LS_NAVIGATION_IO); let writeFd: Any = load32(LS_NAVIGATION_IO + 4);
-    let parentPid: Any = syscall(39); let pid: Any = syscall(57);
-    if (pid < 0) { syscall(3, readFd); syscall(3, writeFd); ls_error(job.id, -32803, "Navigation fork failed"); return nil; }
+fun ls_navigation_start(job: NavigationJob, now: Int) -> Nil {
+    if (syscall(293, LS_NAVIGATION_IO, 524288) < 0) { ls_error(job.id, -32803, "Navigation pipe failed"); return; }
+    let readFd: Int = load32(LS_NAVIGATION_IO); let writeFd: Int = load32(LS_NAVIGATION_IO + 4);
+    let parentPid: Int = syscall(39); let pid: Int = syscall(57);
+    if (pid < 0) { syscall(3, readFd); syscall(3, writeFd); ls_error(job.id, -32803, "Navigation fork failed"); return; }
     if (pid == 0) {
         syscall(157, 1, 9, 0, 0, 0);
         if (syscall(110) != parentPid) { syscall(60, 0); }
@@ -162,62 +178,64 @@ fun ls_navigation_start(job: Any, now: Any) -> Any {
         // Results stream to the parent as files are visited. A final status
         // record commits success or discards partial results after late errors.
         may { ls_navigation_stream(job.method, job.params); ls_write("\n{}"); }
-        otherwise { ls_write("\n" + ls_json({"error": {"code": -32602, "message": err.message}})); }
+        otherwise { ls_write("\n" + ls_json({"error": {"code": -32602, "message": str(err.message)}})); }
         syscall(3, writeFd); syscall(60, 0); exit(0);
     }
     syscall(3, writeFd); syscall(72, readFd, 4, 2048);
     LS_NAVIGATION_PID = pid; LS_NAVIGATION_FD = readFd; LS_NAVIGATION_JOB = job;
     LS_NAVIGATION_PARTS = []; LS_NAVIGATION_BYTES = 0; LS_NAVIGATION_DEADLINE = now + 30000;
-    return nil;
+    return;
 }
-fun ls_navigation_tick(now: Any) -> Any {
-    if (LS_NAVIGATION_JOB != nil and LS_NAVIGATION_JOB.epoch != LS_INDEX_EPOCH) {
+fun ls_navigation_tick(now: Int) -> Nil {
+    let active: Optional<NavigationJob> = LS_NAVIGATION_JOB;
+    if (active != nil and active.epoch != LS_INDEX_EPOCH) {
         ls_navigation_invalidate(-32803, "Content changed during navigation; retry request");
     }
     if (LS_NAVIGATION_PID > 0 and now >= LS_NAVIGATION_DEADLINE) {
-        let id: Any = LS_NAVIGATION_JOB.id; ls_navigation_stop(); ls_error(id, -32803, "Navigation time limit exceeded");
+        if (active != nil) { ls_navigation_stop(); ls_error(active.id, -32803, "Navigation time limit exceeded"); }
     }
     if (LS_NAVIGATION_FD >= 0) {
-        mut done: Any = false;
+        mut done: Bool = false;
         // Bound pipe draining per turn so a large result cannot starve input.
-        for chunk: Any in 0..4 {
-            let n: Any = syscall(0, LS_NAVIGATION_FD, LS_NAVIGATION_IO, 65536);
+        for chunk: Int in 0..4 {
+            let n: Int = syscall(0, LS_NAVIGATION_FD, LS_NAVIGATION_IO, 65536);
             if (n == -4) { continue; }
             if (n == -11) { break; }
             if (n <= 0) { done = true; break; }
-            push(LS_NAVIGATION_PARTS, ls_text(LS_NAVIGATION_IO, n)); LS_NAVIGATION_BYTES += n;
+            push(LS_NAVIGATION_PARTS, ls_text(ptr(LS_NAVIGATION_IO), n)); LS_NAVIGATION_BYTES += n;
             if (LS_NAVIGATION_BYTES > 16777216) { done = true; break; }
         }
         if (done) {
-            let job: Any = LS_NAVIGATION_JOB; let body: Any = ls_join(LS_NAVIGATION_PARTS, "");
+            let finished: Optional<NavigationJob> = LS_NAVIGATION_JOB; let body: Str = ls_join(LS_NAVIGATION_PARTS, "");
             ls_navigation_stop();
-            if (job.epoch != LS_INDEX_EPOCH) { ls_error(job.id, -32803, "Content changed during navigation; retry request"); }
+            if (finished == nil) { return; }
+            if (finished.epoch != LS_INDEX_EPOCH) { ls_error(finished.id, -32803, "Content changed during navigation; retry request"); }
             else {
                 // The worker streams `{"result":...}`, a newline and a status
                 // record that commits success. Only the small status is parsed;
                 // the result text is forwarded as the worker encoded it, since
                 // parsing and re-encoding it dominated large replies.
-                let prefix: Any = "{\"result\":";
+                let prefix: Str = "{\"result\":";
                 let snapshot: Any = may {
                     // Encoded JSON has no raw newline, so the boundary is the last
                     // one; scanning back reads only the status record.
-                    mut boundary: Any = ls_bytes(body) - 1;
+                    mut boundary: Int = ls_bytes(body) - 1;
                     while (boundary >= 0 and ls_byte(body, boundary) != 10) { boundary -= 1; }
                     if (boundary < 0) { fail("incomplete navigation worker result"); }
                     let status: Any = ls_parse_json(ls_slice(body, boundary + 1, ls_bytes(body)));
                     if (status.error != nil) { status }
                     else if (boundary < ls_bytes(prefix) + 1 or ls_slice(body, 0, ls_bytes(prefix)) != prefix or ls_slice(body, boundary - 1, boundary) != "}") { fail("malformed navigation worker result"); }
-                    else { {"raw": ls_slice(body, ls_bytes(prefix), boundary - 1)} }
-                } otherwise { {"error": {"code": -32803, "message": "Navigation worker failed or result limit exceeded"}} };
-                if (snapshot.error != nil) { ls_error(job.id, snapshot.error.code, snapshot.error.message); }
-                else { ls_reply_raw(job.id, snapshot.raw); }
+                    else { ({"raw": ls_slice(body, ls_bytes(prefix), boundary - 1)}) }
+                } otherwise { ({"error": {"code": -32803, "message": "Navigation worker failed or result limit exceeded"}}) };
+                if (snapshot.error != nil) { ls_error(finished.id, int(snapshot.error.code), str(snapshot.error.message)); }
+                else { ls_reply_raw(finished.id, str(snapshot.raw)); }
             }
         }
     }
     if (LS_NAVIGATION_PID == 0 and len(LS_NAVIGATION_QUEUE) > 0) {
-        let job: Any = LS_NAVIGATION_QUEUE[0]; LS_NAVIGATION_QUEUE = slice(LS_NAVIGATION_QUEUE, 1, len(LS_NAVIGATION_QUEUE));
+        let job: NavigationJob = LS_NAVIGATION_QUEUE[0]; LS_NAVIGATION_QUEUE = slice(LS_NAVIGATION_QUEUE, 1, len(LS_NAVIGATION_QUEUE));
         if (job.epoch != LS_INDEX_EPOCH) { ls_error(job.id, -32803, "Content changed during navigation; retry request"); }
         else { ls_navigation_start(job, now); }
     }
-    return nil;
+    return;
 }
