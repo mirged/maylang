@@ -1,0 +1,23 @@
+{
+    "schema": 1,
+    "name": "kaindsim",
+    "default": "app",
+    "targets": {
+        "app": {
+            "kind": "app",
+            "entry": "main.may"
+        },
+        "test": {
+            "kind": "task",
+            "depends": [
+                "app"
+            ],
+            "command": [
+                "python3",
+                "{root}/tests/test_simulation.py",
+                "{target:app}/app"
+            ]
+        }
+    },
+    "dependencies": {}
+}

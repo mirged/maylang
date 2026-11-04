@@ -46,7 +46,7 @@ def interactive(installer, source, prefix, work, environment, *, plain=False, ca
         actions = [(b'esc cancel', b'\x1b[B\r'), (b'esc cancel', b'2'),
                    (b'esc cancel', b'3' if checklist else b'\x1b[B\r')]
         if checklist:
-            actions += [(b'space toggle', b' \x1b[B\x1b[B \x1b[B \r')]
+            actions += [(b'space toggle', b' \x1b[B\x1b[B \r')]
         actions += [(b'esc cancel', b'4'), (b'esc cancel', b'\r')]
     transcript = bytearray()
     pending = bytearray()
@@ -95,7 +95,6 @@ def installed_tools(prefix, work, environment):
     invoke(['may', 'new', 'independent'], work, environment)
     assert b'Hello from independent!' in invoke(['may', 'run'], work / 'independent', environment).stdout
     invoke(['mayfmt', '--check', 'src/main.may'], work / 'independent', environment)
-    invoke(['maypkg', 'help'], work, environment)
     message = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}}).encode()
     wire = f'Content-Length: {len(message)}\r\n\r\n'.encode() + message
     assert b'"capabilities"' in invoke(['maylsp'], work, environment, data=wire).stdout
@@ -173,9 +172,18 @@ def main():
         custom_prefix = work / 'custom-prefix'
         interactive(installer, source, custom_prefix, work, environment, checklist=True)
         assert (custom_prefix / 'bin/mayfmt').exists()
-        assert not (custom_prefix / 'bin/may').exists() and not (custom_prefix / 'bin/maypkg').exists()
+        assert not (custom_prefix / 'bin/may').exists() and not (custom_prefix / 'bin/maylsp').exists()
         invoke([installer, '--bundle', source], work, environment, ok=False)
         invoke([installer, '--bundle', source, '--yes', '--prefix', home], work, environment, ok=False)
+        # Saved component lists from older releases may still name maypkg.
+        legacy_prefix = work / 'legacy-components'
+        invoke([installer, '--bundle', source, '--yes', '--no-modify-path', '--prefix', legacy_prefix,
+                '--components', 'maypkg,mayfmt'], work, environment)
+        assert (legacy_prefix / 'bin/mayfmt').exists() and not (legacy_prefix / 'bin/maypkg').exists()
+        state = json.loads((legacy_prefix / '.maylang-install.json').read_text())
+        assert state['components'] == ['mayc', 'mayfmt'], state
+        invoke([installer, '--bundle', source, '--yes', '--prefix', work / 'bogus-components',
+                '--components', 'bogus'], work, environment, ok=False)
         # Build the single C file before deleting all source/development files.
         artifacts = args.artifacts.resolve() if args.artifacts else work / 'artifacts'
         if not args.artifacts:
@@ -204,7 +212,7 @@ def main():
         for root in (tui_prefix, plain_prefix, custom_prefix, c_prefix, shell_prefix):
             invoke([root / 'bin/may-uninstall'], work, environment)
             assert not root.exists(), root
-        print('PASS independent copies, repository deletion, all five tools and staged verification failure')
+        print('PASS independent copies, repository deletion, all four tools and staged verification failure')
         print('PASS arrow navigation, component checkboxes, plain menus, cancellation/terminal restoration, profiles and safe uninstall')
         print('PASS standalone host-cc bootstrap with empty PATH and piped self-contained shell installer')
 

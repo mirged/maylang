@@ -1,7 +1,10 @@
 import "../tools/shared/fs.may" as fs;
 import "terminal.may" as ui;
 
-let TOOLS: List<Str> = ["mayc", "may", "mayfmt", "maypkg", "maylsp"];
+let TOOLS: List<Str> = ["mayc", "may", "mayfmt", "maylsp"];
+// Components of earlier releases that are no longer shipped; requests for them are ignored
+// so that saved component lists from older installations still upgrade.
+let REMOVED: List<Str> = ["maypkg"];
 let FORMAT: Str = "maylang-prefix-v1";
 
 fun kind(path: Str) -> Int {
@@ -55,6 +58,8 @@ fun copy_tree(source: Str, destination: Str, selected: List<Str>, relative: Str)
     if (mode != 8) { fail("installer: bundle entries must be regular files/directories: " + source); }
     if (starts_with(relative, "bin/") and has(TOOLS, substring(relative, 4, len(relative) - 4))
         and not has(selected, substring(relative, 4, len(relative) - 4))) { return 0; }
+    // A bundle built in an older checkout may still hold a removed tool.
+    if (starts_with(relative, "bin/") and has(REMOVED, substring(relative, 4, len(relative) - 4))) { return 0; }
     write_file(destination, read_file(source));
     if (read_file(destination) != read_file(source)) { fail("installer: copy verification failed: " + relative); }
     let executable: Bool = starts_with(relative, "bin/") and not contains(substring(relative, 4, len(relative) - 4), "/")
@@ -241,6 +246,7 @@ fun main_cli(argv: List<Str>) -> Int {
     if (components == "all") { for name: Str in TOOLS { if (name != "mayc") { push(selected, name); } } }
     else if (components != "compiler") {
         for name: Str in split(components, ",") {
+            if (has(REMOVED, name)) { continue; }
             if (not has(TOOLS, name)) { fail("installer: unknown component " + name); }
             if (not has(selected, name)) { push(selected, name); }
         }
@@ -263,6 +269,7 @@ fun main_cli(argv: List<Str>) -> Int {
     ui.start(version, prefix);
     mut total_files: Int = count_files(bundle);
     for name: Str in TOOLS { if (not has(selected, name) and kind(bundle + "/bin/" + name) == 8) { total_files -= 1; } }
+    for name: Str in REMOVED { if (kind(bundle + "/bin/" + name) == 8) { total_files -= 1; } }
     ui.copy_begin(total_files);
     may {
         let count: Int = copy_tree(bundle, stage, selected, "");

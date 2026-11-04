@@ -5,7 +5,7 @@ gardens absorb it, canals carry it, and four pump stations compete for a shared
 energy budget. Which decision keeps more residents out of the floodwater?
 
 KaindSim runs entirely in strict Maylang, compiled to a native executable with
-`mayc` and managed by `maypkg`. It exports a self-contained interactive replay:
+`mayc`, and a [`may` workspace](../../../tools/may/README.md). It exports a self-contained interactive replay:
 scrub the hourly timeline, switch pump policies at the same hour, inspect each
 catchment, and compare exposure curves. Open **[demo.html](demo.html)** for the
 included 144-hour experiment. The replay works offline without a server.
@@ -18,8 +18,8 @@ From the Maylang repository root:
 make -C examples/simulations/kaindsim demo
 ```
 
-This compiles a local copy of `maypkg`, lets it build and lock the four source
-modules using `mayc`, and generates `demo.html`, `demo.json`, and `demo.csv`.
+This compiles the project with `mayc` and generates `demo.html`, `demo.json`,
+and `demo.csv`.
 Open `examples/simulations/kaindsim/demo.html` in a browser. A ready-built `build/kaindsim`
 executable is also present in this workspace.
 
@@ -107,22 +107,17 @@ The model simplifies catchments, flow capacity, weather, infiltration and pump
 energy. It is a reproducible routing experiment, not a calibrated flood forecast.
 Runs are bounded to 360 hours so the full replay stays small.
 
-## Project management and verification
+## Build and verification
 
 ```sh
 make build
-.tools/maypkg info
-.tools/maypkg tree
-.tools/maypkg run help
 make check
 make test
 ```
 
-`make build` uses `maypkg`'s incremental build and content lock. The Makefile
-adds a local compiler symlink to `PATH`, so the selected `MAYC` builds the project
-without a global compiler installation. You can override `MAYC` or `MAYPKG`.
-The existing `maypkg run` supports positional commands; use the native binary
-for experiments with named options.
+`make` uses the checkout compiler by default; override it with `MAYC`. With
+`may` on `PATH`, `may build test` builds the app and runs the same tests, and
+`may run -- help` shows the commands.
 
 Tests execute the native program and independently recompute exposure and water
 totals from exports. They check seeded identity, policy isolation, matched weather,
@@ -138,7 +133,7 @@ they do not replace visual inspection in a browser.
 | `src/hydrology.may` | Weather, conservative transport, coast, pumps and simulation |
 | `src/view.may` | Terminal map, exports and embedded browser replay |
 | `main.may` | CLI parsing, validation and policy comparison |
-| `mayproj.json` / `mayproj.lock` | Project metadata and source-content lock |
+| `may.json` | Workspace manifest: the app and its test task |
 | `tests/` | Native black-box checks and replay-control checks |
 
 Simulation records and contracts use concrete types. `Any` is confined to

@@ -2,7 +2,7 @@
 
 ```text
 compiler/    mayc (self-hosted compiler) and rust (source bootstrap, shared crates)
-tools/       may, mayfmt, maylsp, maypkg and their shared formatter
+tools/       may, mayfmt, maylsp and their shared modules
 stdlib/      public libraries and native UI
 dist/        packaging, installers, update and migration scripts
 tests/       cross-component suites: compliance, docs, ui
@@ -19,7 +19,6 @@ scripts/     checkout setup, prerequisite and repository checks
 | `tools/may/` | Workspace graphs, processes and verified artifact cache | `make test-tools` |
 | `tools/mayfmt/` | Shared command-line/editor formatter | `make test-tools` |
 | `tools/maylsp/` | Active Maylang language server | `make test-tools` |
-| `tools/maypkg/` | Legacy `mayproj.json` manager | `make test-tools` |
 | `tools/shared/` | Formatter core, filesystem helpers and import scanner shared by the tools and installer | `make test-tools` |
 | `stdlib/` | Public libraries and UI | Compiler contracts and `make test-ui` |
 | `dist/` | Packaging, installers and Bash migration; tests in `dist/tests/` | `make test-distribution package` |

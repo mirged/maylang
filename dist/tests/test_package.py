@@ -32,7 +32,7 @@ def main():
         notices = (bundle / 'THIRD_PARTY_NOTICES.md').read_text()
         assert 'floooh/sokol' in notices and 'binji/binjnes' in notices, notices
         env=os.environ.copy(); env['PATH']=str(bundle/'bin')+os.pathsep+env.get('PATH','')
-        for variable in ('MAYC','MAYLANG_STDLIB','MAYPKG_MANIFEST','MAYPKG_ENTRY'): env.pop(variable,None)
+        for variable in ('MAYC','MAYLANG_STDLIB'): env.pop(variable,None)
         project=work/'project';project.mkdir()
         (project/'main.may').write_text('import "result" as result;\nlet r: Result<Int, Str> = result.ok(42); print(result.unwrap(r));')
         def run(*command):
@@ -44,9 +44,7 @@ def main():
         assert 'x86_64-linux\telf\tfull' in targets and 'arm64' not in targets and 'llvm' not in targets
         run('mayc','main.may','-o','hello')
         assert run(str(project/'hello')) == b'42\n'
-        run(str(bundle/'bin/maypkg'),'build')
-        assert b'up to date' in run(str(bundle/'bin/maypkg'),'build')
-        assert run(str(project/'project')) == b'42\n'
+        assert not (bundle / 'bin/maypkg').exists()
         run(str(bundle / 'bin/may'), 'new', 'workspace')
         result = subprocess.run([str(bundle / 'bin/may'), 'run'], cwd=project / 'workspace',
                                 env=env, capture_output=True, timeout=120)
@@ -104,7 +102,7 @@ def main():
         assert result.returncode == 0 and b'PASS emulator.test.may' in result.stdout, result
         print('PASS bundled May NES executes a real cartridge, synthesizes audio and renders its framebuffer')
         print('PASS bundled Mayboard renders a demo PNG and its model tests pass')
-        print('PASS extracted checksums, version, standalone compilation, stdlib, vendored-header provenance, workspace/formatter, legacy maypkg and LSP initialization')
+        print('PASS extracted checksums, version, standalone compilation, stdlib, vendored-header provenance, workspace/formatter and LSP initialization')
         print('PASS installed UI scaffold builds and a headless application renders PNG')
         print('PASS installed compiler builds and runs the typed textstats application')
 

@@ -6,7 +6,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 bundle="$work/source/maylang-1.2.3-x86_64-linux"
 mkdir -p "$bundle/bin/runtime" "$bundle/stdlib"
-for tool in mayc may mayfmt maypkg maylsp; do
+for tool in mayc may mayfmt maylsp; do
     printf '#!/bin/sh\necho fixture\n' > "$bundle/bin/$tool"
 done
 for file in bin/native.may bin/prelude.may bin/runtime/math.may \

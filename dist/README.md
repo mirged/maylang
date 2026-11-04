@@ -41,7 +41,7 @@ Omit `--compiler` to bootstrap afresh. An explicit compiler is not silently
 rebuilt. The archive records tool versions and source dirty state, with source
 timestamps (`SOURCE_DATE_EPOCH` can override them).
 
-It contains five tools, the native Maylang installer, runtime sidecars, `stdlib`,
+It contains four tools, the native Maylang installer, runtime sidecars, `stdlib`,
 the complete Mayboard and May NES workspaces under `examples/apps/`, release
 identity, changelog, the [MIT license](../LICENSE) with
 [third-party notices](../THIRD_PARTY_NOTICES.md), provenance and `SHA256SUMS`.

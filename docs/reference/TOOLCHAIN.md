@@ -28,7 +28,7 @@
 - Migrate an older source: `python3 compiler/mayc/tools/migrate_strict.py old.may --write`; review added Any types and explicit returns before relying on the result.
 - Language server implementation: [Maylang maylsp](../../tools/maylsp/README.md); protocol/reference: [LSP guide](../guide/LSP.md).
 - VS Code integration: [extension installation and settings](../../editors/vscode/README.md); strict checking defaults on through `maylang.strict`; rebuild server/reload the window after toolchain changes.
-- Package manager: [maypkg usage and manifest reference](../../tools/maypkg/README.md); project manifests are mayproj.json, with mayproj.lock for dependency locking.
+- Workspace runner: [may usage and may.json reference](../../tools/may/README.md); `may migrate` converts an older mayproj.json project.
 - Compiler verification: `make test-compiler`; source-only chain and bootstrap fixpoint: `make test-bootstrap`.
 - Additional language/runtime regressions: `python3 tests/compliance/run.py`.
 - Networking verification: `python3 compiler/mayc/tests/network.py`; live tests may skip when socket creation is disallowed; CI can require sockets.

@@ -17,7 +17,10 @@ from urllib.error import URLError
 API = 'https://api.github.com/repos/mirged/maylang/releases/latest'
 RELEASES = 'https://github.com/mirged/maylang/releases/download'
 ASSET = 'maylang-init-x86_64-linux'
-TOOLS = {'mayc', 'may', 'mayfmt', 'maypkg', 'maylsp'}
+TOOLS = {'mayc', 'may', 'mayfmt', 'maylsp'}
+# Components of earlier releases that are no longer shipped. A saved list may name them;
+# they are dropped before the installer is asked to reproduce the installation.
+REMOVED = {'maypkg'}
 
 
 def version_key(version):
@@ -33,7 +36,7 @@ def managed_install(prefix):
         raise ValueError(f'{prefix} is not a matching managed installation')
     components = state.get('components')
     if (not isinstance(components, list) or not components or
-            any(not isinstance(name, str) or name not in TOOLS for name in components) or
+            any(not isinstance(name, str) or name not in TOOLS | REMOVED for name in components) or
             len(set(components)) != len(components) or
             'mayc' not in components):
         raise ValueError('installed component list is invalid')
@@ -42,7 +45,7 @@ def managed_install(prefix):
         raise ValueError('current must point into the managed releases directory')
     version = (current / 'VERSION').read_text().strip()
     version_key(version)
-    return version, components
+    return version, [name for name in components if name not in REMOVED]
 
 
 def request(url):

@@ -11,7 +11,7 @@ from pathlib import Path
 
 START = '# >>> Maylang managed environment >>>'
 END = '# <<< Maylang managed environment <<<'
-TOOLS = ('mayc', 'may', 'mayfmt', 'maypkg', 'maylsp')
+TOOLS = ('mayc', 'may', 'mayfmt', 'maylsp')
 
 
 def atomic_write(path, content, mode=0o644):

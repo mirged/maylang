@@ -39,7 +39,8 @@ back.
   `runtime/fat_linux.may`, collector, files, processes, FFI), raw mode
   (`--raw`, `--runtime none`) and native-word functions.
 - The source bootstrap (`compiler/rust/`) and the bootstrap fixpoint.
-- Tools: `may`, `mayfmt`, `maylsp`, `maypkg` (legacy), the VS Code extension.
+- Tools: `may`, `mayfmt`, `maylsp`, the VS Code extension (the legacy `maypkg`
+  was later removed).
 - The standard library except `stdlib/ml/`, including `stdlib/ui/` (X11 and
   OpenGL on Linux).
 - Examples and complete projects that run on Linux x86-64.

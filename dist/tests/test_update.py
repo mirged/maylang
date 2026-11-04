@@ -22,7 +22,7 @@ class UpdateTests(unittest.TestCase):
         path = self.root / f'maylang-{version}-x86_64-linux'
         (path / 'bin/runtime').mkdir(parents=True)
         (path / 'stdlib').mkdir()
-        for name in ('mayc', 'may', 'mayfmt', 'maypkg', 'maylsp'):
+        for name in ('mayc', 'may', 'mayfmt', 'maylsp'):
             (path / 'bin' / name).write_text(f'#!/bin/sh\necho {version}\n')
         for name in ('native.may', 'prelude.may', 'runtime/math.may',
                      'runtime/fat.may', 'runtime/fat_linux.may'):

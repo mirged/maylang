@@ -14,7 +14,7 @@ is required. No administrator password is needed for the default user install.
 ## Choose your setup
 
 Press **Enter** on **Install Maylang** to accept the recommended settings.
-The default installs all five tools and their standard library into
+The default installs all four tools and their standard library into
 `~/.maylang`, then configures the shell profile shown on screen.
 
 Choose **Customize setup** to change:
@@ -52,8 +52,8 @@ mayc hello.may -o hello
 ./hello
 ```
 
-The compiler, project runner, formatter, package manager and language server
-are `mayc`, `may`, `mayfmt`, `maypkg` and `maylsp`. Native UI builds need a C
+The compiler, project runner, formatter and language server are `mayc`, `may`,
+`mayfmt` and `maylsp`. Native UI builds need a C
 compiler, X11/Xi/Xcursor/OpenGL development libraries and a TrueType font;
 ordinary native compilation needs none of those. The project runner uses `sha256sum` from
 coreutils for its build cache.

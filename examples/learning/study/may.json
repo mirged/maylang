@@ -1,0 +1,12 @@
+{
+    "schema": 1,
+    "name": "study",
+    "default": "app",
+    "targets": {
+        "app": {
+            "kind": "app",
+            "entry": "main.may"
+        }
+    },
+    "dependencies": {}
+}

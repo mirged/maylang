@@ -291,8 +291,8 @@ pub fun pick(options: List<Str>, descriptions: List<Str>, initial: Int) -> Int {
 }
 
 pub fun tools(current: Str) -> Str {
-    let names: List<Str> = ["may", "mayfmt", "maypkg", "maylsp"];
-    let labels: List<Str> = ["Project runner", "Code formatter", "Package manager", "Editor support"];
+    let names: List<Str> = ["may", "mayfmt", "maylsp"];
+    let labels: List<Str> = ["Project runner", "Code formatter", "Editor support"];
     let selected: List<Bool> = [];
     for name: Str in names {
         push(selected, current == "all" or has(split(current, ","), name));
@@ -370,7 +370,7 @@ pub fun wizard(version: Str, prefix: Str, components: Str, modify: Bool, profile
         heading(version, if (removing) { "REMOVE TOOLCHAIN" } else { "TOOLCHAIN SETUP" });
         detail(if (removing) { "Toolchain" } else { "Install to" }, result.prefix);
         detail("Tools", if (result.components == "all") {
-            "Complete toolkit · all five tools"
+            "Complete toolkit · all four tools"
         } else if (result.components == "compiler") {
             "Compiler + standard library"
         } else {

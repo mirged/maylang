@@ -9,7 +9,9 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOLS = ('may', 'mayfmt', 'maypkg', 'maylsp')
+TOOLS = ('may', 'mayfmt', 'maylsp')
+# Tools that earlier checkouts built into the same directory.
+REMOVED = ('maypkg',)
 
 
 def environment(directory):
@@ -54,13 +56,15 @@ def build(compiler, output):
         # Only publish files after every tool compiled successfully. Retain the
         # source tree's stable build/dev path for editor configuration.
         output.mkdir(exist_ok=True)
+        for name in REMOVED:
+            (output / 'bin' / name).unlink(missing_ok=True)
         for path in sorted(stage.rglob('*')):
             target = output / path.relative_to(stage)
             if path.is_dir():
                 target.mkdir(exist_ok=True)
             else:
                 path.replace(target)
-    print(f'Built all five tools and the installer in {output / "bin"}')
+    print(f'Built mayc, {", ".join(TOOLS)} and the installer in {output / "bin"}')
 
 
 def main():

@@ -66,9 +66,6 @@ test-compliance:
 test-tools:
 	MAYC="$(abspath $(MAYC))" $(PYTHON) tools/may/tests/run.py
 	MAYC="$(abspath $(MAYC))" $(PYTHON) tools/mayfmt/tests/run.py
-	mkdir -p build/tests
-	"$(MAYC)" tools/maypkg/main.may -o build/tests/maypkg
-	$(PYTHON) tools/maypkg/tests/test_workflows.py --binary build/tests/maypkg
 	$(PYTHON) tools/maylsp/tests/test_lsp.py --compiler "$(MAYC)"
 
 test-docs:

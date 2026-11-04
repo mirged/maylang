@@ -1,0 +1,23 @@
+{
+    "schema": 1,
+    "name": "rivet",
+    "default": "app",
+    "targets": {
+        "app": {
+            "kind": "app",
+            "entry": "main.may"
+        },
+        "test": {
+            "kind": "task",
+            "depends": [
+                "app"
+            ],
+            "command": [
+                "python3",
+                "{root}/tests/test_storage.py",
+                "{target:app}/app"
+            ]
+        }
+    },
+    "dependencies": {}
+}

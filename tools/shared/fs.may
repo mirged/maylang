@@ -3,7 +3,7 @@
 // Path math, mkdir -p, directory listing, atomic publication and the stdlib
 // search path, built on read_file / write_file / file_exists and raw syscalls.
 // Consumers are listed in README.md; keep this file free of tool-specific
-// policy so that `may`, `maypkg` and the installer can all depend on it.
+// policy so that `may` and the installer can both depend on it.
 
 pub fun cwd() -> Any {
     let buffer: Any = syscall(9, 0, 4096, 3, 34, -1, 0);

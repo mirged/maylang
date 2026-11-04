@@ -67,7 +67,7 @@ import json, os, pathlib, sys
 args = sys.argv[1:]
 prefix = pathlib.Path(args[args.index('--prefix') + 1])
 assert '--yes' in args and '--no-modify-path' in args and '--plain' in args
-assert args[args.index('--components') + 1] == 'mayc,maypkg'
+assert args[args.index('--components') + 1] == 'mayc'
 assert 'MAYC' not in os.environ and 'MAYLANG_STDLIB' not in os.environ
 (prefix / 'current/VERSION').write_text('0.13.0\\n')
 (prefix / 'installer-ran').write_text(json.dumps(args))

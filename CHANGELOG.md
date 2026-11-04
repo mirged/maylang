@@ -10,6 +10,14 @@
   compliance snapshots, a duplicate `.github/CONTRIBUTE.md` and a scratch
   example. `mayc` now says `target … is not supported` instead of `is frozen`,
   and the language server no longer skips directories named `frozen`.
+- Removed the legacy `maypkg` package manager and every `mayproj.json`.
+  Projects use [`may` workspaces](tools/may/README.md); `may migrate` still
+  converts an older `mayproj.json`. The example projects that used `maypkg`
+  (starfall, kaindsim, rivet, sdl_test and the learning projects) now have
+  `may.json` manifests, and kaindsim's and rivet's Makefiles compile with
+  `mayc` directly. Release bundles and installers no longer ship `maypkg`;
+  saved component lists and `--components` values that name it are ignored,
+  so older installations still upgrade.
 
 ## Language
 

@@ -16,7 +16,7 @@ fun usage() -> Nil {
     print("rivet inspect DB                  inspect every binary frame and byte offset");
     print("rivet recover DB                  discard only an uncommitted/torn suffix");
     print("rivet compact DB                  atomically replace history with live values");
-    print("Linux x86-64 / strict mayc / stdlib / maypkg");
+    print("Linux x86-64 / strict mayc / stdlib / may");
     return;
 }
 fun check_arity(argv: List<Str>, low: Int, high: Int) -> Nil {

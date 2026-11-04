@@ -20,7 +20,7 @@ or a C compiler (an experimental `clang-llvm` target was removed for this
 reason). A small Rust crate
 (`compiler/rust/crates/may_bootstrap`) compiles the compiler to C, which builds
 the first native generation, so no binary compiler is checked in. Tools (`may`,
-`mayfmt`, `maylsp`, `maypkg`) and the standard library are also Maylang. The current version is in `RELEASE.json`.
+`mayfmt`, `maylsp`) and the standard library are also Maylang. The current version is in `RELEASE.json`.
 
 Compiler development needs Linux x86-64 (WSL 2 works), Rust/Cargo, GCC or
 Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
@@ -54,7 +54,6 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
 | `tools/mayfmt/` | Formatter CLI | `make test-tools` |
 | `tools/shared/` | Code shared by several tools: formatter core, `fs.may`, `imports.may` ([README](tools/shared/README.md)) | `make test-tools` |
 | `tools/maylsp/` | Language server; reuses `compiler/mayc/src/` | `make test-tools` or `make -C tools/maylsp test` |
-| `tools/maypkg/` | Legacy `mayproj.json` manager | `make test-tools` |
 | `stdlib/` | Library modules, `ui/` (native UI) | Compiler stdlib contracts, `make test-ui` |
 | `dist/` | Packaging, installers, updates; tests in `dist/tests/` | `make test-distribution` |
 | `tests/compliance/`, `tests/docs/`, `tests/ui/` | Cross-component suites only | `make test-compliance`, `test-docs`, `test-ui` |
@@ -120,7 +119,7 @@ that span components. Relative imports between siblings use
 | `make test-compiler` | `compiler/mayc/tests/verify.py --compiler $(MAYC)`: fixtures, diagnostics, CLI, strict types, modules, backends, regalloc, GC, stdlib contracts, all example entry points, ELF checks |
 | `make test-bootstrap` | `compiler/rust/test.py`: full source-only chain and byte-identical stages 2 and 3 (bootstrap fixpoint). Slow; run it for compiler or runtime changes. |
 | `make test-compliance` | `tests/compliance/run.py`: runtime and coercion boundary cases |
-| `make test-tools` | `may`, `mayfmt`, `maypkg` and `maylsp` suites |
+| `make test-tools` | `may`, `mayfmt` and `maylsp` suites |
 | `make test-docs` | Compiles and runs the snippets in `docs/reference/EXAMPLES.md` and `docs/guide/STRICT.md` |
 | `make test-ui` | Native UI checks (X11/OpenGL; see the doctor profiles) |
 | `make test-sanitize` | `tests/ui/sanitize.py`: the native UI adapter (`stdlib/ui/native/draw.c`) on malformed geometry, bitmaps, UTF-8 and fonts under ASan/UBSan |
@@ -178,8 +177,8 @@ Socket and window tests skip when unavailable; say so in your report.
   `docs/reference/EXAMPLES.md` needs an expected-output entry in
   `tests/docs/run.py`. `docs/guide/STRICT.md` must keep exactly the number of
   ```` ```may ```` blocks asserted there.
-- **Tools:** add cases to `tools/may/tests/run.py`, `tools/mayfmt/tests/run.py`,
-  `tools/maypkg/tests/test_workflows.py` or `tools/maylsp/tests/test_lsp.py`.
+- **Tools:** add cases to `tools/may/tests/run.py`, `tools/mayfmt/tests/run.py`
+  or `tools/maylsp/tests/test_lsp.py`.
 - Tests assert observable behavior (output, exit status, files, protocol
   messages), not implementation details.
 
@@ -290,13 +289,9 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 
 - New applications use a [`may` workspace](tools/may/README.md): `may.json` with
   `app`, `test` (`.test.may` files), `native` and `task` targets. The root
-  `.gitignore` ignores every `.may/` cache. `may migrate` converts a
-  `mayproj.json`.
-- `maypkg` and `mayproj.json` are legacy. Existing projects still use them, but
-  do not start new ones that way. `mayproj.lock` keys are paths relative to the
-  project root (`../` for stdlib dependencies); `maypkg` still reads older
-  absolute-path lockfiles. Relock after changing modules, and run `maypkg`
-  with `PWD` set to the project directory, as the Makefiles do.
+  `.gitignore` ignores every `.may/` cache. `may migrate` converts an older
+  `mayproj.json` project; the `maypkg` tool that used those manifests was
+  removed.
 - Build `may` with `compiler/mayc/mayc_new tools/may/main.may -o /tmp/may` and
   `export MAYC="$PWD/compiler/mayc/mayc_new"`, or use `build/dev/bin/may` after
   `make build`. Useful commands: `may run -- ARGS`, `may build TARGET`,
@@ -322,7 +317,7 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 - Commit subjects follow `type(scope): imperative summary`. Types are
   `feat`, `fix`, `perf`, `test`, `docs`, `refactor`, `chore`, `revert`.
   Common scopes: `compiler`, `codegen`, `raw`, `raw/x86_64`, `runtime`,
-  `stdlib`, `gc`, `maylsp`, `may`, `maypkg`, `ui`, `distribution`, `targets`,
+  `stdlib`, `gc`, `maylsp`, `may`, `ui`, `distribution`, `targets`,
   `compliance`, `examples`, `release`. A bare `docs:` or `feat:` is fine for
   cross-cutting work.
 - Bodies explain the mechanism and its limits, and mention added tests.

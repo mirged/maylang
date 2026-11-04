@@ -124,8 +124,7 @@ This release supports local dependencies, with no central package registry.
   preserving the original; translate dependency declarations to local paths.
 
 Run from any workspace subdirectory. Use `--profile release` for builds without
-the default development traces. `maypkg` remains available for existing
-`mayproj.json` projects; new applications use the workspace model.
+the default development traces.
 
 Validate the workflow with `python3 tools/may/tests/run.py`.
 

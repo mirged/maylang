@@ -113,7 +113,7 @@ def targets(compiler):
             args = [ROOT / "examples/hello.may", "-o", WORK / "target-hello"]
         elif source.parent.name == "maylsp":
             stdin = b""
-        elif source.parent.name in {"maytasks", "maypkg"}:
+        elif source.parent.name == "maytasks":
             args = ["help"]
         result = run([binary, *args], stdin=stdin)
         (WORK / f"target-{index}.stdout").write_bytes(result.stdout)

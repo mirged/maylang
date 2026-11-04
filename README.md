@@ -80,8 +80,8 @@ may dev
 ```
 
 Local dependencies have content pins, builds verify cached artifacts, and
-commands receive literal argument arrays. Existing `mayproj.json` projects
-can use `maypkg` or `may migrate`. The [formatter](tools/mayfmt/README.md)
+commands receive literal argument arrays. `may migrate` converts an older
+`mayproj.json` project. The [formatter](tools/mayfmt/README.md)
 also powers editor formatting.
 
 For a desktop project, use `may new my-app --ui`. The
@@ -124,7 +124,7 @@ experiments were removed from `main`; their last versions are in the
 | Directory | Contents |
 | --- | --- |
 | [compiler/](compiler/README.md) | Self-hosted `mayc` compiler and the Rust source bootstrap |
-| [tools/](tools/README.md) | Workspace runner, formatter, language server, legacy package manager |
+| [tools/](tools/README.md) | Workspace runner, formatter and language server |
 | [stdlib/](stdlib/README.md) | Standard library and native UI |
 | [dist/](dist/README.md) | Release packaging, installers, environment migration |
 | [tests/](tests/README.md) | Cross-component compliance, documentation and UI suites |

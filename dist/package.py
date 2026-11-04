@@ -83,7 +83,7 @@ def main():
         for app in ('mayboard', 'maynes'):
             shutil.copytree(ROOT / 'examples/apps' / app, bundle / 'examples/apps' / app,
                             ignore=shutil.ignore_patterns('.may', 'build', '__pycache__', 'preview-*.png'))
-        for tool in ('maypkg', 'maylsp', 'may', 'mayfmt', 'may-installer'):
+        for tool in ('maylsp', 'may', 'mayfmt', 'may-installer'):
             source = ROOT / 'dist/installer.may' if tool == 'may-installer' else ROOT / f'tools/{tool}/main.may'
             subprocess.run([str(compiler), str(source), '-o', str(bin_dir/tool)], cwd=ROOT, check=True, timeout=180)
         (bundle/'VERSION').write_text(version+'\n')
@@ -91,7 +91,7 @@ def main():
         shutil.copy2(ROOT / 'CHANGELOG.md', bundle / 'CHANGELOG.md')
         shutil.copy2(ROOT / 'LICENSE', bundle / 'LICENSE')
         shutil.copy2(ROOT / 'THIRD_PARTY_NOTICES.md', bundle / 'THIRD_PARTY_NOTICES.md')
-        (bundle/'README.txt').write_text('Add this bundle\'s bin directory to PATH. Keep the entire bundle together.\nCompiler host and programs: Linux x86-64.\nMaylang is MIT-licensed; see LICENSE and THIRD_PARTY_NOTICES.md.\nUse mayc --help, may help, mayfmt file.may and maylsp with an LSP-capable editor.\nmaypkg remains available for older projects.\nRun the complete desktop app: cd examples/apps/mayboard && may run.\nSokol UI needs a C compiler, X11/Xi/Xcursor/OpenGL development libraries and a TrueType font; windows need X11/XWayland and OpenGL 4.3.\nUse may run -- --demo --snapshot /tmp/mayboard.png for a headless preview.\nUpgrade by extracting a new bundle and changing PATH.\n')
+        (bundle/'README.txt').write_text('Add this bundle\'s bin directory to PATH. Keep the entire bundle together.\nCompiler host and programs: Linux x86-64.\nMaylang is MIT-licensed; see LICENSE and THIRD_PARTY_NOTICES.md.\nUse mayc --help, may help, mayfmt file.may and maylsp with an LSP-capable editor.\nRun the complete desktop app: cd examples/apps/mayboard && may run.\nSokol UI needs a C compiler, X11/Xi/Xcursor/OpenGL development libraries and a TrueType font; windows need X11/XWayland and OpenGL 4.3.\nUse may run -- --demo --snapshot /tmp/mayboard.png for a headless preview.\nUpgrade by extracting a new bundle and changing PATH.\n')
         (bundle/'provenance.json').write_text(json.dumps({
             'version':version, 'commit':commit, 'tag':tag,
             'release':metadata,
@@ -111,7 +111,7 @@ def main():
             for path in [bundle, *sorted(bundle.rglob('*'))]:
                 info = archive.gettarinfo(str(path), arcname=str(path.relative_to(bundle.parent)))
                 info.uid=info.gid=0; info.uname=info.gname=''; info.mtime=epoch
-                info.mode = 0o755 if path.is_dir() or path.parent == bin_dir and path.name in ('mayc','maypkg','maylsp','may','mayfmt','may-installer') else 0o644
+                info.mode = 0o755 if path.is_dir() or path.parent == bin_dir and path.name in ('mayc','maylsp','may','mayfmt','may-installer') else 0o644
                 if path.is_file():
                     with path.open('rb') as content: archive.addfile(info, content)
                 else: archive.addfile(info)

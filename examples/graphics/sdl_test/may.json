@@ -1,0 +1,12 @@
+{
+    "schema": 1,
+    "name": "sdl_test",
+    "default": "app",
+    "targets": {
+        "app": {
+            "kind": "app",
+            "entry": "main.may"
+        }
+    },
+    "dependencies": {}
+}

@@ -46,7 +46,7 @@ else
     [ "$#" -eq 1 ] && [ -d "$1" ] || fail 'Expected one Linux x86-64 bundle'
     bundle=$1
 fi
-for file in VERSION bin/mayc bin/may bin/mayfmt bin/maypkg bin/maylsp \
+for file in VERSION bin/mayc bin/may bin/mayfmt bin/maylsp \
     bin/native.may bin/prelude.may bin/runtime/math.may \
     bin/runtime/fat.may bin/runtime/fat_linux.may stdlib/prelude.may; do
     [ -f "$bundle/$file" ] || fail "Incomplete bundle: missing $file"
@@ -67,7 +67,7 @@ else
     mv "$staging/copied-bundle" "$destination"
 fi
 bundle=$destination
-for tool in mayc may mayfmt maypkg maylsp; do chmod +x "$bundle/bin/$tool"; done
+for tool in mayc may mayfmt maylsp; do chmod +x "$bundle/bin/$tool"; done
 # Quote the root for shell startup files, including spaces and apostrophes.
 quoted_root=$(printf '%s' "$root" | sed "s/'/'\\\\''/g")
 cat > "$staging/env.sh" <<EOF

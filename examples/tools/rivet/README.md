@@ -5,8 +5,8 @@ inspect byte by byte. Use it to store local configuration, small cached blobs,
 or checkpoints, and to explore how a storage engine handles torn writes.
 
 Rivet is written in strict Maylang and compiled to a freestanding native
-executable with `mayc`. `maypkg` manages its dependency graph, incremental build
-and source lock. The storage path uses Linux syscalls directly: `mmap`, `flock`,
+executable with `mayc`, and it is a [`may` workspace](../../../tools/may/README.md).
+The storage path uses Linux syscalls directly: `mmap`, `flock`,
 partial-write loops, `fsync`, `ftruncate` and atomic `rename`.
 
 ## Try the crash laboratory
@@ -169,8 +169,8 @@ concurrent compaction, sorted reports, randomized workloads and compaction acros
 transaction boundaries. These are process and file-format tests, not a simulated
 database implementation.
 
-`make build` bootstraps a local `maypkg` and provides it the selected compiler.
-Override `MAYC` or `MAYPKG` if needed. You can also compile directly:
+`make build` uses the checkout compiler; override it with `MAYC`. With `may` on
+`PATH`, `may build test` builds and tests it. You can also compile directly:
 
 ```sh
 mayc examples/tools/rivet/main.may -o /tmp/rivet

@@ -16,19 +16,8 @@ make -C examples/games/starfall build
 examples/games/starfall/build/starfall demo
 ```
 
-The project is also managed with maypkg. Compile its CLI once, then inspect,
-check and lock this project:
-
-```sh
-compiler/mayc/mayc_new tools/maypkg/main.may -o /tmp/maypkg
-cd examples/games/starfall
-/tmp/maypkg info
-/tmp/maypkg tree
-/tmp/maypkg check
-/tmp/maypkg verify
-```
-
-`maypkg build --script` generates `build/maypkg.build.sh` from the project graph.
+It is also a [`may` workspace](../../../tools/may/README.md): from this
+directory, `may run -- help` builds and runs it and `may check` type-checks it.
 Run `./build/starfall help` for the game's commands.
 
 Reach sector 4 to lock onto the rescue beacon. Refill at relays and keep your
@@ -54,4 +43,4 @@ unsaved sample turn sequence.
 - `src/model.may` — pilot state and JSON save file
 - `src/game.may` — deterministic sector events and turn rules
 - `src/view.may` — status and flight-recorder output
-- `mayproj.json` — maypkg project metadata
+- `may.json` — workspace manifest for `may`

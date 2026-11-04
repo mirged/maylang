@@ -78,10 +78,8 @@ jobs:
           python3 compiler/mayc/tests/strings.py
           python3 compiler/mayc/tests/file_io.py
           python3 compiler/mayc/tests/debug_traces.py
-      - name: Verify project manager and language server
+      - name: Verify workspace runner and language server
         run: |
-          compiler/mayc/mayc_new tools/maypkg/main.may -o /tmp/maypkg
-          python3 tools/maypkg/tests/test_workflows.py --binary /tmp/maypkg
           python3 tools/may/tests/run.py
           python3 tools/maylsp/tests/test_lsp.py
       - name: Verify native UI and complete desktop app
