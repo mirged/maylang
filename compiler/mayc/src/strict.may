@@ -155,11 +155,29 @@ fun st_call_contracts(callee: Any, head: Any, types: Any) -> Any {
     while (argument != 0) { st_contract(argument, st_substitute(callee.arguments[i], bindings)); argument = argument.next; i += 1; }
     return 0;
 }
+// Join two types that differ only where one has Never (an empty `[]` or
+// `{}`), position by position through nested collections; nil otherwise.
+// Collections are mutable, so List<Int> and List<Str> never join this way.
+fun st_join_empty(a: Any, b: Any) -> Any {
+    if (a.name == "Never") { return b; }
+    if (b.name == "Never") { return a; }
+    if (st_same(a, b)) { return a; }
+    if (a.name != b.name or not has(["List", "Map", "Slice", "Optional"], a.name) or len(a.arguments) != len(b.arguments)) { return nil; }
+    let args: Any = [];
+    for i: Any in 0..len(a.arguments) {
+        let joined: Any = st_join_empty(a.arguments[i], b.arguments[i]);
+        if (joined == nil) { return nil; }
+        push(args, joined);
+    }
+    return st_type(a.name, args);
+}
 fun st_join(a: Any, b: Any, span: Any) -> Any {
     if (a.name == "Never") { return b; }
     if (b.name == "Never") { return a; }
     if (a.name == "Any" or b.name == "Any") { return st_any(); }
     if (st_same(a, b)) { return a; }
+    let empty: Any = st_join_empty(a, b);
+    if (empty != nil) { return empty; }
     if (a.name == "Function" and b.name == "Function" and len(a.arguments) == len(b.arguments) and st_same(a.result, b.result)) {
         mut same: Any = true;
         for i: Any in 0..len(a.arguments) { if (not st_same(a.arguments[i], b.arguments[i])) { same = false; } }
