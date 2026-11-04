@@ -930,7 +930,12 @@ def main():
         run_diagnostic_restart(binary, work)
         run_large_diagnostic_frames(binary, work)
         run_navigation_workers(binary, work)
-        run(binary, work)
+        # The core session indexes its whole root for workspace requests such as
+        # callHierarchy/incomingCalls. Earlier sections leave large workspaces in
+        # `work` (4,800 functions in diagnostic-heavy-imports), so give it its own.
+        core = work / "core-session"
+        core.mkdir()
+        run(binary, core)
         run_documentation(binary, work)
         run_inlay_types(binary, work)
         run_background_checks(binary, work)
