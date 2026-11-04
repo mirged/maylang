@@ -126,7 +126,12 @@ fun rt_mark_word(w: Any) -> Any {
 }
 fun rt_gc_root(a: Any) -> Any {
     if (GCOUNT >= 131072) { rt_write(addr("GC global root table exhausted\n"), 31); syscall(60, 70); }
-    if (GROOTS == 0) { GROOTS = rt_alloc(1048576); }
+    // The table holds addresses of global slots, never heap pointers, so it
+    // is allocated as a byte block: rt_gc marks it through `rt_mark_word` and
+    // walks the registered addresses itself, and the collector must not scan
+    // its contents conservatively (it would probe one megabyte of data-segment
+    // addresses on every cycle).
+    if (GROOTS == 0) { GROOTS = rt_alloc_bytes(1048576); }
     store64(GROOTS + GCOUNT * 8, a);
     GCOUNT = GCOUNT + 1;
     return 0;
@@ -175,7 +180,23 @@ fun rt_gc() -> Any {
         let hdr: Any = load64(p - 16);
         let end: Any = p + hdr - (hdr % 2) - 16;
         mut a: Any = p;
-        if (kind == 3 or kind == 4) {
+        if (kind == 4 and load64(p + 16) == p + 48 and load64(p + 24) == 0) {
+            // A record whose constructor entries are still in its own block
+            // and that has no hash table: the 48-byte map header holds only
+            // the count, the capacity and the in-block entries pointer, and
+            // every key slot is a field-name pointer into the image, not the
+            // heap. Scan just the value slots, one 32-byte entry at a time,
+            // instead of conservatively probing the header and key words.
+            // A record that grew through a dynamic field write moves its
+            // entries out (`rt_map_put`), so it fails this test and keeps
+            // the conservative scan below.
+            a = p + 48;
+            while (a + 32 <= end) {
+                let t: Any = load64(a + 16);
+                if (t == 2 or (t >= 4 and t <= 8)) { rt_mark_word(load64(a + 24)); }
+                a = a + 32;
+            }
+        } else if (kind == 3 or kind == 4) {
             // A record's first 48 bytes are a map header (count, capacity,
             // the in-block entries pointer, the hash table pointer and its
             // capacity): scan them as words so a record whose entries moved
@@ -229,16 +250,25 @@ fun rt_sweep() -> Any {
     return 0;
 }
 // The next collection threshold after a sweep: twice the live bytes plus a
-// margin, never below the initial floor and never past the reservation. An
-// empty tail is already reclaimed by rewinding HP in the sweep; lowering
-// HEAPEND (rather than unmapping) keeps the address space and the allocation
-// table fixed.
+// margin, never below the initial floor, never below the allocation frontier
+// and never past the reservation. An empty tail is already reclaimed by
+// rewinding HP in the sweep; lowering HEAPEND (rather than unmapping) keeps the
+// address space and the allocation table fixed.
+//
+// The frontier bound is exactly `HP`, with no spare `GCMARGIN` room above it.
+// When the sweep cannot rewind over the newest live blocks, an unconditional
+// `HP + GCMARGIN` term raises the frontier by one margin on every cycle, so a
+// workload with a small live set peaks at `floor + collections * margin`
+// (trees: 128 MiB + 10 * 8 MiB). With the bound at `HP` the next cycle
+// allocates from the blocks the sweep just freed; a collection starts only
+// when the free list cannot satisfy a request, and the rare single request
+// that still does not fit is given room by the allocator's own fallback
+// (`HEAPEND = HP + need + GCMARGIN`), so progress is guaranteed and the
+// frontier no longer creeps.
 fun rt_threshold(live: Any) -> Any {
     mut next: Any = HEAP + live * 2 + GCMARGIN;
     if (next < HEAP + GCMIN) { next = HEAP + GCMIN; }
-    // The live set can sit behind large interior holes; the next threshold
-    // still needs room above the allocation frontier, never below it.
-    if (next < HP + GCMARGIN) { next = HP + GCMARGIN; }
+    if (next < HP) { next = HP; }
     if (next > HEAPLIMIT) { next = HEAPLIMIT; }
     return next;
 }
