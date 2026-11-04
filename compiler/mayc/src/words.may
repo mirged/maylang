@@ -26,12 +26,10 @@ import "emitter.may";
 // their native entry only range-checks UInt. Globals keep tagged values, so
 // the scan marks global reads and writes (`wordGlobal`) for IR to convert.
 //
-// Float support is limited to straight-line bodies for now: a Float-typed
-// function that contains a loop stays tagged, because the native loop body
-// would keep Float locals in frame slots and lose to the fat backend's XMM
-// homes. Float globals are rejected for the same reason (globals are tagged).
-// Everything is skipped under --no-opt, which also keeps the oracle test.'s
-// unoptimized path on the tagged backend.
+// A Float body may contain loops: loop-carried Float locals keep XMM homes in
+// the raw backend and are spilled around calls. Float globals are rejected
+// (globals are tagged). Everything is skipped under --no-opt, which also keeps
+// the oracle test's unoptimized path on the tagged backend.
 
 let WORD_ARITHMETIC: Any = [TK_PLUS, TK_MINUS, TK_STAR, TK_SLASH, TK_PCT, TK_BITAND, TK_PIPE, TK_XOR, TK_SHL, TK_SHR];
 // Float arithmetic in native code. `%` and the bitwise operators stay tagged.
@@ -88,7 +86,7 @@ mut WORD_NAMES: Any = {};
 mut WORD_PENDING: Any = [];
 mut WORD_LABELS: Any = [];
 
-struct WordScan { ctx: Any, rec: Any, result: Any, names: Any, scopes: Any, calls: Any, valid: Any, floats: Any, loops: Any }
+struct WordScan { ctx: Any, rec: Any, result: Any, names: Any, scopes: Any, calls: Any, valid: Any, floats: Any }
 
 fun word_type(t: Any, name: Any) -> Any {
     return t != nil and t != 0 and t.name == name and len(t.arguments ?? []) == 0;
@@ -257,9 +255,8 @@ fun word_statement(scan: Any, node: Any) -> Any {
         if (node.elseBranch != 0) { return word_block(scan, node.elseBranch); }
         return true;
     }
-    if (kind == S_WHILE) { scan.loops = true; return word_value(scan, node.condition, "Bool") and word_block(scan, node.body); }
+    if (kind == S_WHILE) { return word_value(scan, node.condition, "Bool") and word_block(scan, node.body); }
     if (kind == S_FOR) {
-        scan.loops = true;
         // Only `a..b` / `a..=b` with an Int binding; raw lowering counts directly.
         let range: Any = node.iterable;
         let contract: Any = node.bindingContract;
@@ -304,11 +301,8 @@ fun word_candidate(ctx: Any, rec: Any, names: Any) -> Any {
     if (not word_signature(ctx, rec) or len(rec.boxed) != 0) { return 0; }
     let parameters: Any = {};
     for index: Any in 0..rec.pc { parameters[symbol_name(rec.parr[index].name, rec.parr[index].length)] = true; }
-    let scan: Any = WordScan(ctx, rec, rec.nativeResult, names, [parameters], [], true, false, false);
+    let scan: Any = WordScan(ctx, rec, rec.nativeResult, names, [parameters], [], true, false);
     word_block(scan, rec.body);
-    // A Float loop would keep its locals in frame slots and lose to the fat
-    // backend's XMM homes (see the header); leave it tagged for now.
-    if (scan.floats and scan.loops) { return 0; }
     return if (scan.valid) { scan } else { 0 };
 }
 

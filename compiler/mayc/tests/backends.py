@@ -184,6 +184,46 @@ def main():
         assert 'push 0x2 push rax' not in listings['no-opt'] and 'push 0x1 push rax' not in listings['no-opt'], \
             'the tagged main boxes print arguments with an immediate type word'
         print('PASS native main boxes word arguments and differs from --no-opt', flush=True)
+        # Native Float loop bodies (#132): a Float function with a loop compiles
+        # as native words. The loop-carried Float local keeps an XMM home (xmm8
+        # or higher) and the arithmetic is SSE, while the fat backend's
+        # per-operation type-word checks (`cmp r9,0x3`) are absent. --no-opt
+        # keeps the loop tagged, so the images and the markers differ.
+        float_loops = work / 'float-loops-native.may'
+        float_loops.write_text('fun run(n: Int, x: Float) -> Float {\n'
+                               '    mut acc: Float = x;\n'
+                               '    mut i: Int = 0;\n'
+                               '    while (i < n) { acc = acc * 1.5 + 0.25; i += 1; }\n'
+                               '    return acc;\n'
+                               '}\n'
+                               'print(run(100, 1.0));\n')
+        images = {}
+        bodies = {}
+        for label, options in [('optimized', ()), ('no-opt', ('--no-opt',))]:
+            binary = work / f'float-loops-{label}'
+            images[label] = compile_source(compiler, float_loops, binary, *options)
+            run = subprocess.run([str(binary)], capture_output=True, timeout=10)
+            assert run.returncode == 0 and run.stdout == b'6.098417663028227e17\n', run
+            disassembly = subprocess.check_output(
+                ['objdump', '-d', '-Mintel', '--no-show-raw-insn', str(binary)], text=True)
+            inside = False
+            lines = []
+            for line in disassembly.splitlines():
+                if re.match(r'^[0-9a-f]+ <', line):
+                    inside = 'module0::run' in line
+                    continue
+                if inside: lines.append(line)
+            bodies[label] = ' '.join(' '.join(lines).split())
+        assert images['optimized'] != images['no-opt'], \
+            'the native Float loop produced the same image as the tagged loop'
+        assert 'mulsd' in bodies['optimized'] and 'addsd' in bodies['optimized'], \
+            'the optimized Float loop does not compute with SSE'
+        assert 'xmm8' in bodies['optimized'], 'the Float loop local has no XMM home'
+        assert 'cmp r9,0x3' not in bodies['optimized'], \
+            'the native Float loop keeps the fat type-word checks'
+        assert 'cmp r9,0x3' in bodies['no-opt'] or 'movsd' in bodies['no-opt'], \
+            'the tagged Float loop does not use the fat Float path'
+        print('PASS native Float loop bodies keep an XMM home and lose the type checks', flush=True)
         for args, message in [(['--target', 'bogus'], b'unknown target'),
                               (['--target'], b'requires a target name'),
                               (['--target', 'arm64-linux'], b'target arm64-linux is frozen'),

@@ -1,0 +1,15 @@
+// A Float loop with local conversions and arithmetic: the tagged path checks
+// every operation and calls the runtime for to_float, while the native loop
+// keeps the loop-carried sum and both temporaries in XMM registers.
+fun run(n: Int) -> Float {
+    mut sum: Float = 0.0;
+    mut i: Int = 0;
+    while (i < n) {
+        let x: Float = to_float(i) * 0.5;
+        let y: Float = x * x - 1.25;
+        sum = sum + y / (x + 2.0);
+        i += 1;
+    }
+    return sum;
+}
+print(run(20000000));

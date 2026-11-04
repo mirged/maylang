@@ -325,10 +325,10 @@ fun x86_single_literal(block: Any, intervals: Any, value: Any) -> Any {
 // call that allocates would be invisible to the conservative collector. A
 // leaf function makes no calls, so no collection can run while it does, and
 // it is optimized as in RAW programs (#99).
-let X86_LEAF_OPS: Any = [E_INT, E_STR, E_STRB, E_VAR, E_BIN, E_UN, E_AND, E_OR, IR_COPY, IR_LABEL,
+let X86_LEAF_OPS: Any = [E_INT, E_FLOAT, E_STR, E_STRB, E_VAR, E_BIN, E_UN, E_AND, E_OR, IR_COPY, IR_LABEL,
     IR_JUMP, IR_FALSE, IR_TRUE, IR_ISNIL, IR_NONNULL, IR_BOOL, IR_NIL, IR_RETURN, IR_TAILCALL, S_LET, S_ASSIGN];
 let X86_LEAF_CALLS: Any = ["load8", "load16", "load32", "load64", "store8", "store16", "store32", "store64",
-    "__fbits", "__sp", "ptr", "syscall"];
+    "__fbits", "__sp", "ptr", "syscall", "to_float"];
 
 fun x86_leaf_block(block: Any) -> Any {
     for instruction: Any in block.code {
@@ -346,11 +346,14 @@ fun x86_optimized(ctx: Any) -> Any { return ctx.dynamic == 0 or ctx.leaf == true
 // ------------------------------------------------ native Float values (#132)
 //
 // A native-word Float is its binary64 bit pattern in a machine word, so the
-// word ABI and every word adapter are unchanged. A straight-line Float
-// function keeps Float temporaries in XMM2-7 between definition and last
-// reader; every other Float value stays a word, and an operation moves its
-// operands into XMM0/XMM1. Float locals stay words: a loop would lose to the
-// fat backend's XMM homes, so words.may keeps loop bodies tagged.
+// word ABI and every word adapter are unchanged. Float locals (parameters and
+// declared `let`s) keep XMM8-15 for the whole body, spilled to their frame
+// slots around calls; Float temporaries defined once and read only before a
+// call keep XMM2-7. An operation computes in place when it can, and every
+// other Float value stays a word. Loop bodies use the same scheme: a leaf
+// Float body also keeps the raw backend's local registers and fusions for the
+// Int code inside it, while a body with calls stays on the simple path (word
+// arguments in integer registers, Float homes in XMM).
 mut X86_FLOAT: Bool = false;
 mut X86_FLOAT_REGS: Any = [];
 // The result slot of the instruction being lowered, and the XMM register that
@@ -365,6 +368,10 @@ mut X86_FLOAT_NEXT: Any = 8;
 // Temporary slot -> XMM home of the Float local it is a direct read of, or -1;
 // such a temporary needs no home and no code.
 mut X86_FLOAT_ALIAS: Any = [];
+// XMM homes reserved for declared Float locals before emission, by internal
+// local name, so a read of the local can alias its home. The frame slot of each
+// declaration is only known during emission, where the spill entry is added.
+mut X86_FLOAT_PLAN_HOME: Any = {};
 
 // Give XMM8-15 to the function's Float parameters, in order.
 fun x86_float_local_params(rec: Any) -> Any {
@@ -385,16 +392,6 @@ fun x86_float_local(p: Any, l: Any) -> Any {
     return home;
 }
 
-// Assign an XMM home to a Float local declared at `slot`, or -1.
-fun x86_float_local_declare(p: Any, l: Any, slot: Any) -> Any {
-    if (X86_FLOAT_NEXT > 15) { X86_FLOAT_LOCAL_REGS[symbol_name(p, l)] = -1; return -1; }
-    let home: Any = X86_FLOAT_NEXT;
-    X86_FLOAT_NEXT += 1;
-    X86_FLOAT_LOCAL_REGS[symbol_name(p, l)] = home;
-    push(X86_FLOAT_LOCALS, [slot, home]);
-    return home;
-}
-
 // Spill and reload every declared Float local around a call (opcode 17/16).
 fun x86_float_spill(ctx: Any, opcode: Any) -> Any {
     if (not X86_FLOAT) { return 0; }
@@ -412,6 +409,21 @@ fun x86_float_value(value: Any) -> Any {
 // values keep their word home.
 fun x86_float_plan(ctx: Any, block: Any) -> Any {
     let count: Any = block.temporaries;
+    // Reserve an XMM home for every declared Float local first: `cg_let`
+    // declares the same homes in the same order and reuses them, so a read of
+    // the local can alias its register instead of copying it into a temporary.
+    X86_FLOAT_PLAN_HOME = {};
+    for instruction: Any in block.code {
+        if (instruction.op != S_LET) { continue; }
+        let payload: Any = instruction.extra;
+        if (payload.global != 0 or not x86_float_value(payload.initializer) or
+            is_boxed(ctx, payload.name, payload.length) == 1) { continue; }
+        // Reserve in declaration order; a ninth local stays a word.
+        mut home: Any = -1;
+        if (X86_FLOAT_NEXT <= 15) { home = X86_FLOAT_NEXT; X86_FLOAT_NEXT += 1; }
+        X86_FLOAT_LOCAL_REGS[symbol_name(payload.name, payload.length)] = home;
+        X86_FLOAT_PLAN_HOME[symbol_name(payload.name, payload.length)] = home;
+    }
     X86_FLOAT_REGS = [];
     for slot: Any in 0..count { push(X86_FLOAT_REGS, -1); }
     let isFloat: Any = [];
@@ -422,7 +434,7 @@ fun x86_float_plan(ctx: Any, block: Any) -> Any {
         if (instruction.result != 0 and instruction.result != nil and x86_float_value(instruction.result)) {
             isFloat[instruction.result.slot] = true;
         }
-        if (instruction.op == E_VAR and instruction.result != 0 and instruction.result != nil and len(X86_FLOAT_LOCAL_REGS) > 0) {
+        if (instruction.op == E_VAR and instruction.result != 0 and instruction.result != nil) {
             let name: Any = instruction.extra;
             let home: Any = x86_float_local(name.name, name.length);
             if (home >= 0) {
@@ -455,7 +467,28 @@ fun x86_float_plan(ctx: Any, block: Any) -> Any {
             if (entry[1] < position) { push(free, entry[2]); } else { push(remaining, entry); }
         }
         active = remaining;
+        let instruction: Any = block.code[position];
         for slot: Any in heads[position] {
+            // Coalesce with the left operand: when its temporary dies here and
+            // has its own register, the operation can compute in place, so the
+            // usual copy into the result's register disappears.
+            mut coalesced: Any = -1;
+            if (instruction.op == E_BIN and instruction.extra.left != 0) {
+                let left: Any = instruction.extra.left;
+                if (left.slot != slot and left.slot < len(X86_FLOAT_REGS) and X86_FLOAT_REGS[left.slot] >= 0 and
+                    X86_FLOAT_ALIAS[left.slot] < 0 and ctx.allocation.locations[left.slot].end == position) {
+                    coalesced = X86_FLOAT_REGS[left.slot];
+                    let kept: Any = [];
+                    for entry: Any in active { if (entry[0] != left.slot) { push(kept, entry); } }
+                    active = kept;
+                }
+            }
+            if (coalesced >= 0) {
+                X86_FLOAT_REGS[slot] = coalesced;
+                ctx.allocation.locations[slot].register = -1;
+                push(active, [slot, ctx.allocation.locations[slot].end, coalesced]);
+                continue;
+            }
             if (len(free) == 0) { continue; }
             let register: Any = pop(free);
             X86_FLOAT_REGS[slot] = register;
@@ -519,6 +552,11 @@ fun cg_float_bin(ctx: Any, n: Any) -> Any {
             e8(ctx, 76); e8(ctx, 141); e8(ctx, 20); e8(ctx, 9);               // lea r10, [rcx + rcx]
             e8(ctx, 77); e8(ctx, 133); e8(ctx, 210);                          // test r10, r10
             jcc(ctx, 132, x86_native_fault(ctx, 1));                         // je: zero divisor
+        }
+        if (acc == target and leftHome == target and rightHome == target) {
+            fat_sse(ctx, 242, [88, 92, 89, 94][op - TK_PLUS], target, target, false);
+            X86_FLOAT_DONE = target;
+            return 0;
         }
         fat_sse(ctx, 242, [88, 92, 89, 94][op - TK_PLUS], acc, right, false);
         if (target >= 0) {
@@ -584,11 +622,16 @@ fun x86_allocate_temps(ctx: Any, block: Any) -> Any {
     }
     if (X86_FLOAT) {
         x86_float_plan(ctx, block);
-        // Float intervals no longer use their word registers, so do not save them.
+        // Float intervals no longer use their word registers, so do not save
+        // them. A promoted local keeps its callee-saved register for the whole
+        // body and is not an interval, so it must stay in the save list.
         let used: Any = [];
         for register: Any in ctx.allocation.used {
             mut present: Any = false;
             for interval: Any in ctx.allocation.locations { if (interval.register == register) { present = true; } }
+            for name: Any in keys(ctx.allocation.localRegisters) {
+                if (ctx.allocation.localRegisters[name] == register) { present = true; }
+            }
             if (present) { push(used, register); }
         }
         ctx.allocation.used = used;
@@ -771,9 +814,24 @@ fun cg_ir(ctx: Any, block: Any) -> Any {
         if (not x86_forwardable(ctx, instruction)) { ctx.allocation.accumulator = -1; }
         let branch: Any = x86_branch_comparison(ctx, block, instruction);
         if (branch >= 0) {
+            let jump: Any = block.code[branch];
+            if (X86_FLOAT and (x86_float_value(payload.left) or x86_float_value(payload.right))) {
+                // ucomisd orders the operands; ja/jae are true only for an
+                // ordered comparison, so a NaN takes the false side.
+                mut leftHome: Any = x86_float_home(payload.left);
+                mut rightHome: Any = x86_float_home(payload.right);
+                if (leftHome < 0) { x86_float_operand(ctx, payload.left, 0); leftHome = 0; }
+                if (rightHome < 0) { x86_float_operand(ctx, payload.right, 1); rightHome = 1; }
+                fat_sse(ctx, 102, 46, leftHome, rightHome, false);      // ucomisd xmm, xmm
+                mut floatCondition: Any = 0;
+                if (payload.op == TK_GT) { floatCondition = if (jump.op == IR_TRUE) { 135 } else { 134 }; }
+                else { floatCondition = if (jump.op == IR_TRUE) { 131 } else { 130 }; }
+                jcc(ctx, floatCondition, jump.extra);
+                fusedBranch = branch;
+                continue;
+            }
             cg_expr(ctx, payload.left);
             x86_rax_operand(ctx, payload.right, 59, false); // cmp rax, r/m64
-            let jump: Any = block.code[branch];
             mut condition: Any = x86_comparison_condition(payload.op);
             if (jump.op == IR_FALSE) {
                 condition = if (condition % 2 == 0) { condition + 1 } else { condition - 1 };
@@ -1119,7 +1177,7 @@ fun x86_recurrence_step(ctx: Any, block: Any, value: Any, name: Any) -> Any {
 struct X86LocalRecurrence { maximum: Any, factor: Any, valid: Any }
 
 fun x86_scalar_instruction(op: Any) -> Any {
-    return op == 0 or op == E_INT or op == E_VAR or op == E_BIN or op == E_UN or
+    return op == 0 or op == E_INT or op == E_FLOAT or op == E_VAR or op == E_BIN or op == E_UN or
         op == IR_COPY or op == IR_BOOL or op == IR_NIL or op == S_LET or op == S_ASSIGN or
         op == IR_LABEL or op == IR_JUMP or op == IR_FALSE or op == IR_TRUE or op == IR_RETURN;
 }
@@ -1182,6 +1240,9 @@ fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
         let name: Any = symbol_name(local[0], local[1]);
         if (has(names, name)) { names[name].valid = false; continue; }
         let candidate: Any = X86LocalCandidate(name, 0, true, -1);
+        // A Float local belongs in its XMM home; promoting it as a word
+        // register would make every read and write bypass that home.
+        if (X86_FLOAT and x86_float_local(local[0], local[1]) >= 0) { candidate.valid = false; }
         names[name] = candidate; push(ordered, candidate); seen[name] = true;
     }
     for instruction: Any in block.code {
@@ -1192,6 +1253,7 @@ fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
             let name: Any = symbol_name(payload.name, payload.length);
             if (has(seen, name) or glob_find(ctx, payload.name, payload.length) >= 0) { return 0; }
             if (x86_memory_intrinsic(name) and backend_find_func(ctx, payload.name, payload.length) == 0) { continue; }
+            if (X86_FLOAT and name == "to_float" and backend_find_func(ctx, payload.name, payload.length) == 0) { continue; }
             if (x86_preserving_call(ctx, payload, name)) {
                 calls = true;
                 if (name == "syscall" or name == "exit") { clobbers[position] = 2; }
@@ -1209,8 +1271,11 @@ fun x86_plan_local_registers(ctx: Any, block: Any) -> Any {
                 if (has(names, name)) { names[name].valid = false; continue; }
                 let candidate: Any = X86LocalCandidate(name, weight, payload.global == 0 and
                     not has(seen, name) and is_boxed(ctx, payload.name, payload.length) == 0, -1);
+                if (X86_FLOAT and x86_float_value(payload.initializer)) { candidate.valid = false; }
                 names[name] = candidate; push(ordered, candidate); seen[name] = true;
             } else if (has(names, name)) { names[name].score += weight; }
+            // Bool literals are constant reads, not locals that need a home.
+            else if (name == "true" or name == "false") { continue; }
             else if (not has(seen, name)) { return 0; }
         }
     }
@@ -1488,6 +1553,7 @@ fun x86_borrow_operand(ctx: Any, block: Any, instruction: Any) -> Any {
     // snapshot. No call, assignment, memory store, or control-flow edge moves
     // between the variable read and its use. Boxed/global reads stay explicit.
     let payload: Any = instruction.extra;
+    if (X86_FLOAT and x86_float_value(instruction.result)) { return false; }
     let local: Any = loc_find(ctx, payload.name, payload.length);
     if (local < 0 or is_boxed(ctx, payload.name, payload.length) == 1) { return false; }
     let register: Any = x86_local_register(ctx, payload.name, payload.length);
@@ -1496,6 +1562,7 @@ fun x86_borrow_operand(ctx: Any, block: Any, instruction: Any) -> Any {
 }
 
 fun x86_accumulator_only(ctx: Any, block: Any, instruction: Any) -> Any {
+    if (X86_FLOAT and x86_float_value(instruction.result)) { return false; }
     let location: Any = ctx.allocation.locations[instruction.result.slot];
     if (location.definitions != 1 or location.start != ctx.allocation.position) { return false; }
     mut next: Any = ctx.allocation.position + 1;
@@ -1539,8 +1606,12 @@ fun x86_branch_comparison(ctx: Any, block: Any, instruction: Any) -> Any {
 }
 
 fun x86_branch_comparison_at(ctx: Any, block: Any, instruction: Any, position: Any) -> Any {
-    if (X86_FLOAT) { return -1; }
     if (instruction.op != E_BIN or x86_comparison_condition(instruction.extra.op) < 0) { return -1; }
+    // A Float comparison is unordered and runs as SSE. Only `>` and `>=` have
+    // a single flag test that matches the runtime's NaN ordering (ja/jae and
+    // their exact complements); the other four need two flags.
+    if (X86_FLOAT and (x86_float_value(instruction.extra.left) or x86_float_value(instruction.extra.right)) and
+        instruction.extra.op != TK_GT and instruction.extra.op != TK_GE) { return -1; }
     let location: Any = ctx.allocation.locations[instruction.result.slot];
     if (location.definitions != 1 or location.start != position) { return -1; }
     mut next: Any = position + 1;
@@ -1822,6 +1893,7 @@ fun x86_induction_locals(ctx: Any, block: Any) -> Any {
 // a dedicated local's current register, a literal or a lazy predicate.
 fun x86_select_step(ctx: Any, block: Any, plan: Any, instruction: Any) -> Any {
     let op: Any = instruction.op; let payload: Any = instruction.extra;
+    if (X86_FLOAT and instruction.result != 0 and x86_float_value(instruction.result)) { return false; }
     if (op == 0 or x86_dead_copy(ctx, instruction)) { return true; }
     if (instruction.result != 0) {
         // Track whether a value depends on data rather than only on
@@ -2717,18 +2789,40 @@ fun cg_let(ctx: Any, s: Any) -> Any {
         st_abs(ctx, glob_off(ctx, gi));
     } else {
         let floatLocal: Any = X86_FLOAT and x86_float_value(e) and is_boxed(ctx, p, l) != 1;
+        if (floatLocal) {
+            // The initializer is already in an XMM home when it is a temporary
+            // or an aliased local read: copy it without a round trip through
+            // rax. The plan reserved this declaration's register in order; only
+            // its frame slot is known now, as the spill home.
+            let sourceHome: Any = x86_float_home(e);
+            let slot: Any = loc_add(ctx, p, l);
+            let register: Any = x86_local_register(ctx, p, l);
+            if (register < 0) {
+                let planned: Any = X86_FLOAT_PLAN_HOME[symbol_name(p, l)];
+                let home: Any = if (planned == nil) { -1 } else { planned };
+                X86_FLOAT_LOCAL_REGS[symbol_name(p, l)] = home;
+                if (home >= 0) {
+                    push(X86_FLOAT_LOCALS, [slot, home]);
+                    if (sourceHome >= 0) {
+                        if (sourceHome != home) { fat_movapd(ctx, home, sourceHome); }
+                    } else {
+                        cg_expr(ctx, e);
+                        fat_movq_to_xmm(ctx, home, 0);
+                    }
+                    return 0;
+                }
+                if (sourceHome >= 0) { fat_movq_from_xmm(ctx, 0, sourceHome); } else { cg_expr(ctx, e); }
+                st_local(ctx, 8 * (slot + 1));
+                return 0;
+            }
+            if (sourceHome >= 0) { fat_movq_from_xmm(ctx, 0, sourceHome); } else { cg_expr(ctx, e); }
+            x86_move_register(ctx, register, 0);
+            return 0;
+        }
         cg_expr(ctx, e);
         if (is_boxed(ctx, p, l) == 1) { call_rt1(ctx, addr("rt_box_val"), len("rt_box_val")); }
         let slot: Any = loc_add(ctx, p, l);
         let register: Any = x86_local_register(ctx, p, l);
-        if (floatLocal and register < 0) {
-            let home: Any = x86_float_local_declare(p, l, slot);
-            if (home >= 0) {
-                let sourceHome: Any = x86_float_home(e);
-                if (sourceHome >= 0) { fat_movapd(ctx, home, sourceHome); } else { fat_movq_to_xmm(ctx, home, 0); }
-                return 0;
-            }
-        }
         if (register >= 0) { x86_move_register(ctx, register, 0); }
         else { st_local(ctx, 8 * (slot + 1)); }
     }
@@ -2738,6 +2832,17 @@ fun cg_let(ctx: Any, s: Any) -> Any {
 fun cg_assign(ctx: Any, s: Any) -> Any {
     let p: Any = s.name;
     let l: Any = s.length;
+    if (X86_FLOAT and s.fatWord == nil) {
+        // A Float value already in an XMM home is copied register to register.
+        let home: Any = x86_float_local(p, l);
+        if (home >= 0) {
+            let sourceHome: Any = x86_float_home(s.value);
+            if (sourceHome >= 0) {
+                if (sourceHome != home) { fat_movapd(ctx, home, sourceHome); }
+                return 0;
+            }
+        }
+    }
     cg_expr(ctx, s.value);
     if (X86_FLOAT) {
         let home: Any = x86_float_local(p, l);
@@ -2906,10 +3011,8 @@ fun cg_func(ctx: Any, rec: Any) -> Any {
     ctx.native = ctx.dynamic == 1 and rec.native == true;
     ctx.leaf = ctx.dynamic == 1 and x86_leaf_block(rec.ir);
     X86_FLOAT = ctx.native == true and rec.nativeFloats == true;
-    // A Float body uses the simple instruction-selection path: the raw
-    // fusions and local registers assume word values (see the Float section).
-    X86_FLOAT_LOCALS = []; X86_FLOAT_LOCAL_REGS = {}; X86_FLOAT_NEXT = 8;
-    if (X86_FLOAT) { ctx.leaf = false; x86_float_local_params(rec); }
+    X86_FLOAT_LOCALS = []; X86_FLOAT_LOCAL_REGS = {}; X86_FLOAT_NEXT = 8; X86_FLOAT_PLAN_HOME = {};
+    if (X86_FLOAT) { x86_float_local_params(rec); }
     ctx.nativeFaults = [0, 0, 0, 0, 0];
     // Raw runtime functions and native-word bodies; dynamic code took fat_func.
     ctx.mode = 0;
@@ -3422,7 +3525,42 @@ fun patch_all(ctx: Any) -> Any {
     return 0;
 }
 
+// A Float function whose value escapes into dynamic code keeps the tagged
+// ABI. The native entry checks every parameter type up front, while a tagged
+// body coerces and checks dynamically, so an ill-typed dynamic call produces
+// different faults; a later lowering would have to make the native entry match
+// that behaviour. Functions called directly (the common case and every
+// benchmark) stay native.
+fun x86_scan_escaped(block: Any, floats: Any, taken: Any) -> Any {
+    for instruction: Any in block.code {
+        if (instruction.op != E_VAR) { continue; }
+        let payload: Any = instruction.extra;
+        if (has(floats, symbol_name(payload.name, payload.length))) { taken[symbol_name(payload.name, payload.length)] = true; }
+    }
+    return 0;
+}
+
+fun x86_demote_escaped_float_functions(ctx: Any) -> Any {
+    if (ctx.dynamic != 1) { return 0; }
+    let floats: Any = {};
+    for rec: Any in ctx.functions {
+        if (rec.native == true and rec.nativeFloats == true) { floats[symbol_name(rec.p, rec.l)] = true; }
+    }
+    if (len(floats) == 0) { return 0; }
+    let taken: Any = {};
+    for rec: Any in ctx.functions { x86_scan_escaped(rec.ir, floats, taken); }
+    x86_scan_escaped(ctx.mainIR, floats, taken);
+    if (len(taken) == 0) { return 0; }
+    for rec: Any in ctx.functions {
+        if (rec.native == true and has(taken, symbol_name(rec.p, rec.l))) {
+            rec.native = false; rec.wordCalled = true;
+        }
+    }
+    return 0;
+}
+
 fun x86_emit(ctx: Any) -> Any {
+    x86_demote_escaped_float_functions(ctx);
     emission_begin(ctx);
     if (ctx.dynamic == 1) {
         ctx.fiberLabel = newlab(ctx);
