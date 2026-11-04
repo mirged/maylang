@@ -100,7 +100,7 @@ frontier-bound collection threshold.
   slot load and each `Float` operation in the general case still goes through
   the runtime: struct slots (#134) and native `Float` functions (#132) landed,
   but n-body's loops read struct fields from a list, so they stay tagged
-  (native regions, #132).
+  (native regions, [#137](https://github.com/mirged/maylang/issues/137)).
 - **fib, 3.7x C, on a par with Java.** The function compiles to native words
   and direct calls with register arguments landed; what is left is the
   remaining call overhead and the opt-in inliner (#131).
