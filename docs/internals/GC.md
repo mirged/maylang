@@ -13,13 +13,37 @@ blocks; allocation restores it when a block is reused. This prevents stale
 headers inside coalesced/reused payloads from being treated as allocations and
 having their payload bytes modified by marking.
 
+Most roots are scanned conservatively, but the collector recognizes the two
+block shapes whose payload it can trace exactly. A kind-4 record whose entries
+are still in its own block and whose hash table is empty can only point at heap
+objects through each entry's value slot — the key slots are image field-name
+strings — so the mark drain reads that one 32-byte value slot per entry
+instead of probing the map header and both key words; a record that grew
+through a dynamic field write moves its entries out and takes the old
+conservative path. The 1 MiB table of registered global-slot addresses
+(`GROOTS`) is a byte-kind block: the collector marks it and walks the
+registered addresses itself, but never scans its contents, because they are
+data-segment addresses and never heap pointers. The two shapes removed 95% of
+the conservative candidate probes on binary trees
+([report](../../compiler/mayc/tests/backend/gc-pause.md)).
+
 The nominal heap is 256 MiB and the reservation is four times that (1 GiB),
 committed on demand. The first threshold is half of the nominal heap
 (128 MiB by default, floored at 256 KiB for the 4-8 MiB heaps the tests use),
 and every sweep re-derives the next one from the live bytes it measured:
 `max(floor, 2 * live + margin)`, with a margin of one sixteenth of the nominal
-heap capped at 8 MiB, never below the allocation frontier plus that margin and
-never past the reservation. Peak resident memory therefore follows the live
+heap capped at 8 MiB, never below the allocation frontier and never past the
+reservation. The frontier bound is exactly the frontier rather than the
+frontier plus the margin: the old unconditional margin raised the next
+threshold by one margin on every cycle when a collection fired mid-construction
+and the sweep could not rewind, so a workload with a small live set crept up
+the address space (binary trees: 128, 136, ..., 208 MiB of extent). Bounding at
+the frontier keeps the heap invariant (the threshold never sits below the
+allocation frontier), allocates from the blocks the sweep just freed, and lets
+the allocator's single-request fallback (`HEAPEND = HP + need + margin`)
+guarantee progress; peak RSS on binary trees fell from 236 to 146 MiB with 16
+instead of 11 collections ([report](../../compiler/mayc/tests/backend/gc-pause.md)).
+Peak resident memory therefore follows the live
 set instead of always committing the 256 MiB default. A single request that
 still does not fit raises the threshold by the request plus the margin;
 exhausting the reservation exits with `out of memory` (70) as before. Empty
@@ -54,12 +78,17 @@ or out-of-range value leaves the derived policy, so a typo cannot disable
 collection, and with both unset the behavior is exactly the threshold policy
 above. The overrides exist to measure the policy and to run RSS-sensitive
 workloads under a smaller threshold without rebuilding the runtime; they are
-not a new default. On binary trees, `MAYC_GC_MIN=8388608
-MAYC_GC_MARGIN=524288` cuts peak RSS from 234 MiB to 95 MiB while taking 1.75x
-as long and collecting 60 instead of 11 times, and a workload that never
-collects at the default heap is unaffected; the measured trade-off and the
-frontier-creep explanation are in
-[gc-policy.md](../../compiler/mayc/tests/backend/gc-policy.md).
+not a new default. On binary trees, with the current default policy
+(146 MiB, 16 collections), `MAYC_GC_MIN=8388608 MAYC_GC_MARGIN=524288` cuts peak
+RSS to 108 MiB while taking 1.52x as long and collecting 90 times, and a
+workload that never collects at the default heap is unaffected; the measured
+trade-offs, the frontier-creep history and the pause profile behind the default
+policy are in
+[gc-pause.md](../../compiler/mayc/tests/backend/gc-pause.md), with the overrides
+themselves in
+[gc-policy.md](../../compiler/mayc/tests/backend/gc-policy.md). The
+precise-stack-map work that a moving or generational collector would need is in
+[STACK_MAPS.md](../design/STACK_MAPS.md).
 
 The table reserves one byte per eight reserved heap bytes (128 MiB for the
 default 1 GiB reservation), with pages committed on demand. Stack, global and suspended

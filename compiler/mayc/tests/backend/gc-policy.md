@@ -1,23 +1,30 @@
 # GC floor and margin overrides — issue #135
 
-Status: merged but default-off experiment. `MAYC_GC_MIN` and
-`MAYC_GC_MARGIN` tune the collection floor and margin for one run; with both
-unset the runtime is exactly the previous policy and the default code layout is
-unchanged. The instruments are the two environment variables and the
-[stack_retention.py](../stack_retention.py) tool (`--env`, `--xlang`,
-`--compare`, `--pair`).
+Status: superseded in part by the default threshold-policy change in
+[gc-pause.md](gc-pause.md). `MAYC_GC_MIN` and `MAYC_GC_MARGIN` still tune the
+collection floor and margin for one run, and with both unset the runtime is
+still the derived policy — but the derived policy's frontier bound is now `HP`
+instead of `HP + GCMARGIN`, and its effect on binary trees is 146 MiB at 16
+collections, not the 234 MiB at 11 measured below. The absolute numbers in this
+report are the pre-change measurements that motivated the overrides and the
+policy change; the mechanisms, code layout, override semantics and the
+per-workload relative trade-offs still hold. The instruments are the two
+environment variables and the [stack_retention.py](../stack_retention.py) tool
+(`--env`, `--xlang`, `--compare`, `--pair`).
 
 The collection threshold is derived from a nominal heap size
 ([GC.md](../../../../docs/internals/GC.md)): the first threshold floor is half
 of it (`GCMIN`), and every sweep adds a margin of one sixteenth of it, capped at
-8 MiB (`GCMARGIN`), above the live set and the allocation frontier. At the
+8 MiB (`GCMARGIN`), above the live set. At the
 default 256 MiB nominal heap that is a 128 MiB floor and an 8 MiB margin. The
 [stack-maps design note](../../../../docs/design/STACK_MAPS.md) measured that
 on binary trees these two numbers, not conservative retention, set the peak
 RSS: the post-sweep frontier grew by exactly `GCMARGIN` every collection
 because collections trigger mid-construction while the newest blocks are live,
 so a workload with ~1 MiB of true live data still peaked at 226 MiB. The
-overrides expose that lever without rebuilding the runtime.
+overrides exposed that lever without rebuilding the runtime; the later default
+policy bounds the threshold at the frontier itself and removes the creep
+([gc-pause.md](gc-pause.md)).
 
 ## Mechanism
 
@@ -34,7 +41,8 @@ A value is accepted only in `[65536, reserve / 2]` and only when it is a plain
 decimal number of at most 15 digits; anything else keeps the derived value, so
 a typo cannot disable collection and a zero margin cannot livelock it. The
 probe maps its own page and never touches the heap. When the variables are
-unset the behavior is exactly the previous policy and the checks are two
+unset the behavior is exactly the derived default policy (frontier-bounded
+since [gc-pause.md](gc-pause.md)) and the checks are two
 syscall-free string comparisons per environment entry at start-up; there is no
 test on the allocation or collection path.
 
@@ -143,21 +151,24 @@ triggers while the newest tree records are live; the tuned policy starts at
 
 ## Using it
 
-The overrides are an experiment and diagnostic tool, not a new default. The
-defaults are unchanged and should stay that way until the threshold policy is
-revisited with all workloads measured (the time cost above is large for the
-string-heavy and tree-heavy cases). Good uses:
+The overrides are an experiment and diagnostic tool. Their semantics, code
+layout and startup probe are unchanged by the later default-policy change; the
+default threshold itself is now the frontier-bounded policy in
+[gc-pause.md](gc-pause.md), and the absolute default numbers below are the
+pre-change ones. Good uses:
 
 - RSS-sensitive runs: `MAYC_GC_MIN=8388608 MAYC_GC_MARGIN=524288 ./program`
-  cuts binary trees' peak RSS by 59% and a hashmap/strings run by 30-37%.
+  cuts binary trees' peak RSS by 59% before the policy change and to 108 MiB
+  (from 146 MiB) after it, and a hashmap/strings run by 30-37%.
 - Measuring what precise stack maps and a moving collector would buy: the
   tuned threshold follows `2 * live + margin`, which is the quantity precise
   roots make meaningful ([STACK_MAPS.md](../../../../docs/design/STACK_MAPS.md)).
 - Testing collector changes under a small heap without rebuilding sidecars.
 
 `compiler/mayc/tests/limits.py --mode gc --gc-case gc_policy` pins the behavior:
-on a 4 MiB test heap the default policy collects 3 times with a 2,626,656-byte
-threshold, the tuned policy collects 5 times with a 2,240,816-byte threshold,
+on a 4 MiB test heap the default policy collects 3 times with a 2,375,936-byte
+threshold (2,626,656 before the frontier bound), the tuned policy collects 5
+times with a 2,240,816-byte threshold,
 and invalid values (`abc`, `0`, or numbers above `reserve / 2`) leave the
 default counts and threshold exactly.
 
