@@ -329,6 +329,11 @@
     "stdout": "MgoxMgoyNQo1Nwo3OQo1CjEyMwo3CmFyaXRobWV0aWMKYXJpdGhtZXRpYwoxOQoxMDAKNDUKMgo=",
     "stderr": ""
   },
+  "inline_opt.may": {
+    "exit": 0,
+    "stdout": "MTYgMjYKMiAzCmFyaXRobWV0aWMKMgpuaWwK",
+    "stderr": ""
+  },
   "native_floats.may": {
     "exit": 0,
     "stdout": "cXVhZCA2LjAKcG9seSAtMC4yNQpuZWdhdGUgLTIuNSAtMC4wIDAuMApkaXZpZGUgMy41CmRpdmlkZSBuZWdhdGl2ZSAtMi4zMzMzMzMzMzMzMzMzMzM1CnNjYWxlIDYuMAptaXggaW50IDE0LjAKaGFsZiBpbnQgMi41CmFzIGZsb2F0IDcuMApjbXAgdHJ1ZSB0cnVlIHRydWUgdHJ1ZQpjbXAgdHdvIHRydWUgZmFsc2UKc2lnbiAtMSAxIDAgMApjbGFzc2lmeSAxIDAKbm9uZmluaXRlIGluZiAtaW5mIG5hbgpuYW4gY29tcGFyZXMgdHJ1ZSBmYWxzZSB0cnVlIGZhbHNlIGZhbHNlCmluZiBjb21wYXJlcyB0cnVlIGZhbHNlIHRydWUKc29mdCA1LjAKdGhyb3VnaCBzb2Z0IDUuNQpwb3dlciAxMDI0LjAKc2VyaWVzIDEuOTk5MDIzNDM3NQpkaXYgZmF1bHQgYXJpdGhtZXRpYzogZGl2aXNpb24gYnkgemVybwpuZWcgemVybyBmYXVsdCBhcml0aG1ldGljOiBkaXZpc2lvbiBieSB6ZXJvCm5hbiBkaXYgbmFuCm92ZXJmbG93IGZhdWx0IGFyaXRobWV0aWM6IGludGVnZXIgb3ZlcmZsb3cKdmFsdWUgNC41CnZhbHVlIG1peGVkIDYuNzUK",

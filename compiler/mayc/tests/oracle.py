@@ -7,6 +7,10 @@ locals. This suite compiles every behaviour fixture both ways and requires the
 same exit status, stdout and stderr, so a pass that changes what a program does
 fails here rather than in the suite that happens to exercise it.
 
+The opt-in inliner (#131) is off by default and is enabled by `--inline`; the
+same fixtures are compiled with it as well and must behave like the default
+build, so a bad clone is caught even though no fixture calls the flag itself.
+
 Fixtures are run without arguments and without stdin, as verify.py does.
 
 Usage: python3 compiler/mayc/tests/oracle.py [--compiler PATH] [--program FILE...]
@@ -50,9 +54,13 @@ def main():
         for index, source in enumerate(programs):
             optimized = compile_and_run(compiler, source, work / f"opt-{index}", [])
             plain = compile_and_run(compiler, source, work / f"plain-{index}", ["--no-opt"])
+            inlined = compile_and_run(compiler, source, work / f"inline-{index}", ["--inline"])
             if optimized != plain:
                 failures += 1
                 print(f"FAIL {source.name}: optimized {optimized!r} != --no-opt {plain!r}")
+            elif inlined != optimized:
+                failures += 1
+                print(f"FAIL {source.name}: --inline {inlined!r} != default {optimized!r}")
             else:
                 print(f"PASS {source.name}")
     print(f"{len(programs) - failures} passed, {failures} failed")

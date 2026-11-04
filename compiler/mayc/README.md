@@ -63,6 +63,15 @@ move of top-level bindings into main locals. It exists so `tests/oracle.py` can
 compile every behaviour fixture both ways and require the same output; it is not
 a supported code-generation mode of its own.
 
+`--inline` opts in to inlining small accessor and one-expression helper
+functions into their call sites (a field accessor in a hot loop measured -39%
+and a one-expression helper -74% on the compiler's inlining microbenchmarks).
+It is off by default and skipped under `--no-opt`, `--raw` and `--debug`, so
+the default build's output is unchanged; the flag pays code size and compile
+time at the call sites it makes cheap, and `tests/oracle.py` compiles every
+behaviour fixture with it to require identical output. See
+[tests/backend/fat-inlining.md](tests/backend/fat-inlining.md).
+
 `main.may` expands imports and drives a staged compiler:
 
 1. `lexer.may` emits source-positioned `Token` structs.
