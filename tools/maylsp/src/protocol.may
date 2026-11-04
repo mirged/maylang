@@ -198,5 +198,10 @@ fun ls_json(v: Any) -> Any {
 }
 fun ls_send(v: Any) -> Any { let body: Any = ls_json(v); return ls_write("Content-Length: " + str(ls_bytes(body)) + "\r\n\r\n" + body); }
 fun ls_reply(id: Any, result: Any) -> Any { return ls_send({"jsonrpc": "2.0", "id": id, "result": result}); }
+// Reply with a result that is already JSON text, without parsing and re-encoding it.
+fun ls_reply_raw(id: Any, result: Any) -> Any {
+    let body: Any = "{\"jsonrpc\":\"2.0\",\"id\":" + ls_json(id) + ",\"result\":" + result + "}";
+    return ls_write("Content-Length: " + str(ls_bytes(body)) + "\r\n\r\n" + body);
+}
 fun ls_error(id: Any, code: Any, message: Any) -> Any { return ls_send({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}); }
 fun ls_notify(method: Any, params: Any) -> Any { return ls_send({"jsonrpc": "2.0", "method": method, "params": params}); }

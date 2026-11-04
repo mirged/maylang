@@ -56,6 +56,28 @@ rename at 7.37 s and symbols at 2.20 s; interleaved hover returned in 0.89 ms,
 guarantees. The optional manually dispatched performance CI job uploads the
 same report without timing thresholds.
 
+Measure incoming calls and references on a workspace whose files call one
+shared function from inside functions:
+
+```sh
+python3 tools/maylsp/tests/benchmark_call_hierarchy.py \
+  --binary tools/maylsp/build/maylsp --files 3000 --functions 4 \
+  --report /tmp/call-hierarchy-benchmark.json
+```
+
+Each sample starts a fresh server and records the request time and the peak
+resident memory of the server and its workers. On Linux x86-64, 2026-11-04,
+three samples each (medians), streaming incoming calls through worker batches
+and forwarding worker results without re-parsing them changed:
+
+- 3,000 files × 4 callers: incoming calls 11.71 s and 560 MiB to 2.47 s and
+  188 MiB; references 3.06 s to 1.93 s.
+- 24 files × 400 callers: incoming calls 9.57 s and 442 MiB to 4.64 s and
+  316 MiB; references 4.24 s to 3.47 s, with peak memory 294 to 336 MiB.
+
+The servers were built from `ab53132` (`c67756e582b7…`) and from this change
+(`a97aaf024a5e…`); samples varied by at most 2%.
+
 Run `tools/maylsp/build/maylsp` to start the server. It waits for framed LSP
 messages. The native executable currently targets Linux x86-64, matching
 the self-hosted compiler's syscall runtime.
@@ -149,9 +171,10 @@ packets, including push diagnostics when the client is idle.
 
 References, rename, workspace symbols and call hierarchy use a separate worker.
 One navigation request runs at a time, with at most 32 queued requests, a
-30-second deadline and a 16 MiB result limit. References, rename and symbols
-index disk files in batches of 32 and stream encoded results to the parent;
-unsaved buffers remain in the snapshot. A final worker status commits the
+30-second deadline and a 16 MiB result limit. References, rename, symbols and
+incoming calls index disk files in batches of 32 and stream encoded results to
+the parent, which forwards them without re-parsing; unsaved buffers remain in
+the snapshot. A final worker status commits the
 response, so late rename conflicts discard all partial edits. Runtime fatal
 output stays on the worker pipe and fails the request without corrupting LSP
 transport. Edits and workspace changes discard obsolete results with

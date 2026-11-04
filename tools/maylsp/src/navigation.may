@@ -33,10 +33,23 @@ fun ls_navigation_stream(method: Any, p: Any) -> Any {
         });
         ls_write("]}"); return nil;
     }
-    if (has(["callHierarchy/incomingCalls", "callHierarchy/outgoingCalls"], method)) {
-        let result: Any = if (method == "callHierarchy/incomingCalls") { ls_incoming_calls(p.item) } else { ls_outgoing_calls(p.item) };
-        ls_write(ls_json({"result": result})); return nil;
+    if (method == "callHierarchy/incomingCalls") {
+        // Stream through bounded batches like references: loading the whole
+        // workspace at once made the worker's heap grow with every file.
+        let target: Any = ls_call_target(p.item);
+        if (target == nil) { ls_write("{\"result\":[]}"); return nil; }
+        mut first: Any = true;
+        ls_write("{\"result\":[");
+        ls_navigation_walk(fun(doc: Any) -> Any {
+            for group: Any in ls_document_incoming(doc, target) {
+                if (not first) { ls_write(","); } first = false;
+                ls_write(ls_json(group));
+            }
+            return nil;
+        });
+        ls_write("]}"); return nil;
     }
+    if (method == "callHierarchy/outgoingCalls") { ls_write(ls_json({"result": ls_outgoing_calls(p.item)})); return nil; }
     let doc: Any = ls_doc_param(p); let rename: Any = method == "textDocument/rename";
     let target: Any = if (rename) { ls_rename_target(doc, p) } else { ls_target(doc, p) };
     if (target == nil) { ls_write("{\"result\":[]}"); return nil; }
@@ -180,14 +193,24 @@ fun ls_navigation_tick(now: Any) -> Any {
             ls_navigation_stop();
             if (job.epoch != LS_INDEX_EPOCH) { ls_error(job.id, -32803, "Content changed during navigation; retry request"); }
             else {
+                // The worker streams `{"result":...}`, a newline and a status
+                // record that commits success. Only the small status is parsed;
+                // the result text is forwarded as the worker encoded it, since
+                // parsing and re-encoding it dominated large replies.
+                let prefix: Any = "{\"result\":";
                 let snapshot: Any = may {
-                    let boundary: Any = ls_find(body, "\n");
+                    // Encoded JSON has no raw newline, so the boundary is the last
+                    // one; scanning back reads only the status record.
+                    mut boundary: Any = ls_bytes(body) - 1;
+                    while (boundary >= 0 and ls_byte(body, boundary) != 10) { boundary -= 1; }
                     if (boundary < 0) { fail("incomplete navigation worker result"); }
                     let status: Any = ls_parse_json(ls_slice(body, boundary + 1, ls_bytes(body)));
-                    if (status.error != nil) { status } else { ls_parse_json(ls_slice(body, 0, boundary)) }
+                    if (status.error != nil) { status }
+                    else if (boundary < ls_bytes(prefix) + 1 or ls_slice(body, 0, ls_bytes(prefix)) != prefix or ls_slice(body, boundary - 1, boundary) != "}") { fail("malformed navigation worker result"); }
+                    else { {"raw": ls_slice(body, ls_bytes(prefix), boundary - 1)} }
                 } otherwise { {"error": {"code": -32803, "message": "Navigation worker failed or result limit exceeded"}} };
                 if (snapshot.error != nil) { ls_error(job.id, snapshot.error.code, snapshot.error.message); }
-                else { ls_reply(job.id, snapshot.result); }
+                else { ls_reply_raw(job.id, snapshot.raw); }
             }
         }
     }

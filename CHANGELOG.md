@@ -21,6 +21,15 @@
 
 ## Performance
 
+- Language-server call hierarchy and navigation replies
+  ([measurements](tools/maylsp/README.md)): `callHierarchy/incomingCalls` now
+  streams through the navigation worker's 32-file batches like references,
+  instead of loading the whole workspace into the worker, and the parent
+  forwards worker results without parsing and re-encoding them. On 3,000
+  files with 4 callers each, incoming calls drop from 11.71 s and 560 MiB peak
+  to 2.47 s and 188 MiB, and references from 3.06 s to 1.93 s.
+  `benchmark_call_hierarchy.py` reproduces the measurements, and a new test
+  checks incoming calls across batch boundaries.
 - Native Float loop bodies and a native Float main ([reports](compiler/mayc/tests/backend/native-float-loops.md):
   [loops](compiler/mayc/tests/backend/native-float-loops.md), [main](compiler/mayc/tests/backend/native-float-main.md),
   [follow-up](compiler/mayc/tests/backend/native-float-builtins.md)): a Float

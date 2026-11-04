@@ -424,21 +424,25 @@ fun ls_caller(doc: Any, offset: Any) -> Any {
     for d: Any in doc.defs { if (d.kind == 12 and d.b < offset and offset < d.end and (best == nil or d.start > best.start)) { best = d; } }
     return best;
 }
-fun ls_incoming_calls(item: Any) -> Any {
-    let target: Any = ls_call_target(item); if (target == nil) { return []; }
-    ls_workspace(); let groups: Any = {}; let out: Any = [];
-    for uri: Any in keys(LS_DOCS) {
-        let doc: Any = LS_DOCS[uri];
-        for i: Any in 0..len(doc.tokens) {
-            let t: Any = doc.tokens[i];
-            if (t.name != target.name or ls_at(doc.tokens, i + 1) != "(" or has(doc.declared, str(t.a))) { continue; }
-            let resolved: Any = ls_resolve(doc, i); let caller: Any = ls_caller(doc, t.a);
-            if (resolved != nil and resolved.id == target.id and caller != nil) {
-                if (not has(groups, caller.id)) { let group: Any = {"from": ls_call_item(caller), "fromRanges": []}; groups[caller.id] = group; push(out, group); }
-                push(groups[caller.id].fromRanges, ls_range(doc.text, t.a, t.b));
-            }
+// The incoming-call groups of one document. A caller encloses its calls, so a
+// document's groups are complete without the rest of the workspace.
+fun ls_document_incoming(doc: Any, target: Any) -> Any {
+    let groups: Any = {}; let out: Any = [];
+    for i: Any in 0..len(doc.tokens) {
+        let t: Any = doc.tokens[i];
+        if (t.name != target.name or ls_at(doc.tokens, i + 1) != "(" or has(doc.declared, str(t.a))) { continue; }
+        let resolved: Any = ls_resolve(doc, i); let caller: Any = ls_caller(doc, t.a);
+        if (resolved != nil and resolved.id == target.id and caller != nil) {
+            if (not has(groups, caller.id)) { let group: Any = {"from": ls_call_item(caller), "fromRanges": []}; groups[caller.id] = group; push(out, group); }
+            push(groups[caller.id].fromRanges, ls_range(doc.text, t.a, t.b));
         }
     }
+    return out;
+}
+fun ls_incoming_calls(item: Any) -> Any {
+    let target: Any = ls_call_target(item); if (target == nil) { return []; }
+    ls_workspace(); let out: Any = [];
+    for uri: Any in keys(LS_DOCS) { for group: Any in ls_document_incoming(LS_DOCS[uri], target) { push(out, group); } }
     return out;
 }
 fun ls_outgoing_calls(item: Any) -> Any {

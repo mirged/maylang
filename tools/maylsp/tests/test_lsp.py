@@ -732,6 +732,42 @@ def run_semantic_deltas(binary, work):
             client.process.kill(); client.process.wait()
 
 
+def run_call_hierarchy_batches(binary, work):
+    # Incoming calls stream through the worker's 32-file batches like
+    # references; 70 files cross two batch boundaries. Top-level calls have
+    # no caller and are not reported.
+    folder = work / "call-hierarchy-batches"
+    folder.mkdir()
+    library = folder / "library.may"
+    library.write_text('pub fun shared() -> Int { return 1; }\n')
+    for index in range(70):
+        (folder / f"use{index:02}.may").write_text(
+            f'import "library";\nfun caller{index}() -> Int {{ return shared() + shared(); }}\nprint(shared());\n')
+    client = Client(binary)
+    try:
+        client.result("initialize", {"rootUri": folder.as_uri()})
+        doc = {"textDocument": {"uri": library.as_uri()}}
+        items = client.result("textDocument/prepareCallHierarchy", {**doc, "position": {"line": 0, "character": 9}})
+        assert [item["name"] for item in items] == ["shared"], items
+        pending = client.send("callHierarchy/incomingCalls", {"item": items[0]}, request=True)
+        hover = client.send("textDocument/hover", {**doc, "position": {"line": 0, "character": 9}}, request=True)
+        found = {}
+        while len(found) < 2:
+            reply = client.receive()
+            if "id" in reply: found[reply["id"]] = reply
+        assert "error" not in found[hover] and "error" not in found[pending], found
+        incoming = found[pending]["result"]
+        assert sorted(group["from"]["name"] for group in incoming) == sorted(f"caller{index}" for index in range(70)), incoming
+        for group in incoming:
+            assert len(group["fromRanges"]) == 2 and group["fromRanges"][0]["start"]["line"] == 1, group
+            assert group["from"]["uri"].endswith(f"use{group['from']['name'][6:].zfill(2)}.may"), group
+        client.stop()
+    finally:
+        if client.process.poll() is None:
+            client.process.kill(); client.process.wait()
+    print("PASS incoming calls stream through bounded worker batches", flush=True)
+
+
 def run_navigation_workers(binary, work):
     path, library, text = navigation_workspace(work / "navigation-workers", 1024)
     doc = {"textDocument": {"uri": path.as_uri()}}
@@ -930,6 +966,7 @@ def main():
         run_diagnostic_restart(binary, work)
         run_large_diagnostic_frames(binary, work)
         run_navigation_workers(binary, work)
+        run_call_hierarchy_batches(binary, work)
         # The core session indexes its whole root for workspace requests such as
         # callHierarchy/incomingCalls. Earlier sections leave large workspaces in
         # `work` (4,800 functions in diagnostic-heavy-imports), so give it its own.
