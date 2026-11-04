@@ -45,15 +45,15 @@ def main():
         result = subprocess.run([str(output)], capture_output=True, timeout=30)
         assert result.returncode == 0 and result.stdout == b'42\n', result
         bad_output = work / 'invalid'
-        # Other targets and the core runtime are frozen (frozen/README.md).
+        # Other targets and the core runtime are not supported (docs/design/LINUX_X86_64_FOCUS.md).
         for target in ('x86_64-nodeos', 'arm64-linux', 'riscv64-linux', 'arm64-macos', 'x86_64-windows'):
             result = subprocess.run([str(compiler), '--target', target, str(source), '-o', str(bad_output)],
                                     cwd=work, env=env, capture_output=True, timeout=30)
-            message = f'target {target} is frozen; Maylang currently supports x86_64-linux'.encode()
+            message = f'target {target} is not supported; Maylang currently supports x86_64-linux'.encode()
             assert result.returncode != 0 and message in result.stderr and not bad_output.exists(), result
         result = subprocess.run([str(compiler), '--runtime', 'core', str(source), '-o', str(bad_output)],
                                 cwd=work, env=env, capture_output=True, timeout=30)
-        assert result.returncode != 0 and b'runtime core is frozen' in result.stderr and not bad_output.exists(), result
+        assert result.returncode != 0 and b'runtime core is not supported' in result.stderr and not bad_output.exists(), result
         result = subprocess.run([str(compiler), '--target', 'unknown-target', str(source),
                                  '-o', str(bad_output)], cwd=work, env=env,
                                 capture_output=True, timeout=30)
@@ -65,7 +65,7 @@ def main():
             result = subprocess.run([str(compiler), *flags, str(source), '-o', str(bad_output)], cwd=work,
                                     env=env, capture_output=True, timeout=30)
             assert result.returncode != 0 and message in result.stderr and not bad_output.exists(), result
-        print('PASS source-free target discovery, runtime defaults, invalid, frozen and removed targets')
+        print('PASS source-free target discovery, runtime defaults, invalid, unsupported and removed targets')
 
         # A bare PATH command and a symlink must find sidecars at the real
         # executable, even outside the checkout and without shell overrides.

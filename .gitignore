@@ -1,19 +1,21 @@
 /target
 *.mayc
 
-# Local compiler/debug outputs
-/my_app
-/selfhost_test_bin
-/mayc_expanded.may
-/stdout
-
 # Generated files and project build outputs
 **/__pycache__/
 **/node_modules/
 **/.tools/
 **/build/
 **/.may/
-/guide/dist/
+*.pyc
+*.vsix
+
+# Local compiler, debug and benchmark outputs
+/selfhost_test_bin
+/mayc_expanded.may
+/mayc_benchmark
+/stdout
+/examples/learning/study/test
 
 # Local assistant configuration and secrets
 /.agents/
@@ -25,23 +27,11 @@
 *.pem
 *.key
 
-# Scratch binaries, Python caches, editor and operating-system files
-/mayc_benchmark
-/mayc_bench
-/mayc_bencmark1
-/examples/learning/study/test
-*.pyc
+# Editor and operating-system files
 .DS_Store
 *~
 
-# Generated OS disk and editor packages
-/frozen/platform/mayos/data/*.img
-*.vsix
-
-# Ephemeral verification logs and simulation checkpoints
+# Ephemeral verification logs
 /tests/compliance/*.log
 /tests/compliance/verification.json
 /compiler/mayc/tests/verification.json
-/frozen/examples/simulations/ecosystem/results/*.log
-/frozen/examples/simulations/ecosystem/results/*.progress
-/frozen/examples/simulations/ecosystem/results/*.checkpoint.json

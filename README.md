@@ -106,18 +106,18 @@ included.
 Maylang supports typed functions, structs, generics, pattern matching,
 closures, modules, collections, JSON, file I/O, raw pointers, and C ABI calls.
 Start with the [strict guide](docs/guide/STRICT.md) and
-[runnable examples](docs/reference/EXAMPLES.md). The
-[legacy tour](docs/history/LEGACY_TOUR.md) documents older syntax for `--legacy` mode.
+[runnable examples](docs/reference/EXAMPLES.md).
 
 The compiler emits native x86-64 Linux ELF executables itself, with no
 assembler, linker or LLVM. Programs use the full runtime (garbage
 collector, files, processes, sockets, C calls) or, with `--raw`, compile to
 plain machine words with no runtime.
 
-For now Linux x86-64 is the only supported host and target. The ARM64,
-RISC-V, macOS, Windows and NodeOS targets and the portable core runtime are
-[frozen](frozen/README.md): kept in the repository, but not built, tested or
-maintained ([why](docs/design/LINUX_X86_64_FOCUS.md)).
+For now Linux x86-64 is the only supported host and target
+([why](docs/design/LINUX_X86_64_FOCUS.md)). The earlier ARM64, RISC-V, macOS,
+Windows and NodeOS targets, the portable core runtime and the platform
+experiments were removed from `main`; their last versions are in the
+[`frozen-archive`](https://github.com/mirged/maylang/tree/frozen-archive) tag.
 
 ## Find your way around
 
@@ -129,10 +129,9 @@ maintained ([why](docs/design/LINUX_X86_64_FOCUS.md)).
 | [dist/](dist/README.md) | Release packaging, installers, environment migration |
 | [tests/](tests/README.md) | Cross-component compliance, documentation and UI suites |
 | [examples/](examples/README.md) | Small language examples plus complete apps, games and simulations |
-| [docs/](docs/README.md) | Guides, internals, design notes, history and the generated [reference](docs/reference/README.md) |
+| [docs/](docs/README.md) | Guides, internals, design notes and the generated [reference](docs/reference/README.md) |
 | [editors/vscode/](editors/vscode/README.md) | VS Code extension |
 | [scripts/](scripts/README.md) | Checkout setup, prerequisite checks, repository validation |
-| [frozen/](frozen/README.md) | Kept but unmaintained code outside the Linux x86-64 focus |
 
 The [repository map](docs/REPOSITORY.md) lists component boundaries, their
 checks, and where paths from the earlier `toolchain/` layout moved.
@@ -150,8 +149,7 @@ reproduce on the current runtime. Consult the [compiler guide](compiler/mayc/REA
 and [library contracts](stdlib/CONTRACTS.md) before relying on a feature.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks, commit conventions, and issue
-labels. The [audit](docs/AUDIT.md) records findings and validation; the
-[roadmap](ROADMAP.md) links active work. Release identity lives in `RELEASE.json`
+labels. The [roadmap](ROADMAP.md) links active work. Release identity lives in `RELEASE.json`
 and `MAYC_VERSION` in [main.may](compiler/mayc/main.may); see the
 [changelog](CHANGELOG.md) and [release convention](docs/guide/RELEASING.md).
 

@@ -74,12 +74,14 @@ The established GitHub label convention uses:
 - One primary `type:*`: bug, feature, enhancement, refactor, docs, test, or performance.
 - One `priority:*`: p0 for crashes/corruption, p1 for major defects, p2 for ordinary work, p3 for polish.
 - Relevant `area:*` labels for affected components.
-- One current `status:*`; use `needs-triage` initially and `confirmed` after reproduction or source validation. Issues for code in `frozen/` get `status:frozen` and no milestone.
+- One current `status:*`; use `needs-triage` initially and `confirmed` after reproduction or source validation. Issues for areas removed to the `frozen-archive` tag get `status:frozen` and no milestone.
 
 Apply `help-wanted`, `good-first-issue`, `regression`, `compatibility`,
 `breaking-change`, or `design:discussion` when applicable. Priority is a triage
 decision, not a delivery commitment. Label descriptions are tracked in
-[.github/labels.json](.github/labels.json).
+[.github/labels.json](.github/labels.json); after changing labels on GitHub,
+refresh it with
+`gh label list --limit 100 --json name,color,description > .github/labels.json`.
 
 Use `gh issue list`, `gh issue view`, and `gh pr list` to inspect context.
 Write long bodies to a file and use `--body-file`:

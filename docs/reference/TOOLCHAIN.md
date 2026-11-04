@@ -16,9 +16,9 @@
 - `--inline` — opt in to inlining small, straight-line, effect-free accessor and one-expression-helper functions into their call sites; off by default, and the default build is byte-identical without it.
 - `--raw` — omit runtime, native library and prelude.
 - `--no-code-align` — emit raw x86-64 code without the NOP padding that aligns function bodies and loop heads; for layout experiments.
-- `--runtime full|none` — select the runtime; full is the default and none is equivalent to `--raw`. `--runtime core` is frozen and rejected.
+- `--runtime full|none` — select the runtime; full is the default and none is equivalent to `--raw`. `--runtime core` is not supported and is rejected.
 - `--time` — report compilation-stage timings to stderr.
-- `--target TARGET` — only `x86_64-linux`, the default, is accepted. `x86_64-nodeos`, `arm64-linux`, `riscv64-linux`, `arm64-macos` and `x86_64-windows` are [frozen](../../frozen/README.md) and fail with an error.
+- `--target TARGET` — only `x86_64-linux`, the default, is accepted. `x86_64-nodeos`, `arm64-linux`, `riscv64-linux`, `arm64-macos` and `x86_64-windows` are not supported and fail with an error ([why](../design/LINUX_X86_64_FOCUS.md)).
 - `--dump-expanded` — print import-expanded source and exit.
 - `--stack-map-inventory` — print the allocating-safepoint inventory (the call sites that can start a collection for precise stack maps) as JSON and exit; compile output is unchanged.
 - `x86_64-linux` — ELF64 with the full runtime or raw output.

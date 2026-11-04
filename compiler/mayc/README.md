@@ -121,8 +121,9 @@ with an explanation.
 The compiler runs on x86-64 Linux and emits x86-64 Linux ELF64 executables.
 That is the only supported target for now: `--target x86_64-nodeos`,
 `arm64-linux`, `riscv64-linux`, `arm64-macos` and `x86_64-windows` and
-`--runtime core` fail with an error. Their backends, formats and runtimes are
-[frozen](../../frozen/README.md) ([why](../../docs/design/LINUX_X86_64_FOCUS.md)).
+`--runtime core` fail with an error. Their backends, formats and runtimes were
+removed; the last versions are in the `frozen-archive` tag
+([why](../../docs/design/LINUX_X86_64_FOCUS.md)).
 
 | Capability | Full runtime (default) | `--raw` / `--runtime none` |
 | --- | --- | --- |

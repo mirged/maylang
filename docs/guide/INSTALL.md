@@ -178,7 +178,7 @@ binary. See [editor setup](DEVELOPMENT.md#editor-setup).
 
 Maylang currently supports only Linux x86-64, as compiler host and as program
 target. On Windows, install WSL 2 and run the command inside an x86-64 Linux
-distribution. Other targets are [frozen](../../frozen/README.md) for now.
+distribution. Other targets are not supported for now ([why](../design/LINUX_X86_64_FOCUS.md)).
 
 Contributors: see [source development](DEVELOPMENT.md),
 [distribution internals](../../dist/README.md) and

@@ -16,7 +16,7 @@ fun target_select(name: Any) -> Any {
     if (name == "clang-llvm") { die_str("mayc: the clang-llvm target was removed; mayc emits native executables itself\n"); }
     if (name == "x86_64-linux") { return Target(name, "x86_64", "linux", "elf", 62, 4096, true); }
     if (has(["x86_64-nodeos", "arm64-linux", "riscv64-linux", "arm64-macos", "x86_64-windows"], name)) {
-        die_str("mayc: target ${name} is frozen; Maylang currently supports x86_64-linux (see frozen/README.md)\n");
+        die_str("mayc: target ${name} is not supported; Maylang currently supports x86_64-linux (see docs/design/LINUX_X86_64_FOCUS.md)\n");
     }
     die_str("mayc: unknown target `${name}`\n");
     return 0;

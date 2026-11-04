@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Target selection, isolated output contexts, relocations and raw diagnostics.
 
-The ARM64, RISC-V, Mach-O and PE checks are frozen with their targets in
-frozen/compiler/mayc/tests/backends.py.
+The ARM64, RISC-V, Mach-O and PE checks were removed with their targets; the
+last versions are in the `frozen-archive` tag.
 """
 import argparse
 from pathlib import Path
@@ -265,8 +265,8 @@ def main():
         print('PASS native Float main boxes type 3 and loses the type checks', flush=True)
         for args, message in [(['--target', 'bogus'], b'unknown target'),
                               (['--target'], b'requires a target name'),
-                              (['--target', 'arm64-linux'], b'target arm64-linux is frozen'),
-                              (['--runtime', 'core'], b'runtime core is frozen')]:
+                              (['--target', 'arm64-linux'], b'target arm64-linux is not supported'),
+                              (['--runtime', 'core'], b'runtime core is not supported')]:
             output = work / 'invalid'
             command = [str(compiler), *args]
             if args != ['--target']:

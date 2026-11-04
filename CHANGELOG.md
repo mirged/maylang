@@ -1,5 +1,16 @@
 # Unreleased
 
+## Repository
+
+- Prepared the repository for public access. The unmaintained `frozen/` tree
+  (other targets, NodeOS, the core runtime, maybrowser, mayos, `stdlib/ml` and
+  archived examples) was removed from `main`; its last version is the
+  [`frozen-archive`](https://github.com/mirged/maylang/tree/frozen-archive)
+  tag. Also removed: the dated repository audit, `docs/history/`, the stale
+  compliance snapshots, a duplicate `.github/CONTRIBUTE.md` and a scratch
+  example. `mayc` now says `target … is not supported` instead of `is frozen`,
+  and the language server no longer skips directories named `frozen`.
+
 ## Language
 
 - Hexadecimal `0xff`, octal `0o755` and binary `0b1010` integer literals, and
@@ -701,7 +712,7 @@ are stricter.
   Maylang uses with NodeOS syscalls and IPC: console and file I/O, directories,
   memory, time, `exec`/`system`/`wait` through a spawn extension, and
   `/proc/self` arguments. C externs and sockets are unsupported there.
-  See [NodeOS target](frozen/docs/internals/NODEOS.md).
+  See [NodeOS target](https://github.com/mirged/maylang/blob/frozen-archive/frozen/docs/internals/NODEOS.md).
 - The compiler runs on NodeOS. A `mayc` built for NodeOS compiles programs
   there and defaults to `x86_64-nodeos`; it rebuilds itself on NodeOS into a
   compiler byte-identical to the one cross-built on Linux. Without `-o`, NodeOS
@@ -877,7 +888,7 @@ and RAW x86-64 code is faster and placement-stable.
 - File, process and network libraries and typed FFI still need the full
   x86-64 Linux runtime; the portable runtime keeps allocations until exit
   (256 MiB cap). See the
-  [backend parity handoff](frozen/docs/internals/BACKEND_PARITY_PROGRESS.md).
+  [backend parity handoff](https://github.com/mirged/maylang/blob/frozen-archive/frozen/docs/internals/BACKEND_PARITY_PROGRESS.md).
 - Full and LLVM builds keep x87/libm logarithms, `exp` and `pow`, which can
   differ from the portable runtime in the last place; `nan == nan` is `true`
   on every backend.

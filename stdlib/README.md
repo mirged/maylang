@@ -82,8 +82,8 @@ compiler/mayc/mayc_new examples/stdlib_expanded.may -o /tmp/stdlib-expanded
 /tmp/stdlib-expanded
 ```
 
-The experimental ML toolkit is frozen in
-[`frozen/stdlib/ml/`](../frozen/README.md) and not maintained for now.
+The experimental ML toolkit was removed; its last version is in the
+`frozen-archive` tag.
 
 These examples run in compiler verification. Update API signatures and `///`
 comments in the source, regenerate with `python3 docs/reference/generate.py`, and

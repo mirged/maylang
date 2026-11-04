@@ -82,4 +82,4 @@ and effects are unchanged.
 - A list created specialized and later widened keeps the fat layout for
   good, even if the offending value is popped.
 - Only the full fat runtime has this layout. The core runtime and the other
-  targets are frozen (`LINUX_X86_64_FOCUS.md`).
+  targets are not supported (`LINUX_X86_64_FOCUS.md`).

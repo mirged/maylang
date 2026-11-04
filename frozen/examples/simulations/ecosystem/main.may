@@ -1,2 +1,0 @@
-import "src/cli.may";
-exit(ecosystem_main(args()));

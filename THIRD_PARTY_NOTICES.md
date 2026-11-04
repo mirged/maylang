@@ -28,13 +28,6 @@ maintained copies still match the pinned upstream bytes.
 - `stdlib/ui/native/vendor/stb_image_write.h` (v1.16)
 - `stdlib/ui/native/vendor/stb_truetype.h` (v1.26)
 
-Older duplicates of the stb headers are kept in the unmaintained
-[frozen](frozen/README.md) tree at
-`frozen/platform/maybrowser/native/vendor/stb_image.h`,
-`frozen/platform/maybrowser/native/vendor/stb_image_write.h` and
-`frozen/platform/maybrowser/native/vendor/stb_truetype.h`. They are not built
-or updated and carry the same dual license.
-
 ## May NES emulator core
 
 [binji/binjnes](https://github.com/binji/binjnes) at commit

@@ -12,11 +12,10 @@
 | Stress GC and inspect native codegen | [Limits experiments](../compiler/mayc/tests/limits/README.md) |
 | Use networking | [Networking](guide/NETWORK.md) |
 | Configure language-server support | [LSP](guide/LSP.md), [server guide](../tools/maylsp/README.md) |
-| Understand what is supported and what is frozen | [Linux x86-64 focus](design/LINUX_X86_64_FOCUS.md), [frozen code](../frozen/README.md) |
+| Understand what is supported | [Linux x86-64 focus](design/LINUX_X86_64_FOCUS.md) |
 | Make a release | [Releasing](guide/RELEASING.md), [distribution](../dist/README.md) |
-| Review findings and priorities | [Audit](AUDIT.md), [roadmap](../ROADMAP.md) |
+| Review findings and priorities | [Roadmap](../ROADMAP.md), [issues](https://github.com/mirged/maylang/issues) |
 
-[Implementation history](history/IMPLEMENTATION.md) and [roadmap history](history/ROADMAP_HISTORY.md)
-record earlier work. [Legacy syntax](history/LEGACY_TOUR.md) is historical. Generated
+The [changelog](../CHANGELOG.md) records earlier work. Generated
 references are updated through their generators; `make check` verifies freshness
 and local file links.

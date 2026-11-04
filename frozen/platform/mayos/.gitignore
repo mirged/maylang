@@ -1,6 +1,0 @@
-build/
-.tools/
-maypkg.build.sh
-maypkg.plan.txt
-__pycache__/
-data/

@@ -1,9 +1,8 @@
 # Maylang roadmap
 
-Current work is tracked in GitHub issues and outcome-based audit milestones.
-Priorities describe impact; they do not promise a release date. The
-[repository audit](docs/AUDIT.md) records the evidence and local validation behind
-this backlog. Completed initiatives remain in [roadmap history](docs/history/ROADMAP_HISTORY.md).
+Current work is tracked in GitHub issues and outcome-based milestones.
+Priorities describe impact; they do not promise a release date. Completed work
+is recorded in the [changelog](CHANGELOG.md).
 
 ## Focus: Linux x86-64
 
@@ -12,10 +11,10 @@ this backlog. Completed initiatives remain in [roadmap history](docs/history/ROA
 
 For now Maylang supports only Linux x86-64. Other targets (ARM64, RISC-V,
 macOS, Windows, NodeOS), the core runtime, maybrowser, mayos and `stdlib/ml`
-move to `frozen/`, where they are kept but not built, tested or maintained.
+were removed from `main`; their last versions are in the `frozen-archive` tag.
 The effort goes into speed, correctness, ergonomics, the standard library,
-documentation and tools. Issues in frozen areas carry `status:frozen` and are
-not scheduled.
+documentation and tools. Issues for the removed areas carry `status:frozen` and
+are not scheduled.
 
 ## Correctness and bounded resources
 

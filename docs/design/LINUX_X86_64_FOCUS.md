@@ -1,7 +1,9 @@
 # Focus on Linux x86-64
 
-Status: proposed. Tracked in the issue linked from
-[ROADMAP.md](../../ROADMAP.md#focus-linux-x86-64).
+Status: done (#102). The frozen code was later removed from `main` for the
+public release; its last version, with this plan's `frozen/README.md`, is the
+[`frozen-archive`](https://github.com/mirged/maylang/tree/frozen-archive) tag.
+The rest of this document records the plan as it was carried out.
 
 For now Maylang supports one platform: **Linux on x86-64**, with the full and
 raw runtimes. Every other target, the core runtime and the platform
@@ -62,26 +64,19 @@ Open issues for frozen areas get a `status:frozen` label and leave the active
 milestones: #93 (native words on ARM64/RISC-V), #55 (ARM64 and desktop
 compiler hosts), #45 (maybrowser), #53 (mayos) and #57 (ML oracles).
 
-## How freezing works
+## How freezing worked
 
-- `frozen/` at the repository root mirrors the original paths, for example
-  `frozen/compiler/mayc/src/backend/arm64.may` and
-  `frozen/platform/maybrowser/`. Files move with `git mv` so `git log
-  --follow` keeps their history.
-- `frozen/README.md` lists every frozen area, the commit it was last tested
-  at, the commands that tested it then, and the issues that tracked it.
-- Nothing in `frozen/` is compiled, imported, tested, formatted, indexed or
-  packaged. `scripts/check_repository.py`, `verify.py`, the docs generators,
-  the language server's workspace scan, `may` workspaces and `dist/package.py`
-  skip the directory. Links inside frozen Markdown are not checked.
-- Frozen code is not maintained. Changes to the active compiler may leave it
-  out of date, and nobody fixes it there. `AGENTS.md` says so.
-- The compiler rejects the frozen options with a clear error, for example
-  `target arm64-linux is frozen; Maylang currently supports x86_64-linux
-  (see frozen/README.md)`. `--target x86_64-linux` stays accepted.
-- **Reviving** an area means moving it back, updating it to the current
-  compiler, restoring its tests and CI, and removing it from
-  `frozen/README.md`, all in one reviewed series.
+- Frozen code moved into `frozen/` at the repository root with `git mv`,
+  mirroring its original paths, and nothing there was built, tested or
+  maintained.
+- It was then removed from `main`. The `frozen-archive` tag keeps the last
+  version, including `frozen/README.md`, which lists every frozen area, the
+  commit it was last tested at and the commands that tested it.
+- The compiler rejects the removed options with a clear error, for example
+  `target arm64-linux is not supported; Maylang currently supports
+  x86_64-linux`. `--target x86_64-linux` stays accepted.
+- **Reviving** an area means restoring it from the tag, updating it to the
+  current compiler and restoring its tests and CI, in one reviewed series.
 
 ## Steps
 

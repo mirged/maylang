@@ -21,10 +21,8 @@ targets Linux x86-64; vendoring Sokol does not extend Maylang's runtime targets.
 `6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760`, under its MIT or public-domain
 (Unlicense) alternative.
 
-This directory is the only maintained copy. `frozen/platform/maybrowser` keeps
-older duplicates of the stb headers, which are not built or updated
-([frozen/README.md](../../../../frozen/README.md)). The release bundle ships
-this directory unchanged, so UI sources stay self-contained.
+This directory is the only copy. The release bundle ships it unchanged, so UI
+sources stay self-contained.
 
 Checking and updating:
 

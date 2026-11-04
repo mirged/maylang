@@ -86,17 +86,14 @@ def mirrors():
 IMPORT = re.compile(r'^\s*(?:import|from)\s+"([^"]+)"', re.M)
 
 # Vendored sources that must stay attributed in THIRD_PARTY_NOTICES.md. The
-# maintained headers are also covered by scripts/vendor.py; the frozen copies
-# and the per-directory licenses have no manifest of their own.
+# headers are also covered by scripts/vendor.py; the per-directory licenses
+# have no manifest of their own.
 VENDORED = [
     'stdlib/ui/native/vendor/sokol_app.h',
     'stdlib/ui/native/vendor/sokol_gfx.h',
     'stdlib/ui/native/vendor/sokol_glue.h',
     'stdlib/ui/native/vendor/stb_image_write.h',
     'stdlib/ui/native/vendor/stb_truetype.h',
-    'frozen/platform/maybrowser/native/vendor/stb_image.h',
-    'frozen/platform/maybrowser/native/vendor/stb_image_write.h',
-    'frozen/platform/maybrowser/native/vendor/stb_truetype.h',
     'examples/apps/maynes/native/vendor/binjnes/LICENSE',
     'examples/apps/maynes/roms/LICENSE',
 ]
@@ -165,9 +162,7 @@ def tool_boundaries(paths):
 
 
 def checked(names):
-    # frozen/ holds code that is kept but not maintained (frozen/README.md),
-    # so its links and syntax are not checked.
-    return [ROOT / name for name in names if name and not name.startswith('frozen/')]
+    return [ROOT / name for name in names if name]
 
 
 def main():

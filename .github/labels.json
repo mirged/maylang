@@ -126,7 +126,7 @@
   },
   {
     "color": "D4C5F9",
-    "description": "Area is frozen in frozen/ and not maintained for now",
+    "description": "Area was removed to the frozen-archive tag and is not maintained",
     "name": "status:frozen"
   },
   {

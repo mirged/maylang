@@ -13,7 +13,7 @@ Maylang is an experimental, self-hosted language. The compiler `mayc` is
 written in Maylang (`compiler/mayc/`) and emits x86-64 Linux ELF executables
 directly, without an assembler or linker. For now Linux x86-64 is the only
 supported host and target; the other targets, the core runtime, NodeOS and
-the platform experiments are frozen in `frozen/`
+the platform experiments were removed and live on in the `frozen-archive` tag
 ([docs/design/LINUX_X86_64_FOCUS.md](docs/design/LINUX_X86_64_FOCUS.md)). It is its own
 toolchain: do not add backends that go through LLVM, an external assembler
 or a C compiler (an experimental `clang-llvm` target was removed for this
@@ -43,8 +43,6 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
   licenses and are listed in `THIRD_PARTY_NOTICES.md`; keep
   `editors/vscode/LICENSE` byte-identical to the root copy and attribute any
   new third-party file. `make check` enforces both.
-- Do not edit, fix or test anything under `frozen/`. It is kept for later
-  but not built or maintained; see [frozen/README.md](frozen/README.md).
 
 ## Repository map
 
@@ -64,14 +62,11 @@ Clang, Python 3.10+ and binutils (`readelf`). Run `make doctor` to check.
 | `docs/` | `guide/`, `internals/`, `design/`, `history/`, generated `reference/` | `make check test-docs` |
 | `editors/vscode/` | VS Code extension (TypeScript, grammar, snippets) | `make editor` |
 | `scripts/` | `doctor.py`, `build_tools.py`, `check_repository.py` | `make check` |
-| `frozen/` | Unmaintained code outside the Linux x86-64 focus ([frozen/README.md](frozen/README.md)) | None |
 
 Component tests live beside their implementation. `tests/` holds only suites
 that span components. Relative imports between siblings use
 `../../<group>/<component>/` (for example `tools/maylsp` imports
-`../../compiler/mayc/src/...`). The October 2026 re-layout renamed
-`toolchain/` and `example_projects/`; the path migration table is in
-[docs/REPOSITORY.md](docs/REPOSITORY.md#path-migration).
+`../../compiler/mayc/src/...`).
 
 ## Building the compiler
 
@@ -108,7 +103,7 @@ that span components. Relative imports between siblings use
   `--dump-expanded` (source after import expansion), `--time` (stage timings),
   `--diagnostics json`, `--debug` (source traces), `--legacy` (untyped mode),
   `--runtime full|none`, and `--raw`. `--target x86_64-linux` is accepted;
-  other targets and `--runtime core` fail as frozen. See
+  other targets and `--runtime core` are rejected as unsupported. See
   [compiler/mayc/README.md](compiler/mayc/README.md).
 - **A failed compile leaves any previous output file in place** (deliberately,
   as with GCC). Check the compiler's exit status before running the binary;
@@ -389,6 +384,5 @@ tag, then packages and publishes. CI uses Ubuntu 24.04 and Node 22.
   regression.
 - A stale `compiler/mayc/build/bin/mayc_new` hides compiler source edits until
   you rebuild.
-- Open findings and their priorities are tracked in [ROADMAP.md](ROADMAP.md)
-  and [docs/AUDIT.md](docs/AUDIT.md). Link a known issue rather than filing a
-  duplicate.
+- Open findings and their priorities are tracked in GitHub issues and
+  [ROADMAP.md](ROADMAP.md). Link a known issue rather than filing a duplicate.
