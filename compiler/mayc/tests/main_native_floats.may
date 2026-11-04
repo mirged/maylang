@@ -1,0 +1,59 @@
+// Native main with Float word values (#132b). Every top-level value is an
+// Int, Bool or Float machine word, so the top-level body compiles to
+// native-word code; `print` boxes each argument (Float with fat type word 3
+// and its raw bits). A string, list or other dynamic value keeps the tagged
+// main, which is main_native.may's case.
+let size: Int = 120;
+mut inside: Int = 0;
+mut y: Int = 0;
+while (y < size) {
+    let ci: Float = 2.0 * to_float(y) / to_float(size) - 1.0;
+    mut x: Int = 0;
+    while (x < size) {
+        let cr: Float = 2.0 * to_float(x) / to_float(size) - 1.5;
+        mut zr: Float = 0.0;
+        mut zi: Float = 0.0;
+        mut k: Int = 0;
+        mut escaped: Bool = false;
+        while (k < 40) {
+            let tr: Float = zr * zr - zi * zi + cr;
+            zi = 2.0 * zr * zi + ci;
+            zr = tr;
+            if (zr * zr + zi * zi > 4.0) { escaped = true; break; }
+            k += 1;
+        }
+        if (!escaped) { inside += 1; }
+        x += 1;
+    }
+    y += 1;
+}
+print(inside);
+
+// Float locals and mutation in a top-level loop.
+mut sum: Float = 0.0;
+mut i: Int = 0;
+while (i < 1000) { sum = sum + to_float(i) * 0.5; i += 1; }
+print(sum);
+
+// Print boxing of Float values, including signed zero and infinity.
+let inf: Float = 1.0e308 * 10.0;
+let nan: Float = inf - inf;
+print(1.5, -0.0, 0.0, inf, -inf);
+print(nan, nan > 1.0, nan >= 1.0, nan < 1.0, nan <= 1.0, nan == nan, nan != nan);
+print(inf > 1.0, inf >= inf, -inf < 0.0, 1.0 / 3.0);
+
+// A native Float function call from the native main.
+fun poly(x: Float) -> Float {
+    mut acc: Float = x;
+    mut j: Int = 0;
+    while (j < 4) { acc = acc * 1.25 - 0.5; j += 1; }
+    return acc;
+}
+print(poly(1.0), poly(-2.0));
+
+// Integer overflow inside the native main keeps the Int rule.
+let big: Int = 4611686018427387904;
+print(big < 0);
+mut k2: Int = 0;
+while (k2 < 2) { k2 += 1; }
+print(k2);

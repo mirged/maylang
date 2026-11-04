@@ -5,7 +5,8 @@
 // path. The expected output was produced by the compiler before main had a
 // native path and equals the --no-opt (tagged main) output; backends.py
 // compiles a small word-only main both ways and asserts the images differ and
-// that the native path's print boxing is present.
+// that the native path's print boxing is present. Float word values are
+// covered by main_native_floats.may (#132b).
 
 fun step(x: Int) -> Int { return x * 3 + 1; }
 fun blend(a: Int, b: Int) -> Int { return a * b - 1; }

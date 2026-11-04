@@ -159,6 +159,11 @@
     "stdout": "Y29sbGF0eiA1OTU0MgpyYW5nZXMgNjAKY29udHJvbCAyMDAgOSB0cnVlIGZhbHNlIHRydWUgdHJ1ZQpkaXZpc2lvbiAyIC0yIDEgLTEKYml0cyA4MDAgMTAwIDIwMCA0Mjk2IDEyNTI5CnVuYXJ5IC0yMDAgLTIwMQpoZWxwZXIgNDEKY2FsbHMgMzEgNDEgNDIKaGVscGVyIDEKbmVzdGVkIDEzIDE2CmJpZyA1OTU0MiBmYWxzZSB0cnVlCgphcml0aG1ldGljOiBkaXZpc2lvbiBieSB6ZXJvCg==",
     "stderr": ""
   },
+  "main_native_floats.may": {
+    "exit": 0,
+    "stdout": "NTgxOQoyNDk3NTAuMAoxLjUgLTAuMCAwLjAgaW5mIC1pbmYKbmFuIGZhbHNlIGZhbHNlIGZhbHNlIGZhbHNlIGZhbHNlIHRydWUKdHJ1ZSB0cnVlIHRydWUgMC4zMzMzMzMzMzMzMzMzMzMzCi0wLjQ0MTQwNjI1IC03Ljc2NTYyNQpmYWxzZQoyCg==",
+    "stderr": ""
+  },
   "main_native_words.may": {
     "exit": 0,
     "stdout": "MjE1MDYzCjYwCjIwMCA5IHRydWUgZmFsc2UgdHJ1ZSB0cnVlCjIgLTIgMSAtMQo4MDAgMTAwIDIwMCA0Mjk2IDEyNTI5Ci0yMDAgLTIwMQozMSA0MSAxMTEKZmFsc2UgdHJ1ZSB0cnVlIHRydWUKMjE1MDYzIHRydWUgdHJ1ZQo=",
