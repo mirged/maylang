@@ -2,6 +2,73 @@
 
 ## Performance
 
+- Native Float loop bodies and a native Float main ([reports](compiler/mayc/tests/backend/native-float-loops.md):
+  [loops](compiler/mayc/tests/backend/native-float-loops.md), [main](compiler/mayc/tests/backend/native-float-main.md),
+  [follow-up](compiler/mayc/tests/backend/native-float-builtins.md)): a Float
+  function that contains a loop now compiles as native-word code. Declared
+  Float locals get pre-planned XMM8-15 homes that survive iterations and are
+  spilled/reloaded around calls, operations coalesce into their dead left
+  operand, `>`/`>=` fuse into `ucomisd` plus one branch, and a call-free body
+  keeps the raw backend's Int local registers and fusions; an escaped Float
+  function is demoted to the tagged ABI so dynamic calls keep the tagged fault
+  rules. The Float loop microbenchmark drops 82.6% and the cross-language
+  Mandelbrot is unchanged as a control. A top-level body whose values are all
+  Int/Bool/Float words now also compiles as a native-word main, which makes the
+  cross-language top-level Mandelbrot native: 45.0 to 42.1 ms (1.4x to 1.2x the
+  C build), with the tagged main kept as the fallback and Float boxed as fat
+  type 3 only at `print`. Multi-argument `print` arguments are reified into
+  frame slots first, because its boxing helpers are several runtime calls
+  behind one IR call site (that clobber was found and fixed before merging).
+  `--no-opt` still keeps all of it tagged, and `native_float_loops.may`,
+  `main_native_floats.may`, the oracle suite and `backends.py` objdump
+  assertions cover the boundaries. Still tagged: `int(Float)`, the
+  `sqrt`/rounding/min-max family, extern Float signatures and Float globals
+  ([status](compiler/mayc/tests/backend/native-float-builtins.md)).
+- Collector pause and the default threshold policy ([report](compiler/mayc/tests/backend/gc-pause.md)):
+  the post-sweep threshold is bounded at the allocation frontier instead of the
+  frontier plus the margin, removing the frontier creep that raised the heap by
+  8 MiB per collection; the mark drain traces sealed-record payloads exactly
+  (the key slots are image strings) and the 1 MiB global-root address table is a
+  byte-kind block the collector never scans, which removes 95% of the
+  conservative mark probes. On binary trees depth 16: CPU 0.9138 to 0.8345 s
+  (-8.7%), peak RSS 236 to 146 MiB (-38%), collections 11 to 16, total pause
+  352 to 248 ms; the other seven roadmap workloads do not collect at the
+  default floor and are unchanged within the layout spread (worst case sieve
+  +1.2% over 30 pairs, +0.6% over 100), and the compiler self-compile is 5.0%
+  faster at the same peak RSS. The measured negatives (skipping record zeroing,
+  a sweep table-clear restructure) are in the report.
+- Allocating-safepoint inventory for precise stack maps ([report](compiler/mayc/tests/backend/stack-map-inventory.md)):
+  `mayc --stack-map-inventory <src>` prints the call sites that can start a
+  collection while the caller's frames are live, as one JSON object, and exits;
+  the normal path never runs the analysis and compiler images are byte-identical
+  with and without it. The inventory computes the "can reach `rt_alloc_kind`"
+  fixpoint over fat and raw call graphs, treats indirect calls and unresolved
+  runtime names as allocating, and splits sites by call kind and frame shape.
+  The compiler image has 8,086 fat-frame safepoints, which at the design's
+  2-bit-per-slot bound is about 40 KiB (1.35% of the code) rather than the
+  1.14 MiB (38%) an all-call-site scan implied, so map size is not the binding
+  constraint; descriptor encoding, liveness precision and the collector switch
+  remain open. `tests/stack_maps.py` pins the JSON contract.
+- Opt-in inliner ([report](compiler/mayc/tests/backend/fat-inlining.md)): `--inline`
+  (default off) clones only small, straight-line, effect-free accessor and
+  one-expression-helper bodies into their call sites, declining anything else.
+  An accessor measures -39.2% and a one-expression helper -73.0% in the
+  inlining microbenchmarks (25/25 rounds each); the default build and every
+  suite program are byte-identical, and the oracle suite now also compiles every
+  behaviour fixture with `--inline` and requires identical output. The flag is
+  skipped under `--no-opt`, `--raw` and `--debug`.
+- Phase 4 measurements ([escape analysis](compiler/mayc/tests/backend/escape-analysis.md),
+  [code alignment](compiler/mayc/tests/backend/fat-code-alignment.md)): a
+  caller-side escape analysis of constructor calls reports zero non-escaping
+  sites on every roadmap benchmark and on the compiler, because a constructor is
+  a generated function that returns the record; the scalar replacement it
+  enables is -98.4% on a hand-written microbenchmark but flat on n-body, trees
+  and self-compile with byte-identical images, so the rewrite was reverted and
+  the analysis kept as the decision set. Porting the raw backend's 16-byte body
+  and loop-head alignment to fat code was measured negative in both a combined
+  and a loop-only variant (consistent small regressions on sieve/hashmap/
+  strings, no consistent win) and reverted; the report keeps the numbers and the
+  `--no-code-align` scope proof. Neither changes the default compiler.
 - Inline map probing for Float and Bool keys ([report](compiler/mayc/tests/backend/map-probe-keys.md)):
   the probe's key types now match the runtime's: Float keys hash with
   `rt_hash_mix` and the `-0.0` fold and compare with `rt_same`'s IEEE equality
