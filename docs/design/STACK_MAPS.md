@@ -1,7 +1,11 @@
 # Precise stack maps
 
-Status: `design:discussion` (roadmap phase 5, #135). Nothing here is
-implemented. The measurements below were taken on the integrated tip
+Status: `design:discussion` (roadmap phase 5, #135). The **allocating-safepoint
+inventory is implemented** (`mayc --stack-map-inventory`, migration step 2) and
+the threshold-policy step landed separately
+([gc-pause.md](../../compiler/mayc/tests/backend/gc-pause.md)); descriptor
+emission, the collector switch and the verification mode are not implemented.
+The measurements below were taken on the integrated tip
 `62c3c45` with `compiler/mayc/tests/stack_retention.py`, which is committed as
 the measuring instrument for a future implementation; the earlier attempts at
 this phase are recorded in the [roadmap](PERFORMANCE_ROADMAP.md#phase-5-allocation-and-collection)
@@ -181,17 +185,40 @@ must be treated as allocating unless a whole-program analysis proves the
 target.
 
 The compiler already has the call graph of fat functions (its reachability
-queue and the raw backend's function table); the inventory pass would compute
-the fixpoint "can reach `rt_alloc_kind`" over fat *and* raw runtime functions,
-mark every IR call site that reaches it, and either emit a map for it or, for
-sites with no live values, a shared empty descriptor. The inventory is worth
-committing on its own: it is pure analysis, output identical, and it can be
-asserted in the backend (every call to an allocating runtime name has a
-descriptor).
+queue and the raw backend's function table); the inventory pass computes the
+fixpoint "can reach `rt_alloc_kind`" over fat *and* raw runtime functions and
+reports every IR call site that reaches it, either for a map or, for sites with
+no live values, the shared empty descriptor.
 
-Rough size, measured by scanning an existing image for
+**Implemented** (`7b3d7de`): `mayc --stack-map-inventory <src>` runs the
+analysis after IR optimization, prints one JSON object and exits; the normal
+compile path never calls it, and a compiler built before and after it emits
+byte-identical images. It indexes `ctx.functions` plus main, builds statically
+known edges from `E_CALL` and `IR_RUNTIME`, treats `E_ICALL` and unresolved
+runtime names as allocating, seeds the fixpoint at `rt_alloc_kind` (so fault
+constructors are covered transitively), and splits sites by call kind and by
+frame shape (only fat frames need descriptors; raw and native-word frames stay
+the conservative gap). `compiler/mayc/tests/stack_maps.py` pins the JSON
+contract. Measured report:
+[stack-map-inventory.md](../../compiler/mayc/tests/backend/stack-map-inventory.md).
+
+The inventory answers the size question. On the compiler image: 868 fat
+functions, 730 allocating functions, 8,450 safepoints of which 8,086 are in fat
+frames and 387 in main; at the 2-bit-per-slot bound that is **40,430 bytes,
+1.35% of the code** — not the 1.14 MiB (38%) that the earlier image scan
+suggested. The eight benchmark images need 240-306 bytes each. Restricting
+descriptors to allocating sites is what makes the difference: the earlier scan
+counted every call, 37,983 in the compiler image, and a map is only needed
+where a collection can start. There are no `E_ICALL` sites in today's images
+(dynamic calls go through `rt_callN` helpers, already counted as runtime
+safepoints), so the conservative indirect rule is a safeguard, not a current
+cost. Descriptor encoding, liveness precision and the collector switch are the
+remaining work; the map-size budget is no longer the binding constraint.
+
+The original rough size (an upper bound that counts every call) is kept for
+history; it was measured by scanning an image for
 `push rbp; mov rbp, rsp; sub rsp, imm32` prologues and the `E8` calls between
-them (`stack_retention.py --inventory`; every call counted, so an upper bound):
+them (`stack_retention.py --inventory`):
 
 | Image | code bytes | functions | frame max | median slots | calls | maps, 2 bits/slot |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -199,12 +226,9 @@ them (`stack_retention.py --inventory`; every call counted, so an upper bound):
 | `hashmap` | 94,208 | 120 | 2,368 B | 8 | 1,301 | 15.8 KiB |
 | compiler self-build | 2,830,336 | 943 | 7,696 B | 16 | 36,301 | 1.08 MiB (38% of code) |
 
-Only the allocating subset needs maps, and a real encoding should be much
-smaller than a per-call bitset over every frame slot (delta-compressed live
-lists, one entry per function plus per-call deltas); the numbers are the budget
-the prototype must beat. A map that costs a few percent of the image is
-acceptable; 38% is not, so map encoding and compression are a design task of
-their own.
+A real encoding should still be smaller than a per-call bitset over every frame
+slot (delta-compressed live lists, one entry per function plus per-call
+deltas); the inventory's 1.35% is the number the prototype must beat.
 
 ### 2.2 What one frame descriptor says
 
@@ -338,12 +362,18 @@ Each step is independently revertable and leaves the compiler green.
 1. **Measure, choose thresholds.** The retention tool and the policy table of
    section 1.5 are the input. A small, separate change to `GCMIN`/`GCMARGIN`
    (or a per-workload adaptive start) buys more peak RSS today than precise
-   maps alone; it must be measured for throughput cost (60 vs 11 collections on
-   trees) before deciding.
+   maps alone; it must be measured for throughput cost before deciding. Done:
+   the frontier-bound default policy (`max(floor, 2*live+margin, HP)`) removes
+   the per-collection creep and takes binary trees from 236 to 146 MiB at -8.7%
+   CPU and 16 instead of 11 collections; the floor is now the remaining RSS
+   lever ([gc-pause.md](../../compiler/mayc/tests/backend/gc-pause.md)).
 2. **Safepoint inventory.** Pure analysis pass: mark every IR call site that can
    reach an allocation or a fault, over fat and raw call graphs; assert in the
    backend that every allocating runtime call has one. Output, oracle and
-   bootstrap unchanged.
+   bootstrap unchanged. Done: `mayc --stack-map-inventory` and
+   `tests/stack_maps.py`; the size budget it measures is in section 2.1
+   ([report](../../compiler/mayc/tests/backend/stack-map-inventory.md)). A
+   backend assertion is still a small follow-up.
 3. **Shadow stack and descriptor emission, collector unchanged.** Fat prologues
    push records, epilogues pop, safepoints store descriptor ids; the collector
    still scans conservatively and only verifies that the records are well formed
