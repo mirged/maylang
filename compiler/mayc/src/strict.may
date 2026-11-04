@@ -504,7 +504,7 @@ fun st_builtin(name: Any, args: Any, span: Any) -> Any {
         if (len(args) == 2) { st_dynamic_require(st_type("Int", []), args[1], span); }
         return st_type("Int", []);
     }
-    if (has(["push", "pop", "sort", "reverse", "slice", "sum", "map", "filter", "any", "all", "reduce"], name)) {
+    if (has(["push", "pop", "sort", "reverse", "unique", "slice", "sum", "map", "filter", "any", "all", "reduce"], name)) {
         st_arity(name, args, if (has(["push", "map", "filter", "any", "all"], name)) { 2 } else if (name == "slice" or name == "reduce") { 3 } else { 1 }, if (has(["push", "map", "filter", "any", "all"], name)) { 2 } else if (name == "slice" or name == "reduce") { 3 } else { 1 }, span);
         let list: Any = args[0];
         // reverse of a string returns the reversed string.
