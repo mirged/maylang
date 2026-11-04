@@ -1,0 +1,32 @@
+// Opt-in inliner (#131, --inline): accessors and one-expression helpers are
+// cloned into their call sites. This fixture pins observable behaviour, not the
+// pass: arguments keep their evaluation order and effects, and a fault inside a
+// cloned body is still raised at the call site. tests/oracle.py compiles it
+// with --inline as well and requires identical output.
+struct Pair { a: Int, b: Int }
+fun second(p: Pair) -> Int { return p.b; }
+fun sum3(a: Int, b: Int, c: Int) -> Int { return a + b + c; }
+fun first(xs: List<Int>) -> Int { return xs[0]; }
+
+mut effects: Int = 0;
+fun note(n: Int) -> Int { effects = effects + n; return n; }
+
+// Accessor and one-expression helper calls whose results are read locally.
+fun pick(n: Int) -> Int {
+    let p: Pair = Pair(n, n * 2);
+    return second(p) + sum3(p.a, p.b, 1);
+}
+
+// An inlined arithmetic fault still reaches the caller's handler, and a list
+// read past the end still produces the same nil in both builds.
+fun run_fault(n: Int) -> Int { return n / (n - n); }
+fun caught_fault(n: Int) -> Any { return may { run_fault(n) } otherwise { err.kind }; }
+fun run_first(xs: List<Int>) -> Int { return first(xs); }
+fun caught_first(xs: List<Int>) -> Any { return may { run_first(xs) } otherwise { err.kind }; }
+
+print(pick(3), pick(5));
+print(second(Pair(note(1), note(2))), effects);
+print(caught_fault(4));
+print(caught_first([2, 3]));
+let empty: List<Int> = [];
+print(caught_first(empty));

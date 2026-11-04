@@ -1,0 +1,117 @@
+{
+ "compiler": "mayc 0.15.0",
+ "note": "MAYC_ESCAPE_REPORT=1 report on the cross-language suite, on the two escape-analysis microbenchmarks and on the compiler image (mayc compiling compiler/mayc/main.may). Counts are per compile unit. candidate = the record provably does not escape the caller; reads = typed field reads a scalar replacement could take over.",
+ "loadavg": [
+  2.99951171875,
+  3.13330078125,
+  2.7314453125
+ ],
+ "probes": {
+  "xlang/collatz": {
+   "summary": "constructors=0 calls=0 candidates=0 reads=0 escaped=0 record_allocs=0 local_record_allocs=0",
+   "functions": []
+  },
+  "xlang/fib": {
+   "summary": "constructors=0 calls=0 candidates=0 reads=0 escaped=0 record_allocs=0 local_record_allocs=0",
+   "functions": []
+  },
+  "xlang/hashmap": {
+   "summary": "constructors=0 calls=0 candidates=0 reads=0 escaped=0 record_allocs=0 local_record_allocs=0",
+   "functions": []
+  },
+  "xlang/mandelbrot": {
+   "summary": "constructors=0 calls=0 candidates=0 reads=0 escaped=0 record_allocs=0 local_record_allocs=0",
+   "functions": []
+  },
+  "xlang/nbody": {
+   "summary": "constructors=1 calls=5 candidates=0 reads=0 escaped=5 record_allocs=1 local_record_allocs=0",
+   "functions": [
+    "main calls=5 candidates=0 reads=0 escaped=5 sites=[]"
+   ]
+  },
+  "xlang/sieve": {
+   "summary": "constructors=0 calls=0 candidates=0 reads=0 escaped=0 record_allocs=0 local_record_allocs=0",
+   "functions": []
+  },
+  "xlang/strings": {
+   "summary": "constructors=0 calls=0 candidates=0 reads=0 escaped=0 record_allocs=0 local_record_allocs=0",
+   "functions": []
+  },
+  "xlang/trees": {
+   "summary": "constructors=1 calls=2 candidates=0 reads=0 escaped=2 record_allocs=1 local_record_allocs=0",
+   "functions": [
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/tests/backend/xlang/may/trees.may::make calls=2 candidates=0 reads=0 escaped=2 sites=[]"
+   ]
+  },
+  "compiler_image/self_compile": {
+   "summary": "constructors=81 calls=172 candidates=0 reads=0 escaped=172 record_allocs=81 local_record_allocs=0",
+   "functions": [
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/modules.may::append_file calls=2 candidates=0 reads=0 escaped=2 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/modules.may::expand calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/lexer.may::tok calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/lexer.may::lex_error calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/ffi.may::parse_extern calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::parse_type calls=3 candidates=0 reads=0 escaped=3 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::parse_callable_type calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::parse_generic_params calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::make_func calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::parse_params calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::parse_struct calls=2 candidates=0 reads=0 escaped=2 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::parse_enum calls=3 candidates=0 reads=0 escaped=3 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::parser_span calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::parse_pratt calls=8 candidates=0 reads=0 escaped=8 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/parser.may::parse_primary calls=3 candidates=0 reads=0 escaped=3 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/ast.may::mknode calls=47 candidates=0 reads=0 escaped=47 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/sema.may::sem_push calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/sema.may::sem_declare calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/sema.may::sem_node calls=6 candidates=0 reads=0 escaped=6 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/sema.may::sem_fold calls=3 candidates=0 reads=0 escaped=3 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/emitter.may::sink_new calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/emitter.may::emitter_new calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/emitter.may::fixups_new calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/strict.may::st_type calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/words.may::word_candidate calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/words.may::words_outline calls=7 candidates=0 reads=0 escaped=7 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/ir.may::ir_temp calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/ir.may::ir_emit calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/ir.may::ir_use calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/ir.may::ir_program calls=2 candidates=0 reads=0 escaped=2 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/regalloc.may::lsra_plan_calls calls=2 candidates=0 reads=0 escaped=2 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_argument_to_rax calls=3 candidates=0 reads=0 escaped=3 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_call_trampoline calls=4 candidates=0 reads=0 escaped=4 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_raw_allocation_block calls=3 candidates=0 reads=0 escaped=3 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_discard_unused calls=2 candidates=0 reads=0 escaped=2 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_address_plan calls=5 candidates=0 reads=0 escaped=5 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_address_terms calls=2 candidates=0 reads=0 escaped=2 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_plan_local_registers calls=2 candidates=0 reads=0 escaped=2 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_local_recurrences calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_signed_reciprocal calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_select_register calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_select_literal calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_select_binary calls=2 candidates=0 reads=0 escaped=2 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_select_region calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_foreign_native calls=6 candidates=0 reads=0 escaped=6 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend/x86_64.may::x86_word_adapter calls=6 candidates=0 reads=0 escaped=6 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend.may::target_select calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/backend.may::backend_for calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/formats/elf.may::build_elf calls=10 candidates=0 reads=0 escaped=10 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/formats/elf.may::elf_dynamic calls=5 candidates=0 reads=0 escaped=5 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/src/formats/elf.may::elf_layout calls=1 candidates=0 reads=0 escaped=1 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/main.may::append_runtime calls=3 candidates=0 reads=0 escaped=3 sites=[]",
+    "/home/mirged/Workspace/dsh-workspace/wt-131/compiler/mayc/main.may::main2 calls=4 candidates=0 reads=0 escaped=4 sites=[]"
+   ]
+  },
+  "microbench/construct_read": {
+   "summary": "constructors=1 calls=1 candidates=1 reads=1 escaped=0 record_allocs=1 local_record_allocs=0",
+   "functions": [
+    "main calls=1 candidates=1 reads=1 escaped=0 sites=[14]"
+   ]
+  },
+  "microbench/construct_escape": {
+   "summary": "constructors=1 calls=1 candidates=0 reads=0 escaped=1 record_allocs=1 local_record_allocs=0",
+   "functions": [
+    "main calls=1 candidates=0 reads=0 escaped=1 sites=[]"
+   ]
+  }
+ }
+}

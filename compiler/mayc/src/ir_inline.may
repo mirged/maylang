@@ -1,0 +1,344 @@
+import "ast.may";
+import "state.may";
+import "sema.may";
+import "ir.may";
+// ir_inline.may — opt-in inliner for accessors and one-expression helpers (#131).
+//
+// Measured positives for inlining are the small fat call shapes: a field
+// accessor (`fun second(p: Pair) -> Int { return p.b; }`) and a one-expression
+// helper (`fun sum3(a, b, c) { return a + b + c; }`) in a hot loop. A general
+// inliner is not worth its compile cost on the current suite (the two earlier
+// attempts are recorded in tests/backend/ir-passes.md), so this pass is behind
+// the default-off `--inline` flag and only clones bodies that are guaranteed
+// small and straight-line.
+//
+// A callee is inlinable when its whole body is straight-line, at most
+// IR_INLINE_BUDGET instructions, ends in one IR_RETURN, and contains only
+// operations that run unchanged at the call site: parameter reads, IR copies,
+// literals, field/element reads, arithmetic, range construction and `nil`.
+// Calls, runtime calls, stores, local declarations, closures, captures and
+// every control transfer disqualify it, so the clone neither reorders nor
+// drops an effect, and every fault the body could raise (division, overflow,
+// bounds, the E_UN/E_POW runtime paths) is raised at the same point. Arguments
+// are evaluated before the call and stay; a body that reads a global (anything
+// that is not a parameter) is declined because the name could resolve
+// differently in the caller.
+//
+// The caller must not have an exception region (another pass declines those),
+// and must not shadow the callee name with a local, parameter or global, since
+// then the call is not the direct call the pass modelled. --no-opt, --raw and
+// --debug skip the pass (`--debug` builds add trace calls to every body).
+//
+// The inliner runs before ir_opt_program, so the normal propagation and DCE
+// passes clean up the copies and the cloned snapshot temps.
+
+// Bodies larger than this are left to the call; a one-expression helper is far
+// below it.
+let IR_INLINE_BUDGET: Any = 24;
+// Per-caller cap on the number of instructions inlined, so a function with many
+// call sites cannot grow without bound.
+let IR_INLINE_CALLER_BUDGET: Any = 200;
+
+// Per-program report counters, printed only when MAYC_INLINE_REPORT is set.
+mut IR_OPT_INLINE_SITES: Any = 0;
+mut IR_OPT_INLINE_INSTRUCTIONS: Any = 0;
+mut IR_OPT_INLINE_MODE: Any = 0;
+
+// Instruction operations an inlinable body may contain. They execute in place
+// at the call site, so their effects and faults are preserved by construction.
+fun ir_inline_op_ok(op: Any) -> Bool {
+    if (op == E_VAR or op == IR_COPY or op == E_GET or op == E_INDEX or op == E_BIN or op == E_UN or
+        op == E_POW or op == E_INT or op == E_FLOAT or op == E_STR or op == E_STRB or op == E_RANGE or
+        op == IR_NIL or op == IR_BOOL or op == IR_LABEL) { return true; }
+    return false;
+}
+
+fun ir_inline_report_on() -> Bool {
+    if (IR_OPT_INLINE_MODE == 0) {
+        let flag: Any = env("MAYC_INLINE_REPORT");
+        if (flag == nil or flag == 0 or flag == "") { IR_OPT_INLINE_MODE = 1; }
+        else { IR_OPT_INLINE_MODE = 2; }
+    }
+    return IR_OPT_INLINE_MODE == 2;
+}
+
+// The inlinable shape of `rec`, as [arity, {parameter name -> index}, block],
+// or 0 when the function is anything else.
+fun ir_inline_callee(rec: Any) -> Any {
+    let block: Any = rec.ir;
+    if (block == 0 or block == nil) { return 0; }
+    // Closure bodies and boxed/captured parameters go through an environment
+    // cell; a direct call boundary is part of their contract, so leave them.
+    if (rec.cc > 0 or len(rec.caparr ?? []) > 0 or len(rec.boxed ?? []) > 0) { return 0; }
+    let parr: Any = rec.parr ?? [];
+    let arity: Any = len(parr);
+    if (arity < 1 or arity > 6) { return 0; }
+    let code: Any = block.code;
+    let count: Any = len(code);
+    if (count < 2 or count > IR_INLINE_BUDGET) { return 0; }
+    if (code[count - 1].op != IR_RETURN) { return 0; }
+    let params: Any = {};
+    for index: Any in 0..arity { params[symbol_name(parr[index].name, parr[index].length)] = index; }
+    mut position: Any = 0;
+    for instruction: Any in code {
+        let op: Any = instruction.op;
+        let n: Any = instruction.extra;
+        if (op == IR_RETURN) {
+            if (position != count - 1 or instruction.arg1 == 0 or instruction.arg1 == nil) { return 0; }
+        } else {
+            if (not ir_inline_op_ok(op)) { return 0; }
+            if (op != IR_LABEL and (instruction.result == 0 or instruction.result == nil)) { return 0; }
+            if (op == E_VAR) {
+                if (not has(params, symbol_name(n.name, n.length))) { return 0; }
+            } else if (op == E_INT or op == E_FLOAT or op == E_STR or op == E_STRB or op == IR_NIL) {
+                // No value operands.
+            } else if (op == IR_LABEL) {
+                // A label remains only when nothing transfers to it: branches
+                // are not in the whitelist, so the clone drops it.
+            } else if (op == IR_COPY or op == IR_BOOL) {
+                if (instruction.arg1 == 0 or instruction.arg1 == nil) { return 0; }
+            } else if (op == E_GET) {
+                if (n.object == 0 or n.object == nil) { return 0; }
+                if ((n.keyAddress == nil or n.keyAddress == 0) and
+                    (n.span == nil or n.start == nil or n.length == nil)) { return 0; }
+            } else if (op == E_BIN or op == E_POW) {
+                if (n.left == 0 or n.left == nil or n.right == 0 or n.right == nil) { return 0; }
+            } else if (op == E_UN) {
+                if (n.operand == 0 or n.operand == nil) { return 0; }
+            } else if (op == E_INDEX) {
+                if (n.object == 0 or n.object == nil or n.index == 0 or n.index == nil) { return 0; }
+            } else if (op == E_RANGE) {
+                if (n.start == 0 or n.start == nil or n.end == 0 or n.end == nil) { return 0; }
+            }
+        }
+        position += 1;
+    }
+    return [arity, params, block];
+}
+
+// Substitute one operand through the cloned-slot map. A parameter substitution
+// maps to a caller argument IRValue and is returned as-is: callers must not
+// follow it again as if it were a callee temp (the two numbering spaces are
+// different).
+fun ir_inline_value(value: Any, slots: Any) -> Any {
+    if (value == 0 or value == nil) { return 0; }
+    let mapped: Any = slots[value.slot];
+    if (mapped == nil) { return 0; }
+    return mapped;
+}
+
+// Build one cloned instruction for a non-return, non-parameter body operation.
+// Both the quad's arg fields and the payload operands are rebuilt, so the
+// backend reads the same operation shape it would have read in the callee.
+fun ir_inline_instruction(op: Any, instruction: Any, n: Any, span: Any, target: Any, slots: Any) -> Any {
+    if (op == IR_COPY) {
+        let value: Any = ir_inline_value(instruction.arg1, slots);
+        if (value == 0) { return 0; }
+        return Quad(IR_COPY, target, value, 0, 0, span);
+    }
+    if (op == IR_BOOL) {
+        let value: Any = ir_inline_value(instruction.arg1, slots);
+        if (value == 0) { return 0; }
+        return Quad(IR_BOOL, target, value, 0, 0, span);
+    }
+    if (op == IR_NIL) { return Quad(IR_NIL, target, 0, 0, 0, span); }
+    if (op == E_INT) { return Quad(E_INT, target, 0, 0, {"value": n.value, "kind": E_INT, "span": span}, span); }
+    if (op == E_FLOAT) {
+        return Quad(E_FLOAT, target, 0, 0, {"start": n.start, "length": n.length, "kind": E_FLOAT, "span": span}, span);
+    }
+    if (op == E_STR) {
+        return Quad(E_STR, target, 0, 0, {"start": n.start, "length": n.length, "kind": E_STR, "span": span}, span);
+    }
+    if (op == E_STRB) {
+        return Quad(E_STRB, target, 0, 0, {"address": n.address, "length": n.length, "kind": E_STRB, "span": span}, span);
+    }
+    if (op == E_GET) {
+        let object: Any = ir_inline_value(n.object, slots);
+        if (object == 0) { return 0; }
+        let payload: Any = {"object": object, "start": n.start, "length": n.length, "field": n.field,
+            "cache": n.cache, "kind": E_GET, "span": span};
+        if (n.keyAddress != nil and n.keyAddress != 0) {
+            payload.keyAddress = n.keyAddress; payload.keyLength = n.keyLength;
+        }
+        return Quad(E_GET, target, 0, 0, payload, span);
+    }
+    if (op == E_INDEX) {
+        let object: Any = ir_inline_value(n.object, slots);
+        let index: Any = ir_inline_value(n.index, slots);
+        if (object == 0 or index == 0) { return 0; }
+        return Quad(E_INDEX, target, 0, 0,
+            {"object": object, "index": index, "mapProbe": n.mapProbe, "kind": E_INDEX, "span": span}, span);
+    }
+    if (op == E_BIN) {
+        let left: Any = ir_inline_value(n.left, slots);
+        let right: Any = ir_inline_value(n.right, slots);
+        if (left == 0 or right == 0) { return 0; }
+        return Quad(E_BIN, target, left, right,
+            {"op": n.op, "left": left, "right": right, "kind": E_BIN, "span": span}, span);
+    }
+    if (op == E_UN) {
+        let operand: Any = ir_inline_value(n.operand, slots);
+        if (operand == 0) { return 0; }
+        return Quad(E_UN, target, 0, 0, {"op": n.op, "operand": operand, "kind": E_UN, "span": span}, span);
+    }
+    if (op == E_POW) {
+        let left: Any = ir_inline_value(n.left, slots);
+        let right: Any = ir_inline_value(n.right, slots);
+        if (left == 0 or right == 0) { return 0; }
+        return Quad(E_POW, target, 0, 0, {"left": left, "right": right, "kind": E_POW, "span": span}, span);
+    }
+    if (op == E_RANGE) {
+        let start: Any = ir_inline_value(n.start, slots);
+        let finish: Any = ir_inline_value(n.end, slots);
+        if (start == 0 or finish == 0) { return 0; }
+        return Quad(E_RANGE, target, 0, 0,
+            {"start": start, "end": finish, "inclusive": n.inclusive, "kind": E_RANGE, "span": span}, span);
+    }
+    return 0;
+}
+
+// Clone one callee body into `call`, returning [instructions, next temp slot]
+// or 0 when the shape checked in ir_inline_callee cannot be reproduced here.
+fun ir_inline_clone(call: Any, info: Any, baseTemps: Any) -> Any {
+    let params: Any = info[1];
+    let code: Any = info[2].code;
+    let slots: Any = {};
+    let out: Any = [];
+    let args: Any = [];
+    mut arg: Any = call.extra.args;
+    while (arg != 0 and arg != nil) { push(args, ir_use(arg)); arg = arg.next; }
+    if (len(args) != info[0]) { return 0; }
+    mut nextSlot: Any = baseTemps;
+    mut position: Any = 0;
+    while (position < len(code)) {
+        let instruction: Any = code[position];
+        let op: Any = instruction.op;
+        let n: Any = instruction.extra;
+        let span: Any = instruction.span;
+        let result: Any = instruction.result;
+        if (op == IR_RETURN) {
+            let value: Any = ir_inline_value(instruction.arg1, slots);
+            if (value == 0) { return 0; }
+            push(out, Quad(IR_COPY, call.result, value, 0, 0, span));
+            return [out, nextSlot];
+        }
+        if (op == E_VAR) {
+            let index: Any = params[symbol_name(n.name, n.length)];
+            if (index == nil) { return 0; }
+            slots[result.slot] = args[index];
+            position += 1;
+            continue;
+        }
+        if (op == IR_LABEL) { position += 1; continue; }
+        mut mapped: Any = slots[result.slot];
+        if (mapped == nil) {
+            mapped = IRValue(result.kind, nextSlot, result.value, result.start, result.length, span, 0, result.valueType);
+            slots[result.slot] = mapped;
+            nextSlot += 1;
+        } else {
+            mapped.kind = result.kind; mapped.value = result.value;
+            mapped.start = result.start; mapped.length = result.length;
+            mapped.span = span; mapped.valueType = result.valueType;
+        }
+        let clone: Any = ir_inline_instruction(op, instruction, n, span, mapped, slots);
+        if (clone == 0) { return 0; }
+        push(out, clone);
+        position += 1;
+    }
+    return 0;
+}
+
+// Names a caller resolves differently from a global function: its parameters,
+// its locals and the program's globals. A callee whose name is in this set is
+// not called directly from here, so the pass leaves it alone.
+fun ir_inline_names(rec: Any, code: Any) -> Any {
+    let names: Any = {};
+    if (rec != 0 and rec != nil) {
+        for p: Any in rec.parr ?? [] { names[symbol_name(p.name, p.length)] = true; }
+    }
+    for instruction: Any in code {
+        if (instruction.op == S_LET) {
+            let n: Any = instruction.extra;
+            names[symbol_name(n.name, n.length)] = true;
+        }
+    }
+    return names;
+}
+
+// Inline the inlinable calls of one fat IR block. Returns [sites, instructions].
+fun ir_inline_block(rec: Any, block: Any, callees: Any, globals: Any) -> Any {
+    if (block == 0 or block == nil) { return [0, 0]; }
+    let code: Any = block.code;
+    if (len(code) < 2) { return [0, 0]; }
+    for instruction: Any in code {
+        if (instruction.op == IR_TRY_BEGIN) { return [0, 0]; }
+    }
+    let names: Any = ir_inline_names(rec, code);
+    for name: Any in globals { names[name] = true; }
+    let out: Any = [];
+    mut temps: Any = block.temporaries;
+    mut budget: Any = IR_INLINE_CALLER_BUDGET;
+    mut sites: Any = 0;
+    mut instructions: Any = 0;
+    for instruction: Any in code {
+        if (instruction.op == E_CALL and budget >= 2) {
+            let n: Any = instruction.extra;
+            let name: Any = symbol_name(n.name, n.length);
+            let info: Any = callees[name];
+            if (info != nil and info != 0 and not has(names, name) and
+                instruction.result != 0 and instruction.result != nil) {
+                let cloned: Any = ir_inline_clone(instruction, info, temps);
+                if (cloned != 0 and cloned != nil) {
+                    let list: Any = cloned[0];
+                    for clone: Any in list { push(out, clone); }
+                    temps = cloned[1];
+                    budget = budget - len(list);
+                    instructions = instructions + len(list);
+                    sites += 1;
+                    continue;
+                }
+            }
+        }
+        push(out, instruction);
+    }
+    if (sites > 0) {
+        block.code = out;
+        if (temps > block.temporaries) { block.temporaries = temps; }
+    }
+    return [sites, instructions];
+}
+
+// Inline accessors and one-expression helpers into every fat function of the
+// unit. Runs after ir_program and before ir_opt_program. Off unless the
+// `--inline` flag was passed.
+fun ir_inline_program(ctx: Any) -> Any {
+    if (not INLINE_ENABLED) { return 0; }
+    if (NO_OPT or DYNMODE != 1 or DEBUG_TRACES) { return 0; }
+    let callees: Any = {};
+    for rec: Any in ctx.functions {
+        if (rec.mode == 1 or rec.native == true or rec.foreign == true) { continue; }
+        let info: Any = ir_inline_callee(rec);
+        if (info != 0 and info != nil) { callees[symbol_name(rec.p, rec.l)] = info; }
+    }
+    if (len(callees) == 0) { return 0; }
+    let globals: Any = [];
+    for g: Any in ctx.globals { push(globals, symbol_name(g.p, g.l)); }
+    IR_OPT_INLINE_SITES = 0;
+    IR_OPT_INLINE_INSTRUCTIONS = 0;
+    let mainCounts: Any = ir_inline_block(0, ctx.mainIR, callees, globals);
+    IR_OPT_INLINE_SITES = IR_OPT_INLINE_SITES + mainCounts[0];
+    IR_OPT_INLINE_INSTRUCTIONS = IR_OPT_INLINE_INSTRUCTIONS + mainCounts[1];
+    for rec: Any in ctx.functions {
+        if (rec.mode != 1 and rec.native != true and rec.foreign != true) {
+            let counts: Any = ir_inline_block(rec, rec.ir, callees, globals);
+            IR_OPT_INLINE_SITES = IR_OPT_INLINE_SITES + counts[0];
+            IR_OPT_INLINE_INSTRUCTIONS = IR_OPT_INLINE_INSTRUCTIONS + counts[1];
+        }
+    }
+    if (ir_inline_report_on()) {
+        let line: Any = "mayc-inline: callees=" + str(len(callees)) + " sites=" + str(IR_OPT_INLINE_SITES) +
+            " instructions=" + str(IR_OPT_INLINE_INSTRUCTIONS) + "\n";
+        syscall(1, 2, addr(line), len(line));
+    }
+    return 0;
+}
