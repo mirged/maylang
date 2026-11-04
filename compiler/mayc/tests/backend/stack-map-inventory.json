@@ -1,0 +1,263 @@
+{
+  "fib": {
+    "inventory": {
+      "allocating_functions": 143,
+      "direct_call_safepoints": 403,
+      "fat_allocating_functions": 19,
+      "fat_functions": 42,
+      "fat_safepoints": 80,
+      "functions": 232,
+      "indirect_call_safepoints": 0,
+      "main_body_safepoints": 0,
+      "raw_functions": 190,
+      "runtime_safepoints": 41,
+      "safepoints": 444,
+      "unresolved_runtime_names": []
+    },
+    "image": {
+      "binary": "/home/mirged/Workspace/dsh-workspace/scratch-gc-135/sm-images/fib",
+      "code_bytes": 94208,
+      "functions": 124,
+      "frame_bytes_max": 2368,
+      "slots_median": 8,
+      "slots_total": 1353,
+      "calls": 1302,
+      "safepoint_map_bytes_1byte": 55533,
+      "safepoint_map_bytes_2bit": 15601,
+      "map_share_of_code": 0.1656
+    },
+    "estimated_map_bytes_2bit_median_slots": 240
+  },
+  "collatz": {
+    "inventory": {
+      "allocating_functions": 143,
+      "direct_call_safepoints": 403,
+      "fat_allocating_functions": 19,
+      "fat_functions": 42,
+      "fat_safepoints": 80,
+      "functions": 231,
+      "indirect_call_safepoints": 0,
+      "main_body_safepoints": 0,
+      "raw_functions": 189,
+      "runtime_safepoints": 41,
+      "safepoints": 444,
+      "unresolved_runtime_names": []
+    },
+    "image": {
+      "binary": "/home/mirged/Workspace/dsh-workspace/scratch-gc-135/sm-images/collatz",
+      "code_bytes": 94208,
+      "functions": 121,
+      "frame_bytes_max": 2368,
+      "slots_median": 8,
+      "slots_total": 1345,
+      "calls": 1275,
+      "safepoint_map_bytes_1byte": 55334,
+      "safepoint_map_bytes_2bit": 15496,
+      "map_share_of_code": 0.1645
+    },
+    "estimated_map_bytes_2bit_median_slots": 240
+  },
+  "sieve": {
+    "inventory": {
+      "allocating_functions": 143,
+      "direct_call_safepoints": 403,
+      "fat_allocating_functions": 19,
+      "fat_functions": 42,
+      "fat_safepoints": 81,
+      "functions": 231,
+      "indirect_call_safepoints": 0,
+      "main_body_safepoints": 1,
+      "raw_functions": 189,
+      "runtime_safepoints": 42,
+      "safepoints": 445,
+      "unresolved_runtime_names": []
+    },
+    "image": {
+      "binary": "/home/mirged/Workspace/dsh-workspace/scratch-gc-135/sm-images/sieve",
+      "code_bytes": 94208,
+      "functions": 123,
+      "frame_bytes_max": 2368,
+      "slots_median": 8,
+      "slots_total": 1383,
+      "calls": 1313,
+      "safepoint_map_bytes_1byte": 57727,
+      "safepoint_map_bytes_2bit": 16178,
+      "map_share_of_code": 0.1717
+    },
+    "estimated_map_bytes_2bit_median_slots": 243
+  },
+  "hashmap": {
+    "inventory": {
+      "allocating_functions": 143,
+      "direct_call_safepoints": 405,
+      "fat_allocating_functions": 19,
+      "fat_functions": 42,
+      "fat_safepoints": 83,
+      "functions": 231,
+      "indirect_call_safepoints": 0,
+      "main_body_safepoints": 3,
+      "raw_functions": 189,
+      "runtime_safepoints": 42,
+      "safepoints": 447,
+      "unresolved_runtime_names": []
+    },
+    "image": {
+      "binary": "/home/mirged/Workspace/dsh-workspace/scratch-gc-135/sm-images/hashmap",
+      "code_bytes": 94208,
+      "functions": 123,
+      "frame_bytes_max": 2368,
+      "slots_median": 8,
+      "slots_total": 1373,
+      "calls": 1316,
+      "safepoint_map_bytes_1byte": 56847,
+      "safepoint_map_bytes_2bit": 15898,
+      "map_share_of_code": 0.1688
+    },
+    "estimated_map_bytes_2bit_median_slots": 249
+  },
+  "strings": {
+    "inventory": {
+      "allocating_functions": 143,
+      "direct_call_safepoints": 405,
+      "fat_allocating_functions": 19,
+      "fat_functions": 42,
+      "fat_safepoints": 83,
+      "functions": 231,
+      "indirect_call_safepoints": 0,
+      "main_body_safepoints": 3,
+      "raw_functions": 189,
+      "runtime_safepoints": 42,
+      "safepoints": 447,
+      "unresolved_runtime_names": []
+    },
+    "image": {
+      "binary": "/home/mirged/Workspace/dsh-workspace/scratch-gc-135/sm-images/strings",
+      "code_bytes": 94208,
+      "functions": 122,
+      "frame_bytes_max": 2368,
+      "slots_median": 8,
+      "slots_total": 1352,
+      "calls": 1300,
+      "safepoint_map_bytes_1byte": 56293,
+      "safepoint_map_bytes_2bit": 15791,
+      "map_share_of_code": 0.1676
+    },
+    "estimated_map_bytes_2bit_median_slots": 249
+  },
+  "mandelbrot": {
+    "inventory": {
+      "allocating_functions": 143,
+      "direct_call_safepoints": 403,
+      "fat_allocating_functions": 19,
+      "fat_functions": 42,
+      "fat_safepoints": 80,
+      "functions": 231,
+      "indirect_call_safepoints": 0,
+      "main_body_safepoints": 0,
+      "raw_functions": 189,
+      "runtime_safepoints": 41,
+      "safepoints": 444,
+      "unresolved_runtime_names": []
+    },
+    "image": {
+      "binary": "/home/mirged/Workspace/dsh-workspace/scratch-gc-135/sm-images/mandelbrot",
+      "code_bytes": 94208,
+      "functions": 121,
+      "frame_bytes_max": 2368,
+      "slots_median": 8,
+      "slots_total": 1373,
+      "calls": 1299,
+      "safepoint_map_bytes_1byte": 57777,
+      "safepoint_map_bytes_2bit": 16142,
+      "map_share_of_code": 0.1713
+    },
+    "estimated_map_bytes_2bit_median_slots": 240
+  },
+  "nbody": {
+    "inventory": {
+      "allocating_functions": 145,
+      "direct_call_safepoints": 409,
+      "fat_allocating_functions": 21,
+      "fat_functions": 45,
+      "fat_safepoints": 102,
+      "functions": 234,
+      "indirect_call_safepoints": 0,
+      "main_body_safepoints": 13,
+      "raw_functions": 189,
+      "runtime_safepoints": 57,
+      "safepoints": 466,
+      "unresolved_runtime_names": []
+    },
+    "image": {
+      "binary": "/home/mirged/Workspace/dsh-workspace/scratch-gc-135/sm-images/nbody",
+      "code_bytes": 126976,
+      "functions": 129,
+      "frame_bytes_max": 2368,
+      "slots_median": 8,
+      "slots_total": 1533,
+      "calls": 1624,
+      "safepoint_map_bytes_1byte": 70536,
+      "safepoint_map_bytes_2bit": 19684,
+      "map_share_of_code": 0.155
+    },
+    "estimated_map_bytes_2bit_median_slots": 306
+  },
+  "trees": {
+    "inventory": {
+      "allocating_functions": 145,
+      "direct_call_safepoints": 409,
+      "fat_allocating_functions": 21,
+      "fat_functions": 45,
+      "fat_safepoints": 89,
+      "functions": 235,
+      "indirect_call_safepoints": 0,
+      "main_body_safepoints": 2,
+      "raw_functions": 190,
+      "runtime_safepoints": 44,
+      "safepoints": 453,
+      "unresolved_runtime_names": []
+    },
+    "image": {
+      "binary": "/home/mirged/Workspace/dsh-workspace/scratch-gc-135/sm-images/trees",
+      "code_bytes": 98304,
+      "functions": 130,
+      "frame_bytes_max": 2368,
+      "slots_median": 8,
+      "slots_total": 1411,
+      "calls": 1361,
+      "safepoint_map_bytes_1byte": 57115,
+      "safepoint_map_bytes_2bit": 16062,
+      "map_share_of_code": 0.1634
+    },
+    "estimated_map_bytes_2bit_median_slots": 267
+  },
+  "mayc": {
+    "inventory": {
+      "allocating_functions": 730,
+      "direct_call_safepoints": 3561,
+      "fat_allocating_functions": 606,
+      "fat_functions": 868,
+      "fat_safepoints": 8086,
+      "functions": 1057,
+      "indirect_call_safepoints": 0,
+      "main_body_safepoints": 387,
+      "raw_functions": 189,
+      "runtime_safepoints": 4889,
+      "safepoints": 8450,
+      "unresolved_runtime_names": []
+    },
+    "image": {
+      "binary": "/home/mirged/Workspace/dsh-workspace/wt-135/compiler/mayc/build/bin/mayc_new",
+      "code_bytes": 2990080,
+      "functions": 983,
+      "frame_bytes_max": 8016,
+      "slots_median": 16,
+      "slots_total": 30612,
+      "calls": 37983,
+      "safepoint_map_bytes_1byte": 4332034,
+      "safepoint_map_bytes_2bit": 1135251,
+      "map_share_of_code": 0.3797
+    },
+    "estimated_map_bytes_2bit_median_slots": 40430
+  }
+}

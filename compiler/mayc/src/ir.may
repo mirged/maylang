@@ -923,3 +923,146 @@ fun glob_scan(ctx: Any, s: Any) -> Any {
     }
     return 0;
 }
+
+// ------------------------------------------- allocating-safepoint inventory
+// Precise stack maps (docs/design/STACK_MAPS.md §2.1) need to know which IR
+// call sites can start a collection while the caller's frame is live. A site
+// is such a safepoint when the callee can reach `rt_alloc_kind` (directly or
+// through statically known calls) or is an indirect call, which the design
+// treats as allocating because the target is not known. This analysis is a
+// pure read of the emission snapshot for `mayc --stack-map-inventory`: it
+// rewrites no IR and changes no emission, so a default compile is unaffected.
+// It reports the function and safepoint counts a descriptor emitter would
+// have to serve; the per-site live-value bitsets come from the backend's
+// liveness, which this pass deliberately does not attempt.
+
+fun ir_sm_sites(block: Any, names: Any, allocating: Any, unresolved: Any) -> Any {
+    let sites: Any = [0, 0, 0, 0];   // total, runtime call, direct call, indirect call
+    if (block == nil or block == 0) { return sites; }
+    for instruction: Any in block.code {
+        let op: Any = instruction.op;
+        if (op == IR_RUNTIME) {
+            let key: Any = instruction.extra;
+            let target: Any = names[key];
+            if (target == nil) {
+                sites[0] += 1; sites[1] += 1;
+                unresolved[key] = (unresolved[key] ?? 0) + 1;
+            } else if (allocating[target]) {
+                sites[0] += 1; sites[1] += 1;
+            }
+        } else if (op == E_CALL) {
+            let target: Any = names[symbol_name(instruction.extra.name, instruction.extra.length)];
+            if (target != nil and allocating[target]) { sites[0] += 1; sites[2] += 1; }
+        } else if (op == E_ICALL) {
+            sites[0] += 1; sites[3] += 1;
+        }
+    }
+    return sites;
+}
+
+fun ir_sm_add(total: Any, sites: Any) -> Any {
+    total[0] += sites[0]; total[1] += sites[1]; total[2] += sites[2]; total[3] += sites[3];
+    return total;
+}
+
+fun ir_stack_map_inventory(ctx: Any) -> Any {
+    let functions: Any = ctx.functions;
+    let count: Any = len(functions);
+    let names: Any = {};
+    mut i: Any = 0;
+    while (i < count) {
+        let rec: Any = functions[i];
+        names[symbol_name(rec.p, rec.l)] = i;
+        i += 1;
+    }
+    // Direct edges, indirect-call flags and statically unresolved runtime names.
+    let edges: Any = [];
+    let indirect: Any = [];
+    let unresolved: Any = {};
+    i = 0;
+    while (i < count) {
+        let rec: Any = functions[i];
+        let out: Any = [];
+        mut has: Any = false;
+        if (rec.ir != nil and rec.ir != 0) {
+            for instruction: Any in rec.ir.code {
+                let op: Any = instruction.op;
+                if (op == E_CALL) {
+                    let target: Any = names[symbol_name(instruction.extra.name, instruction.extra.length)];
+                    if (target != nil) { push(out, target); }
+                } else if (op == IR_RUNTIME) {
+                    let key: Any = instruction.extra;
+                    let target: Any = names[key];
+                    if (target != nil) { push(out, target); } else { has = true; }
+                } else if (op == E_ICALL) { has = true; }
+            }
+        }
+        push(edges, out);
+        push(indirect, has);
+        i += 1;
+    }
+    // Seed: anything that reaches the allocator starts the fixpoint. An
+    // indirect call or an unresolved runtime name is allocating by policy.
+    let allocating: Any = [];
+    i = 0;
+    while (i < count) { push(allocating, indirect[i]); i += 1; }
+    let seed: Any = names["rt_alloc_kind"];
+    if (seed != nil) { allocating[seed] = true; }
+    mut changed: Any = true;
+    while (changed) {
+        changed = false;
+        i = 0;
+        while (i < count) {
+            if (not allocating[i]) {
+                for target: Any in edges[i] {
+                    if (allocating[target]) { allocating[i] = true; changed = true; break; }
+                }
+            }
+            i += 1;
+        }
+    }
+    // Counters: functions, allocating functions, and safepoint sites split by
+    // function shape (fat value frames vs raw/native words) and call kind.
+    mut total: Any = [0, 0, 0, 0];
+    mut fatTotal: Any = [0, 0, 0, 0];
+    mut allocatingFunctions: Any = 0;
+    mut fatFunctions: Any = 0;
+    mut fatAllocatingFunctions: Any = 0;
+    mut rawFunctions: Any = 0;
+    i = 0;
+    while (i < count) {
+        let rec: Any = functions[i];
+        let sites: Any = ir_sm_sites(rec.ir, names, allocating, unresolved);
+        total = ir_sm_add(total, sites);
+        let fat: Any = rec.mode == 0 and rec.native != true;
+        if (fat) {
+            fatFunctions += 1;
+            fatTotal = ir_sm_add(fatTotal, sites);
+            if (allocating[i]) { fatAllocatingFunctions += 1; }
+        } else { rawFunctions += 1; }
+        if (allocating[i]) { allocatingFunctions += 1; }
+        i += 1;
+    }
+    // The top-level main body is a fat function too; it is not in ctx.functions.
+    let mainSites: Any = ir_sm_sites(ctx.mainIR, names, allocating, unresolved);
+    total = ir_sm_add(total, mainSites);
+    fatTotal = ir_sm_add(fatTotal, mainSites);
+    let runtimeNames: Any = [];
+    for name: Any in map_keys(unresolved) {
+        push(runtimeNames, {"name": name, "sites": unresolved[name]});
+    }
+    return {
+        "functions": count + 1,
+        "raw_functions": rawFunctions,
+        "fat_functions": fatFunctions + 1,
+        "allocating_functions": allocatingFunctions,
+        "fat_allocating_functions": fatAllocatingFunctions + 1,
+        "main_body_safepoints": mainSites[0],
+        "safepoints": total[0],
+        "fat_safepoints": fatTotal[0],
+        "runtime_safepoints": total[1],
+        "direct_call_safepoints": total[2],
+        "indirect_call_safepoints": total[3],
+        "unresolved_runtime_names": runtimeNames,
+    };
+}
