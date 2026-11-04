@@ -3352,19 +3352,32 @@ fun x86_word_runtime_call(ctx: Any, name: Any, words: Any) -> Any {
 }
 
 // print on a native main: box each word argument as a fat value (Int or Ptr
-// payload 2, Bool payload 1) and let the runtime display it.
+// payload 2, Bool payload 1, Float raw bits 3) and let the runtime display it.
+// Every argument is first reified into its own frame slot: the per-argument
+// helpers are calls, and an argument temporary may live in a caller-saved
+// register that those calls clobber (the IR models print as one call, so the
+// raw allocator does not know the helpers run between the argument reads).
 fun x86_word_main_print(ctx: Any, args: Any) -> Any {
+    let slots: Any = []; let kinds: Any = [];
     mut arg: Any = args;
-    mut first: Any = true;
     while (arg != 0) {
-        if (not first) { x86_word_runtime_call(ctx, "rt_space", 0); }
         cg_expr(ctx, arg);
         mut kind: Any = "Int";
         if (arg.slot < len(X86_MAIN_KINDS) and X86_MAIN_KINDS[arg.slot] != nil) { kind = X86_MAIN_KINDS[arg.slot]; }
+        let slot: Any = loc_add(ctx, addr("0warg"), 5);
+        st_local(ctx, 8 * (slot + 1));
+        push(slots, slot); push(kinds, kind);
+        arg = arg.next;
+    }
+    mut index: Any = 0;
+    while (index < len(slots)) {
+        if (index > 0) { x86_word_runtime_call(ctx, "rt_space", 0); }
+        ld_local(ctx, 8 * (slots[index] + 1));
+        let kind: Any = kinds[index];
         e8(ctx, 106); e8(ctx, if (kind == "Bool") { 1 } else if (kind == "Float") { 3 } else { 2 }); // push type
         e8(ctx, 80);                                                         // push rax
         x86_word_runtime_call(ctx, "rt_print1", 2);
-        first = false; arg = arg.next;
+        index += 1;
     }
     x86_word_runtime_call(ctx, "rt_newline", 0);
     xor_eax(ctx);

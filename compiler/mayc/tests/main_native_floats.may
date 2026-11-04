@@ -42,7 +42,9 @@ print(1.5, -0.0, 0.0, inf, -inf);
 print(nan, nan > 1.0, nan >= 1.0, nan < 1.0, nan <= 1.0, nan == nan, nan != nan);
 print(inf > 1.0, inf >= inf, -inf < 0.0, 1.0 / 3.0);
 
-// A native Float function call from the native main.
+// A native Float function call from the native main, including several calls
+// as print arguments: each argument is reified before the box/print helpers
+// run, so a caller-saved temporary cannot be clobbered between them.
 fun poly(x: Float) -> Float {
     mut acc: Float = x;
     mut j: Int = 0;
@@ -50,6 +52,9 @@ fun poly(x: Float) -> Float {
     return acc;
 }
 print(poly(1.0), poly(-2.0));
+print(poly(0.5), poly(1.5), poly(-0.5), poly(2.5), poly(-3.5));
+let base: Float = 2.25;
+print(base, poly(base), base, poly(base) + base, base);
 
 // Integer overflow inside the native main keeps the Int rule.
 let big: Int = 4611686018427387904;
