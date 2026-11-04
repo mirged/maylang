@@ -114,7 +114,8 @@ rule that the checker must establish every argument's type itself:
 
 `**` is admitted only when one operand is a `Float`. `Int ** Int` multiplies
 with overflow faults, and for a negative exponent the runtime returns a `Float`
-although strict typing calls the result `Int`, so it remains unknown. `min` and
+although strict typing calls the result `Int`
+([#140](https://github.com/mirged/maylang/issues/140)), so it remains unknown. `min` and
 `max` with one `Int` and one `Float` argument also remain unknown: they return
 one of the arguments, so the result's type would depend on the values. Strict
 typing gives `pow` a `Float` result, as the runtime always returns one.

@@ -69,15 +69,14 @@ sets (design section 9) cover operators and primitives together.
 
 Decisions (mathematics): `Int ** Int` stays unknown because the runtime returns
 a Float for a negative exponent while strict typing calls the result Int; that
-is a strict-typing soundness gap to fix before admitting it. Mixed `min`/`max`
+is a strict-typing soundness gap ([#140](https://github.com/mirged/maylang/issues/140)) to fix before admitting it. Mixed `min`/`max`
 stay unknown because the result's type depends on the values. `bool` is
 admitted as truthiness, which is `true` for every number, rather than as a
 numeric test.
 
 Active increment: close the scalar fragment. If-expressions and scalar `match`
 need result types the argument check can establish; `cmp` and `clamp` compare
-dynamic values and need accepted types; `Int ** Int` needs the strict-typing
-fix above. After that, dependency step 2 (behavior IR and effect-bearing
+dynamic values and need accepted types; `Int ** Int` needs #140 fixed. After that, dependency step 2 (behavior IR and effect-bearing
 function types) begins.
 
 Ongoing invariant: callable effects must survive every assignment,
