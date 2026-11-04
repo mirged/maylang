@@ -1,0 +1,8 @@
+// Control: the same construction, but the record escapes into a list, so the
+// rewrite must keep the allocation.
+struct Pair { a: Int, b: Int }
+let big: Int = 200000;
+mut kept: Any = [];
+mut i: Int = 0;
+while (i < big) { let p: Pair = Pair(i, 1); push(kept, p); i += 1; }
+print(len(kept));

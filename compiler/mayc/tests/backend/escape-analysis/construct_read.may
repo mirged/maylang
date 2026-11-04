@@ -1,0 +1,8 @@
+// A record constructed and read only through typed field slots in the same
+// straight-line loop body: the shape the escape-analysis rewrite handles.
+struct Pair { a: Int, b: Int }
+let big: Int = 20000000;
+mut sum: Int = 0;
+mut i: Int = 0;
+while (i < big) { let p: Pair = Pair(i, 1); sum += p.a; i += 1; }
+print(sum);

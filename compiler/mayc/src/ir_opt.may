@@ -20,6 +20,12 @@ import "ir.may";
 // - labels after a plain field read that no branch names (the lowering emits a
 //   join label for every get; a plain E_GET never branches to it).
 //
+// The module also carries a report-only caller-side escape analysis of
+// generated struct constructor calls, enabled with the MAYC_ESCAPE_REPORT
+// environment variable (see `ir_opt_escape_scan` and
+// tests/backend/escape-analysis.md). It never rewrites the IR, so a normal
+// compile only pays one environment lookup for it.
+//
 // Every rewrite updates both the quad's arg1/arg2 fields and its payload
 // operands; the backends read operations through the payload (E_BIN keeps
 // left/right there too, E_UN and E_POW only there).
@@ -617,9 +623,538 @@ fun ir_opt_cascade(code: Any, removed: Any, uses: Any) -> Any {
     return 0;
 }
 
+// ------------------------------------------------------------ escape analysis
+//
+// A `struct` constructor is not inlined at its call sites: the parser emits it
+// as a generated function whose body is one `rt_struct_new(n)`, one
+// `rt_struct_set` per entry reading the parameters in declaration order, and a
+// return of the new record (parser.may `parse_struct`). Every record allocation
+// in a program therefore lives in such a constructor function and is returned,
+// so an intraprocedural escape analysis of the constructor body has nothing to
+// prove - the record always "escapes" through the return. The useful question
+// is the caller's: does the record a constructor call returns escape the
+// function that called the constructor?
+//
+// This pass answers that for the exact constructor shape above. A call to it
+// allocates a fresh record that nothing can alias yet, so the caller's IR
+// decides the answer for that call. When every use of the call result is a
+// copy, a local declaration or a typed field read (`E_GET` with a fixed slot)
+// inside the same straight-line block, all after the call, the record provably
+// does not escape the caller, and each such read could be replaced by the
+// call's argument for that field, which the constructor copied into the slot
+// unmodified.
+//
+// The analysis runs only when `MAYC_ESCAPE_REPORT` is set and always leaves the
+// IR untouched; it exists to report what the rewrite could prove. That rewrite
+// (delete the call, the copies that only carried the reference and the field
+// reads, and rewrite each read to the matching argument) was implemented and
+// measured: it is a -98.4% CPU and -93% peak-RSS win on a microbenchmark with
+// the shape, but no suite benchmark and nothing in the compiler image has it,
+// so it was reverted. The numbers and the structural reason are recorded in
+// `compiler/mayc/tests/backend/escape-analysis.md`. Functions with an exception
+// region and raw/native functions are declined by ir_opt_block before this
+// runs, like the other passes.
+//
+// Lists are deliberately not handled: a list is a growable runtime object whose
+// storage the runtime may move and observe even when the reference never leaves
+// the function, so it has no scalar form.
+
+// 0 = not asked yet, 1 = off, 2 = report (MAYC_ESCAPE_REPORT in the environment).
+mut IR_OPT_ESCAPE_MODE: Any = 0;
+// The emitted function record while one block is analysed; main has none.
+mut IR_OPT_SCOPE: Any = 0;
+// Per-program report counters.
+mut IR_OPT_ESC_CTORS: Any = 0;
+mut IR_OPT_ESC_CALLS: Any = 0;
+mut IR_OPT_ESC_CANDIDATES: Any = 0;
+mut IR_OPT_ESC_READS: Any = 0;
+mut IR_OPT_ESC_ESCAPED: Any = 0;
+mut IR_OPT_ESC_RECORDS: Any = 0;
+mut IR_OPT_ESC_LOCAL_RECORDS: Any = 0;
+// Scratch state for one function's escape scan.
+mut ESC_CTORS: Any = {};
+mut ESC_CALLS: Any = 0;
+mut ESC_DEFCOUNT: Any = [];
+mut ESC_DEFPOS: Any = [];
+mut ESC_FIRSTDEF: Any = [];
+mut ESC_FIRSTUSE: Any = [];
+mut ESC_BLOCKOF: Any = [];
+mut ESC_SETS: Any = {};
+mut ESC_ASSIGNED: Any = {};
+mut ESC_CAPTURED: Any = {};
+mut ESC_PARAMS: Any = {};
+mut ESC_BINDS: Any = {};
+mut ESC_OWNER: Any = [];
+mut ESC_CALLPOS: Any = [];
+mut ESC_CALLBLOCK: Any = [];
+mut ESC_KEYS: Any = [];
+mut ESC_DECLINED: Any = [];
+mut ESC_GETS: Any = [];
+
+// Write one report line to stderr. Report text is ASCII, so len is bytes.
+fun ir_opt_escape_write(text: Any) -> Any {
+    syscall(1, 2, addr(text), len(text));
+    return 0;
+}
+
+fun ir_opt_escape_report() -> Bool {
+    if (IR_OPT_ESCAPE_MODE == 0) {
+        let flag: Any = env("MAYC_ESCAPE_REPORT");
+        if (flag == nil or flag == 0 or flag == "") { IR_OPT_ESCAPE_MODE = 1; }
+        else { IR_OPT_ESCAPE_MODE = 2; }
+    }
+    return IR_OPT_ESCAPE_MODE == 2;
+}
+
+// A definition of `value` that is a constant Int equal to `expected`.
+fun ir_opt_escape_int(defPos: Any, defCount: Any, code: Any, value: Any, expected: Any) -> Bool {
+    if (value == 0 or value == nil) { return false; }
+    let pos: Any = defPos[value.slot];
+    if (pos < 0 or defCount[value.slot] != 1) { return false; }
+    let instruction: Any = code[pos];
+    if (instruction.op != E_INT) { return false; }
+    return instruction.extra.value == expected;
+}
+
+// The interned key text of a definition that is a string literal, else 0.
+fun ir_opt_escape_text(defPos: Any, defCount: Any, code: Any, value: Any) -> Any {
+    if (value == 0 or value == nil) { return 0; }
+    let pos: Any = defPos[value.slot];
+    if (pos < 0 or defCount[value.slot] != 1) { return 0; }
+    let instruction: Any = code[pos];
+    if (instruction.op != E_STR) { return 0; }
+    let payload: Any = instruction.extra;
+    if (payload.span == nil or payload.start == nil or payload.length == nil) { return 0; }
+    return symbol_name(payload.span.source + payload.start, payload.length);
+}
+
+// The generated-constructor shape, as [arity, {key text -> parameter index}],
+// or 0 when the function is anything else. The body must be exactly
+// `rt_struct_new(n)` with a constant size, one `rt_struct_set` per parameter
+// reading that parameter in declaration order, and a return of the new record.
+// Names are compared by text, so two copies of the same literal key share the
+// interned object the backend compares (x86_64_fat.may `fat_key`).
+fun ir_opt_ctor_shape(rec: Any) -> Any {
+    let block: Any = rec.ir;
+    if (block == 0 or block == nil) { return 0; }
+    let parr: Any = rec.parr ?? [];
+    let arity: Any = len(parr);
+    let code: Any = block.code;
+    // The lowering evaluates an operation's argument list before the operation,
+    // so the body is: size literal, rt_struct_new, then per field a slot
+    // literal, a key literal, the parameter read and the slot write, and the
+    // return: 4 * arity + 3 instructions.
+    if (arity == 0 or len(code) != 4 * arity + 3) { return 0; }
+    let sizeIns: Any = code[0];
+    let first: Any = code[1];
+    if (sizeIns.op != E_INT or sizeIns.extra.value != arity) { return 0; }
+    if (sizeIns.result == 0 or sizeIns.result == nil) { return 0; }
+    if (first.op != IR_RUNTIME or first.extra != "rt_struct_new") { return 0; }
+    if (first.result == 0 or first.result == nil) { return 0; }
+    if (first.arg1 == 0 or first.arg1.slot != sizeIns.result.slot or first.arg1.next != 0) { return 0; }
+    let allocSlot: Any = first.result.slot;
+    let keys: Any = {};
+    mut i: Any = 0;
+    while (i < arity) {
+        let base: Any = 2 + 4 * i;
+        let slotIns: Any = code[base];
+        let keyIns: Any = code[base + 1];
+        let valueIns: Any = code[base + 2];
+        let set: Any = code[base + 3];
+        if (slotIns.op != E_INT or slotIns.extra.value != i) { return 0; }
+        if (keyIns.op != E_STR) { return 0; }
+        if (valueIns.op != E_VAR) { return 0; }
+        if (set.op != IR_RUNTIME or set.extra != "rt_struct_set") { return 0; }
+        let args: Any = set.arg1;
+        if (args == 0 or args.slot != allocSlot) { return 0; }
+        let slotArg: Any = args.next;
+        if (slotArg == 0 or slotArg.next == 0 or slotArg.next.next == 0 or slotArg.next.next.next != 0) { return 0; }
+        let keyArg: Any = slotArg.next;
+        let valueArg: Any = keyArg.next;
+        if (slotArg.slot != slotIns.result.slot or keyArg.slot != keyIns.result.slot) { return 0; }
+        if (valueArg.slot != valueIns.result.slot) { return 0; }
+        let keyPayload: Any = keyIns.extra;
+        if (keyPayload.span == nil or keyPayload.start == nil or keyPayload.length == nil) { return 0; }
+        let keyText: Any = symbol_name(keyPayload.span.source + keyPayload.start, keyPayload.length);
+        if (keyText == 0 or has(keys, keyText)) { return 0; }
+        let vn: Any = valueIns.extra;
+        if (name_eq(vn.name, vn.length, parr[i].name, parr[i].length) != 1) { return 0; }
+        keys[keyText] = i;
+        i += 1;
+    }
+    let tail: Any = code[4 * arity + 2];
+    if (tail.op != IR_RETURN or tail.arg1 == 0 or tail.arg1.slot != allocSlot) { return 0; }
+    return [arity, keys];
+}
+
+// Calls of the generated constructors in this unit, keyed by symbol name.
+fun ir_opt_constructors(ctx: Any) -> Any {
+    mut ctors: Any = {};
+    for rec: Any in ctx.functions {
+        if (rec.mode == 1 or rec.native == true) { continue; }
+        let shape: Any = ir_opt_ctor_shape(rec);
+        if (shape != 0 and shape != nil) { ctors[symbol_name(rec.p, rec.l)] = shape; }
+    }
+    return ctors;
+}
+
+// Report a function that allocates a record but does not match the
+// generated-constructor shape, with enough of its IR to see why.
+fun ir_opt_escape_dump_miss(rec: Any) -> Any {
+    let code: Any = rec.ir.code;
+    let arity: Any = len(rec.parr ?? []);
+    mut line: Any = "mayc-escape-miss: " + symbol_name(rec.p, rec.l) + " insns=" + str(len(code)) +
+        " arity=" + str(arity) + " native=" + str(rec.native == true);
+    mut i: Any = 0;
+    while (i < len(code) and i < 5) {
+        let instruction: Any = code[i];
+        let n: Any = instruction.extra;
+        mut tag: Any = "";
+        if (instruction.op == IR_RUNTIME) { tag = " runtime=" + n; }
+        line = line + " | op" + str(i) + "=" + str(instruction.op) + tag;
+        i += 1;
+    }
+    ir_opt_escape_write(line + "\n");
+    return 0;
+}
+
+// Count the `rt_struct_new` instructions a block contains (report only).
+fun ir_opt_escape_count_records(block: Any) -> Any {
+    if (block == 0 or block == nil) { return 0; }
+    mut found: Any = 0;
+    for instruction: Any in block.code {
+        if (instruction.op == IR_RUNTIME and instruction.extra == "rt_struct_new") { found += 1; }
+    }
+    return found;
+}
+
+// Does any call in this block name a known generated constructor? Cheap filter
+// so functions with nothing to gain do no allocation work for the analysis.
+fun ir_opt_escape_has_call(block: Any, ctors: Any) -> Bool {
+    for instruction: Any in block.code {
+        if (instruction.op == E_CALL) {
+            let n: Any = instruction.extra;
+            if (has(ctors, symbol_name(n.name, n.length))) { return true; }
+        }
+    }
+    return false;
+}
+
+// Record one operand use of a reference-carrying value. `allowed` 1 marks the
+// positions a reference may pass through without escaping (a copy or a local
+// declaration); anything else is an escape and declines the whole call site.
+fun ir_opt_escape_flag(value: Any, allowed: Any, pos: Any, blockIndex: Any) -> Any {
+    if (value == 0 or value == nil) { return 0; }
+    let slot: Any = value.slot;
+    if (slot < 0 or slot >= len(ESC_OWNER)) { return 0; }
+    let alloc: Any = ESC_OWNER[slot];
+    if (alloc < 0) { return 0; }
+    if (ESC_DECLINED[alloc]) { return 0; }
+    if (allowed == 0) { ESC_DECLINED[alloc] = true; return 0; }
+    if (blockIndex != ESC_CALLBLOCK[alloc] or pos <= ESC_CALLPOS[alloc]) { ESC_DECLINED[alloc] = true; return 0; }
+    return 0;
+}
+
+fun ir_opt_escape_flag_list(values: Any, allowed: Any, pos: Any, blockIndex: Any) -> Any {
+    mut value: Any = values;
+    while (value != 0 and value != nil) {
+        ir_opt_escape_flag(value, allowed, pos, blockIndex);
+        value = value.next;
+    }
+    return 0;
+}
+
+// The key text a field-read site compares, the same text the backend interns
+// (match payload reads carry an address instead of a source span, #134 step 4).
+fun ir_opt_escape_get_text(instruction: Any) -> Any {
+    let n: Any = instruction.extra;
+    if (n.keyAddress != nil and n.keyAddress != 0) { return symbol_name(n.keyAddress, n.keyLength); }
+    if (n.span == nil or n.start == nil or n.length == nil) { return 0; }
+    return symbol_name(n.span.source + n.start, n.length);
+}
+
+// Classify a field read of a reference as the only permitted read shape: a
+// typed fixed-slot read of a field the constructor filled, in the call's block
+// and after the call. A read is pure and total, so every accepted read is also
+// safe to delete once its value is available another way.
+fun ir_opt_escape_get(instruction: Any, pos: Any, blockIndex: Any) -> Any {
+    let n: Any = instruction.extra;
+    let object: Any = n.object;
+    if (object == 0 or object == nil) { return 0; }
+    let slot: Any = object.slot;
+    if (slot < 0 or slot >= len(ESC_OWNER)) { return 0; }
+    let alloc: Any = ESC_OWNER[slot];
+    if (alloc < 0) { return 0; }
+    if (ESC_DECLINED[alloc]) { return 0; }
+    if (blockIndex != ESC_CALLBLOCK[alloc] or pos <= ESC_CALLPOS[alloc]) { ESC_DECLINED[alloc] = true; return 0; }
+    let field: Any = n.field ?? 0;
+    if (field <= 0) { ESC_DECLINED[alloc] = true; return 0; }
+    let keyText: Any = ir_opt_escape_get_text(instruction);
+    if (keyText == 0) { ESC_DECLINED[alloc] = true; return 0; }
+    // Parameter index 0 is a valid value, so only an absent key declines.
+    let index: Any = ESC_KEYS[alloc][keyText];
+    if (index == nil) { ESC_DECLINED[alloc] = true; return 0; }
+    let result: Any = instruction.result;
+    if (result == 0 or result == nil) { ESC_DECLINED[alloc] = true; return 0; }
+    push(ESC_GETS[alloc], [pos, result.slot, index]);
+    return 0;
+}
+
+// Classify every operand position of one instruction (payload form, which is
+// what the backends read; the arg fields duplicate E_BIN/E_POW and are not
+// counted twice).
+fun ir_opt_escape_operands(instruction: Any, pos: Any, blockIndex: Any) -> Any {
+    let op: Any = instruction.op;
+    let n: Any = instruction.extra;
+    if (op == IR_COPY) { ir_opt_escape_flag(instruction.arg1, 1, pos, blockIndex); }
+    else if (op == S_LET) {
+        if (n.global == 1) { ir_opt_escape_flag(n.initializer, 0, pos, blockIndex); }
+        else { ir_opt_escape_flag(n.initializer, 1, pos, blockIndex); }
+    } else if (op == E_GET) { ir_opt_escape_get(instruction, pos, blockIndex); }
+    else if (op == E_CALL) { ir_opt_escape_flag_list(n.args, 0, pos, blockIndex); }
+    else if (op == E_ICALL) {
+        ir_opt_escape_flag(n.callee, 0, pos, blockIndex);
+        ir_opt_escape_flag_list(n.args, 0, pos, blockIndex);
+    } else if (op == E_BIN or op == E_POW) {
+        ir_opt_escape_flag(n.left, 0, pos, blockIndex);
+        ir_opt_escape_flag(n.right, 0, pos, blockIndex);
+    } else if (op == E_UN) { ir_opt_escape_flag(n.operand, 0, pos, blockIndex); }
+    else if (op == E_INDEX or op == S_SETIDX) {
+        ir_opt_escape_flag(n.object, 0, pos, blockIndex);
+        ir_opt_escape_flag(n.index, 0, pos, blockIndex);
+        if (op == S_SETIDX) { ir_opt_escape_flag(n.value, 0, pos, blockIndex); }
+    } else if (op == S_SETPROP) {
+        ir_opt_escape_flag(n.object, 0, pos, blockIndex);
+        ir_opt_escape_flag(n.value, 0, pos, blockIndex);
+    } else if (op == S_ASSIGN or op == S_CASSIGN) { ir_opt_escape_flag(n.value, 0, pos, blockIndex); }
+    else if (op == E_RANGE) {
+        ir_opt_escape_flag(n.start, 0, pos, blockIndex);
+        ir_opt_escape_flag(n.end, 0, pos, blockIndex);
+    } else if (op == IR_RUNTIME or op == IR_TAILCALL) { ir_opt_escape_flag_list(instruction.arg1, 0, pos, blockIndex); }
+    else if (op == IR_BOOL or op == IR_FALSE or op == IR_TRUE or op == IR_ISNIL or op == IR_NONNULL or op == IR_RETURN) {
+        ir_opt_escape_flag(instruction.arg1, 0, pos, blockIndex);
+    }
+    return 0;
+}
+
+// Propagate the record identity forward: a call to a generated constructor
+// starts one, an IR copy of a reference continues it, and an E_VAR read of a
+// local whose only declaration was initialised with one continues it. Only
+// single-definition temps carry an identity, so a slot written more than once
+// (an if/match/loop result) is never mistaken for the same record. When a
+// reference reaches a position the analysis cannot follow (a mutable or
+// reassigned local, a temp with several definitions) the whole call site is
+// declined instead of silently losing the escape; that keeps "candidate" an
+// under-approximation of the non-escaping set.
+fun ir_opt_escape_define(instruction: Any, pos: Any, blockIndex: Any) -> Any {
+    let op: Any = instruction.op;
+    let n: Any = instruction.extra;
+    if (op == S_LET) {
+        if (n.global == 1) { return 0; }
+        let init: Any = n.initializer;
+        if (init == 0 or init == nil) { return 0; }
+        let alloc: Any = ESC_OWNER[init.slot];
+        if (alloc < 0) { return 0; }
+        let name: Any = symbol_name(n.name, n.length);
+        if (ESC_SETS[name] != 1 or has(ESC_ASSIGNED, name) or has(ESC_CAPTURED, name) or has(ESC_PARAMS, name)) {
+            ESC_DECLINED[alloc] = true;
+            return 0;
+        }
+        ESC_BINDS[name] = alloc;
+        return 0;
+    }
+    let result: Any = instruction.result;
+    if (result == 0 or result == nil) { return 0; }
+    let slot: Any = result.slot;
+    if (slot < 0 or slot >= len(ESC_OWNER)) { return 0; }
+    if (op == IR_COPY) {
+        let source: Any = instruction.arg1;
+        if (source == 0 or source == nil) { return 0; }
+        let alloc: Any = ESC_OWNER[source.slot];
+        if (alloc < 0) { return 0; }
+        if (ESC_DEFCOUNT[slot] != 1) {
+            // The lowering snapshots the receiver into a temp before a plain
+            // field read and then overwrites it with the read's value, in the
+            // same straight-line block. When this copy is the first definition
+            // and the overwrite and every reader follow it in that block, the
+            // snapshot is dead and carries the reference nowhere. Two branch
+            // definitions (an if result) or a read crossing a block instead
+            // mean the value is used from whichever path ran: decline.
+            if (ESC_FIRSTDEF[slot] == pos and blockIndex == ESC_BLOCKOF[ESC_DEFPOS[slot]] and
+                (ESC_FIRSTUSE[slot] < 0 or ESC_FIRSTUSE[slot] > ESC_DEFPOS[slot])) {
+                return 0;
+            }
+            ESC_DECLINED[alloc] = true;
+            return 0;
+        }
+        ESC_OWNER[slot] = alloc;
+        return 0;
+    }
+    if (op == E_VAR) {
+        let name: Any = symbol_name(n.name, n.length);
+        let alloc: Any = ESC_BINDS[name];
+        if (alloc == nil) { return 0; }
+        if (alloc < 0) { return 0; }
+        if (ESC_DEFCOUNT[slot] != 1) { ESC_DECLINED[alloc] = true; return 0; }
+        ESC_OWNER[slot] = alloc;
+        return 0;
+    }
+    if (ESC_DEFCOUNT[slot] != 1) { return 0; }
+    if (op == E_CALL) {
+        let name: Any = symbol_name(n.name, n.length);
+        if (has(ESC_SETS, name) or has(ESC_PARAMS, name)) { return 0; }
+        let ctor: Any = ESC_CTORS[name];
+        if (ctor == nil or ctor == 0) { return 0; }
+        // The shape proves the field order only for a full positional call.
+        mut arity: Any = 0;
+        mut arg: Any = n.args;
+        while (arg != 0 and arg != nil) { arity += 1; arg = arg.next; }
+        if (arity != ctor[0]) { return 0; }
+        let alloc: Any = len(ESC_GETS);
+        ESC_OWNER[slot] = alloc;
+        push(ESC_CALLPOS, pos);
+        push(ESC_CALLBLOCK, blockIndex);
+        push(ESC_KEYS, ctor[1]);
+        push(ESC_DECLINED, false);
+        push(ESC_GETS, []);
+        ESC_CALLS = ESC_CALLS + 1;
+        return 0;
+    }
+    return 0;
+}
+
+// Scan one fat IR block for generated-constructor calls whose result stays
+// local, and count the field reads a scalar replacement could take over.
+// Returns [calls, candidates, reads, escaped, candidate positions]. The
+// rewrite itself was measured
+// and reverted (compiler/mayc/tests/backend/escape-analysis.md): it is a -98%
+// win on code that has the shape, but no benchmark in the suite and nothing in
+// the compiler image does.
+fun ir_opt_escape_scan(block: Any, ctors: Any) -> Any {
+    let result: Any = [0, 0, 0, 0, []];
+    if (block == 0 or block == nil) { return result; }
+    if (not ir_opt_escape_has_call(block, ctors)) { return result; }
+    let code: Any = block.code;
+    let count: Any = len(code);
+    let temps: Any = block.temporaries;
+    let defCount: Any = ir_opt_zeroes(temps, 0);
+    let defPos: Any = ir_opt_zeroes(temps, -1);
+    let firstDef: Any = ir_opt_zeroes(temps, -1);
+    let setCount: Any = {};
+    let assigned: Any = {};
+    let captured: Any = {};
+    let params: Any = {};
+    let scope: Any = IR_OPT_SCOPE;
+    if (scope != 0 and scope != nil) {
+        let parr: Any = scope.parr ?? [];
+        let boxed: Any = scope.boxed ?? [];
+        for p: Any in parr { params[symbol_name(p.name, p.length)] = true; }
+        for b: Any in boxed { if (b != 0 and b != nil) { params[symbol_name(b[0], b[1])] = true; } }
+    }
+    mut position: Any = 0;
+    for instruction: Any in code {
+        let op: Any = instruction.op;
+        let n: Any = instruction.extra;
+        let res: Any = instruction.result;
+        if (res != 0 and res != nil) {
+            if (defCount[res.slot] == 0) { firstDef[res.slot] = position; }
+            defCount[res.slot] = defCount[res.slot] + 1;
+            defPos[res.slot] = position;
+        }
+        if (op == S_LET) {
+            let name: Any = symbol_name(n.name, n.length);
+            setCount[name] = (setCount[name] ?? 0) + 1;
+        } else if (op == S_ASSIGN) { assigned[symbol_name(n.name, n.length)] = true; }
+        else if (op == E_CLOSURE) {
+            mut capture: Any = n.captures;
+            while (capture != 0 and capture != nil) {
+                captured[symbol_name(capture.name, capture.length)] = true;
+                capture = capture.next;
+            }
+        }
+        position += 1;
+    }
+    let targets: Any = ir_opt_targets(code);
+    let blocks: Any = ir_opt_blocks(code, targets);
+    let blockOf: Any = ir_opt_zeroes(count, 0);
+    mut b: Any = 0;
+    for entry: Any in blocks {
+        mut p: Any = entry[0];
+        while (p < entry[1]) { blockOf[p] = b; p += 1; }
+        b += 1;
+    }
+    // Use positions of the read results: a replaced value must be reachable
+    // where the alias rewrite runs, so every use must share the read's block.
+    let uses: Any = ir_opt_zeroes(temps, 0);
+    let scanDefs: Any = ir_opt_zeroes(temps, 0);
+    let firstUse: Any = ir_opt_zeroes(temps, -1);
+    let lastUse: Any = ir_opt_zeroes(temps, -1);
+    ir_opt_scan(code, uses, scanDefs, firstUse, lastUse);
+    ESC_CTORS = ctors;
+    ESC_DEFCOUNT = defCount;
+    ESC_DEFPOS = defPos;
+    ESC_FIRSTDEF = firstDef;
+    ESC_FIRSTUSE = firstUse;
+    ESC_BLOCKOF = blockOf;
+    ESC_SETS = setCount;
+    ESC_ASSIGNED = assigned;
+    ESC_CAPTURED = captured;
+    ESC_PARAMS = params;
+    ESC_BINDS = {};
+    ESC_OWNER = ir_opt_zeroes(temps, -1);
+    ESC_CALLPOS = [];
+    ESC_CALLBLOCK = [];
+    ESC_KEYS = [];
+    ESC_DECLINED = [];
+    ESC_GETS = [];
+    ESC_CALLS = 0;
+    position = 0;
+    for instruction: Any in code {
+        let blockIndex: Any = blockOf[position];
+        ir_opt_escape_operands(instruction, position, blockIndex);
+        ir_opt_escape_define(instruction, position, blockIndex);
+        position += 1;
+    }
+    let allocs: Any = len(ESC_GETS);
+    // A read result used outside its block cannot be rewritten by deleting the
+    // read and aliasing the slot, so such a site is not a candidate.
+    mut check: Any = 0;
+    while (check < allocs) {
+        if (not ESC_DECLINED[check]) {
+            let gets: Any = ESC_GETS[check];
+            mut g: Any = 0;
+            while (g < len(gets)) {
+                let entry: Any = gets[g];
+                let slot: Any = entry[1];
+                if (uses[slot] > 0) {
+                    let readBlock: Any = blockOf[entry[0]];
+                    if (blockOf[firstUse[slot]] != readBlock or blockOf[lastUse[slot]] != readBlock) {
+                        ESC_DECLINED[check] = true;
+                    }
+                }
+                g += 1;
+            }
+        }
+        check += 1;
+    }
+    mut a0: Any = 0;
+    while (a0 < allocs) {
+        if (ESC_DECLINED[a0]) {
+            result[3] = result[3] + 1;
+        } else {
+            result[1] = result[1] + 1;
+            result[2] = result[2] + len(ESC_GETS[a0]);
+            push(result[4], ESC_CALLPOS[a0]);
+        }
+        a0 += 1;
+    }
+    result[0] = ESC_CALLS;
+    return result;
+}
+
 // -------------------------------------------------------------------- entry
 
-fun ir_opt_block(block: Any) -> Any {
+fun ir_opt_block(block: Any, ctors: Any) -> Any {
     if (NO_OPT) { return 0; }
     if (block == 0 or block == nil) { return 0; }
     let code: Any = block.code;
@@ -628,6 +1163,25 @@ fun ir_opt_block(block: Any) -> Any {
     for instruction: Any in code {
         if (instruction.op == IR_TRY_BEGIN) { return 0; }
         if (not ir_opt_known_op(instruction.op)) { return 0; }
+    }
+    // Report-only escape analysis: the caller-side question of whether a
+    // generated-constructor result escapes. It never rewrites the IR, so it
+    // runs only when the report is asked for and the default compile pays a
+    // single environment lookup.
+    if (ctors != 0 and ctors != nil and len(ctors) > 0) {
+        let esc: Any = ir_opt_escape_scan(block, ctors);
+        IR_OPT_ESC_CALLS = IR_OPT_ESC_CALLS + esc[0];
+        IR_OPT_ESC_CANDIDATES = IR_OPT_ESC_CANDIDATES + esc[1];
+        IR_OPT_ESC_READS = IR_OPT_ESC_READS + esc[2];
+        IR_OPT_ESC_ESCAPED = IR_OPT_ESC_ESCAPED + esc[3];
+        if (esc[0] > 0) {
+            let scope: Any = IR_OPT_SCOPE;
+            mut fname: Any = "main";
+            if (scope != 0 and scope != nil) { fname = symbol_name(scope.p, scope.l); }
+            ir_opt_escape_write("mayc-escape-fn: " + fname + " calls=" + str(esc[0]) +
+                " candidates=" + str(esc[1]) + " reads=" + str(esc[2]) +
+                " escaped=" + str(esc[3]) + " sites=" + str(esc[4]) + "\n");
+        }
     }
     let temps: Any = block.temporaries;
     let uses: Any = ir_opt_zeroes(temps, 0);
@@ -700,9 +1254,48 @@ fun ir_opt_block(block: Any) -> Any {
 // native-word functions keep the raw backend's own passes.
 fun ir_opt_program(ctx: Any) -> Any {
     if (NO_OPT or DYNMODE != 1) { return 0; }
-    ir_opt_block(ctx.mainIR);
+    // The escape analysis is report-only, so a normal compile pays just this
+    // environment lookup and passes an empty constructor table.
+    let report: Any = ir_opt_escape_report();
+    mut ctors: Any = {};
+    if (report) {
+        ctors = ir_opt_constructors(ctx);
+        IR_OPT_ESC_CTORS = len(ctors);
+        IR_OPT_ESC_CALLS = 0;
+        IR_OPT_ESC_CANDIDATES = 0;
+        IR_OPT_ESC_READS = 0;
+        IR_OPT_ESC_ESCAPED = 0;
+        IR_OPT_ESC_RECORDS = 0;
+        IR_OPT_ESC_LOCAL_RECORDS = 0;
+        for rec: Any in ctx.functions {
+            if (rec.mode == 1 or rec.native == true) { continue; }
+            let shape: Any = ir_opt_ctor_shape(rec);
+            if (shape != 0 and shape != nil) {
+                IR_OPT_ESC_RECORDS = IR_OPT_ESC_RECORDS + 1;
+            } else {
+                let found: Any = ir_opt_escape_count_records(rec.ir);
+                IR_OPT_ESC_LOCAL_RECORDS = IR_OPT_ESC_LOCAL_RECORDS + found;
+                if (found > 0) { ir_opt_escape_dump_miss(rec); }
+            }
+        }
+        // `main` has no function record, so a record built there is counted too.
+        IR_OPT_ESC_LOCAL_RECORDS = IR_OPT_ESC_LOCAL_RECORDS + ir_opt_escape_count_records(ctx.mainIR);
+    }
+    IR_OPT_SCOPE = 0;
+    ir_opt_block(ctx.mainIR, ctors);
     for rec: Any in ctx.functions {
-        if (rec.mode != 1 and rec.native != true) { ir_opt_block(rec.ir); }
+        if (rec.mode != 1 and rec.native != true) {
+            IR_OPT_SCOPE = rec;
+            ir_opt_block(rec.ir, ctors);
+        }
+    }
+    IR_OPT_SCOPE = 0;
+    if (report) {
+        ir_opt_escape_write("mayc-escape: constructors=" + str(IR_OPT_ESC_CTORS) +
+            " calls=" + str(IR_OPT_ESC_CALLS) + " candidates=" + str(IR_OPT_ESC_CANDIDATES) +
+            " reads=" + str(IR_OPT_ESC_READS) +
+            " escaped=" + str(IR_OPT_ESC_ESCAPED) + " record_allocs=" + str(IR_OPT_ESC_RECORDS) +
+            " local_record_allocs=" + str(IR_OPT_ESC_LOCAL_RECORDS) + "\n");
     }
     return 0;
 }
