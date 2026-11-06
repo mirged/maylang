@@ -7,6 +7,8 @@ mut DIAGNOSTIC_SPAN: Any = 0;
 mut DIAGNOSTIC_FORMAT: Any = "text";
 mut DIAGNOSTIC_STAGE: Any = "frontend";
 mut DIAGNOSTICS: Any = [];
+// 1 when text diagnostics may use ANSI colors (a terminal, or --color always).
+mut DIAGNOSTIC_COLOR: Any = 0;
 
 fun diagnostic_record(span: Any, message: Any) -> Any {
     if (span == 0) { return {"severity": "error", "code": "E_FRONTEND", "stage": DIAGNOSTIC_STAGE, "message": message, "file": nil, "range": nil}; }
@@ -72,7 +74,11 @@ fun diagnostic(span: Any, message: Any) -> Any {
     return 0;
 }
 
-fun format_diagnostic(span: Any, message: Any) -> Any {
+fun format_diagnostic(span: Any, message: Any, code: Any) -> Any {
+    let esc: Any = chr(27);
+    let bold: Any = if (DIAGNOSTIC_COLOR == 1) { esc + "[1m" } else { "" };
+    let red: Any = if (DIAGNOSTIC_COLOR == 1) { esc + "[31m" } else { "" };
+    let reset: Any = if (DIAGNOSTIC_COLOR == 1) { esc + "[0m" } else { "" };
     if (span == 0) { return "mayc: ${message}\n"; }
     mut path: Any = "<source>";
     mut lineNumber: Any = span.line;
@@ -109,7 +115,7 @@ fun format_diagnostic(span: Any, message: Any) -> Any {
     if (width > 40) { width = 40; }
     i = 0;
     while (i < width) { pointer = pointer + "^"; i = i + 1; }
-    return "${path}:${lineNumber}:${span.col}: ${message}\n${lineText}\n${pointer}\n";
+    return "${bold}${path}:${lineNumber}:${span.col}:${reset} ${red}error[${code}]:${reset} ${message}\n${lineText}\n${red}${pointer}${reset}\n";
 }
 
 fun report_diagnostic(message: Any) -> Any {
@@ -124,6 +130,6 @@ fun report_diagnostic(message: Any) -> Any {
         die_str(json_stringify({"schema_version": 1, "diagnostics": records}) + "\n");
     }
     mut text: Any = "";
-    for record: Any in DIAGNOSTICS { text = text + format_diagnostic(record.span ?? 0, record.message); }
+    for record: Any in DIAGNOSTICS { text = text + format_diagnostic(record.span ?? 0, record.message, record.code); }
     die_str(text); return 0;
 }

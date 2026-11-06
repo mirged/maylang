@@ -108,20 +108,37 @@ This release supports local dependencies, with no central package registry.
 ## Commands
 
 - `may tasks`: inspect named targets and prerequisites.
+- `may list [--json]`: list targets with their kind, default marker, prerequisites
+  and entry/root/command; `--json` is stable for scripts.
+- `may which [TARGET] [--build] [--json]`: print the artifact path a target
+  would use without compiling anything (exit 1 until it is built), or build it
+  first with `--build`.
 - `may build [TARGET] [--all] [--profile NAME]`: populate verified artifacts.
 - `may run [TARGET] -- ARGS`: build prerequisites and run an application.
-- `may test [GROUP]`: run all groups or one selected group.
+- `may test [GROUP] [--filter PATTERN] [--list]`: run all groups or one selected
+  group, optionally only test files whose path contains `PATTERN`; `--list`
+  prints the discovered `.test.may` files without compiling.
 - `may check [TARGET] [--all]`: compiler syntax/type/name checks.
 - `may fmt [--check]`: shared CLI/editor formatting for workspace sources.
 - `may dev [TARGET] -- ARGS`: watch declared inputs and restart after a complete
   successful build; a failed edit leaves the previous application running.
   The replaced application's process group gets SIGTERM and two seconds to
   exit before SIGKILL, so a program that ignores SIGTERM cannot stall reloads.
-- `may doctor`: show workspace, compiler, stdlib, profile and compiler version.
+- `may doctor [--json]`: show workspace, compiler, version, stdlib, profile,
+  store and dependency-lock status; `--json` is stable for bug reports.
+- `may version [--json]`: report the runner schema and the selected compiler
+  and stdlib.
 - `may lock`: refresh explicitly declared local dependency pins.
 - `may clean`: remove `.may/`, preserving source and configuration.
 - `may migrate`: create `may.json` from the current directory's `mayproj.json`,
   preserving the original; translate dependency declarations to local paths.
+
+Global options work before or after the command and are removed from the
+argument list: `-C DIR`/`--directory DIR` runs as if started in `DIR`
+(`--directory=DIR` also works), `-q`/`--quiet` reports failures only, and
+`-v`/`--verbose` adds the exact compiler/recipe command and per-target build
+time. Everything after `--` belongs to the program, so `may run -- -v` passes
+`-v` through instead of consuming it.
 
 Run from any workspace subdirectory. Use `--profile release` for builds without
 the default development traces.

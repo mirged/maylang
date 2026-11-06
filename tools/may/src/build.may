@@ -7,6 +7,14 @@ pub fun log(message: Str) -> Nil {
     let line: Str = message + "\n";
     syscall(1, 2, addr(line), load64(addr(line) - 8)); return;
 }
+/// How much the runner reports: 0 quiet, 1 normal, 2 verbose.
+mut VERBOSITY: Int = 1;
+/// Set the runner's reporting level (0 quiet, 1 normal, 2 verbose).
+pub fun verbosity(level: Int) -> Nil { VERBOSITY = level; return; }
+/// A normal-progress message; hidden by --quiet.
+pub fun info(message: Str) -> Nil { if (VERBOSITY >= 1) { log(message); } return; }
+/// A verbose-only message (commands and timings); shown by --verbose.
+pub fun detail(message: Str) -> Nil { if (VERBOSITY >= 2) { log(message); } return; }
 pub fun acquire(ws: workspace.Workspace) -> Int {
     fs.mkdirs(ws.root + "/.may");
     let descriptor: Int = syscall(2, cstr(ws.root + "/.may/build.lock"), 524354, 384);
@@ -93,7 +101,10 @@ fun profile_flags(ws: workspace.Workspace) -> List<Str> {
     return (ws.config.profiles[ws.profile] ?? workspace.Profile(none)).flags;
 }
 mut STAGE_COUNTER: Int = 0;
-pub fun artifact(ws: workspace.Workspace, name: Str, spec: workspace.TargetSpec, entry: Str) -> workspace.Artifact {
+/// A target's cache identity: store key, directory and declared outputs.
+pub struct Identity { key: Str, directory: Str, outputs: List<Str> }
+/// Hash the inputs and configuration that decide `name`'s artifact.
+fun identity(ws: workspace.Workspace, name: Str, spec: workspace.TargetSpec, entry: Str) -> Identity {
     let inputs: List<Str> = input_files(ws, spec, entry);
     let dependencies: Map<Str, Str> = {};
     for dependency: Str in spec.depends { dependencies[dependency] = workspace.built_of(ws, dependency).key; }
@@ -104,10 +115,16 @@ pub fun artifact(ws: workspace.Workspace, name: Str, spec: workspace.TargetSpec,
         "flags": profile_flags(ws), "dependencies": dependencies, "modules": ws.module_paths,
         "environment": environment});
     let key: Str = workspace.digest(ws, inputs, salt);
-    let directory: Str = ws.root + "/.may/store/" + key;
     let outputs: List<Str> = if (entry != "") { [name] } else { spec.outputs };
+    return Identity(key, ws.root + "/.may/store/" + key, outputs);
+}
+pub fun artifact(ws: workspace.Workspace, name: Str, spec: workspace.TargetSpec, entry: Str) -> workspace.Artifact {
+    let plan: Identity = identity(ws, name, spec, entry);
+    let key: Str = plan.key;
+    let directory: Str = plan.directory;
+    let outputs: List<Str> = plan.outputs;
     if (cache_valid(ws, directory, outputs, entry != "")) {
-        log("cached " + name + " (" + substring(key, 0, 12) + ")");
+        info("cached " + name + " (" + substring(key, 0, 12) + ")");
         return workspace.Artifact(directory, key, outputs, spec.kind);
     }
     STAGE_COUNTER += 1;
@@ -121,13 +138,15 @@ pub fun artifact(ws: workspace.Workspace, name: Str, spec: workspace.TargetSpec,
         for flag: Str in spec.flags { push(command, flag); }
         push(command, entry); push(command, "-o"); push(command, stage + "/" + name);
     } else { for argument: Str in spec.command { push(command, substitute(ws, argument, stage)); } }
-    log("build " + name);
+    detail("run " + join(command, " "));
+    info("build " + name);
+    let started: Float = clock();
     let status: Int = proc.run(command, ws.root, variables(ws));
     if (status != 0) {
         proc.run(["rm", "-rf", "--", stage], ws.root, []);
         fail("may: build failed for " + name + " (status " + str(status) + ")");
     }
-    if (workspace.digest(ws, inputs, salt) != key) {
+    if (identity(ws, name, spec, entry).key != key) {
         proc.run(["rm", "-rf", "--", stage], ws.root, []);
         fail("may: inputs changed while building " + name + "; retry the build");
     }
@@ -148,7 +167,30 @@ pub fun artifact(ws: workspace.Workspace, name: Str, spec: workspace.TargetSpec,
         if (syscall(82, cstr(directory), cstr(directory + ".corrupt-" + str(syscall(39)))) != 0) { fail("may: cannot quarantine damaged cache artifact"); }
     }
     if (syscall(82, cstr(stage), cstr(directory)) != 0) { fail("may: cannot publish completed artifact"); }
+    detail("built " + name + " in " + str(trunc((clock() - started) * 1000.0 + 0.5)) + " ms");
     return workspace.Artifact(directory, key, outputs, spec.kind);
+}
+/// The artifact `name` would have, computed without running any command.
+pub fun describe(ws: workspace.Workspace, name: Str) -> workspace.Artifact {
+    if (not has(ws.config.targets, name)) { fail("may: unknown target: " + name); }
+    return describe_target(ws, name, []);
+}
+fun describe_target(ws: workspace.Workspace, name: Str, stack: List<Str>) -> workspace.Artifact {
+    if (has(ws.built, name)) { return workspace.built_of(ws, name); }
+    if (has(stack, name)) { fail("may: target cycle: " + join(stack + [name], " -> ")); }
+    let spec: workspace.TargetSpec = workspace.spec_of(ws, name);
+    if (spec.kind == "test") { fail("may: which does not predict test artifacts; use may test --list"); }
+    push(stack, name);
+    for dependency: Str in spec.depends { describe_target(ws, dependency, stack); }
+    let none: List<Str> = [];
+    if (spec.kind == "task") { ws.built[name] = workspace.Artifact(ws.root, "task:" + name, none, "task"); }
+    else {
+        let entry: Str = if (spec.kind == "app") { workspace.absolute(ws.root, spec.entry) } else { "" };
+        let plan: Identity = identity(ws, name, spec, entry);
+        ws.built[name] = workspace.Artifact(plan.directory, plan.key, plan.outputs, spec.kind);
+    }
+    pop(stack);
+    return workspace.built_of(ws, name);
 }
 pub fun target(ws: workspace.Workspace, name: Str) -> workspace.Artifact {
     if (not has(ws.config.targets, name)) { fail("may: unknown target: " + name); }
@@ -170,12 +212,21 @@ pub fun target(ws: workspace.Workspace, name: Str) -> workspace.Artifact {
     }
     pop(ws.visiting); return workspace.built_of(ws, name);
 }
-pub fun tests(ws: workspace.Workspace, name: Str) -> Int {
+/// The `.test.may` files a test group discovers.
+pub fun test_files(ws: workspace.Workspace, name: Str) -> List<Str> {
+    let spec: workspace.TargetSpec = workspace.spec_of(ws, name);
+    let found: List<Str> = [];
+    for path: Str in workspace.files(workspace.absolute(ws.root, spec.root)) {
+        if (ends_with(path, ".test.may")) { push(found, path); }
+    }
+    return found;
+}
+pub fun tests(ws: workspace.Workspace, name: Str, filter: Str) -> Int {
     let spec: workspace.TargetSpec = workspace.spec_of(ws, name);
     for dependency: Str in spec.depends { target(ws, dependency); }
     mut passed: Int = 0; mut failed: Int = 0;
-    for path: Str in workspace.files(workspace.absolute(ws.root, spec.root)) {
-        if (not ends_with(path, ".test.may")) { continue; }
+    for path: Str in test_files(ws, name) {
+        if (filter != "" and not contains(path, filter)) { continue; }
         let label: Str = replace(fs.basename(path), ".may", "");
         let result: Bool = may {
             let compiled: workspace.Artifact = artifact(ws, label, spec, path);
@@ -184,7 +235,10 @@ pub fun tests(ws: workspace.Workspace, name: Str) -> Int {
         if (result) { passed += 1; print("PASS", fs.basename(path)); }
         else { failed += 1; print("FAIL", fs.basename(path)); }
     }
-    if (passed + failed == 0) { fail("may: no .test.may files in " + spec.root); }
+    if (passed + failed == 0) {
+        if (filter != "") { fail("may: no .test.may files match " + filter + " in " + spec.root); }
+        fail("may: no .test.may files in " + spec.root);
+    }
     print("tests:", passed, "passed,", failed, "failed");
     return if (failed == 0) { 0 } else { 1 };
 }

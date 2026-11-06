@@ -46,6 +46,43 @@ with tempfile.TemporaryDirectory(prefix='may-workspace-tests-') as directory:
     invoke(binary, project, 'test')
     invoke(binary, project, 'check', '--all')
     invoke(binary, project, 'doctor')
+    # Command surface: discovery, machine-readable output, artifact paths, test
+    # filtering, global options and reporting levels.
+    listing = invoke(binary, project, 'list')
+    assert b'app' in listing.stdout and b'tests' in listing.stdout, listing.stdout
+    rows = json.loads(invoke(binary, project, 'list', '--json').stdout)
+    assert rows['default'] == 'app' and [row['name'] for row in rows['targets']] == ['app', 'tests']
+    assert rows['targets'][0]['default'] is True and rows['targets'][0]['detail'] == 'src/main.may'
+    detached = json.loads(invoke(binary, work, '-C', str(project), 'list', '--json').stdout)
+    assert detached['root'] == str(project), detached
+    assert json.loads(invoke(binary, work, 'list', '-C', str(project), '--json').stdout)['name'] == project.name
+    assert json.loads(invoke(binary, work, '--directory=' + str(project), 'version', '--json').stdout)['root'] == str(project)
+    identity = json.loads(invoke(binary, project, 'version', '--json').stdout)
+    assert identity['compiler_version'].startswith('mayc ') and identity['workspace_schema'] == 1, identity
+    doctor = json.loads(invoke(binary, project, 'doctor', '--json').stdout)
+    assert doctor['compiler_ok'] is True and doctor['dependencies'] == 'none' and doctor['profile'] == 'dev', doctor
+    fresh = work / 'predicted'
+    invoke(binary, work, 'new', str(fresh))
+    missing = invoke(binary, fresh, 'which', ok=False)
+    predicted = Path(missing.stdout.decode().strip())
+    assert not predicted.exists() and b'not built' in missing.stderr, (missing.stdout, missing.stderr)
+    built = json.loads(invoke(binary, fresh, 'which', '--build', '--json').stdout)
+    assert built['exists'] is True and built['path'] == str(predicted), built
+    assert json.loads(invoke(binary, fresh, 'which', '--json').stdout)['key'] == built['key']
+    listed = invoke(binary, project, 'test', '--list')
+    assert b'smoke.test.may' in listed.stdout, listed.stdout
+    assert b'PASS' in invoke(binary, project, 'test', '--filter', 'smoke').stdout
+    assert b'no .test.may files match' in invoke(binary, project, 'test', '--filter', 'absent', ok=False).stderr
+    (project / 'src/main.may').write_text('print(7);\n')
+    quiet = invoke(binary, project, 'build', '--quiet')
+    assert quiet.stderr == b'', quiet.stderr
+    assert b'cached app' in invoke(binary, project, 'build', '--verbose').stderr
+    (project / 'src/main.may').write_text('print(8);\n')
+    verbose = invoke(binary, project, 'build', '-v')
+    assert b'run ' in verbose.stderr and b'build app' in verbose.stderr and b' ms' in verbose.stderr, verbose.stderr
+    (project / 'src/main.may').write_text('let argv: List<Str> = args();\nprint(argv[1]);\n')
+    assert invoke(binary, project, 'run', '--', '-v').stdout.strip() == b'-v'
+    print('PASS list/version/doctor JSON, which, test filtering, -C and quiet/verbose reporting', flush=True)
     (project / 'src/main.may').write_text('let argv: List<Str> = args(); print(argv[1]);\n')
     argument = 'literal ; $(touch SHOULD_NOT_EXIST) `text` " λ'
     assert invoke(binary, project, 'run', '--', argument).stdout.decode().strip() == argument

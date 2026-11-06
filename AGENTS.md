@@ -99,9 +99,11 @@ that span components. Relative imports between siblings use
   `build/dev/env.sh` (sets `PATH`, `MAYC`, `MAYLANG_STDLIB`). `make tools`
   rebuilds only the tools with `$(MAYC)`.
 - Useful compiler flags: `--check` (parse, type and name checks with no output),
-  `--dump-expanded` (source after import expansion), `--time` (stage timings),
-  `--diagnostics json`, `--debug` (source traces), `--legacy` (untyped mode),
-  `--runtime full|none`, and `--raw`. `--target x86_64-linux` is accepted;
+  `run SRC [-- ARGS]` (compile to a private temporary executable and run it),
+  `-O0`/`-O2` (no optional passes / inliner), `--deps FILE` (Make depfile),
+  `--color auto|always|never`, `--dump-expanded` (source after import
+  expansion), `--time` (stage timings), `--diagnostics json`, `--debug` (source
+  traces), `--legacy` (untyped mode), `--runtime full|none`, and `--raw`. `--target x86_64-linux` is accepted;
   other targets and `--runtime core` are rejected as unsupported. See
   [compiler/mayc/README.md](compiler/mayc/README.md).
 - **A failed compile leaves any previous output file in place** (deliberately,
@@ -295,7 +297,8 @@ and [stdlib contracts](stdlib/CONTRACTS.md) are authoritative. In short:
 - Build `may` with `compiler/mayc/mayc_new tools/may/main.may -o /tmp/may` and
   `export MAYC="$PWD/compiler/mayc/mayc_new"`, or use `build/dev/bin/may` after
   `make build`. Useful commands: `may run -- ARGS`, `may build TARGET`,
-  `may test`, `may check`, `may tasks`, `may clean`.
+  `may test [--filter PATTERN] [--list]`, `may check`, `may list [--json]`,
+  `may which TARGET`, `may tasks`, `may doctor [--json]`, `may clean`.
 - Multi-file projects keep the entry point and manifest at the root, modules
   in `src/`, tests in `tests/` and outputs in `build/` or `.may/`. Link new
   projects from `examples/README.md` and `docs/reference/EXAMPLES.md`.
