@@ -15,15 +15,23 @@ first build. Later invocations use the generated native compiler in
 ```sh
 compiler/mayc/mayc_new --help
 compiler/mayc/mayc_new examples/hello.may
-compiler/mayc/mayc_new --check examples/strict.may
+compiler/mayc/mayc_new run examples/hello.may
+compiler/mayc/mayc_new check examples/strict.may
 compiler/mayc/mayc_new examples/strict.may --output /tmp/strict-example
 compiler/mayc/mayc_new --dump-expanded examples/strict.may
 ```
 
 When `-o`/`--output` is omitted, mayc writes an executable alongside the source
 with the final `.may` suffix removed. If the source has another suffix, `.out`
-is appended. `--check` performs import expansion, parsing, strict type checking
-and name resolution without writing an executable. `--legacy` opts into
+is appended. `mayc run <source> [-- ARGS...]` compiles to a private temporary
+executable, runs it with the arguments after `--` and exits with its status;
+`-o` keeps the executable. `mayc check <source>` is the subcommand form of
+`--check`, which performs import expansion, parsing, strict type checking
+and name resolution without writing an executable. `-O0` disables the optional
+backend passes, `-O1` is the default and `-O2` enables the inliner.
+`--deps FILE` writes a Make-style dependency file naming the produced binary,
+imports, compiler and runtime sidecars. `--color auto|always|never` colors text
+diagnostics, which carry an `error[E_STAGE]` code. `--legacy` opts into
 dynamic legacy checking; `--strict` restores strict checking (the default).
 `--raw` omits the runtime and standard libraries. It aligns function
 bodies and loop heads to 16 bytes with NOP padding; `--no-code-align` turns that

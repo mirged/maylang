@@ -53,9 +53,37 @@ fun path_next(a0: Any, a0l: Any, np: Any, nl: Any) -> Any {
     return rp;
 }
 
+// Resolved runtime and library files, recorded so --deps can name them.
+mut SIDECAR_FILES: Any = [];
+// Offset where the user's own sources start in the expanded program.
+mut DEPFILE_USER_START: Any = 0;
+// The private directory `mayc run` created, removed if compilation fails.
+mut RUN_SCRATCH: Any = "";
+
+fun note_sidecar_range(pointer: Any, length: Any) -> Any {
+    let text: Any = symbol_name(pointer, length);
+    if (not has(SIDECAR_FILES, text)) { push(SIDECAR_FILES, text); }
+    return 0;
+}
+
+fun note_sidecar(path: Any) -> Any {
+    mut count: Any = 0;
+    while (load8(path + count) != 0) { count += 1; }
+    return note_sidecar_range(path, count);
+}
+
 fun side_slurp(a0: Any, a0l: Any, np: Any, nl: Any) -> Any {
     let rp: Any = path_next(a0, a0l, np, nl);
-    return slurp(rp, 0);
+    let text: Any = slurp(rp, 0);
+    if (LASTLEN > 0) { note_sidecar(rp); }
+    return text;
+}
+
+// Read a checkout-relative sidecar and record it when it exists.
+fun side_cwd(path: Any) -> Any {
+    let text: Any = slurp(addr(path), len(path));
+    if (LASTLEN > 0) { note_sidecar_range(addr(path), len(path)); }
+    return text;
 }
 
 // --------------------------------------------------- File Resolvers (Multi-Tier)
@@ -72,7 +100,7 @@ fun load_prelude(a0: Any, a0l: Any) -> Any {
 
     // 3. Current working directory (a checkout root)
     let cwd_rel: Any = "stdlib/prelude.may";
-    return slurp(addr(cwd_rel), len(cwd_rel));
+    return side_cwd(cwd_rel);
 }
 
 fun load_native(a0: Any, a0l: Any) -> Any {
@@ -87,7 +115,7 @@ fun load_native(a0: Any, a0l: Any) -> Any {
 
     // 3. Current working directory (a checkout root)
     let cwd_rel: Any = "compiler/mayc/native.may";
-    return slurp(addr(cwd_rel), len(cwd_rel));
+    return side_cwd(cwd_rel);
 }
 
 fun load_math(a0: Any, a0l: Any) -> Any {
@@ -103,7 +131,7 @@ fun load_math(a0: Any, a0l: Any) -> Any {
 
     // 3. Current working directory (a checkout root)
     let cwd_rel: Any = "compiler/mayc/runtime/math.may";
-    let m3: Any = slurp(addr(cwd_rel), len(cwd_rel));
+    let m3: Any = side_cwd(cwd_rel);
     if (LASTLEN == 0) { die_str("mayc: cannot find runtime/math.may\n"); }
     return m3;
 }
@@ -154,10 +182,56 @@ fun load_core(a0: Any, a0l: Any, file: Any) -> Any {
     return source;
 }
 
+// ------------------------------------------------------------- Dependency file
+
+// Escape one path for a Make dependency line.
+fun depfile_escape(value: Any) -> Any {
+    mut result: Any = "";
+    for c: Any in chars(value) {
+        if (c == "\\" or c == " " or c == "#") { result = result + "\\" + c; }
+        else if (c == "$") { result = result + "$$"; }
+        else { result = result + c; }
+    }
+    return result;
+}
+
+// Write `target: sources...` for the expanded imports and every sidecar the
+// compiler actually read.
+fun depfile_write(entry: Any, target: Any, path: Any) -> Any {
+    let candidates: Any = [entry];
+    for file: Any in SIDECAR_FILES { push(candidates, file); }
+    for origin: Any in SOURCE_FILES[SRC].origins {
+        if (origin.start >= DEPFILE_USER_START) { push(candidates, origin.path); }
+    }
+    let seen: Any = {};
+    let items: Any = [];
+    for item: Any in candidates {
+        if (item == "" or has(seen, item)) { continue; }
+        seen[item] = 1;
+        push(items, depfile_escape(item));
+    }
+    write_file(path, depfile_escape(target) + ": " + join(items, " ") + "\n");
+    return 0;
+}
+
+// Whether stderr is a terminal (TCGETS succeeds).
+fun stderr_is_tty() -> Any {
+    let state: Any = irt_alloc(64);
+    if (syscall(16, 2, 21505, state) == 0) { return 1; }
+    return 0;
+}
+
+// Whether an argv span begins with `text`.
+fun span_has_prefix(p: Any, l: Any, text: Any) -> Any {
+    let n: Any = len(text);
+    if (l < n) { return 0; }
+    return name_eq(p, n, addr(text), n);
+}
+
 // ------------------------------------------------------------- Driver Entry
 
 fun cli_usage() -> Any {
-    let message: Any = "Maylang compiler (mayc)\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n\nOptions:\n  -h, --help          Show this help and exit\n  -V, --version       Show compiler version and exit\n  --list-targets      List target formats and default runtimes, then exit\n  -o, --output PATH   Write executable to PATH (default: source name without\n                      .may)\n  --check             Parse and type-check; do not emit an executable\n  --explain-behavior  Check contracts and print inferred effect summaries as JSON\n  --strict            Enable strict type checking (default)\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --debug             Include function/source traces in runtime errors\n  --no-opt            Disable the fat backend's local, type and register\n                      optimizations (for oracle tests)\n  --inline            Opt in to inlining accessors and one-expression helpers\n                      into their call sites (off by default)\n  --legacy            Disable strict type checking for legacy source\n  --raw               Compile without runtime, prelude, or native library\n  --no-code-align     Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME      full (default) or none (same as --raw)\n  --time              Report compiler stage timings to stderr\n  --target TARGET     x86_64-linux (the only supported target)\n  --dump-expanded     Print expanded source and exit\n  --stack-map-inventory  Print the allocating safepoints (precise stack maps) as\n                      JSON and exit\n\nExamples:\n  mayc hello.may\n  mayc app.may -o build/app\n  mayc --check app.may\n";
+    let message: Any = "Maylang compiler (mayc) ${MAYC_VERSION}\n\nUsage:\n  mayc [options] <source.may> [-o <output>]\n  mayc run <source.may> [-- ARGS...] [options]\n  mayc check <source.may> [options]\n\nCommands:\n  build                Compile a source file (the default)\n  run                  Compile to a temporary executable and run it; exits\n                       with the program's status and forwards arguments after\n                       -- unchanged\n  check                Parse, strictly check and resolve names; write no binary\n\nOptions:\n  -h, --help           Show this help and exit\n  -V, --version        Show compiler version and exit\n  --list-targets       List target formats and default runtimes, then exit\n  -o, --output PATH    Write executable to PATH (default: source name without\n                       .may)\n  --check              Same as the check command\n  --explain-behavior   Check contracts and print inferred effect summaries as\n                       JSON\n  --strict             Enable strict type checking (default)\n  --legacy             Disable strict type checking for legacy source\n  --diagnostics FORMAT text (default) or json; up to 20 errors\n  --color WHEN         Color text diagnostics: auto (default), always or never\n  --no-color           Same as --color never; NO_COLOR also disables auto\n  --deps FILE          Write a Make-style dependency file naming the expanded\n                       imports and the runtime sidecars that were read\n  -O0                  Disable the fat backend's optional optimizations\n  -O1                  Default optimization level\n  -O2                  Enable the accessor and helper inliner\n  --debug              Include function/source traces in runtime errors\n  --no-opt             Disable optional backend optimizations (same as -O0)\n  --inline             Opt in to inlining accessors and one-expression helpers\n                       into their call sites (same as -O2)\n  --raw                Compile without runtime, prelude, or native library\n  --no-code-align      Do not align --raw x86-64 function bodies and loop heads\n  --runtime NAME       full (default) or none (same as --raw)\n  --time               Report compiler stage timings to stderr\n  --target TARGET      x86_64-linux (the only supported target)\n  --dump-expanded      Print expanded source and exit\n  --stack-map-inventory\n                       Print the allocating safepoints (precise stack maps) as\n                       JSON and exit\n\nExamples:\n  mayc hello.may\n  mayc run hello.may -- one two\n  mayc check app.may\n  mayc app.may -o build/app -O2 --deps build/app.d\n";
     syscall(1, 1, addr(message), len(message));
     syscall(60, 0);
     return 0;
@@ -219,6 +293,19 @@ fun main2() -> Any {
         a0 = executable;
         a0l = executableLength;
     }
+    // The compiler itself is a dependency of everything it compiles.
+    note_sidecar_range(a0, a0l);
+
+    // Subcommands share the flag parser: `mayc run src.may -- args`.
+    let child_arguments: Any = [];
+    mut subcommand: Any = "";
+    mut start: Any = 1;
+    if (len(argv) > 1) {
+        if (name_eq(argv[1][0], argv[1][1], addr("run"), 3) == 1) { subcommand = "run"; start = 2; }
+        else if (name_eq(argv[1][0], argv[1][1], addr("check"), 5) == 1) { subcommand = "check"; start = 2; }
+        else if (name_eq(argv[1][0], argv[1][1], addr("build"), 5) == 1) { subcommand = "build"; start = 2; }
+        else if (name_eq(argv[1][0], argv[1][1], addr("help"), 4) == 1) { cli_usage(); }
+    }
     mut sp: Any = 0;
     mut sl: Any = 0;
     mut op: Any = 0;
@@ -230,11 +317,22 @@ fun main2() -> Any {
     mut checkflag: Any = 0;
     mut expandedflag: Any = 0;
     mut smflag: Any = 0;
-    mut k: Any = 1;
+    mut forward: Any = 0;
+    mut depsflag: Any = 0;
+    mut depfile: Any = "";
+    mut colorMode: Any = "auto";
+    mut userOutput: Any = 0;
+    mut runDirectory: Any = "";
+    mut runProgram: Any = "";
+    mut k: Any = start;
     while (k < len(argv)) {
         let ap: Any = argv[k][0];
         let al: Any = argv[k][1];
-        if (name_eq(ap, al, addr("-h"), 2) == 1 or name_eq(ap, al, addr("--help"), 6) == 1) {
+        if (forward == 1) {
+            push(child_arguments, symbol_name(ap, al));
+        } else if (name_eq(ap, al, addr("--"), 2) == 1) {
+            forward = 1;
+        } else if (name_eq(ap, al, addr("-h"), 2) == 1 or name_eq(ap, al, addr("--help"), 6) == 1) {
             cli_usage();
         } else if (name_eq(ap, al, addr("-V"), 2) == 1 or name_eq(ap, al, addr("--version"), 9) == 1) {
             let version: Str = "mayc " + MAYC_VERSION + "\n";
@@ -245,7 +343,7 @@ fun main2() -> Any {
         } else if (name_eq(ap, al, addr("-o"), 2) == 1 or name_eq(ap, al, addr("--output"), 8) == 1) {
             k = k + 1;
             if (k >= len(argv)) { die_str("mayc: -o/--output requires a path\n"); }
-            op = argv[k][0]; ol = argv[k][1];
+            op = argv[k][0]; ol = argv[k][1]; userOutput = 1;
         } else if (name_eq(ap, al, addr("--target"), 8) == 1) {
             k += 1;
             if (k >= len(argv)) { die_str("mayc: --target requires a target name\n"); }
@@ -286,6 +384,22 @@ fun main2() -> Any {
             k += 1; if (k >= len(argv)) { die_str("mayc: --diagnostics requires text or json\n"); }
             DIAGNOSTIC_FORMAT = symbol_name(argv[k][0], argv[k][1]);
             if (DIAGNOSTIC_FORMAT != "text" and DIAGNOSTIC_FORMAT != "json") { die_str("mayc: --diagnostics requires text or json\n"); }
+        } else if (name_eq(ap, al, addr("--deps"), 6) == 1) {
+            k += 1; if (k >= len(argv)) { die_str("mayc: --deps requires a path\n"); }
+            depfile = symbol_name(argv[k][0], argv[k][1]); depsflag = 1;
+        } else if (name_eq(ap, al, addr("--color"), 7) == 1) {
+            k += 1; if (k >= len(argv)) { die_str("mayc: --color requires auto, always or never\n"); }
+            colorMode = symbol_name(argv[k][0], argv[k][1]);
+        } else if (span_has_prefix(ap, al, "--color=") == 1) {
+            colorMode = symbol_name(ap + 8, al - 8);
+        } else if (name_eq(ap, al, addr("--no-color"), 10) == 1) {
+            colorMode = "never";
+        } else if (al >= 2 and load8(ap) == 45 and load8(ap + 1) == 79) {
+            if (al == 2) { }
+            else if (al == 3 and load8(ap + 2) == 48) { NO_OPT = true; }
+            else if (al == 3 and load8(ap + 2) == 49) { }
+            else if (al == 3 and load8(ap + 2) == 50) { INLINE_ENABLED = true; }
+            else { die_str("mayc: -O accepts 0, 1 or 2\n"); }
         } else if (name_eq(ap, al, addr("--legacy"), 8) == 1) {
             STRICT_TYPES = false;
         } else if (name_eq(ap, al, addr("--strict"), 8) == 1) {
@@ -296,10 +410,15 @@ fun main2() -> Any {
             sp = ap;
             sl = al;
         } else if (ol == 0) {
+            if (subcommand == "run") { die_str("mayc: pass program arguments after --\n"); }
             op = ap;
             ol = al;
         }
         k = k + 1;
+    }
+    if (subcommand == "check") { checkflag = 1; }
+    if (subcommand == "run" and checkflag == 1) {
+        die_str("mayc: run compiles and executes a program; drop --check or --explain-behavior\n");
     }
     if (BEHAVIOR_EXPLAIN and (dumpflag == 1 or expandedflag == 1)) {
         die_str("mayc: --explain-behavior cannot be combined with source dumps\n");
@@ -307,12 +426,38 @@ fun main2() -> Any {
     if (sl == 0) {
         die_str("mayc: missing source file (use --help)\n");
     }
+    if (colorMode == "always") { DIAGNOSTIC_COLOR = 1; }
+    else if (colorMode == "auto") { DIAGNOSTIC_COLOR = if (stderr_is_tty() == 1 and env("NO_COLOR") == nil) { 1 } else { 0 }; }
+    else if (colorMode == "never") { DIAGNOSTIC_COLOR = 0; }
+    else { die_str("mayc: --color requires auto, always or never\n"); }
     if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
-        let default: Any = cli_default_output(sp, sl, targetName);
-        op = default[0]; ol = default[1];
+        if (subcommand == "run") {
+            // Compile beside the run in a private directory and execute it.
+            mut temporary: Any = env("TMPDIR") ?? "/tmp";
+            if (temporary == "") { temporary = "/tmp"; }
+            let source: Any = symbol_name(sp, sl);
+            let pieces: Any = split(source, "/");
+            mut base: Any = "program";
+            if (len(pieces) > 0) { base = pieces[len(pieces) - 1]; }
+            if (ends_with(base, ".may")) { base = substring(base, 0, len(base) - 4); }
+            if (base == "") { base = "program"; }
+            runDirectory = temporary + "/mayc-run-" + str(syscall(39));
+            syscall(83, cstr(runDirectory), 448);
+            RUN_SCRATCH = runDirectory;
+            runProgram = runDirectory + "/" + base;
+            op = addr(runProgram); ol = len(runProgram);
+        } else {
+            let default: Any = cli_default_output(sp, sl, targetName);
+            op = default[0]; ol = default[1];
+        }
     }
     if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
         die_str("mayc: missing -o <binary>\n");
+    }
+    // The depfile names the produced binary, or the source when checking.
+    mut depfileTarget: Any = "";
+    if (depsflag == 1) {
+        depfileTarget = if (ol != 0 and checkflag == 0) { symbol_name(op, ol) } else { symbol_name(sp, sl) };
     }
 
     let ctx: Any = emitter_new(target_select(targetName));
@@ -337,6 +482,7 @@ fun main2() -> Any {
         profile_mark("types");
         DIAGNOSTIC_STAGE = "name"; sem_program();
         profile_mark("resolve");
+        if (depsflag == 1) { depfile_write(symbol_name(sp, sl), depfileTarget, depfile); }
         if (checkflag == 1) { if (BEHAVIOR_EXPLAIN) { print(json_stringify(behavior_report())); } syscall(60, 0); }
         ir_program(ctx);
 
@@ -384,6 +530,8 @@ fun main2() -> Any {
                 push(origins, SourceOrigin(at, part[2], 1));
                 at += part[1];
             }
+            // Everything before this offset is library text, not a source file.
+            DEPFILE_USER_START = at;
             image_copy(cb + at, ub, un);
             SRC = cb;
             SRCLEN = total;
@@ -406,6 +554,7 @@ fun main2() -> Any {
         profile_mark("types");
         DIAGNOSTIC_STAGE = "name"; sem_program();
         profile_mark("resolve");
+        if (depsflag == 1) { depfile_write(symbol_name(sp, sl), depfileTarget, depfile); }
         if (checkflag == 1) { if (BEHAVIOR_EXPLAIN) { print(json_stringify(behavior_report())); } syscall(60, 0); }
         ir_program(ctx);
 
@@ -426,7 +575,26 @@ fun main2() -> Any {
     write_out(ctx, op, ol);
     emitter_release(ctx);
     profile_mark("package");
+    if (subcommand == "run") {
+        // Execute the freshly written program, forwarding arguments unchanged.
+        let program: Any = [symbol_name(op, ol)];
+        for argument: Any in child_arguments { push(program, argument); }
+        let child: Any = exec(program);
+        let status: Any = wait(child);
+        if (userOutput == 0) {
+            syscall(87, cstr(symbol_name(op, ol)));
+            syscall(84, cstr(runDirectory));
+            RUN_SCRATCH = "";
+        }
+        syscall(60, status);
+    }
     return 0;
 }
 
-may { main2(); } otherwise { report_diagnostic(err.message); }
+// Remove the scratch directory of a failed `mayc run` compilation.
+fun run_scratch_cleanup() -> Any {
+    if (RUN_SCRATCH != "") { syscall(84, cstr(RUN_SCRATCH)); RUN_SCRATCH = ""; }
+    return 0;
+}
+
+may { main2(); } otherwise { run_scratch_cleanup(); report_diagnostic(err.message); }

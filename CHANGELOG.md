@@ -94,6 +94,32 @@
   ([docs](docs/internals/BEHAVIOR.md#mathematics-comparison-and-truthiness)).
   Strict typing now types `pow` as returning `Float` instead of `Any`.
 
+## Tooling
+
+- `mayc` has a command surface instead of flags only: `mayc run <source>
+  [-- ARGS...]` compiles to a private temporary executable in
+  `$TMPDIR/mayc-run-<pid>/`, forwards the arguments after `--` unchanged and
+  exits with the program's status (removing the temporary directory unless
+  `-o` names a path); `mayc check <source>` and `mayc build <source>` are
+  subcommand forms of `--check` and the default. Diagnostics keep their source
+  excerpt and caret span but now carry a stable `error[E_STAGE]` code and honor
+  `--color auto|always|never` / `--no-color` (`auto` uses a terminal's stderr
+  unless `NO_COLOR` is set). `-O0`/`-O1`/`-O2` select the optional backend
+  passes and the inliner, and `--deps FILE` writes a Make-style dependency file
+  naming the produced binary, every expanded import, the compiler and the
+  runtime sidecars that were read. `--help` documents the commands and options
+  ([compiler guide](compiler/mayc/README.md), [toolchain
+  reference](docs/reference/TOOLCHAIN.md)).
+- `may` gained a scriptable command surface: `may list [--json]` describes
+  targets, defaults and prerequisites, `may which [TARGET] [--build] [--json]`
+  prints the artifact path a target would use without compiling (exit 1 until
+  it exists), `may test --list` and `may test --filter PATTERN` narrow the
+  discovered `.test.may` files, and `may version`/`may doctor` report toolchain
+  identity and dependency-lock state as text or JSON. Global `-C DIR`, `-q` and
+  `-v` work before or after the command (everything after `--` still belongs to
+  the program), and verbose builds print the exact compiler/recipe command and
+  per-target time ([workspace runner](tools/may/README.md)).
+
 ## Performance
 
 - Language-server call hierarchy and navigation replies

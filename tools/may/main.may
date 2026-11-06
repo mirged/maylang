@@ -5,8 +5,158 @@ import "../shared/fs.may" as fs;
 import "../shared/format.may" as formatting;
 
 fun usage() -> Nil {
-    print("may — Maylang workspace runner\n\n  may new DIRECTORY [--ui]  Create an explicit workspace\n  may migrate           Import an existing mayproj.json\n  may tasks             Show named targets and dependencies\n  may build [TARGET]    Build into the verified artifact store\n  may run [TARGET] -- ARGS\n  may test [GROUP]      Compile/run discovered .test.may files\n  may dev [TARGET]     Watch inputs and restart successful builds\n  may check [TARGET]    Run the compiler type checker\n  may fmt [--check]     Format workspace sources\n  may lock              Pin local dependency contents\n  may doctor            Report compiler/library configuration\n  may clean             Remove generated workspace artifacts\n\n  --profile NAME        Select dev or release (or a named profile)\n  --all                 Select all applicable targets\n\nWorkspaces use may.json; builds never rewrite it. Native recipes take argument arrays, and dependencies form an explicit task graph.");
+    print("may — Maylang workspace runner\n\n  may new DIRECTORY [--ui]      Create an explicit workspace\n  may migrate                   Import an existing mayproj.json\n  may list [--json]             List targets, defaults and dependencies\n  may tasks                     Show named targets and dependencies\n  may which [TARGET] [--build]  Print the artifact path for a target\n  may build [TARGET]            Build into the verified artifact store\n  may run [TARGET] -- ARGS      Build and run an application target\n  may test [GROUP] [--filter P] [--list]\n                                Compile/run discovered .test.may files\n  may dev [TARGET]              Watch inputs and restart successful builds\n  may check [TARGET]            Run the compiler type checker\n  may fmt [--check]             Format workspace sources\n  may lock                      Pin local dependency contents\n  may doctor [--json]           Report compiler/library configuration\n  may version [--json]          Report runner, compiler and stdlib identity\n  may clean                     Remove generated workspace artifacts\n\n  -C DIR                        Run as if started in DIR\n  -q, --quiet                   Report failures only\n  -v, --verbose                 Show commands and per-target timings\n  --profile NAME                Select dev or release (or a named profile)\n  --all                         Select all applicable targets\n  --                            Pass the remaining arguments to the program\n\nWorkspaces use may.json; builds never rewrite it. Native recipes take argument arrays, and dependencies form an explicit task graph.");
     return;
+}
+// Apply the options that must work before the workspace is located.
+fun apply_globals(argv: List<Str>) -> List<Str> {
+    let result: List<Str> = [argv[0]];
+    mut index: Int = 1;
+    mut literal: Bool = false;
+    while (index < len(argv)) {
+        let option: Str = argv[index];
+        if (literal) {
+            push(result, option);
+        } else if (option == "--") {
+            literal = true; push(result, option);
+        } else if (option == "-C" or option == "--directory") {
+            index += 1;
+            if (index >= len(argv)) { fail("may: " + option + " requires a directory"); }
+            if (syscall(80, cstr(argv[index])) != 0) { fail("may: cannot enter directory: " + argv[index]); }
+        } else if (starts_with(option, "--directory=")) {
+            let directory: Str = substring(option, 12, len(option) - 12);
+            if (syscall(80, cstr(directory)) != 0) { fail("may: cannot enter directory: " + directory); }
+        } else if (option == "-v" or option == "--verbose") {
+            build.verbosity(2);
+        } else if (option == "-q" or option == "--quiet") {
+            build.verbosity(0);
+        } else {
+            push(result, option);
+        }
+        index += 1;
+    }
+    return result;
+}
+// The one-line description of what a target produces.
+fun target_detail(spec: workspace.TargetSpec) -> Str {
+    if (spec.kind == "app") { return spec.entry; }
+    if (spec.kind == "test") { return spec.root; }
+    return join(spec.command, " ");
+}
+fun list_command(ws: workspace.Workspace, as_json: Bool) -> Nil {
+    let names: List<Str> = sort(keys(ws.config.targets));
+    if (as_json) {
+        let rows: List<Any> = [];
+        for name: Str in names {
+            let spec: workspace.TargetSpec = workspace.spec_of(ws, name);
+            push(rows, {"name": name, "kind": spec.kind, "default": name == ws.config.default,
+                "depends": spec.depends, "detail": target_detail(spec),
+                "target": spec.target, "runtime": spec.runtime});
+        }
+        print(json_stringify({"schema": 1, "name": ws.config.name, "root": ws.root,
+            "default": ws.config.default, "targets": rows}));
+        return;
+    }
+    print(pad_right("name", 16, " "), pad_right("kind", 8, " "), pad_right("default", 9, " "), pad_right("depends", 20, " "), "detail");
+    for name: Str in names {
+        let spec: workspace.TargetSpec = workspace.spec_of(ws, name);
+        let depends: Str = if (len(spec.depends) == 0) { "-" } else { join(spec.depends, ",") };
+        let marked: Str = if (name == ws.config.default) { "*" } else { "" };
+        print(pad_right(name, 16, " "), pad_right(spec.kind, 8, " "), pad_right(marked, 9, " "), pad_right(depends, 20, " "), target_detail(spec));
+    }
+    return;
+}
+// Run a command and return [trimmed stdout, status].
+fun run_capture(ws: workspace.Workspace, command: List<Str>) -> List<Str> {
+    fs.mkdirs(ws.root + "/.may/tmp");
+    let temporary: Str = ws.root + "/.may/tmp/capture-" + str(syscall(39));
+    let status: Int = proc.capture(command, ws.root, [], temporary);
+    let text: Str = if (file_exists(temporary)) { read_file(temporary) } else { "" };
+    if (file_exists(temporary)) { syscall(87, cstr(temporary)); }
+    return [trim(text), str(status)];
+}
+fun compiler_version(ws: workspace.Workspace) -> Str {
+    let result: List<Str> = run_capture(ws, [ws.compiler, "--version"]);
+    let lines: List<Str> = split(result[0], "\n");
+    if (result[1] != "0" or len(lines) == 0) { return "unavailable"; }
+    return lines[0];
+}
+fun dependency_status(ws: workspace.Workspace) -> Str {
+    if (len(keys(ws.config.dependencies)) == 0) { return "none"; }
+    if (not file_exists(ws.root + "/may.lock")) { return "missing"; }
+    return may { workspace.verify_dependencies(ws); "pinned" } otherwise { "changed" };
+}
+fun version_command(ws: workspace.Workspace, as_json: Bool) -> Nil {
+    let version: Str = compiler_version(ws);
+    if (as_json) {
+        print(json_stringify({"schema": 1, "tool": "may", "workspace_schema": 1, "name": ws.config.name,
+            "root": ws.root, "compiler": ws.compiler, "compiler_version": version, "stdlib": ws.stdlib}));
+        return;
+    }
+    print("may workspace runner (workspace schema 1)");
+    print("compiler", version);
+    print("stdlib  ", ws.stdlib);
+    return;
+}
+fun doctor_command(ws: workspace.Workspace, as_json: Bool) -> Int {
+    let version: Str = compiler_version(ws);
+    let lock: Str = dependency_status(ws);
+    let store: Str = ws.root + "/.may/store";
+    let present: Bool = file_exists(store);
+    if (as_json) {
+        print(json_stringify({"schema": 1, "workspace": ws.root, "name": ws.config.name,
+            "profile": ws.profile, "compiler": ws.compiler, "compiler_version": version,
+            "compiler_ok": version != "unavailable", "stdlib": ws.stdlib, "store": store,
+            "store_exists": present, "dependencies": lock}));
+    } else {
+        print("workspace", ws.root);
+        print("compiler", ws.compiler);
+        print("version", version);
+        print("stdlib", ws.stdlib);
+        print("profile", ws.profile);
+        print("store", store, if (present) { "" } else { "(empty)" });
+        print("dependencies", lock);
+    }
+    return if (version == "unavailable") { 1 } else { 0 };
+}
+fun which_command(ws: workspace.Workspace, requested: Str, build_first: Bool, as_json: Bool) -> Int {
+    let name: Str = if (requested == "") { ws.config.default } else { requested };
+    if (not has(ws.config.targets, name)) { fail("may: unknown target: " + name); }
+    workspace.verify_dependencies(ws);
+    let spec: workspace.TargetSpec = workspace.spec_of(ws, name);
+    if (spec.kind != "app" and spec.kind != "native") { fail("may: which requires an app or native target: " + name); }
+    let artifact: workspace.Artifact = if (build_first) { build.target(ws, name) } else { build.describe(ws, name) };
+    let path: Str = if (spec.kind == "app" and len(artifact.outputs) > 0) { artifact.directory + "/" + artifact.outputs[0] } else { artifact.directory };
+    let present: Bool = file_exists(path);
+    if (as_json) {
+        print(json_stringify({"schema": 1, "target": name, "kind": artifact.kind, "key": artifact.key,
+            "directory": artifact.directory, "path": path, "exists": present, "outputs": artifact.outputs}));
+    } else {
+        print(path);
+        if (not present) { build.log("may: " + name + " is not built yet; run may build " + name); }
+    }
+    return if (present or build_first) { 0 } else { 1 };
+}
+fun test_list(ws: workspace.Workspace, requested: Str, filter: Str) -> Int {
+    let groups: List<Str> = [];
+    if (requested != "") {
+        if (not has(ws.config.targets, requested) or workspace.spec_of(ws, requested).kind != "test") { fail("may: target is not a test group: " + requested); }
+        push(groups, requested);
+    } else {
+        for key: Str in sort(keys(ws.config.targets)) {
+            if (workspace.spec_of(ws, key).kind == "test") { push(groups, key); }
+        }
+        if (len(groups) == 0) { fail("may: workspace declares no test groups"); }
+    }
+    mut count: Int = 0;
+    for group: Str in groups {
+        for path: Str in build.test_files(ws, group) {
+            if (filter != "" and not contains(path, filter)) { continue; }
+            print(path); count += 1;
+        }
+    }
+    if (count == 0 and filter != "") { fail("may: no .test.may files match " + filter); }
+    return 0;
 }
 fun create(directory: Str, with_ui: Bool) -> Nil {
     let root: Str = workspace.absolute(str(fs.cwd()), directory);
@@ -97,40 +247,53 @@ fun dev(ws: workspace.Workspace, name: Str, arguments: List<Str>, once: Bool) ->
     }
     return 0;
 }
-fun main_cli(argv: List<Str>) -> Int {
+fun main_cli(argv_in: List<Str>) -> Int {
+    let argv: List<Str> = apply_globals(argv_in);
     let sub: Str = if (len(argv) > 1) { argv[1] } else { "help" };
     if (has(["help", "--help", "-h"], sub)) { usage(); exit(0); }
-    if (has(["version", "--version"], sub)) { print("may workspace runner (schema 1)"); exit(0); }
+    if (has(["--version", "-V"], sub)) { print("may workspace runner (schema 1)"); exit(0); }
     if (sub == "new") { if (len(argv) != 3 and not (len(argv) == 4 and argv[3] == "--ui")) { usage(); exit(2); } create(argv[2], len(argv) == 4); exit(0); }
     if (sub == "migrate") { migrate(); exit(0); }
     let ws: workspace.Workspace = workspace.load();
     mut name: Str = ""; mut all: Bool = false; mut fmt_check: Bool = false; mut forward: Bool = false; mut once: Bool = false;
+    mut json_output: Bool = false; mut list_tests: Bool = false; mut build_first: Bool = false; mut filter: Str = "";
     let arguments: List<Str> = []; mut index: Int = 2;
     while (index < len(argv)) {
         let option: Str = argv[index];
         if (forward) { push(arguments, option); }
         else if (option == "--") { forward = true; }
         else if (option == "--all") { all = true; }
+        else if (option == "--json") { json_output = true; }
         else if (option == "--check" and sub == "fmt") { fmt_check = true; }
         else if (option == "--once" and sub == "dev") { once = true; }
-        else if (option == "--profile") {
+        else if (option == "--list" and sub == "test") { list_tests = true; }
+        else if (option == "--build" and sub == "which") { build_first = true; }
+        else if (option == "--filter") {
+            index += 1; if (index >= len(argv)) { fail("may: --filter requires a pattern"); }
+            filter = argv[index];
+        } else if (option == "--profile") {
             index += 1; if (index >= len(argv)) { fail("may: --profile requires a name"); }
             ws.profile = argv[index];
         } else if (starts_with(option, "--") or name != "") { fail("may: unknown or unexpected argument: " + option); }
         else { name = option; }
         index += 1;
     }
+    if (filter != "" and sub != "test") { fail("may: --filter applies to may test"); }
+    if (list_tests and sub != "test") { fail("may: --list applies to may test"); }
+    if (build_first and sub != "which") { fail("may: --build applies to may which"); }
+    if (json_output and not has(["list", "which", "version", "doctor"], sub)) { fail("may: --json applies to may list, which, version and doctor"); }
     if (not has(ws.config.profiles, ws.profile)) { fail("may: unknown profile: " + ws.profile); }
     if (sub == "lock") { workspace.lock(ws); exit(0); }
+    if (sub == "version") { version_command(ws, json_output); exit(0); }
+    if (sub == "list") { list_command(ws, json_output); exit(0); }
+    if (sub == "which") { exit(which_command(ws, name, build_first, json_output)); }
+    if (sub == "doctor") { exit(doctor_command(ws, json_output)); }
+    if (sub == "test" and list_tests) { exit(test_list(ws, name, filter)); }
     if (sub == "tasks") {
         for target_name: Str in sort(keys(ws.config.targets)) {
             let spec: workspace.TargetSpec = workspace.spec_of(ws, target_name); print(target_name, spec.kind, join(spec.depends, " -> "));
         }
         exit(0);
-    }
-    if (sub == "doctor") {
-        print("workspace", ws.root); print("compiler", ws.compiler); print("stdlib", ws.stdlib); print("profile", ws.profile);
-        exit(proc.run([ws.compiler, "--version"], ws.root, []));
     }
     if (sub == "fmt") {
         mut changed: Bool = false;
@@ -156,11 +319,11 @@ fun main_cli(argv: List<Str>) -> Int {
         } else if (sub == "test") {
             if (name != "") {
                 if (not has(ws.config.targets, name) or workspace.spec_of(ws, name).kind != "test") { fail("may: target is not a test group: " + name); }
-                status = build.tests(ws, name);
+                status = build.tests(ws, name, filter);
             } else {
                 mut groups: Int = 0;
                 for target_name: Str in sort(keys(ws.config.targets)) {
-                    if (workspace.spec_of(ws, target_name).kind == "test") { groups += 1; if (build.tests(ws, target_name) != 0) { status = 1; } }
+                    if (workspace.spec_of(ws, target_name).kind == "test") { groups += 1; if (build.tests(ws, target_name, filter) != 0) { status = 1; } }
                 }
                 if (groups == 0) { fail("may: workspace declares no test groups"); }
             }

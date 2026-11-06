@@ -8,7 +8,11 @@
 - `-V`, `--version` — print the compiler identity/version.
 - `--list-targets` — list the supported target, its executable format and default runtime without a source file; the compiler host is Linux x86-64.
 - `-o PATH`, `--output PATH` — select output path.
-- `--check` — expand imports, parse, strictly check and resolve names without producing an executable.
+- `--check` — expand imports, parse, strictly check and resolve names without producing an executable. `mayc check <source.may>` is the subcommand form and takes the same options.
+- `mayc run <source.may> [-- ARGS...]` — compile to a private executable in `$TMPDIR/mayc-run-<pid>/`, run it with the remaining arguments after `--` unchanged, and exit with the program's status; the temporary directory is removed afterwards. `-o PATH` keeps the executable at `PATH` instead. Compilation failures print diagnostics and never run a stale binary.
+- `-O0`, `-O1`, `-O2` — optimization levels: `-O0` disables the fat backend's optional passes (same as `--no-opt`), `-O1` is the default and `-O2` enables the accessor/helper inliner (same as `--inline`). Any other level is rejected.
+- `--color auto|always|never` (also `--color=WHEN` and `--no-color`) — color text diagnostics. `auto` is the default: color when stderr is a terminal and `NO_COLOR` is unset. `--diagnostics json` is unaffected.
+- `--deps FILE` — write a Make-style dependency file whose target is the produced binary (or the source with `--check`) and whose prerequisites are the entry file, every expanded import, the compiler and each runtime sidecar that was actually read. Paths are escaped for Make.
 - `--strict` — enable strict checking, the default.
 - `--debug` — instrument user functions with declaration/source frames; uncaught faults print a trace and caught errors expose `err.stack`.
 - `--no-opt` — disable the fat backend's optional passes (constant/variable forwarding, proven types, register homes, XMM Float temporaries, top-level bindings as main locals) for oracle tests; the program must behave identically.
@@ -24,7 +28,7 @@
 - `x86_64-linux` — ELF64 with the full runtime or raw output.
 - mayc emits the machine code and executable container itself, with no assembler, linker, C compiler or LLVM. The experimental `clang-llvm` target and `--emit-llvm` were removed and now fail with an explanation.
 - Full runtime supports integers, boxed floats, UTF-8 strings, lists, maps, records, closures, structured errors, fibers and native C interfaces on Linux x86-64.
-- Diagnostics contain source excerpts and caret spans; fix type/name/mutability errors before running the output.
+- Diagnostics contain source excerpts and caret spans; text diagnostics carry a stable `error[E_STAGE]` code (lex, parse, type, name), and `--diagnostics json` reports the same code. Fix type/name/mutability errors before running the output.
 - Migrate an older source: `python3 compiler/mayc/tools/migrate_strict.py old.may --write`; review added Any types and explicit returns before relying on the result.
 - Language server implementation: [Maylang maylsp](../../tools/maylsp/README.md); protocol/reference: [LSP guide](../guide/LSP.md).
 - VS Code integration: [extension installation and settings](../../editors/vscode/README.md); strict checking defaults on through `maylang.strict`; rebuild server/reload the window after toolchain changes.

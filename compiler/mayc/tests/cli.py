@@ -92,6 +92,61 @@ def main():
                 assert result.returncode == 0 and result.stdout == b'42\n', result
         print('PASS PATH, symlink and relative invocation locate runtime sidecars')
 
+        # The command surface: run/check subcommands, optimization levels,
+        # depfiles, colour and help.
+        runner = work / 'runner.may'
+        runner.write_text('let argv: List<Str> = args();\nprint(argv[1]);\nprint(argv[2]);\nexit(7);\n')
+        result = subprocess.run([str(compiler), 'run', str(runner), '--', 'one', 'two three'],
+                                cwd=work, env=env, capture_output=True, timeout=120)
+        assert result.returncode == 7 and result.stdout == b'one\ntwo three\n', result
+        kept = work / 'kept-run'
+        result = subprocess.run([str(compiler), 'run', str(runner), '-o', str(kept), '--', 'a', 'b'],
+                                cwd=work, env=env, capture_output=True, timeout=120)
+        assert result.returncode == 7 and kept.is_file(), result
+        bad_run = work / 'bad-run.may'
+        bad_run.write_text('let value: Int = "wrong";\n')
+        result = subprocess.run([str(compiler), 'run', str(bad_run)], cwd=work, env=env,
+                                capture_output=True, timeout=120)
+        assert result.returncode != 0 and b'expected Int, found Str' in result.stderr, result
+        result = subprocess.run([str(compiler), 'check', str(bad_run)], cwd=work, env=env,
+                                capture_output=True, timeout=120)
+        assert result.returncode != 0 and not (work / 'bad-run').exists(), result
+        result = subprocess.run([str(compiler), 'check', str(source)], cwd=work, env=env,
+                                capture_output=True, timeout=120)
+        assert result.returncode == 0, result
+        for level in ('-O', '-O0', '-O1', '-O2'):
+            optimized = work / ('opt' + level)
+            result = subprocess.run([str(compiler), level, str(source), '-o', str(optimized)],
+                                    cwd=work, env=env, capture_output=True, timeout=120)
+            assert result.returncode == 0, (level, result)
+            ran = subprocess.run([str(optimized)], capture_output=True, timeout=30)
+            assert ran.returncode == 0 and ran.stdout == b'42\n', (level, ran)
+        rejected = subprocess.run([str(compiler), '-O3', str(source), '-o', str(work / 'o3')],
+                                  cwd=work, env=env, capture_output=True, timeout=30)
+        assert rejected.returncode != 0 and b'-O accepts 0, 1 or 2' in rejected.stderr, rejected
+        project = work / 'dependencies'
+        project.mkdir()
+        (project / 'helper.may').write_text('pub fun answer() -> Int { return 5; }\n')
+        (project / 'main.may').write_text('import "helper.may" as helper;\nprint(helper.answer());\n')
+        depfile = project / 'main.d'
+        result = subprocess.run([str(compiler), str(project / 'main.may'), '-o', str(project / 'main'),
+                                 '--deps', str(depfile)], cwd=work, env=env, capture_output=True, timeout=120)
+        assert result.returncode == 0, result
+        recorded = depfile.read_text()
+        assert recorded.startswith(str(project / 'main') + ':'), recorded
+        assert str(project / 'helper.may') in recorded and 'prelude.may' in recorded, recorded
+        colored = subprocess.run([str(compiler), '--color', 'always', str(bad_run), '-o', str(work / 'bad')],
+                                 cwd=work, env=env, capture_output=True, timeout=30)
+        assert b'\x1b[31m' in colored.stderr and b'error[E_TYPE]' in colored.stderr, colored
+        plain = subprocess.run([str(compiler), '--color', 'never', str(bad_run), '-o', str(work / 'bad')],
+                               cwd=work, env=env, capture_output=True, timeout=30)
+        assert b'\x1b[' not in plain.stderr and b'error[E_TYPE]' in plain.stderr, plain
+        help_text = subprocess.run([str(compiler), 'help'], cwd=work, env=env,
+                                   capture_output=True, timeout=30).stdout
+        for expected in (b'mayc run', b'mayc check', b'--deps', b'-O0', b'--color'):
+            assert expected in help_text, expected
+        print('PASS run/check subcommands, -O levels, depfiles, colour diagnostics and help')
+
 
 if __name__ == '__main__':
     main()
