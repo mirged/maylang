@@ -1,4 +1,16 @@
-# Unreleased
+# Maylang 0.15.1 — Fern
+
+Released 2026-11-14 UTC. A patch release that prepares the repository for
+public access and removes `Any` from the library and the tools. The legacy
+`maypkg` package manager is gone; projects use `may` workspaces. Strict typing
+narrows `Optional<T>` after a `nil` check and lets a closure inside a generic
+function name its type parameters, and the language gains hexadecimal, octal
+and binary integer literals with digit separators. Generated code gets faster
+again: a top-level main and Float loop bodies compile to native words, records
+are built into fixed slots, enum payload reads and map probes skip runtime
+calls, and a bounded collection threshold cuts the collector's pause and peak
+footprint. Doc comments are now the single source of the API reference, and
+the repository gains an MIT license and a security policy.
 
 ## Repository
 

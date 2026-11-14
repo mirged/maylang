@@ -7,7 +7,7 @@ checking by default, and direct native executable output.
 > breaking changes between releases; see the [roadmap](ROADMAP.md) and the
 > [security policy](SECURITY.md).
 
-[![Maylang 0.15.0 — Fern](https://img.shields.io/badge/Maylang-0.15.0%20Fern-green)](https://github.com/mirged/maylang/releases/tag/v0.15.0)
+[![Maylang 0.15.1 — Fern](https://img.shields.io/badge/Maylang-0.15.1%20Fern-green)](https://github.com/mirged/maylang/releases/tag/v0.15.1)
 
 [Releases](https://github.com/mirged/maylang/releases) ·
 [Install](docs/guide/INSTALL.md) · [Language guide](docs/guide/STRICT.md) ·
