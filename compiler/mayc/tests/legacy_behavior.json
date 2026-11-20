@@ -286,7 +286,7 @@
   },
   "stdlib_math.may": {
     "exit": 0,
-    "stdout": "MjUgMjcKMjEgMTIKdHJ1ZSBmYWxzZQoxMjAgNTUKMiAyCg==",
+    "stdout": "MjUgMjcKMjEgMTIKdHJ1ZSBmYWxzZQoxMjAgNTUKMi41IDIuNQo=",
     "stderr": ""
   },
   "stress.may": {

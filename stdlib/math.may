@@ -47,14 +47,20 @@ fun is_prime(n: Int) -> Bool {
 }
 
 /// Return `n!`; `0!` and `1!` are `1`.
+///
+/// Faults: `fail` for a negative `n`; `arithmetic` when the result exceeds the Int range.
 fun factorial(n: Int) -> Int {
+    if (n < 0) { fail("factorial needs a nonnegative argument, not " + str(n)); }
     mut acc: Int = 1;
     for i: Int in 2..=n { acc = acc * i; }
     return acc;
 }
 
 /// Return the `n`th Fibonacci number, with `fibonacci(0) == 0`.
+///
+/// Faults: `fail` for a negative `n`; `arithmetic` when the result exceeds the Int range.
 fun fibonacci(n: Int) -> Int {
+    if (n < 0) { fail("fibonacci needs a nonnegative argument, not " + str(n)); }
     mut a: Int = 0;
     mut b: Int = 1;
     for _: Int in 1..=n {
@@ -65,19 +71,25 @@ fun fibonacci(n: Int) -> Int {
     return a;
 }
 
-/// Return the arithmetic mean of a list (`0` when empty).
-fun average(xs: Any) -> Any {
-    if (len(xs) == 0) { return 0; }
-    return sum(xs) / len(xs);
+/// Return the arithmetic mean of a list of numbers as a Float, or `nil` when it is empty.
+///
+/// Int lists divide as Floats, so the mean of `[1, 2]` is `1.5`, matching `stats.stats_mean`.
+fun average<T>(xs: List<T>) -> Optional<Float> {
+    if (len(xs) == 0) { return nil; }
+    mut total: Float = 0.0;
+    for x: T in xs { total += to_float(x); }
+    return total / to_float(len(xs));
 }
 
-/// Return the median of a list (`nil` when empty), sorting a copy.
-fun median(xs: Any) -> Any {
-    let sorted: Any = sort(xs);
+/// Return the median of a list of numbers as a Float (`nil` when empty), sorting a copy.
+///
+/// An even-length list averages its two middle values, so the median of `[1, 2]` is `1.5`.
+fun median<T>(xs: List<T>) -> Optional<Float> {
+    let sorted: List<T> = sort(xs);
     let n: Int = len(sorted);
     if (n == 0) { return nil; }
-    if (n % 2 == 1) { return sorted[(n - 1) / 2]; }
-    return (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+    if (n % 2 == 1) { return to_float(sorted[(n - 1) / 2]); }
+    return (to_float(sorted[n / 2 - 1]) + to_float(sorted[n / 2])) / 2.0;
 }
 
 /// Convert `radians` to degrees.
