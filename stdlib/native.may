@@ -110,7 +110,6 @@ fun __native_utf8_consistent(s: Any) -> Any {
     }
     return true;
 }
-/// Report whether byte `offset` starts a code point of `s` (or is its end); helper.
 /// Raise a `type` fault unless `s` is a string; text helpers read string bytes directly, so other
 /// values would be read as memory addresses (#148).
 fun __native_text(s: Any, name: Any) -> Any {
@@ -118,6 +117,7 @@ fun __native_text(s: Any, name: Any) -> Any {
     return s;
 }
 
+/// Report whether byte `offset` starts a code point of `s` (or is its end); helper.
 fun __native_boundary(s: Any, offset: Any) -> Any {
     let bytes: Any = addr(s);
     if (offset >= load64(bytes - 8)) { return true; }

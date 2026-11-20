@@ -5,7 +5,7 @@
 - Visibility: all top-level declarations are exported because this module has no `pub` declarations.
 - Source: [implementation](../../../stdlib/format.may).
 - Shared contracts: [mutation, errors, Unicode, numeric limits and supported runtimes](../../../stdlib/CONTRACTS.md).
-- **format_percent** — `fun format_percent(value: Float, digits: Int) -> Str` — Return a ratio multiplied by 100, rounded through `round` and decorated with `%`; `digits` controls scale, not zero-padding.
+- **format_percent** — `fun format_percent(value: Float, digits: Int) -> Str` — Return a ratio multiplied by 100, rounded through `round` and decorated with `%`; `digits` controls scale, not zero-padding, and `0` digits print a whole number such as `50%`.
 - **format_bytes** — `fun format_bytes(n: Int) -> Str` — Return bytes or binary KiB/MiB/GiB/TiB notation using 1024-based scaling.
 - **format_duration** — `fun format_duration(seconds: Int) -> Str` — Clamp negative integer seconds to zero and return `MM:SS` or `HH:MM:SS`.
 - **format_row** — `fun format_row(cells: List<Str>, widths: List<Int>) -> Str` — Render one table row padded to `widths`; internal format helper.
