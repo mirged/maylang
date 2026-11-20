@@ -1,8 +1,7 @@
 # Strict typing in mayc
 
 The self-hosted `compiler/mayc/mayc_new` compiler checks types by default.
-The Maylang language server uses the same checker. The Rust `maylang` toolchain
-remains a separate legacy implementation; use mayc for the syntax below.
+The Maylang language server uses the same checker.
 
 ```may
 fun add(a: Int, b: Int) -> Int {
@@ -69,7 +68,9 @@ function's parameters. A type parameter that no argument determines, such as
 `T` in `fun stack<T>() -> List<T>`, becomes `Never` at the call, like the
 element of an empty `[]`, so `let xs: List<Int> = stack();` is accepted. There
 is no arithmetic on type parameters, no numeric type bound, and no generic
-structs or tuple values yet.
+structs yet. A list literal with one element per position constructs a
+`Tuple<...>` (`let pair: Tuple<Int, Str> = [1, "a"];`), and indexing a tuple
+with a literal position has that element's type.
 
 A check against `nil` narrows an `Optional<T>` to `T`: inside
 `if (x != nil) { ... }`, in the else-branch of `if (x == nil)`, on the right of
@@ -92,12 +93,15 @@ let dynamic: Any = 123;
 // let text: Str = dynamic; // error: expected Str, found Any
 let text: Str = str(dynamic);
 let number: Int = identity(123); // generic identity<T> preserves Int
-let payload: Str = Some("hello").value ?? "missing";
+let payload: Str = Some("hello") ?? "missing";
 ```
 
-Conversions have their own conversion semantics: `str(123)` produces `"123"`
-and `int("hello")` faults. They are not arbitrary casts. `Some` and `Ok` preserve
-the success payload type as `Result<T, Never>`; `.value` is optional. There is
+Conversions have their own conversion semantics: `str(123)` produces `"123"`,
+`int("hello")` faults and `to_float` faults on anything but a number. They are
+not arbitrary casts. `Ok` preserves the success payload type as
+`Result<T, Never>`, whose `.value` is optional. `Option<T>` (also `T?`) is the
+nullable `T`: `Some(x)` has type `Option<T>` and is `x` itself, and `None()` is
+`Option<Never>`, so either can be returned from a `-> Option<T>` function. There is
 no general checked cast from dynamic objects to nominal records or functions.
 Dynamic calls, operators, predicates and native builtins retain runtime
 dispatch; an `Any` condition still uses truthiness. Typed callbacks check
@@ -152,9 +156,11 @@ the next typed access. Rejecting implicit narrowing does not prevent mutation
 through a separately retained `Any` alias or raw memory operations;
 the language does not provide ownership or immutable collection storage.
 
-The return analysis accepts both returning branches of an `if` and returning
-`may`/`otherwise` branches. It is conservative about loops: add an explicit
-return after a loop even if it seems endless. Destructuring declarations and
+The return analysis accepts both returning branches of an `if`, returning
+`may`/`otherwise` branches, an exhaustive `match` whose arms all return, a
+final `fail(...)`, `exit(...)` or call to a function declared `-> Never`, and
+`while (true)` without a `break`. It is otherwise conservative about loops: add
+an explicit return after a loop that has a `break`. Destructuring declarations and
 loop patterns must currently be expanded to individually typed bindings.
 `Ok(value)` infers `Result<T, Never>` and `Err(error)` infers
 `Result<Never, E>`. Postfix `?` unwraps a typed result's success value and
@@ -173,8 +179,10 @@ fun size(shape: Shape) -> Int {
 }
 ```
 
-Constructor patterns support typed bindings, ignored `_` payloads, guards,
-and imported namespace constructors. Nullary patterns use `Variant()`.
+Constructor patterns support typed bindings, ignored `_` payloads, nested
+literal and constructor patterns, guards, and imported namespace constructors.
+Inside `otherwise`, `err.kind`, `err.message` and `err.stack` are `Str`, and
+the network fields `err.operation` and `err.errno` are optional. Nullary patterns use `Variant()`.
 Enum and Result matches must cover every variant or have an unguarded wildcard;
 guarded arms do not count as complete coverage. Payload bindings can be captured
 by closures and are scoped to their arm.
