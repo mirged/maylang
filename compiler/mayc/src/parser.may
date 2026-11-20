@@ -42,8 +42,20 @@ fun expect(k: Any) -> Any {
     return 0;
 }
 
+// End a statement. The `;` may only be left out before a closing `}` or the
+// end of the file, or after a statement that itself ends with a `}` block
+// (`match (x) { ... }`, `may { ... } otherwise { ... }`). A missing `;`
+// between two statements is an error rather than a silent join such as
+// `1` and `-1` on separate lines becoming `1 - 1` (#176).
+fun semi_optional() -> Any {
+    let k: Any = ptok();
+    if (k == TK_RB or k == TK_EOF) { return true; }
+    return POS > 0 and TOKS[POS - 1].kind == TK_RB;
+}
+
 fun skip_semi() -> Any {
-    if (ptok() == TK_SEMI) { adv(); }
+    if (ptok() == TK_SEMI) { adv(); return 0; }
+    if (not semi_optional()) { diagnostic(parser_span(), "expected `;` after the previous statement"); }
     return 0;
 }
 
@@ -88,6 +100,7 @@ fun parser_recover(start: Any) -> Any {
 mut PARSED_ASSIGNMENTS: Any = [];
 fun parse_program(ctx: Any) -> Any {
     PARSED_ASSIGNMENTS = [];
+    PARSE_DEPTH = 0;
     POS = 0;
     TYPE_GT_PENDING = 0;
     DECLARATIONS = [];
@@ -159,6 +172,7 @@ fun parse_program(ctx: Any) -> Any {
         }
         if (len(DIAGNOSTICS) >= 20) { break; }
     }
+    parse_duplicate_declarations();
     diagnostics_finish();
     MAINBODY = rev_list(mh);
     PROGRAM_AST = Program(DECLARATIONS, FUNC_HEAD, MAINBODY);
@@ -169,7 +183,61 @@ fun parse_program(ctx: Any) -> Any {
     return 0;
 }
 
+// Reject a second top-level function, struct, enum or variant
+// constructor with the same name in one module (#174). Struct and variant
+// constructors are generated functions, so they share the function check.
+fun parse_duplicate_declarations() -> Any {
+    let seen: Any = {};
+    let declared: Any = {};
+    for declaration: Any in ENUM_DECLS { declared[source_module(declaration.span) + "::" + declaration.name] = true; }
+    for rec: Any in FUNC_HEAD {
+        if (rec.nested == 0 and rec.moduleSpan != nil and rec.moduleSpan != 0) {
+            parse_declare_once(seen, source_module(rec.moduleSpan), symbol_name(rec.p, rec.l), rec.moduleSpan);
+        }
+    }
+    // A top-level binding may be declared again (script-style rebinding, see
+    // tests/main_locals.may); it only needs to be known to selective imports.
+    for declaration: Any in DECLARATIONS {
+        if (declaration != 0 and declaration.kind == S_LET and declaration.span != nil and declaration.span != 0) {
+            declared[source_module(declaration.span) + "::" + symbol_name(declaration.name, declaration.length)] = true;
+        }
+    }
+    for key: Any in keys(seen) { declared[key] = true; }
+    check_selected_imports(declared);
+    return 0;
+}
+fun parse_declare_once(seen: Any, module: Any, name: Any, span: Any) -> Any {
+    // Runtime and library sidecars (module "") have their own duplicate check
+    // naming both sidecar files (#114).
+    if (module == "") { return 0; }
+    let key: Any = module + "::" + name;
+    if (not has(seen, key)) { seen[key] = span; return 0; }
+    let first: Any = seen[key];
+    // One declaration can generate several functions (an enum's variants all
+    // carry the enum's span); only a separate declaration of the name clashes.
+    if (first.start == span.start and first.source == span.source and not has(seen, key + "#same")) {
+        seen[key + "#same"] = true;
+        may { diagnostic(span, "duplicate declaration `${name}` in one enum") } otherwise { collect_diagnostic(err.message) };
+        return 0;
+    }
+    if (first.start == span.start and first.source == span.source) { return 0; }
+    let where: Any = diagnostic_record(first, "");
+    may { diagnostic(span, "duplicate declaration `${name}`; it is already declared at " + str(where.file) + ":" + str(where.range.start.line)) } otherwise { collect_diagnostic(err.message) };
+    return 0;
+}
+
+// A type, optionally followed by `?` for `Optional<T>` (#169).
 fun parse_type() -> Any {
+    let span: Any = parser_span();
+    mut t: Any = parse_type_base();
+    while (ptok() == TK_QUEST and TYPE_GT_PENDING == 0) {
+        adv();
+        t = TypeRef("Optional", [t], 0, span);
+    }
+    return t;
+}
+
+fun parse_type_base() -> Any {
     let span: Any = parser_span();
     // C-style function pointer spelling: Fn(A, B) -> R.
     if (ptok() == TK_IDENT and slice_src(pstart(), plen()) == "Fn") {
@@ -783,9 +851,10 @@ fun parse_statement(ctx: Any) -> Any {
     }
     if (k == TK_IDENT) {
         let nt: Any = peek(1);
-        if (nt == TK_ASSIGN  or  nt == TK_PLUSEQ  or  nt == TK_MINUSEQ  or  nt == TK_STAREQ  or  nt == TK_SLASHEQ) {
+        if (nt == TK_ASSIGN or compound_operator(nt) != 0) {
             let np: Any = pstart() + SRC;
             let nl: Any = plen();
+            let opSpan: Any = parser_span();
             adv();
             adv();
             mut e: Any = parse_expr(ctx);
@@ -793,15 +862,8 @@ fun parse_statement(ctx: Any) -> Any {
                 let lhs: Any = mknode(E_VAR);
                 lhs.name = np;
                 lhs.length = nl;
-                mut op: Any = TK_PLUS;
-                if (nt == TK_MINUSEQ) { op = TK_MINUS; }
-                else if (nt == TK_STAREQ) { op = TK_STAR; }
-                else if (nt == TK_SLASHEQ) { op = TK_SLASH; }
-                let b: Any = mknode(E_BIN);
-                b.op = op;
-                b.left = lhs;
-                b.right = e;
-                e = b;
+                lhs.span = opSpan;
+                e = compound_value(compound_operator(nt), lhs, e, opSpan);
             }
             skip_semi();
             let s: Any = mknode(S_ASSIGN);
@@ -814,12 +876,8 @@ fun parse_statement(ctx: Any) -> Any {
     }
     mut e: Any = parse_expr(ctx);
     let assignment: Any = ptok();
-    if (assignment == TK_ASSIGN or assignment == TK_PLUSEQ or assignment == TK_MINUSEQ or assignment == TK_STAREQ or assignment == TK_SLASHEQ) {
-        mut compound: Any = 0;
-        if (assignment == TK_PLUSEQ) { compound = TK_PLUS; }
-        if (assignment == TK_MINUSEQ) { compound = TK_MINUS; }
-        if (assignment == TK_STAREQ) { compound = TK_STAR; }
-        if (assignment == TK_SLASHEQ) { compound = TK_SLASH; }
+    if (assignment == TK_ASSIGN or compound_operator(assignment) != 0) {
+        let compound: Any = compound_operator(assignment);
         if (e.kind == E_GET) {
             adv();
             let v: Any = parse_expr(ctx);
@@ -846,10 +904,44 @@ fun parse_statement(ctx: Any) -> Any {
     }
     mut semi: Any = 0;
     if (ptok() == TK_SEMI) { adv(); semi = 1; }
+    else if (not semi_optional()) { diagnostic(parser_span(), "expected `;` after the previous statement"); }
+    // A match used as a statement may leave values unmatched; one whose value
+    // is used faults when no arm matches (#146).
+    if (e.kind == E_MATCH) { e.discarded = true; }
     let s: Any = mknode(S_EXPR);
     s.expression = e;
     s.terminated = semi;
     return s;
+}
+
+// The operator a compound assignment token applies: a binary operator token,
+// TK_POW for `**=` or TK_QUEST for `??=`; 0 for any other token (#188).
+fun compound_operator(k: Any) -> Any {
+    if (k == TK_PLUSEQ) { return TK_PLUS; }
+    if (k == TK_MINUSEQ) { return TK_MINUS; }
+    if (k == TK_STAREQ) { return TK_STAR; }
+    if (k == TK_SLASHEQ) { return TK_SLASH; }
+    if (k == TK_PCTEQ) { return TK_PCT; }
+    if (k == TK_POWEQ) { return TK_POW; }
+    if (k == TK_SHLEQ) { return TK_SHL; }
+    if (k == TK_SHREQ) { return TK_SHR; }
+    if (k == TK_ANDEQ) { return TK_BITAND; }
+    if (k == TK_OREQ) { return TK_PIPE; }
+    if (k == TK_XOREQ) { return TK_XOR; }
+    if (k == TK_COALEQ) { return TK_QUEST; }
+    return 0;
+}
+
+// `left op right` for a compound assignment to a variable.
+fun compound_value(op: Any, left: Any, right: Any, span: Any) -> Any {
+    if (op == TK_POW) { return Power(E_POW, span, 0, left, right); }
+    if (op == TK_QUEST) { return Coalesce(E_COALESCE, span, 0, left, right); }
+    let b: Any = mknode(E_BIN);
+    b.op = op;
+    b.left = left;
+    b.right = right;
+    b.span = span;
+    return b;
 }
 
 fun parse_unless(ctx: Any) -> Any {
@@ -964,8 +1056,24 @@ fun binding_power(kind: Any) -> Any {
     return 0 - 1;
 }
 
+// Expression nesting (recursion plus the length of left-associative chains)
+// is limited, because later stages walk the tree recursively (#173).
+mut PARSE_DEPTH: Any = 0;
+let PARSE_DEPTH_LIMIT: Any = 1000;
 fun parse_pratt(ctx: Any, minimum: Any) -> Any {
+    PARSE_DEPTH = PARSE_DEPTH + 1;
+    if (PARSE_DEPTH > PARSE_DEPTH_LIMIT) {
+        PARSE_DEPTH = 0;
+        diagnostic(parser_span(), "expression nested too deeply (the limit is 1000 levels)");
+    }
+    let result: Any = parse_pratt_body(ctx, minimum);
+    PARSE_DEPTH = PARSE_DEPTH - 1;
+    return result;
+}
+
+fun parse_pratt_body(ctx: Any, minimum: Any) -> Any {
     let span: Any = parser_span();
+    let entered: Any = PARSE_DEPTH;
     mut left: Any = 0;
     if (ptok() == TK_MINUS or ptok() == TK_NOT or ptok() == TK_BITNOT) {
         let op: Any = ptok();
@@ -980,6 +1088,12 @@ fun parse_pratt(ctx: Any, minimum: Any) -> Any {
         if (power < minimum) { break; }
         adv();
         if (op == TK_QUEST) { expect(TK_QUEST); }
+        // Each operator of a chain deepens the left operand's tree by one.
+        PARSE_DEPTH = PARSE_DEPTH + 1;
+        if (PARSE_DEPTH > PARSE_DEPTH_LIMIT) {
+            PARSE_DEPTH = 0;
+            diagnostic(parser_span(), "expression nested too deeply (the limit is 1000 levels)");
+        }
         mut rightPower: Any = power + 1;
         if (op == TK_POW) { rightPower = power; }
         let right: Any = parse_pratt(ctx, rightPower);
@@ -994,6 +1108,7 @@ fun parse_pratt(ctx: Any, minimum: Any) -> Any {
             left = RangeExpr(E_RANGE, span, 0, left, right, inclusive);
         } else { left = Binary(E_BIN, span, 0, op, left, right); }
     }
+    PARSE_DEPTH = entered;
     return left;
 }
 
@@ -1050,6 +1165,8 @@ fun parse_postfix(ctx: Any) -> Any {
                 c.name = np + SRC;
                 c.length = nl;
                 c.args = e;
+                // `x.f(...)`: a call of `f` with `x` first, or of a field `f` (strict.may).
+                c.method = true;
                 e = c;
             } else {
                 let n: Any = mknode(E_GET);
@@ -1137,57 +1254,94 @@ fun finish_lambda(ctx: Any, parr: Any, pc: Any, body: Any) -> Any {
     return n;
 }
 
+// Parse one pattern into `target` (a match arm or a nested sub-pattern):
+// patternKind 0 `_`, 1 a literal (pattern is its expression), 2 a binding
+// (pattern/length name it), 3 a constructor (pattern/length name it, nested
+// holds its payload items).
+fun parse_pattern_into(ctx: Any, target: Any) -> Any {
+    mut pk: Any = 0;
+    mut pv: Any = 0;
+    mut pn: Any = 0;
+    mut payload: Any = [];
+    if (ptok() == TK_IDENT) {
+        mut s: Any = pstart() + SRC;
+        mut l: Any = plen();
+        adv();
+        mut name: Any = symbol_name(s, l);
+        while (ptok() == TK_DOT) {
+            adv(); name = name + "::" + slice_src(pstart(), plen()); expect(TK_IDENT);
+            s = addr(name); l = len(name);
+            push(SYMBOL_STRINGS, name);
+        }
+        if (ptok() == TK_LP) {
+            pk = 3; pv = s; pn = l; adv();
+            while (ptok() != TK_RP) {
+                push(payload, parse_payload_item(ctx));
+                if (ptok() != TK_COMMA) { break; }
+                adv();
+            }
+            expect(TK_RP);
+        } else if (name == "_") {
+            pk = 0;
+        } else if (name == "true" or name == "false" or name == "nil") {
+            pk = 1;
+            let literal: Any = mknode(E_VAR);
+            literal.name = s;
+            literal.length = l;
+            pv = literal;
+        } else {
+            pk = 2;
+            pv = s;
+            pn = l;
+        }
+    } else if (ptok() == TK_MINUS) {
+        // A negative numeric literal pattern such as `-1` or `-1.5` (#167).
+        if (peek(1) != TK_INT and peek(1) != TK_FLOAT) { diagnostic(parser_span(), "`-` in a pattern must be followed by a number"); }
+        pk = 1;
+        pv = parse_pratt(ctx, 100);
+    } else {
+        let lit: Any = parse_primary(ctx);
+        pk = 1;
+        pv = lit;
+    }
+    target.patternKind = pk;
+    target.pattern = pv;
+    target.length = pn;
+    target.nested = payload;
+    return 0;
+}
+
+// One payload position of a constructor pattern: a binding, `_`, or a nested
+// literal or constructor pattern in `sub` (#187).
+fun parse_payload_item(ctx: Any) -> Any {
+    let binding: Any = mknode(E_PATTERN);
+    binding.sub = 0;
+    if (ptok() == TK_IDENT and peek(1) != TK_LP and peek(1) != TK_DOT) {
+        let text: Any = slice_src(pstart(), plen());
+        if (text == "_") { binding.name = 0; binding.length = 0; adv(); return binding; }
+        if (text != "true" and text != "false" and text != "nil") {
+            binding.name = pstart() + SRC; binding.length = plen(); adv(); return binding;
+        }
+    }
+    let sub: Any = mknode(E_ARM);
+    sub.span = parser_span();
+    sub.guard = 0;
+    sub.body = 0;
+    parse_pattern_into(ctx, sub);
+    binding.name = 0;
+    binding.length = 0;
+    binding.sub = sub;
+    return binding;
+}
+
 fun parse_match(ctx: Any) -> Any {
     expect(TK_MATCH);
-    if (ptok() == TK_LP) { adv(); }
     let scr: Any = parse_expr(ctx);
-    if (ptok() == TK_RP) { adv(); }
     expect(TK_LB);
     mut h: Any = 0;
     while (ptok() != TK_RB) {
-        mut pk: Any = 0;
-        mut pv: Any = 0;
-        mut pn: Any = 0;
-        mut payload: Any = [];
-        if (ptok() == TK_IDENT) {
-            mut s: Any = pstart() + SRC;
-            mut l: Any = plen();
-            adv();
-            mut name: Any = symbol_name(s, l);
-            while (ptok() == TK_DOT) {
-                adv(); name = name + "::" + slice_src(pstart(), plen()); expect(TK_IDENT);
-                s = addr(name); l = len(name);
-                push(SYMBOL_STRINGS, name);
-            }
-            if (ptok() == TK_LP) {
-                pk = 3; pv = s; pn = l; adv();
-                while (ptok() != TK_RP) {
-                    let binding: Any = mknode(E_PATTERN);
-                    binding.name = pstart() + SRC; binding.length = plen();
-                    if (slice_src(pstart(), plen()) == "_") { binding.name = 0; binding.length = 0; }
-                    expect(TK_IDENT); push(payload, binding);
-                    if (ptok() != TK_COMMA) { break; }
-                    adv();
-                }
-                expect(TK_RP);
-            } else if (name == "_") {
-                pk = 0;
-            } else if (name == "true" or name == "false" or name == "nil") {
-                pk = 1;
-                let literal: Any = mknode(E_VAR);
-                literal.name = s;
-                literal.length = l;
-                pv = literal;
-            } else {
-                pk = 2;
-                pv = s;
-                pn = l;
-            }
-        } else {
-            let lit: Any = parse_primary(ctx);
-            pk = 1;
-            pv = lit;
-        }
+        let arm: Any = mknode(E_ARM);
+        parse_pattern_into(ctx, arm);
         mut guard: Any = 0;
         if (ptok() == TK_IF) {
             adv();
@@ -1195,13 +1349,8 @@ fun parse_match(ctx: Any) -> Any {
         }
         expect(TK_ARROW);
         let body: Any = parse_lambda_body(ctx);
-        let arm: Any = mknode(E_ARM);
-        arm.patternKind = pk;
-        arm.pattern = pv;
-        arm.length = pn;
         arm.guard = guard;
         arm.body = body;
-        arm.nested = payload;
         arm.next = h;
         h = arm;
         if (ptok() == TK_COMMA) { adv(); }
@@ -1518,7 +1667,9 @@ fun parse_primary(ctx: Any) -> Any {
                     break;
                 }
                 mut key: Any = 0;
-                if (peek(1) == TK_COLON) {
+                // A bare name is a string key, except the literals true, false and nil (#183).
+                let literalKey: Any = ptok() == TK_IDENT and has(["true", "false", "nil"], slice_src(pstart(), plen()));
+                if (peek(1) == TK_COLON and not literalKey) {
                     if (ptok() == TK_IDENT) {
                         let ks: Any = pstart();
                         let kl: Any = plen();
@@ -1589,5 +1740,24 @@ fun parse_primary(ctx: Any) -> Any {
         return v;
     }
     perr();
+    return 0;
+}
+
+// Every name in `from "m" import a, b;` must be declared in m, and public when
+// m marks any declaration `pub` (#178). `declared` holds "module::name" keys.
+fun check_selected_imports(declared: Any) -> Any {
+    for owner: Any in keys(MODULE_IMPORTS) {
+        for imported: Any in MODULE_IMPORTS[owner] {
+            for name: Any in imported.selected {
+                let key: Any = imported.path + "::" + name;
+                mut problem: Any = "";
+                if (not has(declared, key)) { problem = "module \"" + imported.path + "\" has no declaration `" + name + "`"; }
+                else if (has(MODULE_EXPLICIT, imported.path) and not has(MODULE_PUBLIC, key)) { problem = "`" + name + "` is not public in module \"" + imported.path + "\""; }
+                if (problem != "") {
+                    may { import_diagnostic(imported.span, problem) } otherwise { collect_diagnostic(err.message); restore_diagnostic_stage("parse") };
+                }
+            }
+        }
+    }
     return 0;
 }

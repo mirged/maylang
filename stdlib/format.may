@@ -1,10 +1,12 @@
 // format.may — small presentation helpers for terminal and text output.
 
 /// Return a ratio multiplied by 100, rounded through `round` and decorated with `%`; `digits`
-/// controls scale, not zero-padding.
+/// controls scale, not zero-padding, and `0` digits print a whole number such as `50%`.
 fun format_percent(value: Float, digits: Int) -> Str {
     let scale: Float = pow(10, digits);
-    return str(round(value * 100.0 * scale) / scale) + "%";
+    let scaled: Float = round(value * 100.0 * scale) / scale;
+    if (digits <= 0) { return str(int(scaled)) + "%"; }
+    return str(scaled) + "%";
 }
 /// Return bytes or binary KiB/MiB/GiB/TiB notation using 1024-based scaling.
 fun format_bytes(n: Int) -> Str {

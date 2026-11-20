@@ -122,6 +122,19 @@ fun rt_failstr(s: Any) -> Any { return rt_raise_kind(addr("runtime"), 7, s); }
 fun rt_failtype(s: Any) -> Any { return rt_raise_kind(addr("type"), 4, s); }
 fun rt_failarith(s: Any) -> Any { return rt_raise_kind(addr("arithmetic"), 10, s); }
 fun rt_failio(s: Any) -> Any { return rt_raise_kind(addr("io"), 2, s); }
+fun rt_failindex(s: Any) -> Any { return rt_raise_kind(addr("index"), 5, s); }
+
+// "index I out of range for length N" (#145).
+fun rt_index_range(i: Any, n: Any) -> Any {
+    let m: Any = rt_concat(rt_concat(rt_concat(rt_from(addr("index "), 6), rt_int_text(i)),
+        rt_from(addr(" out of range for length "), 25)), rt_int_text(n));
+    return rt_failindex(m);
+}
+
+// No arm of a match whose value is used matched its subject (#146).
+fun rt_match_fail(t: Any, v: Any) -> Any {
+    return rt_raise_kind(addr("match"), 5, rt_concat(rt_from(addr("no match arm matches "), 21), rt_str_of(t, v)));
+}
 
 // `fail(message)`: the message is displayed as a string.
 fun rt_fail(t: Any, v: Any) -> Any { return rt_raise_kind(addr("fail"), 4, rt_str_of(t, v)); }
@@ -129,6 +142,16 @@ fun rt_fail(t: Any, v: Any) -> Any { return rt_raise_kind(addr("fail"), 4, rt_st
 // Raise an existing error map (`rt_raise` in compiled code).
 fun rt_raise(t: Any, v: Any) -> Any {
     if (t != 6) { return rt_fail(t, v); }
+    // Strict code types err.kind, err.message and err.stack as Str (#182).
+    let kind: Any = rt_map_lookup(v, 4, rt_from(addr("kind"), 4));
+    if (RTAG != 4) { rt_map_put(v, 4, rt_from(addr("kind"), 4), 4, rt_from(addr("fail"), 4)); }
+    let message: Any = rt_map_lookup(v, 4, rt_from(addr("message"), 7));
+    let mt: Any = RTAG;
+    if (mt == 0) { rt_map_put(v, 4, rt_from(addr("message"), 7), 4, rt_from(addr(""), 0)); }
+    else if (mt != 4) { rt_map_put(v, 4, rt_from(addr("message"), 7), 4, rt_str_of(mt, message)); }
+    let stack: Any = rt_map_lookup(v, 4, rt_from(addr("stack"), 5));
+    // Library errors (native.may make_error) start with an empty stack (#159).
+    if (RTAG != 4 or load64(stack) == 0) { rt_map_put(v, 4, rt_from(addr("stack"), 5), 4, rt_trace_snapshot()); }
     ERRFLAG = 1;
     ERRVAL = v;
     __longjmp();
@@ -136,6 +159,16 @@ fun rt_raise(t: Any, v: Any) -> Any {
 }
 
 fun rt_die_uncaught() -> Any {
+    if (FIB_CUR != 0) {
+        // Inside a fiber: end it and hand the fault to run() (#156).
+        let rec: Any = FIB_CUR;
+        store64(rec + 16, 0);
+        store64(rec + 80, 1);
+        store64(rec + 88, ERRVAL);
+        rt_fiber_main();
+        __fib_switch(rec, FIB_SAVE0);
+        return 0;
+    }
     // The diagnostic itself is output; a host that reports collector
     // statistics keeps the summary for the exit below instead of printing it
     // in the middle of the message and the trace.
@@ -148,12 +181,17 @@ fun rt_die_uncaught() -> Any {
     m = rt_str_of(mt, m);
     if (mt == 0) { m = rt_from(addr(""), 0); }
     let s: Any = rt_concat(rt_concat(k, rt_from(addr(": "), 2)), m);
-    rt_write(s + 8, load64(s));
-    rt_write(addr("\n"), 1);
+    rt_write_err(s + 8, load64(s));
+    rt_write_err(addr("\n"), 1);
     let trace: Any = rt_map_lookup(ERRVAL, 4, rt_from(addr("stack"), 5));
-    if (RTAG == 4 and load64(trace) > 0) { rt_write(trace + 8, load64(trace)); }
+    if (RTAG == 4 and load64(trace) > 0) { rt_write_err(trace + 8, load64(trace)); }
     rt_host_exit(70);
     return 0;
+}
+
+fun rt_badop1(os: Any, ol: Any, t: Any) -> Any {
+    return rt_failtype(rt_concat(rt_concat(rt_from(addr("cannot apply `"), 14), rt_from(os, ol)),
+        rt_concat(rt_from(addr("` to "), 5), rt_typename(t))));
 }
 
 fun rt_typename(t: Any) -> Any {
@@ -665,36 +703,37 @@ fun rt_len(t: Any, v: Any) -> Any {
     RTAG = 2;
     if (t == 4) { return utf8_cplen(v); }
     if (t == 5 or t == 6) { return load64(v); }
-    return 0;
+    return rt_failtype(rt_concat(rt_from(addr("len expects a string, list or map, not "), 39), rt_typename(t)));
 }
 
 fun rt_index_get(ot: Any, o: Any, it: Any, i: Any) -> Any {
     if (ot == 5) {
         if (it != 2) { return rt_failtype(rt_from(addr("index requires an integer"), 25)); }
-        if (i < 0 or i >= load64(o)) { RTAG = 0; return 0; }
+        if (i < 0 or i >= load64(o)) { return rt_index_range(i, load64(o)); }
         RTAG = rt_element_tag(o, i);
         return rt_element(o, i);
     }
     if (ot == 6) { return rt_map_lookup(o, it, i); }
+    if (ot == 0) { return rt_failtype(rt_from(addr("cannot index nil"), 16)); }
     if (ot == 4) {
         if (it != 2) { return rt_failtype(rt_from(addr("index requires an integer"), 25)); }
-        if (i < 0 or i >= utf8_cplen(o)) { RTAG = 0; return 0; }
+        if (i < 0 or i >= utf8_cplen(o)) { return rt_index_range(i, utf8_cplen(o)); }
         RTAG = 4;
         return utf8_char(o, utf8_off(o, i));
     }
-    RTAG = 0;
-    return 0;
+    return rt_failtype(rt_concat(rt_from(addr("cannot index "), 13), rt_typename(ot)));
 }
 
 fun rt_index_set(ot: Any, o: Any, it: Any, i: Any, t: Any, v: Any) -> Any {
     if (ot == 5) {
-        if (it != 2 or i < 0 or i >= load64(o)) { return rt_failtype(rt_from(addr("invalid list assignment"), 23)); }
+        if (it != 2) { return rt_failtype(rt_from(addr("index requires an integer"), 25)); }
+        if (i < 0 or i >= load64(o)) { return rt_index_range(i, load64(o)); }
         if (rt_list_put(o, i, t, v) == 0) { rt_list_widen(o); rt_list_put(o, i, t, v); }
         RTAG = t;
         return v;
     }
     if (ot == 6) { rt_map_put(o, it, i, t, v); RTAG = t; return v; }
-    return rt_failtype(rt_from(addr("invalid indexed assignment"), 26));
+    return rt_failtype(rt_concat(rt_from(addr("cannot assign by index into "), 28), rt_typename(ot)));
 }
 
 fun rt_range(st: Any, s: Any, et: Any, e: Any, it: Any, inclusive: Any) -> Any {
@@ -908,13 +947,14 @@ fun rt_map_lookup(m: Any, kt: Any, k: Any) -> Any {
 }
 
 fun rt_map_set(mt: Any, m: Any, kt: Any, k: Any, t: Any, v: Any) -> Any {
-    if (mt == 6) { rt_map_put(m, kt, k, t, v); }
+    if (mt != 6) { return rt_expect_map(mt, addr("map_set"), 7); }
+    rt_map_put(m, kt, k, t, v);
     RTAG = t;
     return v;
 }
 
 fun rt_map_get(mt: Any, m: Any, kt: Any, k: Any) -> Any {
-    if (mt != 6) { RTAG = 0; return 0; }
+    if (mt != 6) { return rt_expect_map(mt, addr("map_get"), 7); }
     return rt_map_lookup(m, kt, k);
 }
 
@@ -925,7 +965,7 @@ fun rt_map_get(mt: Any, m: Any, kt: Any, k: Any) -> Any {
 // otherwise it calls these, which behave as rt_map_get / rt_map_set and
 // refresh the cache.
 fun rt_field_get(mt: Any, m: Any, kt: Any, k: Any, ct: Any, cache: Any) -> Any {
-    if (mt != 6) { RTAG = 0; return 0; }
+    if (mt != 6) { return rt_field_error(mt, k); }
     let index: Any = rt_map_find(m, kt, k);
     if (index < 0) { RTAG = 0; return 0; }
     store64(cache, index * 32);
@@ -934,9 +974,15 @@ fun rt_field_get(mt: Any, m: Any, kt: Any, k: Any, ct: Any, cache: Any) -> Any {
     return load64(e + 24);
 }
 
+// Reading or writing field `k` of a value that is not a map or record (#164).
+fun rt_field_error(mt: Any, k: Any) -> Any {
+    return rt_failtype(rt_concat(rt_concat(rt_concat(rt_from(addr("cannot access field `"), 21), k),
+        rt_from(addr("` of "), 5)), rt_typename(mt)));
+}
+
 fun rt_field_set(mt: Any, m: Any, kt: Any, k: Any, t: Any, v: Any, ct: Any, cache: Any) -> Any {
+    if (mt != 6) { return rt_field_error(mt, k); }
     RTAG = t;
-    if (mt != 6) { return v; }
     rt_map_put(m, kt, k, t, v);
     store64(cache, rt_map_find(m, kt, k) * 32);
     RTAG = t;
@@ -1023,12 +1069,18 @@ fun rt_eq(at: Any, a: Any, bt: Any, b: Any) -> Any {
     return rt_same(at, a, bt, b);
 }
 
-// Ordering within one type: strings by bytes, other payloads as signed words.
+// Ordering within one type: strings by bytes, Ints as signed words and Bools
+// false before true. Nil, lists, maps and functions have no order (#152).
 fun rt_less(at: Any, a: Any, bt: Any, b: Any) -> Any {
     if (at == 4 and bt == 4) { return rt_str_lt(a, b); }
     if (at == 3 and bt == 3) { return __fbits(22, a, b); }
+    if (at != 2 and at != 1) { return rt_order_error(at); }
     if (a < b) { return 1; }
     return 0;
+}
+
+fun rt_order_error(t: Any) -> Any {
+    return rt_failtype(rt_concat(rt_concat(rt_from(addr("cannot order "), 13), rt_typename(t)), rt_from(addr(" values"), 7)));
 }
 
 fun rt_compare_error(at: Any, bt: Any) -> Any {
@@ -1103,18 +1155,19 @@ fun rt_binary(opt: Any, op: Any, at: Any, a: Any, bt: Any, b: Any) -> Any {
         }
         if (at == 2 and bt == 2) { RTAG = 2; return rt_checked_add(a, b); }
         if (rt_numeric(at, bt) == 1) { RTAG = 3; return __fbits(0, rt_bits(at, a), rt_bits(bt, b)); }
-        RTAG = at;
-        return a;
+        return rt_badop(addr("+"), 1, at, bt);
     }
+    // Float arithmetic follows IEEE 754: dividing by zero gives an infinity
+    // or NaN, as overflow does (#153).
     if (rt_numeric(at, bt) == 1 and op >= 21 and op <= 23) {
         let x: Any = rt_bits(at, a);
         let y: Any = rt_bits(bt, b);
-        if (op == 23 and __fbits(20, y, 0) == 1) { return rt_failarith(rt_from(addr("division by zero"), 16)); }
         RTAG = 3;
         if (op == 21) { return __fbits(1, x, y); }
         if (op == 22) { return __fbits(2, x, y); }
         return __fbits(3, x, y);
     }
+    if (rt_numeric(at, bt) == 1 and op == 24) { RTAG = 3; return rt_fmod(rt_bits(at, a), rt_bits(bt, b)); }
     if (at == 2 and bt == 2) {
         RTAG = 2;
         if (op == 21) { return rt_checked_sub(a, b); }
@@ -1137,10 +1190,46 @@ fun rt_binary(opt: Any, op: Any, at: Any, a: Any, bt: Any, b: Any) -> Any {
             return a >> b;
         }
     }
+    if (op == 21) { return rt_badop(addr("-"), 1, at, bt); }
+    if (op == 22) { return rt_badop(addr("*"), 1, at, bt); }
     if (op == 23) { return rt_badop(addr("/"), 1, at, bt); }
     if (op == 24) { return rt_badop(addr("%"), 1, at, bt); }
-    RTAG = at;
-    return a;
+    if (op == 64) { return rt_badop(addr("&"), 1, at, bt); }
+    if (op == 45) { return rt_badop(addr("|"), 1, at, bt); }
+    if (op == 63) { return rt_badop(addr("^"), 1, at, bt); }
+    if (op == 65) { return rt_badop(addr("<<"), 2, at, bt); }
+    if (op == 66) { return rt_badop(addr(">>"), 2, at, bt); }
+    // Every operator the compiler emits is handled above (#144).
+    return rt_badop(addr("?"), 1, at, bt);
+}
+
+// Float remainder with C fmod semantics, exactly: the result has the
+// dividend's sign, as Int `%` does; a NaN operand, an infinite dividend or a
+// zero divisor gives NaN, and an infinite divisor returns the dividend (#154).
+// Positive binary64 bit patterns order like their values, so the loop compares
+// bits. Each step subtracts the divisor doubled to just below the remainder;
+// by Sterbenz's lemma that subtraction is exact.
+fun rt_fmod(x: Any, y: Any) -> Any {
+    let sign: Any = 1 << 63;
+    let magnitude: Any = ~sign;
+    let infinity: Any = 2047 << 52;
+    let ax: Any = x & magnitude;
+    let ay: Any = y & magnitude;
+    if (ax > infinity or ay > infinity or ax == infinity or ay == 0) { return __fbits(3, 0, 0); }
+    if (ay == infinity or ax < ay) { return x; }
+    let two: Any = 1 << 62;
+    mut r: Any = ax;
+    while (r >= ay) {
+        mut t: Any = ay;
+        while (true) {
+            let doubled: Any = __fbits(2, t, two);
+            if (doubled > r) { break; }
+            t = doubled;
+        }
+        r = __fbits(1, r, t);
+    }
+    if ((x & sign) != 0) { return r | sign; }
+    return r;
 }
 
 fun rt_unary(opt: Any, op: Any, t: Any, v: Any) -> Any {
@@ -1158,6 +1247,9 @@ fun rt_unary(opt: Any, op: Any, t: Any, v: Any) -> Any {
         }
         if (op == 67) { return ~v; }
     }
+    // Negation and bitwise not of other types fault (#144).
+    if (op == 21) { return rt_badop1(addr("-"), 1, t); }
+    if (op == 67) { return rt_badop1(addr("~"), 1, t); }
     RTAG = t;
     return v;
 }
@@ -1182,10 +1274,11 @@ fun rt_bits(t: Any, v: Any) -> Any {
     return v;
 }
 
+// to_float of an Int or Float; anything else is a `type` fault, so a Float
+// binding never holds another type (#147). Use float() to parse text.
 fun rt_to_f(t: Any, v: Any) -> Any {
     if (t == 2 or t == 3) { RTAG = 3; return rt_bits(t, v); }
-    RTAG = t;
-    return v;
+    return rt_failtype(rt_concat(rt_from(addr("to_float expects a number, not "), 31), rt_typename(t)));
 }
 
 // The 3-bit tag the tagged runtime would report, for library compatibility.
@@ -1197,9 +1290,14 @@ fun rt_value_tag(t: Any, v: Any) -> Any {
     if (t == 4) { return 1; }
     if (t == 5) { return 5; }
     if (t == 6) { return 7; }
+    if (t == 7) { return 8; }
     return 0;
 }
 
+// Numbers compare numerically (a NaN operand compares as greater, which the
+// min/max contracts rely on; sort orders NaN itself); strings, Ints and Bools
+// within their type. Other types and mixed types raise a `type` fault, like
+// `<` (#152).
 fun rt_cmp(at: Any, a: Any, bt: Any, b: Any) -> Any {
     RTAG = 2;
     if (rt_numeric(at, bt) == 1) {
@@ -1209,8 +1307,11 @@ fun rt_cmp(at: Any, a: Any, bt: Any, b: Any) -> Any {
         if (__fbits(22, x, y) == 1) { return 0 - 1; }
         return 1;
     }
-    if (rt_same(at, a, bt, b) == 1) { return 0; }
-    if (rt_less(at, a, bt, b) == 1) { return 0 - 1; }
+    if (at != bt) { return rt_compare_error(at, bt); }
+    if (rt_same(at, a, bt, b) == 1) { RTAG = 2; return 0; }
+    let less: Any = rt_less(at, a, bt, b);
+    RTAG = 2;
+    if (less == 1) { return 0 - 1; }
     return 1;
 }
 
@@ -1245,10 +1346,18 @@ fun utf8_encode(c: Any) -> Any {
 fun rt_char_at(st: Any, s: Any, it: Any, i: Any) -> Any {
     RTAG = 2;
     if (st != 4 or it != 2) { return rt_failtype(rt_from(addr("char_at expects a string and an index"), 37)); }
+    let n: Any = utf8_cplen(s);
+    if (i < 0 or i >= n) { return rt_index_range(i, n); }
+    RTAG = 2;
     return utf8_decode(s, utf8_off(s, i));
 }
 
+// Only Unicode scalar values encode, so strings stay valid UTF-8 (#162).
 fun rt_char_from(t: Any, c: Any) -> Any {
+    if (t != 2) { return rt_failtype(rt_concat(rt_from(addr("char_from expects an Int, not "), 30), rt_typename(t))); }
+    if (c < 0 or c > 1114111 or (c >= 55296 and c <= 57343)) {
+        return rt_failarith(rt_concat(rt_from(addr("not a Unicode scalar value: "), 28), rt_int_text(c)));
+    }
     RTAG = 4;
     return utf8_encode(c);
 }
@@ -1302,13 +1411,18 @@ fun rt_map_column(m: Any, offset: Any) -> Any {
     return l;
 }
 
+// A `type` fault for a map operation on another type (#164).
+fun rt_expect_map(t: Any, what: Any, wl: Any) -> Any {
+    return rt_failtype(rt_concat(rt_concat(rt_from(what, wl), rt_from(addr(" expects a map or record, not "), 30)), rt_typename(t)));
+}
+
 fun rt_keys(t: Any, m: Any) -> Any {
-    if (t != 6) { RTAG = 5; return rt_list_raw(0); }
+    if (t != 6) { return rt_expect_map(t, addr("keys"), 4); }
     return rt_map_column(m, 0);
 }
 
 fun rt_values(t: Any, m: Any) -> Any {
-    if (t != 6) { RTAG = 5; return rt_list_raw(0); }
+    if (t != 6) { return rt_expect_map(t, addr("values"), 6); }
     return rt_map_column(m, 16);
 }
 
@@ -1407,13 +1521,29 @@ fun rt_trunc(t: Any, v: Any) -> Any {
 
 // ---- calling compiled closures ---------------------------------------------
 
+// A closure called with another number of arguments than it declares (#161);
+// the padding bit (1 << 20) marks extern_c's trampoline, which pads with nil.
+fun rt_check_arity(f: Any, n: Any) -> Any {
+    let arity: Any = load64(f + 16);
+    if (arity == n or (arity & 1048576) != 0) { return 0; }
+    return rt_arity_fault(2, arity, 2, n);
+}
+
+fun rt_arity_fault(et: Any, expected: Any, gt: Any, given: Any) -> Any {
+    let m: Any = rt_concat(rt_concat(rt_concat(rt_from(addr("function expects "), 17), rt_int_text(expected)),
+        rt_concat(rt_from(addr(" arguments, got "), 16), rt_int_text(given))), rt_from(addr(""), 0));
+    return rt_raise_kind(addr("arity"), 5, m);
+}
+
 fun rt_call1(f: Any, t: Any, v: Any) -> Any {
+    rt_check_arity(f, 1);
     let argv: Any = rt_alloc_values(1);
     store64(argv, t); store64(argv + 8, v);
     return __fat_apply(f, argv, 1);
 }
 
 fun rt_call2(f: Any, at: Any, a: Any, bt: Any, b: Any) -> Any {
+    rt_check_arity(f, 2);
     let argv: Any = rt_alloc_values(2);
     store64(argv, at); store64(argv + 8, a); store64(argv + 16, bt); store64(argv + 24, b);
     return __fat_apply(f, argv, 2);
@@ -1501,20 +1631,33 @@ fun rt_powf(at: Any, a: Any, bt: Any, b: Any) -> Any {
     return rt_call2(f, 3, rt_bits(at, a), 3, rt_bits(bt, b));
 }
 
+// Int ** Int by squaring with checked multiplication: at most 64 rounds for
+// any exponent, with bases 0, 1 and -1 answered directly (#165).
 fun rt_pow(at: Any, a: Any, bt: Any, b: Any) -> Any {
     if (at == 2 and bt == 2 and b >= 0) {
-        mut r: Any = 1;
-        mut i: Any = 0;
-        while (i < b) { r = rt_checked_mul(r, a); i = i + 1; }
         RTAG = 2;
-        return r;
+        if (b == 0) { return 1; }
+        if (a == 0 or a == 1) { return a; }
+        if (a == 0 - 1) { if ((b & 1) == 0) { return 1; } return 0 - 1; }
+        mut result: Any = 1;
+        mut base: Any = a;
+        mut e: Any = b;
+        while (e > 0) {
+            if ((e & 1) == 1) { result = rt_checked_mul(result, base); }
+            e = e >> 1;
+            if (e > 0) { base = rt_checked_mul(base, base); }
+        }
+        RTAG = 2;
+        return result;
     }
     return rt_powf(at, a, bt, b);
 }
 
 // ---- fibers ----------------------------------------------------------------
 // A fiber record: [saved sp, closure, live, stack top, handler stack,
-// handler depth, error, error flag, trace stack, trace depth].
+// handler depth, error, error flag, trace stack, trace depth, faulted,
+// uncaught error]. A fault no handler inside the fiber catches ends the
+// fiber and is raised again from run() (#156).
 
 mut FIB_TAB: Any = 0;
 mut FIB_N: Any = 0;
@@ -1533,11 +1676,30 @@ fun rt_fiber_tables() -> Any {
     return 0;
 }
 
+// Drop finished fibers from the table and release their stacks, so the limit
+// counts live fibers rather than every fiber ever spawned (#157).
+fun rt_fiber_compact() -> Any {
+    mut kept: Any = 0;
+    mut i: Any = 0;
+    while (i < FIB_N) {
+        let rec: Any = load64(FIB_TAB + i * 8);
+        if (load64(rec + 16) == 1 or rec == FIB_CUR) { store64(FIB_TAB + kept * 8, rec); kept = kept + 1; }
+        else { syscall(11, load64(rec + 24) - 262144, 262144); }
+        i = i + 1;
+    }
+    FIB_N = kept;
+    return 0;
+}
+
 fun rt_spawn(t: Any, f: Any) -> Any {
     rt_expect_function(t);
-    if (FIB_N >= 128) { return rt_failstr(rt_from(addr("fiber limit exceeded"), 20)); }
+    rt_check_arity(f, 0);
     rt_fiber_tables();
-    let rec: Any = rt_alloc(80);
+    if (FIB_N >= 128) { rt_fiber_compact(); }
+    if (FIB_N >= 128) { return rt_failstr(rt_from(addr("fiber limit exceeded: 128 fibers are live"), 41)); }
+    let rec: Any = rt_alloc(96);
+    store64(rec + 80, 0);
+    store64(rec + 88, 0);
     store64(rec + 8, f);
     store64(rec + 16, 1);
     store64(rec + 32, rt_alloc(64 * 64));
@@ -1607,10 +1769,21 @@ fun rt_run() -> Any {
                 rt_fiber_main();
                 CSTOP = STACKTOP;
                 FIB_CUR = 0;
+                if (load64(rec + 80) == 1) {
+                    // The fiber faulted without a handler of its own: raise the
+                    // fault here, where a `may` around run() can catch it.
+                    store64(rec + 80, 0);
+                    rt_fiber_compact();
+                    ERRVAL = load64(rec + 88);
+                    store64(rec + 88, 0);
+                    ERRFLAG = 1;
+                    __longjmp();
+                }
             }
             i = i + 1;
         }
     }
+    rt_fiber_compact();
     RTAG = 0;
     return 0;
 }

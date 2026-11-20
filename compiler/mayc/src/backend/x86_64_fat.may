@@ -1153,10 +1153,19 @@ fun fat_var(ctx: Any, n: Any) -> Any {
 }
 
 // A closure over code `label`; RCX holds the environment when `env` is true.
+// The arity bit of a closure that pads missing arguments with nil instead of
+// faulting on a different argument count: native.may's extern_c trampoline,
+// whose name contains `__padded` (#161).
+let FAT_PADDED_ARITY: Any = 1048576;
 fun fat_function_value(ctx: Any, label: Any, env: Bool, arity: Any) -> Any {
+    mut stored: Any = arity;
+    if (ctx.reachability != 0 and label < len(ctx.reachability.labels)) {
+        let rec: Any = ctx.reachability.labels[label];
+        if (rec != nil and rec != 0 and contains(symbol_name(rec.p, rec.l), "__padded")) { stored = arity + FAT_PADDED_ARITY; }
+    }
     x86_relocated_immediate(ctx, 0, 6, label); e8(ctx, 80);         // push code
     if (env) { e8(ctx, 81); } else { xor_eax(ctx); e8(ctx, 80); }  // push rcx / push 0
-    mov_imm(ctx, arity); e8(ctx, 80);
+    mov_imm(ctx, stored); e8(ctx, 80);
     fat_call_begin(ctx); call_rt0(ctx, addr("rt_closure3"), len("rt_closure3")); fat_call_end(ctx);
     fat_release(ctx, 24);
     x86_mov_immediate(ctx, 2, 7);
@@ -1410,8 +1419,18 @@ fun fat_apply(ctx: Any, args: Any) -> Any {
     let size: Any = closure + 1;
     fat_frame(ctx, 137, 0, fat_disp(closure) - 8);
     let count: Any = fat_count(args);
-    let enough: Any = newlab(ctx); let filled: Any = newlab(ctx);
+    let enough: Any = newlab(ctx); let filled: Any = newlab(ctx); let padded: Any = newlab(ctx);
     e8(ctx, 72); e8(ctx, 139); e8(ctx, 72); e8(ctx, 16);                     // mov rcx, [rax + 16]
+    e8(ctx, 72); e8(ctx, 129); e8(ctx, 249); e32(ctx, count);                // cmp rcx, count
+    jcc(ctx, 132, enough);                                                    // je: the arity matches
+    for byte: Any in [247, 193, 0, 0, 16, 0] { e8(ctx, byte); }              // test ecx, FAT_PADDED_ARITY
+    jcc(ctx, 133, padded);                                                    // jne
+    // Another argument count is an `arity` fault (#161).
+    e8(ctx, 72); e8(ctx, 137); e8(ctx, 200); x86_mov_immediate(ctx, 2, 2); fat_push(ctx); // mov rax, rcx
+    x86_mov_immediate(ctx, 0, count); x86_mov_immediate(ctx, 2, 2); fat_push(ctx);
+    fat_rt_call(ctx, "rt_arity_fault", 4);
+    placelab(ctx, padded);
+    for byte: Any in [129, 225, 255, 255, 15, 0] { e8(ctx, byte); }          // and ecx, FAT_PADDED_ARITY - 1
     e8(ctx, 72); e8(ctx, 129); e8(ctx, 249); e32(ctx, count);                // cmp rcx, count
     jcc(ctx, 141, enough);                                                    // jge
     x86_mov_immediate(ctx, 1, count);
@@ -1582,12 +1601,9 @@ fun fat_builtin(ctx: Any, name: Any, args: Any) -> Any {
         // The tagged backend leaves rt_newline's result, so `print` evaluates to 0.
         return fat_set(ctx, 2, 0);
     }
-    if (name == "exit") {
-        fat_get(ctx, args);
-        e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);                             // mov rdi, rax
-        mov_imm(ctx, 60); x86_syscall_instruction(ctx);
-        return 0;
-    }
+    // exit checks its status in the runtime: a status outside 0-255 would be
+    // truncated by the kernel, so exit(256) would report success (#163).
+    if (name == "exit") { return fat_rt(ctx, "rt_exit", args); }
     if (name == "syscall") {
         // Number and arguments are Int payloads; the result is an Int.
         let count: Any = fat_count(args);
@@ -1933,7 +1949,7 @@ fun fat_float_value(value: Any) -> Bool {
 fun fat_float_hint(n: Any) -> Bool { return fat_float_value(n.left) or fat_float_value(n.right); }
 
 // Jump to `slow` unless both operands are Floats, and for `/` unless the
-// divisor is nonzero (either sign: the runtime raises the fault); then
+// divisor is nonzero (either sign: the runtime returns the IEEE result); then
 // move the payloads into XMM0 (left) and XMM1.
 fun fat_float_operands(ctx: Any, n: Any, slow: Any) -> Any {
     if (fat_known_type(n.left) != 3) {

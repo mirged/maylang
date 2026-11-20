@@ -63,7 +63,8 @@ with tempfile.TemporaryDirectory(prefix='mayfmt-test-') as directory:
     invalid.write_text('let s: Str = "unterminated')
     original = invalid.read_bytes()
     result = run(formatter, invalid, expected=70)
-    assert b'unterminated string' in result.stdout and invalid.read_bytes() == original
+    # Uncaught faults are reported on stderr (#158).
+    assert b'unterminated string' in result.stderr and invalid.read_bytes() == original
     unformatted = work / 'help-untouched.may'
     unformatted.write_text('print( 1 );')
     help_original = unformatted.read_bytes()

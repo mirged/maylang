@@ -83,7 +83,7 @@ struct Coalesce { kind: Any, span: Any, next: Any, left: Any, right: Any }
 struct SafeMember { kind: Any, span: Any, next: Any, object: Any, start: Any, length: Any }
 struct LambdaExpr { kind: Any, span: Any, next: Any, params: Any, body: Any }
 struct MatchArm { kind: Any, span: Any, next: Any, patternKind: Any, pattern: Any, length: Any, guard: Any, body: Any, nested: Any }
-struct Match { kind: Any, span: Any, next: Any, subject: Any, arms: Any }
+struct Match { kind: Any, span: Any, next: Any, subject: Any, arms: Any, discarded: Any, exhaustive: Any }
 struct FloatLit { kind: Any, span: Any, next: Any, start: Any, length: Any }
 struct MayExpr { kind: Any, span: Any, next: Any, body: Any, fallback: Any }
 struct Comprehension { kind: Any, span: Any, next: Any, element: Any, name: Any, length: Any, iterable: Any, condition: Any }
@@ -135,7 +135,7 @@ fun mknode(kind: Any) -> Any {
     if (kind == E_SAFEGET) { return SafeMember(kind, span, 0, 0, 0, 0); }
     if (kind == E_LAMBDA) { return LambdaExpr(kind, span, 0, 0, 0); }
     if (kind == E_ARM) { return MatchArm(kind, span, 0, 0, 0, 0, 0, 0, 0); }
-    if (kind == E_MATCH) { return Match(kind, span, 0, 0, 0); }
+    if (kind == E_MATCH) { return Match(kind, span, 0, 0, 0, false, false); }
     if (kind == E_FLOAT) { return FloatLit(kind, span, 0, 0, 0); }
     if (kind == E_MAY) { return MayExpr(kind, span, 0, 0, 0); }
     if (kind == E_COMP) { return Comprehension(kind, span, 0, 0, 0, 0, 0, 0); }

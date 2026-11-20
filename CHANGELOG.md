@@ -1,3 +1,71 @@
+# Unreleased
+
+Fixes from the language audit (#144-#188): the runtime raises faults where it
+used to return wrong values, the type checker closes several soundness gaps,
+and the frontend rejects programs it used to misread.
+
+## Breaking changes
+
+- Out-of-range List and Str reads and writes raise an `index` fault instead of
+  returning nil (#145); a match whose value is used raises a `match` fault when
+  no arm matches (#146).
+- Dynamic `+ - * & | ^ << >>` and unary `- ~` raise `type` faults for operands
+  they do not support instead of returning an operand (#144). `to_float`, `len`,
+  `keys`, `values`, `sort`, `reverse`, `join`, `abs`, `slice`, the string
+  helpers, `map_get`/`map_set` and field access check their argument types
+  (#147, #148, #164). Ordering nil, lists, maps or functions is a `type` fault
+  (#152).
+- Float division by zero follows IEEE 754 (`inf`, `nan`) instead of faulting
+  (#153).
+- `Some(x)` is `x` with type `Option<T>`, and `None()` is `Option<Never>`;
+  `Some(...).value` no longer exists (#168).
+- A missing `;` between statements is an error (#176), unknown string escapes
+  are errors (#175), and duplicate top-level functions, structs, enums and
+  variant constructors in one module are errors (#174).
+- Dynamic calls with the wrong number of arguments raise an `arity` fault
+  (#161); `exit` requires a status from 0 to 255 and `exec([])` faults (#163).
+- Uncaught faults, `--debug` traces and runtime aborts are written to stderr
+  (#158). A fault a fiber does not handle is raised again from `run()` (#156).
+
+## Language and compiler
+
+- Negative literal patterns (#167), `T?` annotations (#169), tuple literals
+  (#170), nested patterns (#187), `%=`, `**=`, `<<=`, `>>=`, `&=`, `|=`, `^=`
+  and `??=` (#188), `\xNN` and `\u{...}` escapes (#175), and `true`/`false`/`nil`
+  map literal keys (#183).
+- Strict checking of nested trailing `if`s is linear rather than exponential
+  (#172); return analysis understands `fail`, `exit`, `-> Never`, exhaustive
+  matches and `while (true)` (#171); `err` fields are typed (#182); `x.f(args)`
+  calls a function-typed field (#181).
+- Unknown names in `from ... import` (#178) and missing modules (#179) are
+  E_IMPORT diagnostics at the import line; non-ASCII characters are reported
+  correctly (#177); `mayc -o` refuses to overwrite its source and names bad
+  options and paths (#180).
+
+## Runtime and library
+
+- Stack overflow is the catchable fault `runtime: stack overflow`, and fiber
+  stacks have guard pages (#151). `MAYLANG_HEAP_MAX` sets the heap reservation
+  and running out inside `may` is catchable (#166). Finished fibers release
+  their slot (#157).
+- JSON: cyclic values, non-finite floats and functions are encoding faults
+  (#149); parsing follows RFC 8259 numbers, decodes large integers as Float and
+  limits nesting (#150).
+- Float `%` is an exact fmod (#154); `round(-0.5)` is `-0.0` and `abs(-0.0)` is
+  `0.0` (#155); `Int ** Int` uses squaring (#165); `char_from`, `char_at` and
+  `substring` validate their arguments (#162); I/O errors are kind `io` with the
+  path and errno, and `read_dir` faults on errors (#160); library faults carry
+  the `--debug` stack (#159); `exec` reports a failed `execve` (#163).
+- `equal(a, b)` compares lists, maps, records and enum values structurally
+  (cycle-safe), and `assert_eq` uses it (#186).
+- `math.average` and `math.median` return Floats, `format_percent(x, 0)` prints a
+  whole number, and `factorial`/`fibonacci` fail on negative input (#184).
+
+## Documentation
+
+- The language reference and strict guide describe the current runtime, imports,
+  options, fibers and fault kinds, and drop the removed core runtime (#185).
+
 # Maylang 0.15.1 — Fern
 
 Released 2026-11-14 UTC. A patch release that prepares the repository for

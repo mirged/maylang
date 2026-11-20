@@ -114,18 +114,53 @@ fun name_eq(p1: Any, l1: Any, p2: Any, l2: Any) -> Any {
     return 1;
 }
 
-// Decoded length of a source string literal (span excludes the quotes).
+fun dec_hex(b: Any) -> Any {
+    if (b >= 48 and b <= 57) { return b - 48; }
+    if (b >= 97 and b <= 102) { return b - 87; }
+    if (b >= 65 and b <= 70) { return b - 55; }
+    return 0;
+}
+
+// Decode the escape whose backslash is at `p` (the lexer has validated it):
+// [source bytes consumed, code point]. `\xNN` and `\u{...}` give a code
+// point; the single-character escapes give their byte.
+fun dec_escape(p: Any) -> Any {
+    let e: Any = load8(p + 1);
+    if (e == 110) { return [2, 10]; }
+    if (e == 116) { return [2, 9]; }
+    if (e == 114) { return [2, 13]; }
+    if (e == 48) { return [2, 0]; }
+    if (e == 120) { return [4, dec_hex(load8(p + 2)) * 16 + dec_hex(load8(p + 3))]; }
+    if (e == 117 and load8(p + 2) == 123) {
+        mut j: Any = 3; mut v: Any = 0;
+        while (load8(p + j) != 125) { v = v * 16 + dec_hex(load8(p + j)); j = j + 1; }
+        return [j + 1, v];
+    }
+    return [2, e];
+}
+
+// The UTF-8 length of a code point.
+fun dec_utf8_len(v: Any) -> Any {
+    if (v < 128) { return 1; }
+    if (v < 2048) { return 2; }
+    if (v < 65536) { return 3; }
+    return 4;
+}
+
+// Decoded byte length of a source string literal (span excludes the quotes).
 fun declen(s: Any, st: Any, n: Any) -> Any {
     mut i: Any = 0;
     mut c: Any = 0;
     while (i < n) {
         let b: Any = load8(s + st + i);
         if (b == 92) {
-            i = i + 2;
+            let escape: Any = dec_escape(s + st + i);
+            i = i + escape[0];
+            c = c + dec_utf8_len(escape[1]);
         } else {
             i = i + 1;
+            c = c + 1;
         }
-        c = c + 1;
     }
     return c;
 }
@@ -137,20 +172,19 @@ fun decopy(d: Any, s: Any, st: Any, n: Any) -> Any {
     while (i < n) {
         let b: Any = load8(s + st + i);
         if (b == 92) {
-            let e: Any = load8(s + st + i + 1);
-            mut v: Any = e;
-            if (e == 110) {
-                v = 10;
-            } else if (e == 116) {
-                v = 9;
-            } else if (e == 114) {
-                v = 13;
-            } else if (e == 48) {
-                v = 0;
+            let escape: Any = dec_escape(s + st + i);
+            let v: Any = escape[1];
+            let w: Any = dec_utf8_len(v);
+            if (w == 1) { store8(d + o, v); }
+            else if (w == 2) { store8(d + o, 192 + v / 64); store8(d + o + 1, 128 + v % 64); }
+            else if (w == 3) {
+                store8(d + o, 224 + v / 4096); store8(d + o + 1, 128 + (v / 64) % 64); store8(d + o + 2, 128 + v % 64);
+            } else {
+                store8(d + o, 240 + v / 262144); store8(d + o + 1, 128 + (v / 4096) % 64);
+                store8(d + o + 2, 128 + (v / 64) % 64); store8(d + o + 3, 128 + v % 64);
             }
-            store8(d + o, v);
-            o = o + 1;
-            i = i + 2;
+            o = o + w;
+            i = i + escape[0];
         } else {
             store8(d + o, b);
             o = o + 1;

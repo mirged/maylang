@@ -42,14 +42,15 @@ def main():
         body.append(f'if (word_div_{index}(n) != probe_div_{index}(n) or word_mod_{index}(n) != probe_mod_{index}(n)) {{ print("word mismatch"); }}')
     body += ['}', 'print(probe_div_3(20.0) == 2.5, probe_div_3(-20.0) == -2.5);',
              'let custom: Any = {"/": fun(a: Any, b: Any) -> Any { return 99; }}; print(probe_div_3(custom));',
-             'print(may { probe_mod_3(2.0); "missed" } otherwise { err.kind });',
+             # Float % Int is a Float remainder (#154); probe 3 divides by 8.
+             'print(probe_mod_3(2.0), probe_mod_3(-7.5));',
              'print(may { probe_div_3("bad"); "missed" } otherwise { err.kind });',
              'print(may { probe_mod_3("bad"); "missed" } otherwise { err.kind });',
              'fun zero(n: Int) -> Int { return n / 0; }',
              'fun negative_one(n: Int) -> Int { return n / -1; }',
              'print(may { zero(1); "missed" } otherwise { err.kind });',
              'print(may { negative_one(-1152921504606846976); "missed" } otherwise { err.kind });']
-    expected = ''.join(expected).encode() + b'true true\n99\ntype\ntype\ntype\narithmetic\nmissed\n'
+    expected = ''.join(expected).encode() + b'true true\n99\n2.0 -7.5\ntype\ntype\narithmetic\nmissed\n'
     with tempfile.TemporaryDirectory(prefix='may-strength-reduction-') as temporary:
         directory = Path(temporary)
         source = directory / 'division.may'

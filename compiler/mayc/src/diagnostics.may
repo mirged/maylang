@@ -68,6 +68,17 @@ fun source_module(span: Any) -> Any {
     return "";
 }
 
+// An import directive's diagnostic (code E_IMPORT); modules.may is expanded
+// before this file, so it cannot assign the stage itself.
+fun import_diagnostic(span: Any, message: Any) -> Any {
+    DIAGNOSTIC_STAGE = "import";
+    return diagnostic(span, message);
+}
+fun restore_diagnostic_stage(stage: Any) -> Any {
+    DIAGNOSTIC_STAGE = stage;
+    return 0;
+}
+
 fun diagnostic(span: Any, message: Any) -> Any {
     DIAGNOSTIC_SPAN = span;
     fail(message);

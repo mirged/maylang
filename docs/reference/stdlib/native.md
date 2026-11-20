@@ -11,8 +11,8 @@
 - Names asin, acos, atan, atan2 and powf are mentioned in older runtime comments, but are not registered callable APIs in the active mayc implementation; do not infer their availability from those comments.
 - **Ok** — `fun Ok(value: Any) -> Any` — Return a success map `{ok: true, value, error: nil}`.
 - **Err** — `fun Err(error: Any) -> Any` — Return a failure map `{ok: false, value: nil, error}`.
-- **Some** — `fun Some(value: Any) -> Any` — Return the same success-map representation as `Ok`.
-- **None** — `fun None() -> Any` — Return `nil`; invoke as a zero-argument function.
+- **Some** — `fun Some(value: Any) -> Any` — Return `value` as a present `Option<T>`; an option is the nullable `T`, so `Some(x)` is `x`.
+- **None** — `fun None() -> Any` — Return `nil`, the absent `Option<T>`; invoke as a zero-argument function.
 - **__op_add** — `fun __op_add(a: Any, b: Any) -> Any` — Dispatch a map/record `+` operator hook: call the left operand's method with `(self, other)`, or return `nil` when it has none.
 - **__op_sub** — `fun __op_sub(a: Any, b: Any) -> Any` — Dispatch a map/record `-` operator hook: call the left operand's method with `(self, other)`, or return `nil` when it has none.
 - **__op_mul** — `fun __op_mul(a: Any, b: Any) -> Any` — Dispatch a map/record `*` operator hook: call the left operand's method with `(self, other)`, or return `nil` when it has none.
@@ -27,6 +27,8 @@
 - `__native_bytes_match`: Byte comparison, not code point comparison: the caller decides whether that is equivalent.
 - **__native_utf8_consistent** — `fun __native_utf8_consistent(s: Any) -> Any` — Report whether walking `s` by leading-byte widths lands exactly on its byte length; helper.
 - `__native_utf8_consistent`: True for well-formed UTF-8 and for any slicing where every sequence fits, which is what makes `__native_utf8_width`'s walk agree with the code point count of `len`. A truncated sequence (the last byte starts a two- or four-byte sequence) is not consistent, and the string functions fall back to their code point loop for it.
+- **__native_text** — `fun __native_text(s: Any, name: Any) -> Any` — Raise a `type` fault unless `s` is a string; text helpers read string bytes directly, so other values would be read as memory addresses (#148).
+- `__native_text` explicit fault strings: `"type"`; runtime/callback faults can also propagate.
 - **__native_boundary** — `fun __native_boundary(s: Any, offset: Any) -> Any` — Report whether byte `offset` starts a code point of `s` (or is its end); helper.
 - **substring** — `fun substring(s: Any, start: Any, count: Any) -> Any` — Copy `count` code points of `s`, starting at code point index `start`.
 - `substring`: The third argument is a count, not an end index, and the range must lie within `s`.
@@ -34,6 +36,7 @@
 - `substring` parameter `start`: The zero-based starting character index.
 - `substring` parameter `count`: The number of characters to copy.
 - `substring` returns: A string.
+- `substring` explicit fault strings: `"type"`, `"index"`; runtime/callback faults can also propagate.
 - `substring` example: `print(substring("hello", 1, 3));`.
 - **is_space_code** — `fun is_space_code(c: Any) -> Any` — Report whether a character code is ASCII space, tab, LF or CR.
 - **is_upper_code** — `fun is_upper_code(c: Any) -> Any` — Report whether a character code is an ASCII uppercase letter (65..90).
@@ -70,6 +73,7 @@
 - `repeat` parameter `s`: The string to repeat.
 - `repeat` parameter `n`: The number of copies.
 - `repeat` returns: The repeated string.
+- `repeat` explicit fault strings: `"type"`; runtime/callback faults can also propagate.
 - `repeat` example: `print(repeat("ab", 3));`.
 - **__join_list** — `fun __join_list(xs: Any, separator: Any) -> Any` — Join a list's display texts with a string separator; native prelude helper.
 - `__join_list`: The full runtime compiles calls to it as `rt_join` (`x86_64_fat.may` `fat_call`); this body serves the source bootstrap with one allocation of the total byte length and one copy per part.
@@ -77,6 +81,7 @@
 - `join` parameter `xs`: The values to combine.
 - `join` parameter `sep`: The text inserted between items.
 - `join` returns: The combined string.
+- `join` explicit fault strings: `"type"`; runtime/callback faults can also propagate.
 - `join` example: `print(join(["a", "b"], ","));`.
 - **int** — `fun int(x: Any) -> Any` — Convert an integer, float, or decimal string to an integer. Floats are truncated toward zero; NaN, infinities and Floats outside the Int range raise an arithmetic fault, and invalid text raises a catchable failure.
 - `int` parameter `x`: A number or a trimmed decimal string with optional sign.
@@ -93,6 +98,7 @@
 - `reverse`: A string is reversed by bytes: each code point is copied to its mirrored byte offset, one pass over the input. The previous `char_at`/`char_from` loop re-walked the string from its start for every character, which is quadratic; a string whose width walk does not fit its byte length takes that loop instead.
 - `reverse` parameter `x`: The input list.
 - `reverse` returns: A new list.
+- `reverse` explicit fault strings: `"type"`; runtime/callback faults can also propagate.
 - `reverse` example: `print(reverse([1, 2, 3]));`.
 - **__native_reverse_bytes** — `fun __native_reverse_bytes(s: Any) -> Any` — Reverse code points of a byte-consistent string, copying each one to its mirrored offset; helper.
 - **range** — `fun range(a: Any, b: Any) -> Any` — Build the list of integers from `a` (inclusive) to `b` (exclusive).
@@ -118,11 +124,14 @@
 - **abs** — `fun abs(x: Any) -> Any` — Return the nonnegative magnitude of a number.
 - `abs` parameter `x`: The input number.
 - `abs` returns: A numeric absolute value.
+- `abs` explicit fault strings: `"type"`; runtime/callback faults can also propagate.
 - `abs` example: `print(abs(-4));`.
+- **__native_sort_cmp** — `fun __native_sort_cmp(a: Any, b: Any) -> Any` — Compare for sorting: `cmp`, with NaN after every other number and equal to NaN, so the order is total and NaN cannot scatter the result (#152); helper.
 - **sort** — `fun sort(xs: Any) -> Any` — Return the items in ascending order using the standard comparison function. The input list is preserved.
 - `sort`: The sort is a stable bottom-up merge sort over a copy of the input: O(n log n) comparisons instead of the quadratic insertion sort's O(n²). Equal items keep their input order.
 - `sort` parameter `xs`: A list of comparable values.
 - `sort` returns: A new sorted list.
+- `sort` explicit fault strings: `"type"`; runtime/callback faults can also propagate.
 - `sort` example: `print(sort([3, 1, 2]));`.
 - **keys** — `fun keys(m: Any) -> Any` — Collect the keys of a map.
 - `keys` parameter `m`: The input map.
@@ -205,10 +214,14 @@
 - `jd_string`: Runs of unescaped bytes are copied once per run and the runs are joined with a single allocation, instead of appending one character at a time.
 - `jd_string` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
 - **jd_number** — `fun jd_number(s: Any, i: Any) -> Any` — Read a JSON number at byte offset `i` and return the parsed value and next byte offset.
-- **jd_array** — `fun jd_array(s: Any, i: Any) -> Any` — Read a JSON array at byte offset `i` and return the parsed list and next byte offset.
-- **jd_object** — `fun jd_object(s: Any, i: Any) -> Any` — Read a JSON object at byte offset `i` and return the parsed map and next byte offset.
+- `jd_number` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
+- **jd_array** — `fun jd_array(s: Any, i: Any, depth: Any) -> Any` — Read a JSON array at byte offset `i` and return the parsed list and next byte offset.
+- `jd_array` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
+- **jd_object** — `fun jd_object(s: Any, i: Any, depth: Any) -> Any` — Read a JSON object at byte offset `i` and return the parsed map and next byte offset.
+- `jd_object` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
 - **jd_value** — `fun jd_value(s: Any, i: Any) -> Any` — Parse the JSON value at byte offset `i` and return it with the next byte offset.
-- `jd_value` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
+- **jd_value_at** — `fun jd_value_at(s: Any, i: Any, depth: Any) -> Any` — Parse the value at `i` inside `depth` enclosing arrays and objects; nesting is limited so that hostile input cannot exhaust the stack (#150).
+- `jd_value_at` explicit fault strings: `"parse"`; runtime/callback faults can also propagate.
 - **json_parse** — `fun json_parse(s: Any) -> Any` — Decode a JSON string into Maylang strings, numbers, booleans, lists, maps, and `nil`.
 - `json_parse`: Returns dynamic maps/lists/scalars; rejects trailing content and malformed strings. See the implementation for supported Unicode escape behavior.
 - `json_parse` parameter `s`: The JSON text.
@@ -223,6 +236,8 @@
 - `json_stringify` parameter `v`: The value to encode.
 - `json_stringify` returns: A JSON string.
 - `json_stringify` example: `print(json_stringify({"name": "Ada", "ready": true}));`.
+- **__json_encode** — `fun __json_encode(v: Any, open: Any) -> Any` — Encode `v` with `open` holding the lists and maps being encoded around it, so a value that contains itself is a fault rather than endless recursion (#149); helper.
+- `__json_encode` explicit fault strings: `"type"`; runtime/callback faults can also propagate.
 - **clamp** — `fun clamp(x: Any, lo: Any, hi: Any) -> Any` — Return `max(lo, min(x, hi))`.
 - **chr** — `fun chr(n: Any) -> Any` — Return a one-character string from a character code.
 - **ord** — `fun ord(s: Any) -> Any` — Return the first character's codepoint; require a nonempty string.
@@ -236,6 +251,7 @@
 - `slice` parameter `start`: The zero-based inclusive starting index.
 - `slice` parameter `stop`: The exclusive ending index.
 - `slice` returns: A new list; empty if stop is not greater than start.
+- `slice` explicit fault strings: `"type"`; runtime/callback faults can also propagate.
 - `slice` example: `print(slice([10, 20, 30, 40], 1, 3));`.
 - **enumerate** — `fun enumerate(xs: Any) -> Any` — Return `[index, value]` pairs in input order.
 - **zip** — `fun zip(a: Any, b: Any) -> Any` — Return paired elements, stopping at the shorter list.
@@ -246,13 +262,22 @@
 - `range_step`: Step zero returns an empty list; the stop is exclusive in either direction.
 - **pad_left** — `fun pad_left(s: Any, width: Any, ch: Any) -> Any` — Prepend whole padding strings until the code-point width is reached; empty padding faults when more text is needed.
 - `pad_left`: The number of padding copies is computed and built with `repeat`, which allocates once; adding one pad at a time copied the whole prefix again per copy.
+- `pad_left` explicit fault strings: `"fail"`; runtime/callback faults can also propagate.
 - **pad_right** — `fun pad_right(s: Any, width: Any, ch: Any) -> Any` — Append whole padding strings until the code-point width is reached; empty padding faults when more text is needed.
+- `pad_right` explicit fault strings: `"fail"`; runtime/callback faults can also propagate.
 - **split_lines** — `fun split_lines(s: Any) -> Any` — Split on LF, preserving empty fields.
 - **get** — `fun get(m: Any, key: Any, fallback: Any) -> Any` — Look up `key` in a map, returning `fallback` when it is missing.
 - `get`: The implementation treats a nil lookup as absent, so a present nil value returns the fallback.
 - **times** — `fun times(n: Any, f: Any) -> Any` — Call unary `f(i)` over integers `0..n`; return `nil`.
 - **each** — `fun each(xs: Any, f: Any) -> Any` — Call unary `f(x)` for every input element; return `nil`.
-- **assert_eq** — `fun assert_eq(a: Any, b: Any) -> Any` — Raise an assertion error if actual and expected values differ.
+- **equal** — `fun equal(a: Any, b: Any) -> Any` — Compare two values structurally: lists and maps (including records and enum values) are equal when they have equal items, keys and values; other values compare as `==` does.
+- `equal`: Lists and maps that contain themselves are handled: a pair already being compared counts as equal, so the comparison terminates. Values of different types are never equal, so `1` and `1.0` differ as with `==`. Functions compare by identity.
+- `equal` parameter `a`: The first value.
+- `equal` parameter `b`: The second value.
+- `equal` returns: Whether the values are structurally equal.
+- `equal` example: `print(equal([1, {"a": 2}], [1, {"a": 2}]), [1] == [1]);`.
+- **__native_equal** — `fun __native_equal(a: Any, b: Any, open: Any) -> Any` — `equal` with `open` holding the list and map pairs being compared around this one; helper.
+- **assert_eq** — `fun assert_eq(a: Any, b: Any) -> Any` — Raise an assertion error if actual and expected values differ structurally (see `equal`), so lists, maps, records and enum values compare by content (#186).
 - `assert_eq` explicit fault strings: `"assert"`; runtime/callback faults can also propagate.
 - **ccall** — `fun ccall(fn: Any, args: Any) -> Any` — Call machine code at a raw address with up to six integer arguments using the native calling convention.
 - `ccall` parameter `fn`: The native function address.

@@ -65,6 +65,10 @@ def architecture(compiler):
         result = run([binary])
         record(name, result.returncode == 0 and result.stdout == stdout, repr((result.returncode, result.stdout, result.stderr)))
     errors = {
+        "deep_nesting.may": "expression nested too deeply",
+        "unknown_escape.may": "unknown escape `\\U`",
+        "missing_semicolon.may": "expected `;` after the previous statement",
+        "duplicate_function.may": "duplicate declaration `f`",
         "immutable.may": "cannot assign to let",
         "captured_immutable.may": "cannot assign to let",
         "out_of_scope.may": "unknown type or name",

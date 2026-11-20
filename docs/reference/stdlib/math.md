@@ -14,9 +14,15 @@
 - **lcm** — `fun lcm(a: Int, b: Int) -> Int` — Return the least common multiple of `a` and `b` (`0` when either is `0`).
 - **is_prime** — `fun is_prime(n: Int) -> Bool` — Report whether `n` is prime, by trial division up to `sqrt(n)`.
 - **factorial** — `fun factorial(n: Int) -> Int` — Return `n!`; `0!` and `1!` are `1`.
+- `factorial` faults: `fail` for a negative `n`; `arithmetic` when the result exceeds the Int range.
+- `factorial` explicit fault strings: `"factorial needs a nonnegative argument, not "`; runtime/callback faults can also propagate.
 - **fibonacci** — `fun fibonacci(n: Int) -> Int` — Return the `n`th Fibonacci number, with `fibonacci(0) == 0`.
-- **average** — `fun average(xs: Any) -> Any` — Return the arithmetic mean of a list (`0` when empty).
-- **median** — `fun median(xs: Any) -> Any` — Return the median of a list (`nil` when empty), sorting a copy.
+- `fibonacci` faults: `fail` for a negative `n`; `arithmetic` when the result exceeds the Int range.
+- `fibonacci` explicit fault strings: `"fibonacci needs a nonnegative argument, not "`; runtime/callback faults can also propagate.
+- **average** — `fun average<T>(xs: List<T>) -> Optional<Float>` — Return the arithmetic mean of a list of numbers as a Float, or `nil` when it is empty.
+- `average`: Int lists divide as Floats, so the mean of `[1, 2]` is `1.5`, matching `stats.stats_mean`.
+- **median** — `fun median<T>(xs: List<T>) -> Optional<Float>` — Return the median of a list of numbers as a Float (`nil` when empty), sorting a copy.
+- `median`: An even-length list averages its two middle values, so the median of `[1, 2]` is `1.5`.
 - **degrees** — `fun degrees(radians_of: Float) -> Float` — Convert `radians` to degrees.
 - **radians** — `fun radians(degrees_of: Float) -> Float` — Convert `degrees` to radians.
 - **distance** — `fun distance(x1: Float, y1: Float, x2: Float, y2: Float) -> Float` — Return the Euclidean distance between `(x1, y1)` and `(x2, y2)`.

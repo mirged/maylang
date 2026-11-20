@@ -14,7 +14,14 @@ CASES = {
     'capacity': ('let work: Any = fun() -> Nil { return nil; };'
                  'for i: Int in 0..128 { spawn(work); }'
                  'print(may { spawn(work); "bad" } otherwise { str(err.message) });',
-                 0, b'fiber limit exceeded\n'),
+                 0, b'fiber limit exceeded: 128 fibers are live\n'),
+    # Finished fibers release their slot, so sequential tasks never hit the limit (#157).
+    'recycled': ('mut n: Int = 0;'
+                 'for i: Int in 0..300 { spawn(fun() -> Nil { n += 1; return nil; }); run(); }'
+                 'print(n);', 0, b'300\n'),
+    # A fault no handler inside the fiber catches is raised from run() (#156).
+    'escaping-fault': ('spawn(fun() -> Nil { fail("in fiber"); return nil; });'
+                       'print(may { run(); "bad" } otherwise { err.kind + ": " + err.message });', 0, b'fail: in fiber\n'),
     'handlers': ('''
 fun worker(id: Int) -> Nil {
     let result: Str = may {
@@ -39,10 +46,18 @@ spawn(fun() -> Nil { worker("first"); return nil; });
 spawn(fun() -> Nil { worker("second"); return nil; });
 run(); run(); yield(); print("done");
 ''', 0, b'first\nsecond\ndone\n'),
+    # A fault that escapes a fiber is raised again from run() (#156), so the
+    # caller of run() can handle it; uncaught, it ends the program with 70 and
+    # the message on stderr.
+    'run-handler': ('''
+spawn(fun() -> Nil { yield(); fail("worker"); return nil; });
+may { run(); } otherwise { print("run raised", err.message); };
+''', 0, b'run raised worker\n'),
     'uncaught': ('''
 spawn(fun() -> Nil { yield(); fail("worker"); return nil; });
-may { run(); } otherwise { print("wrong handler"); };
-''', 70, b'fail: worker\n'),
+run();
+print("unreachable");
+''', 70, b'', b'fail: worker\n'),
     'captures': ('''
 fun launch() -> Nil {
     mut n: Int = 0;
@@ -62,7 +77,9 @@ def main():
     targets = ['x86_64-linux']
     with tempfile.TemporaryDirectory(prefix='mayc-fibers-') as directory:
         work = Path(directory)
-        for name, (text, status, output) in CASES.items():
+        for name, case in CASES.items():
+            text, status, output = case[:3]
+            errors = case[3] if len(case) > 3 else b''
             source = work / f'{name}.may'
             source.write_text(text)
             for target in targets:
@@ -72,7 +89,7 @@ def main():
                                         capture_output=True, timeout=120)
                 assert result.returncode == 0, result.stderr.decode()
                 result = subprocess.run([str(binary)], capture_output=True, timeout=20)
-                assert (result.returncode, result.stdout, result.stderr) == (status, output, b''), (name, target, result)
+                assert (result.returncode, result.stdout, result.stderr) == (status, output, errors), (name, target, result)
                 print(f'PASS {target} fibers: {name}', flush=True)
         source = work / 'invalid-result.may'
         source.write_text('let wrong: Int = run(); print(wrong);')

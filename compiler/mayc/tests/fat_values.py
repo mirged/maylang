@@ -32,7 +32,8 @@ arithmetic: integer overflow
 
 # Inline Int division and closure calls (#92) against the runtime's rules:
 # truncation, the dividend's sign, faults for 0 and the -2^63 / -1
-# overflow, nil padding and the non-callable fault.
+# overflow, the arity fault (#161), Float remainders (#154) and the
+# non-callable fault.
 INLINE = '''let xs: List<Any> = [7, -7, 0, 9223372036854775807, -9223372036854775807 - 1];
 let ys: List<Any> = [2, -2, 1, -1, 0, 3];
 for x: Any in xs { for y: Any in ys {
@@ -45,7 +46,7 @@ print(f / g, may { f % g } otherwise { str(err.kind) });
 let sa: Any = "a"; print(may { sa / 2 } otherwise { str(err.kind) });
 fun pad(a: Any, b: Any, c: Any) -> Any { return [a, b, c]; }
 let h: Any = pad;
-print(h(1), h(1, 2, 3));
+print(may { h(1) } otherwise { str(err.kind) }, h(1, 2, 3));
 print(may { let n: Any = 3; n(1) } otherwise { str(err.kind) + ": " + str(err.message) });
 '''
 
@@ -79,9 +80,9 @@ INLINE_EXPECTED = '''7 2 3 1
 -9223372036854775808 -1 arithmetic 0
 -9223372036854775808 0 arithmetic arithmetic
 -9223372036854775808 3 -3074457345618258602 -2
-3.75 type
+3.75 1.5
 type
-[1, nil, nil] [1, 2, 3]
+arity [1, 2, 3]
 type: value is not callable
 '''
 
@@ -100,11 +101,12 @@ for i: Int in 0..1000 { acc = acc * 0.5 + to_float(i) / 3.0; }
 print(acc, acc < 700.0, acc - 666.0 > 0.0);
 '''
 
-# Recorded from the runtime path (rt_binary) before Float ran inline.
+# Recorded from the runtime path (rt_binary) before Float ran inline; Float
+# division by zero gives IEEE infinities and NaN (#153).
 FLOATS_EXPECTED = '''1.5 1.5 3.0 0.0 2.25 1.0 true false false true false true
 1.5 -2.25 -0.75 3.75 -3.375 -0.6666666666666666 false true false false true true
-1.5 0.0 1.5 1.5 0.0 arithmetic false true false false true true
-1.5 -0.0 1.5 1.5 -0.0 arithmetic false true false false true true
+1.5 0.0 1.5 1.5 0.0 inf false true false false true true
+1.5 -0.0 1.5 1.5 -0.0 -inf false true false false true true
 1.5 nan nan nan nan nan false true false false false false
 1.5 inf inf -inf inf 0.0 false true true true false false
 1.5 -inf -inf inf -inf -0.0 false true false false true true
@@ -112,8 +114,8 @@ FLOATS_EXPECTED = '''1.5 1.5 3.0 0.0 2.25 1.0 true false false true false true
 1.5 1e-300 1.5 1.5 1.5e-300 1.5e300 false true false false true true
 -2.25 1.5 -0.75 -3.75 -3.375 -1.5 false true true true false false
 -2.25 -2.25 -4.5 0.0 5.0625 1.0 true false false true false true
--2.25 0.0 -2.25 -2.25 -0.0 arithmetic false true true true false false
--2.25 -0.0 -2.25 -2.25 0.0 arithmetic false true true true false false
+-2.25 0.0 -2.25 -2.25 -0.0 -inf false true true true false false
+-2.25 -0.0 -2.25 -2.25 0.0 inf false true true true false false
 -2.25 nan nan nan nan nan false true false false false false
 -2.25 inf inf -inf -inf -0.0 false true true true false false
 -2.25 -inf -inf inf inf 0.0 false true false false true true
@@ -121,8 +123,8 @@ FLOATS_EXPECTED = '''1.5 1.5 3.0 0.0 2.25 1.0 true false false true false true
 -2.25 1e-300 -2.25 -2.25 -2.25e-300 -2.25e300 false true true true false false
 0.0 1.5 1.5 -1.5 0.0 0.0 false true true true false false
 0.0 -2.25 -2.25 2.25 -0.0 -0.0 false true false false true true
-0.0 0.0 0.0 0.0 0.0 arithmetic true false false true false true
-0.0 -0.0 0.0 0.0 -0.0 arithmetic true false false true false true
+0.0 0.0 0.0 0.0 0.0 nan true false false true false true
+0.0 -0.0 0.0 0.0 -0.0 nan true false false true false true
 0.0 nan nan nan nan nan false true false false false false
 0.0 inf inf -inf nan 0.0 false true true true false false
 0.0 -inf -inf inf nan -0.0 false true false false true true
@@ -130,8 +132,8 @@ FLOATS_EXPECTED = '''1.5 1.5 3.0 0.0 2.25 1.0 true false false true false true
 0.0 1e-300 1e-300 -1e-300 0.0 0.0 false true true true false false
 -0.0 1.5 1.5 -1.5 -0.0 -0.0 false true true true false false
 -0.0 -2.25 -2.25 2.25 0.0 0.0 false true false false true true
--0.0 0.0 0.0 -0.0 -0.0 arithmetic true false false true false true
--0.0 -0.0 -0.0 0.0 0.0 arithmetic true false false true false true
+-0.0 0.0 0.0 -0.0 -0.0 nan true false false true false true
+-0.0 -0.0 -0.0 0.0 0.0 nan true false false true false true
 -0.0 nan nan nan nan nan false true false false false false
 -0.0 inf inf -inf nan -0.0 false true true true false false
 -0.0 -inf -inf inf nan 0.0 false true false false true true
@@ -139,8 +141,8 @@ FLOATS_EXPECTED = '''1.5 1.5 3.0 0.0 2.25 1.0 true false false true false true
 -0.0 1e-300 1e-300 -1e-300 -0.0 -0.0 false true true true false false
 nan 1.5 nan nan nan nan false true false false false false
 nan -2.25 nan nan nan nan false true false false false false
-nan 0.0 nan nan nan arithmetic false true false false false false
-nan -0.0 nan nan nan arithmetic false true false false false false
+nan 0.0 nan nan nan nan false true false false false false
+nan -0.0 nan nan nan nan false true false false false false
 nan nan nan nan nan nan false true false false false false
 nan inf nan nan nan nan false true false false false false
 nan -inf nan nan nan nan false true false false false false
@@ -148,8 +150,8 @@ nan 3 nan nan nan nan false true type
 nan 1e-300 nan nan nan nan false true false false false false
 inf 1.5 inf inf inf inf false true false false true true
 inf -2.25 inf inf -inf -inf false true false false true true
-inf 0.0 inf inf nan arithmetic false true false false true true
-inf -0.0 inf inf nan arithmetic false true false false true true
+inf 0.0 inf inf nan inf false true false false true true
+inf -0.0 inf inf nan -inf false true false false true true
 inf nan nan nan nan nan false true false false false false
 inf inf inf nan inf nan true false false true false true
 inf -inf nan inf -inf nan false true false false true true
@@ -157,8 +159,8 @@ inf 3 inf inf inf inf false true type
 inf 1e-300 inf inf inf inf false true false false true true
 -inf 1.5 -inf -inf -inf -inf false true true true false false
 -inf -2.25 -inf -inf inf inf false true true true false false
--inf 0.0 -inf -inf nan arithmetic false true true true false false
--inf -0.0 -inf -inf nan arithmetic false true true true false false
+-inf 0.0 -inf -inf nan -inf false true true true false false
+-inf -0.0 -inf -inf nan inf false true true true false false
 -inf nan nan nan nan nan false true false false false false
 -inf inf nan -inf -inf nan false true true true false false
 -inf -inf -inf nan inf nan true false false true false true
@@ -166,8 +168,8 @@ inf 1e-300 inf inf inf inf false true false false true true
 -inf 1e-300 -inf -inf -inf -inf false true true true false false
 3 1.5 4.5 1.5 4.5 2.0 false true type
 3 -2.25 0.75 5.25 -6.75 -1.3333333333333333 false true type
-3 0.0 3.0 3.0 0.0 arithmetic false true type
-3 -0.0 3.0 3.0 -0.0 arithmetic false true type
+3 0.0 3.0 3.0 0.0 inf false true type
+3 -0.0 3.0 3.0 -0.0 -inf false true type
 3 nan nan nan nan nan false true type
 3 inf inf -inf inf 0.0 false true type
 3 -inf -inf inf -inf -0.0 false true type
@@ -175,8 +177,8 @@ inf 1e-300 inf inf inf inf false true false false true true
 3 1e-300 3.0 3.0 3e-300 3e300 false true type
 1e-300 1.5 1.5 -1.5 1.5e-300 6.666666666666667e-301 false true true true false false
 1e-300 -2.25 -2.25 2.25 -2.25e-300 -4.4444444444444446e-301 false true false false true true
-1e-300 0.0 1e-300 1e-300 0.0 arithmetic false true false false true true
-1e-300 -0.0 1e-300 1e-300 -0.0 arithmetic false true false false true true
+1e-300 0.0 1e-300 1e-300 0.0 inf false true false false true true
+1e-300 -0.0 1e-300 1e-300 -0.0 -inf false true false false true true
 1e-300 nan nan nan nan nan false true false false false false
 1e-300 inf inf -inf inf 0.0 false true true true false false
 1e-300 -inf -inf inf -inf -0.0 false true false false true true

@@ -54,6 +54,8 @@ mut GCPRINTING: Any = 0;
 fun rt_init() -> Any {
     mut sz: Any = 268435456;
     mut reserve: Any = sz * 4;
+    let configured: Any = rt_heap_max_env();
+    if (configured > 0) { reserve = configured; if (sz > reserve / 4) { sz = reserve / 4; } }
     HEAP = syscall(9, 0, reserve, 3, 34, 0 - 1, 0);
     if (HEAP < 0) { reserve = sz; HEAP = syscall(9, 0, reserve, 3, 34, 0 - 1, 0); }
     if (HEAP < 0) { syscall(60, 70); }
@@ -78,6 +80,7 @@ fun rt_init() -> Any {
     if (MARKSTK < 0) { syscall(60, 70); }
     CSTOP = STACKTOP;
     HSTACK = rt_alloc(64 * 64);
+    rt_segv_install();
     // `MAYC_GC_STATS=1` turns the counters above on and the same probe applies
     // the `MAYC_GC_MIN`/`MAYC_GC_MARGIN` policy overrides. The probe and its
     // scratch page are outside the measured window; afterwards every
@@ -117,7 +120,7 @@ fun rt_mark_word(w: Any) -> Any {
         let v: Any = load64(h);
         if (v % 2 == 0) {
             store64(h, v + 1);
-            if (MARKN >= MARKMAX) { rt_write(addr("GC mark stack exhausted\n"), 24); syscall(60, 70); }
+            if (MARKN >= MARKMAX) { rt_write_err(addr("GC mark stack exhausted\n"), 24); syscall(60, 70); }
             store64(MARKSTK + MARKN * 8, q);
             MARKN = MARKN + 1;
         }
@@ -125,7 +128,7 @@ fun rt_mark_word(w: Any) -> Any {
     return 0;
 }
 fun rt_gc_root(a: Any) -> Any {
-    if (GCOUNT >= 131072) { rt_write(addr("GC global root table exhausted\n"), 31); syscall(60, 70); }
+    if (GCOUNT >= 131072) { rt_write_err(addr("GC global root table exhausted\n"), 31); syscall(60, 70); }
     // The table holds addresses of global slots, never heap pointers, so it
     // is allocated as a byte block: rt_gc marks it through `rt_mark_word` and
     // walks the registered addresses itself, and the collector must not scan
@@ -323,6 +326,97 @@ fun rt_fit(need: Any, kind: Any) -> Any {
     return 0;
 }
 // Allocations are zeroed, so value blocks start as nil.
+// The heap reservation is exhausted. Inside a `may` this is a catchable
+// `runtime` fault (the error itself needs a little memory; a second
+// exhaustion while raising it ends the process); otherwise the message goes
+// to stderr and the process exits with 70 (#166).
+mut OOMRAISING: Any = 0;
+fun rt_out_of_memory() -> Any {
+    if (HDEPTH > 0 and OOMRAISING == 0) {
+        OOMRAISING = 1;
+        let e: Any = rt_mkerr(addr("runtime"), 7, rt_from(addr("out of memory: the heap reservation is full (set MAYLANG_HEAP_MAX to raise it)"), 78));
+        OOMRAISING = 0;
+        ERRFLAG = 1;
+        ERRVAL = e;
+        __longjmp();
+    }
+    rt_write_err(addr("out of memory\n"), 14);
+    syscall(60, 70);
+    return 0;
+}
+
+// MAYLANG_HEAP_MAX: the heap reservation in bytes, or with a K, M or G
+// suffix; 0 when unset or not a number of at least 16M. Read before the heap
+// exists, so it maps its own page.
+fun rt_heap_max_env() -> Any {
+    let fd: Any = syscall(2, addr("/proc/self/environ"), 0, 0);
+    if (fd < 0) { return 0; }
+    let b: Any = syscall(9, 0, 65536, 3, 34, 0 - 1, 0);
+    if (b < 0) { syscall(3, fd); return 0; }
+    let n: Any = syscall(0, fd, b, 65536);
+    syscall(3, fd);
+    mut result: Any = 0;
+    mut i: Any = 0;
+    while (i < n) {
+        let start: Any = i;
+        while (i < n and load8(b + i) != 0) { i += 1; }
+        if (i - start > 17 and load8(b + start + 16) == 61 and rt_env_name(b, start, addr("MAYLANG_HEAP_MAX"), 16) == 1) {
+            mut end: Any = i;
+            mut scale: Any = 1;
+            let last: Any = load8(b + end - 1);
+            if (last == 75 or last == 107) { scale = 1024; end -= 1; }
+            if (last == 77 or last == 109) { scale = 1048576; end -= 1; }
+            if (last == 71 or last == 103) { scale = 1073741824; end -= 1; }
+            let digits: Any = rt_env_digits(b, start + 17, end);
+            if (digits > 0 and digits <= 1099511627776 / scale) { result = digits * scale; }
+        }
+        i += 1;
+    }
+    syscall(11, b, 65536);
+    if (result < 16777216) { return 0; }
+    return result;
+}
+
+// ---- stack overflow ---------------------------------------------------------
+// A SIGSEGV handler on an alternate signal stack turns a stack overflow (a
+// fault just below the faulting stack pointer, or in a fiber's guard page)
+// into the catchable fault `runtime: stack overflow` (#151). Any other
+// invalid access restores the default action and re-raises the signal.
+mut SEGVERR: Any = 0;
+fun rt_segv_install() -> Any {
+    let entry: Any = __segv_entry();
+    if (entry == 0) { return 0; }
+    let altstack: Any = syscall(9, 0, 65536, 3, 34, 0 - 1, 0);
+    if (altstack < 0) { return 0; }
+    let ss: Any = rt_alloc_bytes(24);
+    store64(ss, altstack); store64(ss + 8, 0); store64(ss + 16, 65536);
+    if (syscall(131, ss, 0) < 0) { return 0; }
+    let act: Any = rt_alloc_bytes(32);
+    // SA_SIGINFO | SA_ONSTACK | SA_NODEFER | SA_RESTORER; the handler never returns.
+    store64(act, entry); store64(act + 8, 1275068420); store64(act + 16, entry); store64(act + 24, 0);
+    syscall(13, 11, act, 0, 8);
+    SEGVERR = rt_mkerr(addr("runtime"), 7, rt_from(addr("stack overflow"), 14));
+    return 0;
+}
+
+fun rt_segv(fault: Any, sp: Any) -> Any {
+    if (fault >= sp - 1048576 and fault < sp + 4096 and SEGVERR != 0) {
+        if (HDEPTH > 0 or FIB_CUR != 0) {
+            // No allocation here: a collection would scan from the signal stack.
+            ERRFLAG = 1;
+            ERRVAL = SEGVERR;
+            __longjmp();
+        }
+        rt_write_err(addr("runtime: stack overflow\n"), 24);
+        rt_host_exit(70);
+    }
+    let act: Any = rt_alloc_bytes(32);
+    store64(act, 0); store64(act + 8, 0); store64(act + 16, 0); store64(act + 24, 0);
+    syscall(13, 11, act, 0, 8);
+    syscall(62, syscall(39), 11);
+    return 0;
+}
+
 fun rt_alloc_kind(n: Any, kind: Any) -> Any {
     mut need: Any = n + 16;
     let r: Any = need % 16;
@@ -336,7 +430,7 @@ fun rt_alloc_kind(n: Any, kind: Any) -> Any {
         p = rt_fit(need, kind);
         if (p != 0) { return p; }
         if (HP + need > HEAPEND) {
-            if (HP + need > HEAPLIMIT) { rt_write(addr("out of memory\n"), 14); syscall(60, 70); }
+            if (HP + need > HEAPLIMIT) { return rt_out_of_memory(); }
             // The sweep set the threshold from the live set; if this single
             // request still does not fit above it, raise the threshold by
             // the request plus the usual margin, inside the reservation.
@@ -383,6 +477,18 @@ fun rt_grow_in_place(p: Any, extra: Any) -> Any {
     if (HP > HEAPDIRTY) { HEAPDIRTY = HP; }
     return 1;
 }
+// Diagnostics for the user: uncaught faults, traces and runtime aborts (#158).
+fun rt_write_err(p: Any, n: Any) -> Any {
+    mut off: Any = 0;
+    while (off < n) {
+        let w: Any = syscall(1, 2, p + off, n - off);
+        if (w == 0 - 4) { continue; }
+        if (w <= 0) { return 0; }
+        off = off + w;
+    }
+    return 0;
+}
+
 fun rt_write(p: Any, n: Any) -> Any {
     syscall(1, 1, p, n);
     // A compiled program returns from main into an exit syscall, so the last
@@ -543,16 +649,55 @@ fun rt_host_exit(status: Any) -> Any {
     return 0;
 }
 
-// A fresh fiber stack of `size` bytes, or a negative error.
+// A fresh fiber stack of `size` bytes above an inaccessible guard page, so an
+// overflow faults (rt_segv) instead of writing over other memory; its base,
+// or a negative error. rt_fiber_compact unmaps the guard page with it.
 fun rt_fiber_stack(size: Any) -> Any {
-    return syscall(9, 0, size, 3, 34, 0 - 1, 0);
+    let region: Any = syscall(9, 0, size + 4096, 3, 34, 0 - 1, 0);
+    if (region < 0) { return region; }
+    syscall(10, region, 4096, 0);
+    return region + 4096;
 }
 
 // ---- memory and files ------------------------------------------------------
+// A short description of a Linux errno.
+fun rt_errno_text(e: Any) -> Any {
+    if (e == 2) { return rt_from(addr("no such file or directory"), 25); }
+    if (e == 13) { return rt_from(addr("permission denied"), 17); }
+    if (e == 17) { return rt_from(addr("file exists"), 11); }
+    if (e == 20) { return rt_from(addr("not a directory"), 15); }
+    if (e == 21) { return rt_from(addr("is a directory"), 14); }
+    if (e == 24) { return rt_from(addr("too many open files"), 19); }
+    if (e == 28) { return rt_from(addr("no space left on device"), 23); }
+    if (e == 30) { return rt_from(addr("read-only file system"), 21); }
+    if (e == 36) { return rt_from(addr("file name too long"), 18); }
+    if (e == 10) { return rt_from(addr("no child process"), 16); }
+    if (e == 12) { return rt_from(addr("out of memory"), 13); }
+    if (e == 8) { return rt_from(addr("not an executable format"), 24); }
+    return rt_concat(rt_from(addr("errno "), 6), rt_int_text(e));
+}
+
+// Raise kind `io` for `operation` on `path` (a Str, or 0) with errno `e`; the
+// error also carries `operation`, `path` and `errno` (#160).
+fun rt_io_fail(op: Any, opl: Any, path: Any, e: Any) -> Any {
+    let operation: Any = rt_from(op, opl);
+    mut message: Any = operation;
+    if (path != 0) { message = rt_concat(rt_concat(message, rt_from(addr(" "), 1)), path); }
+    message = rt_concat(rt_concat(message, rt_from(addr(": "), 2)), rt_errno_text(e));
+    let error: Any = rt_mkerr(addr("io"), 2, message);
+    rt_map_put(error, 4, rt_from(addr("operation"), 9), 4, operation);
+    rt_map_put(error, 4, rt_from(addr("errno"), 5), 2, e);
+    if (path != 0) { rt_map_put(error, 4, rt_from(addr("path"), 4), 4, path); }
+    ERRFLAG = 1;
+    ERRVAL = error;
+    __longjmp();
+    return 0;
+}
+
 fun rt_read_file(t: Any, p: Any) -> Any {
     if (t != 4) { return rt_failtype(rt_from(addr("read_file expects a path"), 24)); }
     let fd: Any = syscall(2, rt_cstr_raw(p), 0, 0);
-    if (fd < 0) { return rt_failstr(rt_from(addr("cannot read file"), 15)); }
+    if (fd < 0) { return rt_io_fail(addr("cannot read file"), 16, p, 0 - fd); }
     mut capacity: Any = 65536;
     mut b: Any = rt_alloc_bytes(capacity);
     mut off: Any = 0;
@@ -560,7 +705,7 @@ fun rt_read_file(t: Any, p: Any) -> Any {
     while (r > 0) {
         r = syscall(0, fd, b + off, capacity - off);
         if (r == 0 - 4) { r = 1; continue; }
-        if (r < 0) { syscall(3, fd); return rt_failstr(rt_from(addr("cannot read file"), 15)); }
+        if (r < 0) { syscall(3, fd); return rt_io_fail(addr("cannot read file"), 16, p, 0 - r); }
         if (r > 0) {
             off = off + r;
             if (off == capacity) {
@@ -576,13 +721,14 @@ fun rt_read_file(t: Any, p: Any) -> Any {
 fun rt_write_file(pt: Any, p: Any, dt: Any, data: Any) -> Any {
     if (pt != 4 or dt != 4) { return rt_failtype(rt_from(addr("write_file expects a path and a string"), 38)); }
     let fd: Any = syscall(2, rt_cstr_raw(p), 577, 420);
-    if (fd < 0) { return rt_failstr(rt_from(addr("cannot write file"), 17)); }
+    if (fd < 0) { return rt_io_fail(addr("cannot write file"), 17, p, 0 - fd); }
     mut offset: Any = 0;
     let count: Any = load64(data);
     while (offset < count) {
         let written: Any = syscall(1, fd, data + 8 + offset, count - offset);
         if (written == 0 - 4) { continue; }
-        if (written <= 0) { syscall(3, fd); return rt_failstr(rt_from(addr("cannot write file"), 17)); }
+        if (written < 0) { syscall(3, fd); return rt_io_fail(addr("cannot write file"), 17, p, 0 - written); }
+        if (written == 0) { syscall(3, fd); return rt_io_fail(addr("cannot write file"), 17, p, 28); }
         offset += written;
     }
     syscall(3, fd);
@@ -668,16 +814,18 @@ fun rt_sleep(t: Any, ms: Any) -> Any {
     return 0;
 }
 fun rt_mkdir(t: Any, p: Any) -> Any {
-    if (t != 4 or syscall(83, rt_cstr_raw(p), 493) < 0) { return rt_failio(rt_from(addr("cannot create directory"), 23)); }
+    if (t != 4) { return rt_failtype(rt_from(addr("mkdir expects a path"), 20)); }
+    let r: Any = syscall(83, rt_cstr_raw(p), 493);
+    if (r < 0) { return rt_io_fail(addr("cannot create directory"), 23, p, 0 - r); }
     RTAG = 0;
     return 0;
 }
 fun rt_read_dir(t: Any, p: Any) -> Any {
+    if (t != 4) { return rt_failtype(rt_from(addr("read_dir expects a path"), 23)); }
     let list: Any = rt_list_raw(4);
-    RTAG = 5;
-    if (t != 4) { return list; }
-    let fd: Any = syscall(2, rt_cstr_raw(p), 0, 0);
-    if (fd < 0) { return list; }
+    // O_RDONLY | O_DIRECTORY, so a file is an error rather than an empty list.
+    let fd: Any = syscall(2, rt_cstr_raw(p), 65536, 0);
+    if (fd < 0) { return rt_io_fail(addr("cannot read directory"), 21, p, 0 - fd); }
     let buf: Any = rt_alloc_bytes(32768);
     mut n: Any = syscall(217, fd, buf, 32768);
     while (n > 0) {
@@ -696,6 +844,7 @@ fun rt_read_dir(t: Any, p: Any) -> Any {
         n = syscall(217, fd, buf, 32768);
     }
     syscall(3, fd);
+    if (n < 0) { return rt_io_fail(addr("cannot read directory"), 21, p, 0 - n); }
     RTAG = 5;
     return list;
 }
@@ -743,7 +892,7 @@ fun rt_wait(t: Any, pid: Any) -> Any {
     let st: Any = rt_alloc_bytes(8);
     mut result: Any = syscall(61, pid, st, 0, 0);
     while (result == 0 - 4) { result = syscall(61, pid, st, 0, 0); }
-    if (result < 0) { return rt_failstr(rt_from(addr("cannot wait for process"), 23)); }
+    if (result < 0) { return rt_io_fail(addr("cannot wait for process"), 23, 0, 0 - result); }
     let status: Any = load32(st);
     let signal: Any = status % 128;
     RTAG = 2;
@@ -754,6 +903,7 @@ fun rt_wait(t: Any, pid: Any) -> Any {
 fun rt_exec(t: Any, l: Any) -> Any {
     rt_expect_list(t);
     let n: Any = load64(l);
+    if (n == 0) { return rt_failtype(rt_from(addr("exec expects a nonempty argument list"), 37)); }
     let d: Any = load64(l + 16);
     let argv: Any = rt_alloc((n + 1) * 8);
     mut i: Any = 0;
@@ -762,14 +912,42 @@ fun rt_exec(t: Any, l: Any) -> Any {
         store64(argv + i * 8, rt_cstr_raw(load64(d + i * 16 + 8)));
         i = i + 1;
     }
+    // A close-on-exec pipe tells the parent whether execve failed (#163).
+    let fds: Any = rt_alloc_bytes(8);
+    let piped: Any = syscall(293, fds, 524288);
+    if (piped < 0) { return rt_io_fail(addr("cannot create pipe"), 18, 0, 0 - piped); }
+    let readEnd: Any = load32(fds);
+    let writeEnd: Any = load32(fds + 4);
+    let code: Any = rt_alloc_bytes(8);
     let pid: Any = syscall(57);
-    if (pid < 0) { return rt_failstr(rt_from(addr("cannot fork process"), 19)); }
+    if (pid < 0) { syscall(3, readEnd); syscall(3, writeEnd); return rt_io_fail(addr("cannot fork process"), 19, 0, 0 - pid); }
     if (pid == 0) {
-        syscall(59, load64(argv), argv, rt_envp());
+        syscall(3, readEnd);
+        let r: Any = syscall(59, load64(argv), argv, rt_envp());
+        store32(code, 0 - r);
+        syscall(1, writeEnd, code, 4);
         syscall(60, 127);
+    }
+    syscall(3, writeEnd);
+    store32(code, 0);
+    mut got: Any = syscall(0, readEnd, code, 4);
+    while (got == 0 - 4) { got = syscall(0, readEnd, code, 4); }
+    syscall(3, readEnd);
+    if (got == 4) {
+        let status: Any = rt_alloc_bytes(8);
+        syscall(61, pid, status, 0, 0);
+        return rt_io_fail(addr("cannot execute"), 14, load64(load64(l + 16) + 8), load32(code));
     }
     RTAG = 2;
     return pid;
+}
+
+// exit(status): only 0-255 reach the kernel unchanged (#163).
+fun rt_exit(t: Any, v: Any) -> Any {
+    if (t != 2) { return rt_failtype(rt_concat(rt_from(addr("exit expects an Int status, not "), 32), rt_typename(t))); }
+    if (v < 0 or v > 255) { return rt_failarith(rt_concat(rt_from(addr("exit status must be 0 to 255, not "), 34), rt_int_text(v))); }
+    rt_host_exit(v);
+    return 0;
 }
 fun rt_system(t: Any, cmd: Any) -> Any {
     if (t != 4) { return rt_failtype(rt_from(addr("system expects a command"), 24)); }

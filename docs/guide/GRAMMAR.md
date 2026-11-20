@@ -183,7 +183,7 @@ Inside `otherwise`, `err` is an error object exposing:
 | field     | description                                            |
 |-----------|--------------------------------------------------------|
 | `message` | human-readable message                                 |
-| `kind`    | `arithmetic`, `type`, `name`, `index`, `arity`, `fail`, `assert`, `io`, `parse`, `runtime` |
+| `kind`    | `arithmetic`, `type`, `index`, `arity`, `match`, `fail`, `assert`, `io`, `parse`, `runtime` |
 | `stack`   | newline-separated `at <function> (line N)` frames      |
 
 ```may

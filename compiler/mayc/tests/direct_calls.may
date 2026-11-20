@@ -26,7 +26,7 @@ fun bool_text(flag: Bool) -> Any { if (flag) { return "yes"; } return "no"; }
 fun twice(x: Float) -> Any { return x * 2.0; }
 fun sum(a: Any, b: Any) -> Any { return a + b; }
 // The result of one call is an argument of the next.
-fun nested(a: Any, b: Any) -> Any { return sum(one(a), three(b, b, b)); }
+fun nested(a: Any, b: Any) -> Any { return sum(one(a), len(three(b, b, b))); }
 // A direct call as a return value, and one in a condition.
 fun wrapped(x: Any) -> Any { return one(x); }
 fun positive(x: Any) -> Any { if (sum(x, 1) > 0) { return true; } return false; }

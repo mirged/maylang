@@ -1,0 +1,3 @@
+mut a: Int = 1
+-1
+print(a);

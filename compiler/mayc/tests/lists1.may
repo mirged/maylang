@@ -2,7 +2,7 @@ let a: Any = [1, 2, 3];
 print(a, len(a), a[0], a[2]);
 push(a, 4);
 print(a, pop(a), a);
-print(a[10]);
+print(may { a[10] } otherwise { "${err.kind}: ${err.message}" });
 print(slice([1,2,3,4,5], 1, 3));
 print(sort([3,1,2]), reverse([1,2,3]));
 print(sum([1,2,3,4]), product([1,2,3,4]));
