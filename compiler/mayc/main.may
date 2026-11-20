@@ -264,6 +264,14 @@ fun cli_list_targets() -> Any {
     return 0;
 }
 
+// Whether two paths name the same existing file (same device and inode).
+fun cli_same_file(a: Any, b: Any) -> Any {
+    let first: Any = irt_alloc(256);
+    let second: Any = irt_alloc(256);
+    if (syscall(4, cstr(a), first) < 0 or syscall(4, cstr(b), second) < 0) { return false; }
+    return load64(first) == load64(second) and load64(first + 8) == load64(second + 8);
+}
+
 fun main2() -> Any {
     irt_init();
 
@@ -405,7 +413,7 @@ fun main2() -> Any {
         } else if (name_eq(ap, al, addr("--strict"), 8) == 1) {
             STRICT_TYPES = true;
         } else if (al > 0 and load8(ap) == 45) {
-            die_str("mayc: unknown option (use --help)\n");
+            die_str("mayc: unknown option `" + symbol_name(ap, al) + "` (use --help)\n");
         } else if (sl == 0) {
             sp = ap;
             sl = al;
@@ -453,6 +461,11 @@ fun main2() -> Any {
     }
     if (ol == 0 and checkflag == 0 and dumpflag == 0 and expandedflag == 0) {
         die_str("mayc: missing -o <binary>\n");
+    }
+    // The output is unlinked before it is written, so naming the source (by
+    // any path) would destroy it (#180).
+    if (ol != 0 and checkflag == 0 and cli_same_file(symbol_name(sp, sl), symbol_name(op, ol))) {
+        die_str("mayc: output `" + symbol_name(op, ol) + "` is the source file; choose another -o path\n");
     }
     // The depfile names the produced binary, or the source when checking.
     mut depfileTarget: Any = "";

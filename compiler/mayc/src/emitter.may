@@ -101,6 +101,25 @@ fun intern(ctx: Any, s: Any, st: Any, n: Any) -> Any {
     return off;
 }
 
+// The NUL-terminated path at `pointer`.
+fun output_path(pointer: Any) -> Any {
+    mut n: Any = 0;
+    while (load8(pointer + n) != 0) { n = n + 1; }
+    return symbol_name(pointer, n);
+}
+
+// A short description of a Linux errno for driver messages (#180).
+fun errno_text(e: Any) -> Any {
+    if (e == 2) { return "no such file or directory"; }
+    if (e == 13) { return "permission denied"; }
+    if (e == 20) { return "not a directory"; }
+    if (e == 21) { return "is a directory"; }
+    if (e == 26) { return "text file busy"; }
+    if (e == 28) { return "no space left on device"; }
+    if (e == 30) { return "read-only file system"; }
+    return "errno " + str(e);
+}
+
 fun write_out(ctx: Any, pointer: Any, length: Any) -> Any {
     // Syscall 87 is `sys_unlink` (delete file).
     // If the file is currently running, this unlinks it immediately!
@@ -108,7 +127,7 @@ fun write_out(ctx: Any, pointer: Any, length: Any) -> Any {
     syscall(87, pointer);
 
     let fd: Any = syscall(2, pointer, 577, 493);
-    if (fd < 0) { die_str("mayc: cannot open output\n"); }
+    if (fd < 0) { die_str("mayc: cannot open output `" + output_path(pointer) + "`: " + errno_text(0 - fd) + "\n"); }
     mut written: Any = 0;
     while (written < ctx.image.length) {
         let count: Any = syscall(1, fd, ctx.image.data + written, ctx.image.length - written);
