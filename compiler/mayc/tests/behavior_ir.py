@@ -28,25 +28,30 @@ INSPECT = '''let originals: Any = [];
             if (emitted.behaviorSummary != nil) { push(summaries, emitted.behaviorSummary); }
             if (emitted.strictSignature != nil) {
                 let parameters: Any = [];
-                for parameter: Any in emitted.strictSignature.arguments { push(parameters, parameter.name); }
+                for parameter: Any in emitted.strictSignature.arguments { push(parameters, if (parameter == 0) { nil } else { parameter.name }); }
                 signatures[symbol_name(emitted.p, emitted.l)] = {
-                    "parameters": parameters, "result": emitted.strictSignature.result.name
+                    "parameters": parameters, "result": if (emitted.strictSignature.result == 0) { nil } else { emitted.strictSignature.result.name }
                 };
             }
             let operations: Any = [];
             for instruction: Any in emitted.ir.code {
                 if (instruction.op == E_BIN) {
+                    // Operand records are 0 where the IR has none; fields of
+                    // other values are faults (#164), so read them guarded.
+                    let left: Any = instruction.extra.left;
+                    let right: Any = instruction.extra.right;
+                    let output: Any = instruction.result;
                     push(operations, [
-                        instruction.extra.left.valueType.name,
-                        instruction.extra.right.valueType.name,
-                        instruction.result.valueType.name
+                        if (left == 0 or left == nil or left.valueType == 0) { nil } else { left.valueType?.name },
+                        if (right == 0 or right == nil or right.valueType == 0) { nil } else { right.valueType?.name },
+                        if (output == 0 or output == nil or output.valueType == 0) { nil } else { output.valueType?.name }
                     ]);
                 }
             }
             if (len(operations) != 0) { typed_ir[symbol_name(emitted.p, emitted.l)] = operations; }
             let rows: Any = [];
             for parameter: Any in emitted.parr {
-                if (parameter.annotation.name == "Function" and parameter.annotation.behaviorEffects != nil) {
+                if (parameter.annotation != 0 and parameter.annotation.name == "Function" and parameter.annotation.behaviorEffects != nil) {
                     push(rows, parameter.annotation.behaviorEffects);
                 }
             }

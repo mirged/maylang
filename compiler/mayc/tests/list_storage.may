@@ -24,7 +24,11 @@ cell[0] = 1.5;
 print(flags, len(flags));
 
 // Sorting, mapping and reduction read any kind.
-print(sort(ints), map(ints, fun(x: Any) -> Any { return x; }));
+print(may { sort(ints) } otherwise { "${err.kind}: ${err.message}" }, map(ints, fun(x: Any) -> Any { return x; }));
+let floats: List<Float> = [2.5, 1.0];
+let widened: Any = floats;
+push(widened, 0);
+print(sort(floats));
 
 let squares: List<Int> = [i * i for i in 0..5];
 print(squares, len(squares), squares[4]);

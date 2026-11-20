@@ -527,9 +527,9 @@ fun x86_float_operand(ctx: Any, value: Any, xmm: Any) -> Any {
 }
 
 // A Float binary operation. Arithmetic computes in the result's XMM home when
-// it has one, keeping the runtime's binary64 results and raising the
-// arithmetic fault on a zero divisor of either sign; comparisons use the
-// runtime's NaN ordering (== is false, != is true).
+// it has one, keeping the runtime's binary64 results (a zero divisor gives an
+// IEEE infinity or NaN); comparisons use the runtime's NaN ordering (== is
+// false, != is true).
 fun cg_float_bin(ctx: Any, n: Any) -> Any {
     let op: Any = n.op;
     let target: Any = if (X86_RESULT != 0 and X86_RESULT != nil) { x86_float_home(X86_RESULT) } else { -1 };
@@ -545,14 +545,7 @@ fun cg_float_bin(ctx: Any, n: Any) -> Any {
     if (rightHome < 0) { x86_float_operand(ctx, n.right, 1); } else if (rightHome == acc) { x86_float_operand(ctx, n.right, 1); }
     let right: Any = if (rightHome >= 0 and rightHome != acc) { rightHome } else { 1 };
     if (op == TK_PLUS or op == TK_MINUS or op == TK_STAR or op == TK_SLASH) {
-        if (op == TK_SLASH) {
-            // lea r10, [rcx + rcx]; test r10, r10; je zero: only a zero bit
-            // pattern has that property, and NaN does not fault.
-            fat_movq_from_xmm(ctx, 1, right);                                  // movq rcx, right
-            e8(ctx, 76); e8(ctx, 141); e8(ctx, 20); e8(ctx, 9);               // lea r10, [rcx + rcx]
-            e8(ctx, 77); e8(ctx, 133); e8(ctx, 210);                          // test r10, r10
-            jcc(ctx, 132, x86_native_fault(ctx, 1));                         // je: zero divisor
-        }
+        // A zero divisor gives an IEEE infinity or NaN, as in the runtime (#153).
         if (acc == target and leftHome == target and rightHome == target) {
             fat_sse(ctx, 242, [88, 92, 89, 94][op - TK_PLUS], target, target, false);
             X86_FLOAT_DONE = target;
@@ -2402,6 +2395,7 @@ fun cg_builtin(ctx: Any, np: Any, nl: Any, args: Any) -> Any {
     let platformName: Any = symbol_name(np, nl);
     if (X86_MAIN_NATIVE and platformName == "print") { x86_word_main_print(ctx, args); return 1; }
     if (platformName == "__fiber_stack") { x86_core_fiber_stack(ctx, args); return 1; }
+    if (platformName == "__segv_entry") { x86_core_segv_entry(ctx); return 1; }
     if (name_eq(np, nl, addr("__ccall6"), len("__ccall6")) == 1) { cg_ccall6(ctx, args); return 1; }
     if (name_eq(np, nl, addr("__longjmp"), len("__longjmp")) == 1) { cg_longjmp(ctx); return 1; }
     if (name_eq(np, nl, addr("__sp"), len("__sp")) == 1) { e8(ctx, 72); e8(ctx, 137); e8(ctx, 224); return 1; }
@@ -2720,7 +2714,8 @@ fun cg_fat_apply(ctx: Any, args: Any) -> Any {
     for byte: Any in [90, 94, 89,                       // pop rdx (argc); pop rsi (argv); pop rcx (closure)
         73, 137, 227, 72, 131, 228, 240, 65, 83, 65, 84,  // mov r11, rsp; and rsp, -16; push r11; push r12
         73, 137, 228, 81, 81,                             // mov r12, rsp; push rcx; push rcx
-        72, 139, 65, 16, 72, 57, 208] { e8(ctx, byte); }  // mov rax, [rcx + 16]; cmp rax, rdx
+        72, 139, 65, 16, 37, 255, 255, 15, 0,             // mov rax, [rcx + 16]; and eax, 0xfffff (padding bit, #161)
+        72, 57, 208] { e8(ctx, byte); }                   // cmp rax, rdx
     jcc(ctx, 141, ok);                                    // jge
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 208);              // mov rax, rdx
     placelab(ctx, ok);
@@ -2884,6 +2879,13 @@ fun cg_assign(ctx: Any, s: Any) -> Any {
 fun cg_longjmp(ctx: Any) -> Any {
     let hd: Any = glob_find(ctx, addr("HDEPTH"), 6);
     let hs: Any = glob_find(ctx, addr("HSTACK"), 6);
+    // A raw program that includes runtime code (gc_stress.py) has no handler
+    // stack; a raise there ends the process with the uncaught status.
+    if (hd < 0 or hs < 0) {
+        mov_imm(ctx, 70); e8(ctx, 72); e8(ctx, 137); e8(ctx, 199);   // mov rdi, rax
+        mov_imm(ctx, 60); x86_syscall_instruction(ctx);
+        return 0;
+    }
     ld_abs(ctx, glob_off(ctx, hd));
     e8(ctx, 72); e8(ctx, 133); e8(ctx, 192);
     let live: Any = newlab(ctx);
@@ -3187,7 +3189,8 @@ fun x86_word_main_builtin(name: Any, args: Any, kinds: Any) -> Any {
         let kind: Any = x86_word_main_kind(kinds, args);
         return if (kind == "Int" or kind == "Float") { "Float" } else { nil };
     }
-    if (name == "exit") { return if (x86_word_main_arity(args) == 1 and x86_word_main_ints(args, kinds)) { "Int" } else { nil }; }
+    // exit validates its status in the runtime (rt_exit), so main stays fat code.
+    if (name == "exit") { return nil; }
     if (name == "syscall") {
         let count: Any = x86_word_main_arity(args);
         return if (count >= 1 and count <= 7 and x86_word_main_ints(args, kinds)) { "Int" } else { nil };

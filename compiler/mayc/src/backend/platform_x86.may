@@ -12,3 +12,30 @@ fun x86_core_fiber_stack(ctx: Any, args: Any) -> Any {
     e8(ctx, 72); e8(ctx, 137); e8(ctx, 66); e8(ctx, 48);
     ld_local(ctx, 8 * (slot + 1)); return 0;
 }
+
+// `__segv_entry()`: the address of a SIGSEGV handler stub for rt_sigaction,
+// emitted inline and jumped over (#151). The kernel calls it on the alternate
+// signal stack with the signal number, siginfo and ucontext; it passes the
+// fault address (siginfo.si_addr) and the faulting stack pointer
+// (uc_mcontext.gregs[REG_RSP]) to rt_segv, which never returns.
+fun x86_core_segv_entry(ctx: Any) -> Any {
+    // Raw programs that include the runtime source (gc_stress.py) get 0 and
+    // run without the handler.
+    if (ctx.dynamic != 1 or ctx.mode != 0) { xor_eax(ctx); return 0; }
+    let over: Any = newlab(ctx);
+    let stub: Any = newlab(ctx);
+    jmp(ctx, over);
+    placelab(ctx, stub);
+    for byte: Any in [72, 139, 126, 16] { e8(ctx, byte); }                    // mov rdi, [rsi + 16]
+    for byte: Any in [72, 139, 178, 160, 0, 0, 0] { e8(ctx, byte); }          // mov rsi, [rdx + 160]
+    for byte: Any in [72, 131, 228, 240] { e8(ctx, byte); }                   // and rsp, -16
+    // rt_segv's register-ABI body (rdi, rsi), as x86_call_direct enters it.
+    let handler: Any = ctx.functionIndex["rt_segv"];
+    if (handler.abiLab == 0) { handler.abiLab = newlab(ctx); }
+    emission_reference(ctx, handler.lab);
+    e8(ctx, 232); let o: Any = ctx.code.length; e32(ctx, 0); fx(ctx, 0, o, handler.abiLab); // call rt_segv
+    e8(ctx, 15); e8(ctx, 11);                                                 // ud2
+    placelab(ctx, over);
+    addr_lab(ctx, stub, 6);
+    return 0;
+}

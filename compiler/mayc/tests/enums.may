@@ -8,7 +8,7 @@ fun area(s: Any) -> Any {
 }
 let c: Any = Circle(2.0);
 let r: Any = Rect(3.0, 4.0);
-let e: Any = Empty;
+let e: Any = Empty();
 print(c.tag, c.r);
 print(r.tag, r.w, r.h);
 print(e.tag);

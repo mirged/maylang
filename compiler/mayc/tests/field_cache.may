@@ -28,11 +28,11 @@ let shapes: Any = [
     nil,
     {"name": "first again"}
 ];
-for shape: Any in shapes { print(name_of(shape)); }
+for shape: Any in shapes { print(may { name_of(shape) } otherwise { "${err.kind}: ${err.message}" }); }
 
 // The same site writes through every shape; a missing field is appended.
 fun rename(v: Any, value: Any) -> Nil { v.name = value; return; }
-for shape: Any in shapes { rename(shape, "renamed"); }
+for shape: Any in shapes { may { rename(shape, "renamed"); } otherwise { print("${err.kind}: ${err.message}"); } }
 print(shapes[0], shapes[2], shapes[3], shapes[4]);
 
 // A record copy without a field, and dynamic additions to a struct value.

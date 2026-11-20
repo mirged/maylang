@@ -48,32 +48,40 @@ def main():
                     name = operation.split('(')[0]
                     check(f'{target}_{name}_{label}', f'let bad: Any = {value}; {operation}; print("unreachable");',
                           options, failure='expected List')
-            for label, index in [('negative', '-1'), ('end', '2'), ('far', '1000000'),
-                                 ('bool', 'true'), ('nil', 'nil'), ('string', '"x"')]:
+            # Out-of-range positions are `index` faults for reads and writes (#145);
+            # an index of another type is a `type` fault.
+            for label, index, failure in [('negative', '-1', 'out of range'), ('end', '2', 'out of range'),
+                                          ('far', '1000000', 'out of range'), ('bool', 'true', 'index requires an integer'),
+                                          ('nil', 'nil', 'index requires an integer'), ('string', '"x"', 'index requires an integer')]:
                 check(f'{target}_set_{label}', f'let xs: Any = [1, 2]; let index: Any = {index}; '
-                      'xs[index] = 9; print("unreachable");', options, failure='invalid list assignment')
+                      'xs[index] = 9; print("unreachable");', options, failure=failure)
+            for label, index in [('negative', '-1'), ('end', '2'), ('far', '1000000')]:
+                check(f'{target}_get_range_{label}', f'let xs: Any = [1, 2]; let index: Any = {index}; '
+                      'print(xs[index]); print("unreachable");', options, failure='index: index')
+                check(f'{target}_string_range_{label}', f'let text: Any = "aλ"; let index: Any = {index}; '
+                      'print(text[index]); print("unreachable");', options, failure='index: index')
             for label, index in [('bool', 'true'), ('nil', 'nil'), ('string', '"x"')]:
                 check(f'{target}_get_{label}', f'let xs: Any = [1, 2]; let index: Any = {index}; '
                       'print(xs[index]); print("unreachable");', options, failure='index')
                 check(f'{target}_string_get_{label}', f'let text: Any = "abc"; let index: Any = {index}; '
                       'print(text[index]); print("unreachable");', options, failure='index')
             check(f'{target}_set_nonlist', 'let bad: Any = 0; bad[0] = 1; print("unreachable");',
-                  options, failure='assignment')
+                  options, failure='cannot assign by index into Int')
             check(f'{target}_valid', '''let xs: Any = [1, 2]; let alias: Any = xs;
 xs[1] = 7; push(alias, 3); let last: Any = pop(alias);
-print(xs, last, len(xs), xs[-1], xs[2]);
+print(xs, last, len(xs), xs[0], xs[1]);
 let empty: Any = []; let missing: Any = pop(empty); push(empty, 42);
 print(missing, empty, slice(xs, -1, 100));
-let text: Any = "aλ"; print(text[1], text[-1], text[2]);
-''', options, output='[1, 7] 3 2 nil nil\nnil [42] [1, 7]\nλ nil nil\n')
+let text: Any = "aλ"; print(text[1], text[0]);
+''', options, output='[1, 7] 3 2 1 7\nnil [42] [1, 7]\nλ a\n')
             check(f'{target}_float_index', 'let xs: Any = [1]; let i: Any = 0.5; xs[i] = 2;',
-                  options, failure='invalid list assignment')
+                  options, failure='index requires an integer')
             check(f'{target}_float_get', 'let xs: Any = [1]; let i: Any = 0.5; print(xs[i]);',
                   options, failure='index')
             check(f'{target}_map_keys', 'let m: Any = {}; m[false] = 1; m[1.5] = 2; print(m[false], m[1.5]);',
                   options, output='1 2\n')
             check(f'{target}_recovery', '''let xs: Any = [1, 2];
-let caught: Any = may { xs[2] = 3; false } otherwise { err.kind == "type" };
+let caught: Any = may { xs[2] = 3; false } otherwise { err.kind == "index" };
 print(caught, xs);
 fun answer() -> Int { return 42; }
 fun apply(f: Fn() -> Int ! pure) -> Int ! pure { return f(); }

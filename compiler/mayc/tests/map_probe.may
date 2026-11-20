@@ -61,9 +61,9 @@ print(im[126] ?? -6, value_tag(im[126]));
 
 // A non-map receiver: list and string indexing keep their existing paths.
 let xs: List<Int> = [4, 5, 6];
-print(xs[2] ?? -1, xs[7] ?? -2);
+print(xs[2] ?? -1, may { xs[7] ?? -2 } otherwise { err.kind });
 let s: Str = "hey";
-print(s[0] ?? "?", s[9] ?? "?");
+print(s[0] ?? "?", may { s[9] ?? "?" } otherwise { err.kind });
 
 // Other key types still call the runtime.
 let fm: Map<Float, Int> = {1.5: 1, 2.5: 2};

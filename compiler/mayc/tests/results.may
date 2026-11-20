@@ -6,7 +6,7 @@ let r2: Any = compute(10, 0);
 print(r2.ok, r2.error);
 let s: Any = Some(5);
 let n: Any = None();
-print(s.ok, s.value, n);
+print(s, n);
 fun first_even(xs: Any) -> Any {
     for x: Any in xs { if x % 2 == 0 { return Ok(x); } }
     return Err("none even");

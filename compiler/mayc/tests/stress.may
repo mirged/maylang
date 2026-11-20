@@ -178,7 +178,7 @@ while (o < 5000) {
 mut notional: Any = 0.0;
 for ord: Any in orders { notional = notional + float(ord.qty) * ord.price; }
 print("orders", len(orders), notional);
-print("shapes", area(Circle(2.0)), area(Rect(3.0, 4.0)), area(Empty));
+print("shapes", area(Circle(2.0)), area(Rect(3.0, 4.0)), area(Empty()));
 
 fun classify(n: Any) -> Any {
     return match (n) {

@@ -257,7 +257,8 @@ def main():
         assert result.returncode == 0 and result.stdout.endswith(b'done\n'), (result.returncode, result.stdout, result.stderr)
         print(result.stdout.decode().splitlines()[0])
         result = run(ROOTS)
-        assert result.returncode == 70 and result.stdout == b'GC global root table exhausted\n' and not result.stderr, result
+        # Runtime aborts are written to stderr (#158).
+        assert result.returncode == 70 and result.stderr == b'GC global root table exhausted\n' and not result.stdout, result
         print('PASS global root capacity fails before writing outside the table')
         result = run(RECORDS)
         assert result.returncode == 0 and result.stdout == b'PASS record slots, observation and collector tracing\ndone\n', (result.returncode, result.stdout, result.stderr)

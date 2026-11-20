@@ -110,8 +110,9 @@ def main():
         plain = behave(compiler, source, options + ('--no-opt',), work / 'debug-plain')
         assert optimized == plain, ('debug traces', optimized, plain)
         status, stdout, stderr = optimized
-        assert status == 70 and stderr == b'', (status, stdout, stderr)
-        trace = stdout.decode()
+        # Uncaught faults and their traces are written to stderr (#158).
+        assert status == 70 and stdout == b'', (status, stdout, stderr)
+        trace = stderr.decode()
         assert trace.startswith('fail: boom\n  at inner ('), trace
         assert trace.count('  at outer (') == 1, trace
         print('PASS debug traces', flush=True)

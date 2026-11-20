@@ -92,9 +92,10 @@ def instrument_runtime(heap_mib, mark_slots=None):
         '    MARKN = MARKN + 1;': '    MARKN = MARKN + 1;\n    if (MARKN > LIMIT_MARK_HIGH) { LIMIT_MARK_HIGH = MARKN; }',
         '    if (GCFLAG == 0) { return 0; }': '    if (GCFLAG == 0) { return 0; }\n    let limits_started: Any = limits_now();',
         '    GCCOUNT = GCCOUNT + 1;': '    GCCOUNT = GCCOUNT + 1;\n    LIMIT_GC_NS += limits_now() - limits_started;',
-        'rt_write(addr("out of memory\\n"), 14);': 'limits_report(); rt_write(addr("out of memory\\n"), 14);',
-        'rt_write(addr("GC mark stack exhausted\\n"), 24);': 'limits_report(); rt_write(addr("GC mark stack exhausted\\n"), 24);',
-        'rt_write(addr("GC global root table exhausted\\n"), 31);': 'limits_report(); rt_write(addr("GC global root table exhausted\\n"), 31);',
+        # Runtime aborts are written to stderr (#158).
+        'rt_write_err(addr("out of memory\\n"), 14);': 'limits_report(); rt_write_err(addr("out of memory\\n"), 14);',
+        'rt_write_err(addr("GC mark stack exhausted\\n"), 24);': 'limits_report(); rt_write_err(addr("GC mark stack exhausted\\n"), 24);',
+        'rt_write_err(addr("GC global root table exhausted\\n"), 31);': 'limits_report(); rt_write_err(addr("GC global root table exhausted\\n"), 31);',
     }
     if mark_slots is not None:
         host_replacements['    MARKMAX = 1048576;'] = f'    MARKMAX = {mark_slots};'
@@ -441,13 +442,15 @@ def run_gc(args, report, compiler):
                     raise ValueError(f'GC statistics disagree: runtime {runtime_stats.get("collections")}, '
                                      f'meter {metrics["collections"]}; artifacts: {directory}')
             plain = without_gc_stats(text)
-            passed = result['category'] == 'exited' and result['exit'] == expected_exit and not Path(result['stderr']).stat().st_size
+            errors = Path(result['stderr']).read_text(errors='replace')
+            # An expected limit's message is the only stderr output (#158).
+            passed = result['category'] == 'exited' and result['exit'] == expected_exit and errors == (message or '')
             if args.runtime_gc_stats and expected_exit == 0:
                 # A run that prints ends with a summary; the corruption
                 # detector exits before its first write, so it has none.
                 passed = passed and bool(runtime_stats)
             if message:
-                passed = passed and plain.endswith(message)
+                passed = passed and errors == message
                 row['expected_limit'] = message.strip()
             # The threshold follows the live set after every sweep, so it is a
             # policy bound rather than the fixed nominal heap.

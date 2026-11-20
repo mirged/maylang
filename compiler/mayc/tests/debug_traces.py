@@ -38,7 +38,7 @@ print(may { leaf(); "bad" } otherwise { contains(str(err.stack), "tail (") });
         binary=work/'uncaught'
         subprocess.run([str(args.compiler.resolve()),'--debug',str(source),'-o',str(binary)],check=True,timeout=60)
         result=subprocess.run([str(binary)],capture_output=True,timeout=10)
-        assert result.returncode==70 and b'at broken (' in result.stdout and b'traces.may:1' in result.stdout,result
+        assert result.returncode==70 and b'at broken (' in result.stderr and b'traces.may:1' in result.stderr,result
         source.write_text('''
 fun fiber_a() -> Nil { yield(); print(may { fail("a"); "bad" } otherwise { contains(str(err.stack), "fiber_b (") }); return nil; }
 fun fiber_b() -> Nil { yield(); print(may { fail("b"); "bad" } otherwise { contains(str(err.stack), "fiber_a (") }); return nil; }
