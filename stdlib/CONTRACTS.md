@@ -38,9 +38,9 @@ fails if they differ.
   comparison use their existing runtime representations; no Unicode
   normalization or locale collation is performed. Raw pointers address bytes.
 - Lists, maps and records are mutable references. Passing them does not copy
-  storage; aliases see mutation. List and map equality uses identity on
-  every runtime. Strings compare by value. Use explicit
-  element comparisons for portable collection equality.
+  storage; aliases see mutation. `==` on lists, maps, records and enum
+  values uses identity on every runtime; `equal(a, b)` compares them
+  structurally (and `assert_eq` uses it). Strings compare by value.
 - Error recovery uses `may { ... } otherwise { ... }`; `err.kind` and
   `err.message` describe failures. Typed Result helpers preserve their generic
   payloads; `unwrap` raises on Err and `unwrap_or` supplies a fallback. Failures

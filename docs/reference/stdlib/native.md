@@ -270,7 +270,14 @@
 - `get`: The implementation treats a nil lookup as absent, so a present nil value returns the fallback.
 - **times** — `fun times(n: Any, f: Any) -> Any` — Call unary `f(i)` over integers `0..n`; return `nil`.
 - **each** — `fun each(xs: Any, f: Any) -> Any` — Call unary `f(x)` for every input element; return `nil`.
-- **assert_eq** — `fun assert_eq(a: Any, b: Any) -> Any` — Raise an assertion error if actual and expected values differ.
+- **equal** — `fun equal(a: Any, b: Any) -> Any` — Compare two values structurally: lists and maps (including records and enum values) are equal when they have equal items, keys and values; other values compare as `==` does.
+- `equal`: Lists and maps that contain themselves are handled: a pair already being compared counts as equal, so the comparison terminates. Values of different types are never equal, so `1` and `1.0` differ as with `==`. Functions compare by identity.
+- `equal` parameter `a`: The first value.
+- `equal` parameter `b`: The second value.
+- `equal` returns: Whether the values are structurally equal.
+- `equal` example: `print(equal([1, {"a": 2}], [1, {"a": 2}]), [1] == [1]);`.
+- **__native_equal** — `fun __native_equal(a: Any, b: Any, open: Any) -> Any` — `equal` with `open` holding the list and map pairs being compared around this one; helper.
+- **assert_eq** — `fun assert_eq(a: Any, b: Any) -> Any` — Raise an assertion error if actual and expected values differ structurally (see `equal`), so lists, maps, records and enum values compare by content (#186).
 - `assert_eq` explicit fault strings: `"assert"`; runtime/callback faults can also propagate.
 - **ccall** — `fun ccall(fn: Any, args: Any) -> Any` — Call machine code at a raw address with up to six integer arguments using the native calling convention.
 - `ccall` parameter `fn`: The native function address.
