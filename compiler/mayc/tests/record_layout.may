@@ -20,10 +20,10 @@ print(sum.x, sum.y);
 
 // Enum variants are records: the tag entry first, then the payload in
 // declaration order.
-enum Shape { Circle(r: Any), Rect(w: Any, h: Any), Empty }
+enum Shape { Circle(r: Any), Rect(w: Any, h: Any), Blank }
 let circle: Any = Circle(2.0);
 let rect: Any = Rect(3.0, 4.0);
-let empty: Any = Empty();
+let empty: Any = Blank();
 print(keys(circle), keys(rect), keys(empty));
 print(circle.tag, circle.r, rect.tag, rect.w, rect.h, empty.tag);
 print(str(circle), json_stringify(rect));

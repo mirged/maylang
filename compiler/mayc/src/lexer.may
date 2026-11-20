@@ -53,6 +53,15 @@ let TK_BITAND: Any = 64;
 let TK_SHL: Any = 65;
 let TK_SHR: Any = 66;
 let TK_BITNOT: Any = 67;
+// Compound assignments beyond += -= *= /= (#188).
+let TK_PCTEQ: Any = 68;
+let TK_POWEQ: Any = 69;
+let TK_SHLEQ: Any = 70;
+let TK_SHREQ: Any = 71;
+let TK_ANDEQ: Any = 72;
+let TK_OREQ: Any = 73;
+let TK_XOREQ: Any = 74;
+let TK_COALEQ: Any = 75;
 let TK_PLUS: Any = 20;
 let TK_MINUS: Any = 21;
 let TK_STAR: Any = 22;
@@ -216,6 +225,15 @@ fun kw(s: Any, n: Any) -> Any {
     return 0;
 }
 
+// Uppercase hexadecimal with at least four digits, as in `U+00E9`.
+fun lex_hex4(v: Any) -> Any {
+    let digits: Any = "0123456789ABCDEF";
+    mut out: Any = "";
+    mut n: Any = v;
+    while (n > 0 or len(out) < 4) { out = digits[n % 16] + out; n = n / 16; }
+    return out;
+}
+
 fun punct(b: Any, i: Any) -> Any {
     if (b == 40) { tok(TK_LP, i, 1, 0); }
     else if (b == 41) { tok(TK_RP, i, 1, 0); }
@@ -235,6 +253,7 @@ fun punct(b: Any, i: Any) -> Any {
         tok(TK_MINUS, i, 1, 0);
     }
     else if (b == 42) {
+        if (load8(SRC + i + 1) == 42 and load8(SRC + i + 2) == 61) { tok(TK_POWEQ, i, 3, 0); return i + 3; }
         if (load8(SRC + i + 1) == 42) { tok(TK_POW, i, 2, 0); return i + 2; }
         if (load8(SRC + i + 1) == 61) { tok(TK_STAREQ, i, 2, 0); return i + 2; }
         tok(TK_STAR, i, 1, 0);
@@ -243,17 +262,25 @@ fun punct(b: Any, i: Any) -> Any {
         if (load8(SRC + i + 1) == 61) { tok(TK_SLASHEQ, i, 2, 0); return i + 2; }
         tok(TK_SLASH, i, 1, 0);
     }
-    else if (b == 37) { tok(TK_PCT, i, 1, 0); }
+    else if (b == 37) {
+        if (load8(SRC + i + 1) == 61) { tok(TK_PCTEQ, i, 2, 0); return i + 2; }
+        tok(TK_PCT, i, 1, 0);
+    }
     else if (b == 38) {
         if (load8(SRC + i + 1) == 38) { tok(TK_AND, i, 2, 0); return i + 2; }
+        if (load8(SRC + i + 1) == 61) { tok(TK_ANDEQ, i, 2, 0); return i + 2; }
         tok(TK_BITAND, i, 1, 0);
     }
     else if (b == 124) {
         if (load8(SRC + i + 1) == 124) { tok(TK_OR, i, 2, 0); return i + 2; }
         if (load8(SRC + i + 1) == 62) { tok(TK_PIPEOP, i, 2, 0); return i + 2; }
+        if (load8(SRC + i + 1) == 61) { tok(TK_OREQ, i, 2, 0); return i + 2; }
         tok(TK_PIPE, i, 1, 0);
     }
-    else if (b == 94) { tok(TK_XOR, i, 1, 0); }
+    else if (b == 94) {
+        if (load8(SRC + i + 1) == 61) { tok(TK_XOREQ, i, 2, 0); return i + 2; }
+        tok(TK_XOR, i, 1, 0);
+    }
     else if (b == 61) {
         if (load8(SRC + i + 1) == 61) { tok(TK_EQ, i, 2, 0); return i + 2; }
         if (load8(SRC + i + 1) == 62) { tok(TK_ARROW, i, 2, 0); return i + 2; }
@@ -269,26 +296,90 @@ fun punct(b: Any, i: Any) -> Any {
         tok(TK_DOT, i, 1, 0);
     }
     else if (b == 58) { tok(TK_COLON, i, 1, 0); }
-    else if (b == 63) { tok(TK_QUEST, i, 1, 0); }
+    else if (b == 63) {
+        if (load8(SRC + i + 1) == 63 and load8(SRC + i + 2) == 61) { tok(TK_COALEQ, i, 3, 0); return i + 3; }
+        tok(TK_QUEST, i, 1, 0);
+    }
     else if (b == 126) { tok(TK_BITNOT, i, 1, 0); }
     else if (b == 33) {
         if (load8(SRC + i + 1) == 61) { tok(TK_NE, i, 2, 0); return i + 2; }
         tok(TK_NOT, i, 1, 0);
     }
     else if (b == 60) {
+        if (load8(SRC + i + 1) == 60 and load8(SRC + i + 2) == 61) { tok(TK_SHLEQ, i, 3, 0); return i + 3; }
         if (load8(SRC + i + 1) == 60) { tok(TK_SHL, i, 2, 0); return i + 2; }
         if (load8(SRC + i + 1) == 61) { tok(TK_LE, i, 2, 0); return i + 2; }
         tok(TK_LT, i, 1, 0);
     }
     else if (b == 62) {
+        if (load8(SRC + i + 1) == 62 and load8(SRC + i + 2) == 61) { tok(TK_SHREQ, i, 3, 0); return i + 3; }
         if (load8(SRC + i + 1) == 62) { tok(TK_SHR, i, 2, 0); return i + 2; }
         if (load8(SRC + i + 1) == 61) { tok(TK_GE, i, 2, 0); return i + 2; }
         tok(TK_GT, i, 1, 0);
+    }
+    else if (b >= 128) {
+        // Report the whole UTF-8 character, not its first byte as Latin-1.
+        mut width: Any = 1;
+        if (b >= 240) { width = 4; } else if (b >= 224) { width = 3; } else if (b >= 192) { width = 2; }
+        while (width > 1 and i + width > SRCLEN) { width -= 1; }
+        let text: Any = symbol_name(SRC + i, width);
+        let code: Any = if (width > 1 and len(text) == 1) { " (U+" + lex_hex4(char_at(text, 0)) + ")" } else { "" };
+        lex_error(i, width, "unexpected character `" + text + "`" + code + "; identifiers use ASCII letters, digits and `_`");
+        return i + width;
     }
     else {
         lex_error(i, 1, "unexpected character `${chr(b)}`");
     }
     return i + 1;
+}
+
+// The scalar value of a `\u{...}` escape whose `{` is at `i`, or -1 when it
+// is malformed, not a Unicode scalar value or longer than six digits.
+fun escape_unicode_value(i: Any, e: Any) -> Any {
+    if (load8(SRC + i) != 123) { return -1; }
+    mut j: Any = i + 1; mut v: Any = 0; mut digits: Any = 0;
+    while (j < e and load8(SRC + j) != 125) {
+        let d: Any = lex_radix_digit(load8(SRC + j), 16);
+        if (d < 0 or digits >= 6) { return -1; }
+        v = v * 16 + d; digits += 1; j += 1;
+    }
+    if (digits == 0 or j >= e) { return -1; }
+    if (v > 1114111 or (v >= 55296 and v <= 57343)) { return -1; }
+    return v;
+}
+
+// The byte length of the escape whose backslash is at `i`: 2 for the single
+// character escapes, 4 for `\xNN`, the whole `\u{...}` for Unicode escapes, or
+// 0 when the escape is unknown or malformed.
+fun escape_width(i: Any, e: Any) -> Any {
+    let c: Any = load8(SRC + i + 1);
+    if (c == 110 or c == 116 or c == 114 or c == 48 or c == 92 or c == 34 or c == 36) { return 2; }
+    if (c == 120) {
+        let hi: Any = lex_radix_digit(load8(SRC + i + 2), 16);
+        let lo: Any = lex_radix_digit(load8(SRC + i + 3), 16);
+        // Only ASCII, so a literal always stays valid UTF-8.
+        if (hi < 0 or lo < 0 or hi > 7) { return 0; }
+        return 4;
+    }
+    if (c == 117) {
+        if (escape_unicode_value(i + 2, e) < 0) { return 0; }
+        mut j: Any = i + 2;
+        while (load8(SRC + j) != 125) { j += 1; }
+        return j + 1 - i;
+    }
+    return 0;
+}
+
+// Validate the escape at `i` inside a string literal; returns the offset after it.
+fun lex_escape(i: Any, e: Any) -> Any {
+    let width: Any = escape_width(i, e);
+    if (width > 0) { return i + width; }
+    let c: Any = load8(SRC + i + 1);
+    if (c == 120) { lex_error(i, 2, "`\\x` escapes take two hexadecimal digits from 00 to 7f"); }
+    else if (c == 117) { lex_error(i, 2, "`\\u` escapes take a Unicode scalar value in braces, as in `\\u{e9}`"); }
+    else if (c < 32 or c > 126) { lex_error(i, 1, "unknown escape after `\\`"); }
+    else { lex_error(i, 2, "unknown escape `\\" + chr(c) + "`; the escapes are \\n \\t \\r \\0 \\\\ \\\" \\$ \\xNN and \\u{...}"); }
+    return i + 2;
 }
 
 fun lex_block_end(start: Any, end: Any) -> Any {
@@ -377,7 +468,7 @@ fun lex_run(a: Any, e: Any) -> Any {
             while (j < e) {
                 let c: Any = load8(SRC + j);
                 if (c == 92) {
-                    j = j + 2;
+                    j = lex_escape(j, e);
                 } else if (c == 36) {
                     if (load8(SRC + j + 1) == 123) {
                         j = j + 2;

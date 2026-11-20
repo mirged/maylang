@@ -529,8 +529,7 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         let object: Any = ir_node(ctx, node.object); let index: Any = ir_node(ctx, node.index);
         mut previous: Any = 0;
         if (node.compound != nil and node.compound != 0) { previous = ir_operation(E_INDEX, {"object": object, "index": index}, span); }
-        mut value: Any = ir_node(ctx, node.value);
-        if (previous != 0) { value = ir_operation(E_BIN, {"op": node.compound, "left": previous, "right": value}, span); }
+        mut value: Any = ir_compound_value(ctx, node, previous, span);
         value = ir_contract(ctx, value, node.valueContract, span);
         ir_emit(kind, 0, object, index, {"object": object, "index": index, "value": value}, span);
         return value;
@@ -541,8 +540,7 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
         if (not NO_OPT) { field = node.fieldIndex ?? 0; }
         mut previous: Any = 0;
         if (node.compound != nil and node.compound != 0) { previous = ir_operation(E_GET, {"object": object, "start": node.start, "length": node.length, "field": field, "span": span, "cache": ir_field_cache(ctx)}, span); }
-        mut value: Any = ir_node(ctx, node.value);
-        if (previous != 0) { value = ir_operation(E_BIN, {"op": node.compound, "left": previous, "right": value}, span); }
+        mut value: Any = ir_compound_value(ctx, node, previous, span);
         value = ir_contract(ctx, value, node.valueContract, span);
         ir_emit(kind, 0, object, value, {"object": object, "start": node.start, "length": node.length, "field": field, "value": value, "span": span, "cache": ir_field_cache(ctx)}, span);
         return value;
@@ -630,41 +628,76 @@ fun ir_node_value(ctx: Any, node: Any) -> Any {
                 let test: Any = ir_runtime("rt_eq", [subject, ir_node(ctx, arm.pattern)], span);
                 ir_emit(IR_FALSE, 0, test, 0, nextArm, span);
             } else if (arm.patternKind == 2) { ir_declare(arm.pattern, arm.length, subject, 0, span); }
-            else if (arm.patternKind == 3) {
-                let key: Any = if (arm.resultPattern) { "ok" } else { "tag" };
-                // A variant pattern proves the tag, so the tag and its payload
-                // entries have fixed slots in a record (tag 0, payload i+1).
-                // Result maps are ordinary maps and keep the runtime probe.
-                let slots: Any = not arm.resultPattern and IR_RAW_MODE == 0 and not NO_OPT;
-                mut actual: Any = 0;
-                if (slots) { actual = ir_slot_read(ctx, subject, addr("tag"), 3, 1, span); }
-                else { actual = ir_runtime("rt_map_get", [subject, ir_operation(E_STRB, {"address": addr(key), "length": len(key)}, span)], span); }
-                mut expected: Any = 0;
-                if (arm.resultPattern) {
-                    let name: Any = if (arm.variantTag == "Ok") { "true" } else { "false" };
-                    expected = ir_operation(E_VAR, {"name": addr(name), "length": len(name)}, span);
-                } else { expected = ir_operation(E_STRB, {"address": addr(arm.variantTag), "length": len(arm.variantTag)}, span); }
-                ir_emit(IR_FALSE, 0, ir_runtime("rt_eq", [actual, expected], span), 0, nextArm, span);
-                mut nested: Any = 0;
-                for binding: Any in arm.nested {
-                    if (binding.name != 0) {
-                        if (slots) {
-                            ir_declare(binding.name, binding.length, ir_slot_read(ctx, subject, addr(binding.fieldName), len(binding.fieldName), nested + 2, binding.span), 0, binding.span);
-                        } else {
-                            let field: Any = ir_operation(E_STRB, {"address": addr(binding.fieldName), "length": len(binding.fieldName)}, binding.span);
-                            ir_declare(binding.name, binding.length, ir_runtime("rt_map_get", [subject, field], span), 0, binding.span);
-                        }
-                    }
-                    nested += 1;
-                }
-            }
+            else if (arm.patternKind == 3) { ir_constructor_test(ctx, subject, arm, nextArm, span); }
             if (arm.guard != 0) { ir_emit(IR_FALSE, 0, ir_node(ctx, arm.guard), 0, nextArm, span); }
             ir_copy(result, ir_node(ctx, arm.body)); ir_jump(done); ir_label(nextArm);
             arm = arm.next;
         }
+        // No arm matched. A match whose value is used must not produce nil in
+        // place of its arms' type (#146); a statement match does nothing.
+        if (not node.discarded and IR_RAW_MODE == 0) { ir_runtime("rt_match_fail", [subject], span); }
         ir_label(done); return result;
     }
     diagnostic(span, "unsupported syntax in IR lowering");
+    return 0;
+}
+
+// The value an index or field assignment stores: its right side, or for a
+// compound assignment `previous op right`. `**=` is a power and `??=` reads its
+// right side only when the current value is nil (#188).
+fun ir_compound_value(ctx: Any, node: Any, previous: Any, span: Any) -> Any {
+    if (previous == 0) { return ir_node(ctx, node.value); }
+    if (node.compound == TK_QUEST) {
+        let result: Any = ir_copy(ir_temp(span), previous);
+        let done: Any = newlab(ctx);
+        ir_emit(IR_NONNULL, 0, previous, 0, done, span);
+        ir_copy(result, ir_node(ctx, node.value));
+        ir_label(done);
+        return result;
+    }
+    let right: Any = ir_node(ctx, node.value);
+    if (node.compound == TK_POW) { return ir_operation(E_POW, {"left": previous, "right": right}, span); }
+    return ir_operation(E_BIN, {"op": node.compound, "left": previous, "right": right}, span);
+}
+
+// Test `subject` against the constructor pattern `arm` (a match arm or a
+// nested sub-pattern), jumping to `nextArm` when it does not match, and bind
+// its payload names.
+fun ir_constructor_test(ctx: Any, subject: Any, arm: Any, nextArm: Any, span: Any) -> Any {
+    let key: Any = if (arm.resultPattern) { "ok" } else { "tag" };
+    // A variant pattern proves the tag, so the tag and its payload
+    // entries have fixed slots in a record (tag 0, payload i+1).
+    // Result maps are ordinary maps and keep the runtime probe.
+    let slots: Any = not arm.resultPattern and IR_RAW_MODE == 0 and not NO_OPT;
+    mut actual: Any = 0;
+    if (slots) { actual = ir_slot_read(ctx, subject, addr("tag"), 3, 1, span); }
+    else { actual = ir_runtime("rt_map_get", [subject, ir_operation(E_STRB, {"address": addr(key), "length": len(key)}, span)], span); }
+    mut expected: Any = 0;
+    if (arm.resultPattern) {
+        let name: Any = if (arm.variantTag == "Ok") { "true" } else { "false" };
+        expected = ir_operation(E_VAR, {"name": addr(name), "length": len(name)}, span);
+    } else { expected = ir_operation(E_STRB, {"address": addr(arm.variantTag), "length": len(arm.variantTag)}, span); }
+    ir_emit(IR_FALSE, 0, ir_runtime("rt_eq", [actual, expected], span), 0, nextArm, span);
+    mut nested: Any = 0;
+    for binding: Any in arm.nested {
+        let sub: Any = binding.sub;
+        let refutable: Any = sub != nil and sub != 0;
+        if (binding.name != 0 or refutable) {
+            mut value: Any = 0;
+            if (slots) {
+                value = ir_slot_read(ctx, subject, addr(binding.fieldName), len(binding.fieldName), nested + 2, binding.span);
+            } else {
+                let field: Any = ir_operation(E_STRB, {"address": addr(binding.fieldName), "length": len(binding.fieldName)}, binding.span);
+                value = ir_runtime("rt_map_get", [subject, field], span);
+            }
+            if (binding.name != 0) { ir_declare(binding.name, binding.length, value, 0, binding.span); }
+            // A nested literal or constructor pattern tests the field (#187).
+            if (refutable and sub.patternKind == 1) {
+                ir_emit(IR_FALSE, 0, ir_runtime("rt_eq", [value, ir_node(ctx, sub.pattern)], span), 0, nextArm, span);
+            } else if (refutable and sub.patternKind == 3) { ir_constructor_test(ctx, value, sub, nextArm, span); }
+        }
+        nested += 1;
+    }
     return 0;
 }
 

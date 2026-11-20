@@ -11,6 +11,8 @@ mut MODULE_SYMBOLS: Any = {};
 let EXPAND_CAPACITY: Any = 4194304;
 // Import directives being expanded, outermost first, as "path:line".
 mut EXPAND_CHAIN: Any = [];
+// The first import that names a missing module: {span, message}, or nil.
+mut EXPAND_ERROR: Any = nil;
 
 // Keep source spelling intact; semantic resolution handles module aliases.
 fun emit_line(t: Any, ls: Any, le: Any, buf: Any, off: Any) -> Any {
@@ -75,7 +77,7 @@ fun module_file(path: Any) -> Any {
     return module_path(path);
 }
 
-fun register_import(owner: Any, target: Any, text: Any, start: Any, end: Any, quote: Any) -> Any {
+fun register_import(owner: Any, target: Any, text: Any, start: Any, end: Any, quote: Any, span: Any) -> Any {
     // Comments are outside the import grammar, including quoted comments.
     let tail: Any = trim(replace(split(symbol_name(text + quote + 1, end - quote - 1), "//")[0], "\t", " "));
     let line: Any = trim(replace(symbol_name(text + start, end - start), "\t", " "));
@@ -92,7 +94,7 @@ fun register_import(owner: Any, target: Any, text: Any, start: Any, end: Any, qu
         let parts: Any = split(target, "/");
         alias = replace(parts[len(parts) - 1], ".may", "");
     }
-    push(MODULE_IMPORTS[owner], {"path": target, "alias": alias, "plain": plain, "selected": selected});
+    push(MODULE_IMPORTS[owner], {"path": target, "alias": alias, "plain": plain, "selected": selected, "span": span});
     return 0;
 }
 
@@ -248,7 +250,21 @@ fun append_file(pp: Any, pl: Any, buf: Any, off: Any) -> Any {
                 if (not contains(parts[len(parts) - 1], ".")) { imported = imported + ".may"; }
                 let candidate: Any = if (starts_with(imported, "/")) { imported } else { symbol_name(pp, dl) + imported };
                 let target: Any = if (file_ok(addr(candidate)) == 1) { module_file(candidate) } else { module_file("stdlib/" + imported) };
-                register_import(sourcePath, target, text, segment, finish, q2);
+                // Import directives are not copied into the expanded buffer, so
+                // their diagnostics point into the importing file's own text.
+                if (not has(SOURCE_FILES, text)) { SOURCE_FILES[text] = SourceFile(sourcePath, [SourceOrigin(0, sourcePath, 1)]); }
+                let directiveSpan: Any = SourceSpan(text, segment, finish - segment, sourceLine, segment - ls + 1);
+                if (file_ok(addr(target)) == 0) {
+                    mut tried: Any = candidate;
+                    if (target != module_path(candidate)) { tried = tried + " and " + target; }
+                    // Reported by main.may after expansion (diagnostics.may
+                    // imports this file, so it cannot be called from here).
+                    if (EXPAND_ERROR == nil) {
+                        EXPAND_ERROR = {"span": directiveSpan, "message": "cannot find module \"" + symbol_name(text + q1 + 1, q2 - q1 - 1) + "\"; tried " + tried};
+                    }
+                    return off;
+                }
+                register_import(sourcePath, target, text, segment, finish, q2, directiveSpan);
                 push(EXPAND_CHAIN, "${sourcePath}:${sourceLine}");
                 off = append_file(addr(target), load64(addr(target) - 8), buf, off);
                 pop(EXPAND_CHAIN);
@@ -277,6 +293,7 @@ fun expand(pp: Any, pl: Any) -> Any {
     MODULE_SYMBOLS = {};
     EXPAND_ORIGINS = [];
     EXPAND_CHAIN = [];
+    EXPAND_ERROR = nil;
     let buf: Any = irt_alloc(EXPAND_CAPACITY);
     let off: Any = append_file(pp, pl, buf, 0);
     store8(buf + off, 0);
@@ -285,3 +302,4 @@ fun expand(pp: Any, pl: Any) -> Any {
     SOURCE_FILES[buf] = SourceFile(symbol_name(pp, pl), EXPAND_ORIGINS);
     return 0;
 }
+

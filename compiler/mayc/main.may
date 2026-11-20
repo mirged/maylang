@@ -471,6 +471,7 @@ fun main2() -> Any {
         PARSE_RAW = 1;
         DYNMODE = 0;
         expand(sp, sl);
+        if (EXPAND_ERROR != nil) { import_diagnostic(EXPAND_ERROR.span, EXPAND_ERROR.message); }
         if (expandedflag == 1) {
             syscall(1, 1, SRC, SRCLEN);
             syscall(60, 0);
@@ -503,6 +504,7 @@ fun main2() -> Any {
         }
         PARSE_RAW = 0;
         expand(sp, sl);
+        if (EXPAND_ERROR != nil) { import_diagnostic(EXPAND_ERROR.span, EXPAND_ERROR.message); }
         let ub: Any = SRC;
         let un: Any = SRCLEN;
         if (expandedflag == 1) {
