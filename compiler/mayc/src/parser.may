@@ -100,6 +100,7 @@ fun parser_recover(start: Any) -> Any {
 mut PARSED_ASSIGNMENTS: Any = [];
 fun parse_program(ctx: Any) -> Any {
     PARSED_ASSIGNMENTS = [];
+    PARSE_DEPTH = 0;
     POS = 0;
     TYPE_GT_PENDING = 0;
     DECLARATIONS = [];
@@ -1055,8 +1056,24 @@ fun binding_power(kind: Any) -> Any {
     return 0 - 1;
 }
 
+// Expression nesting (recursion plus the length of left-associative chains)
+// is limited, because later stages walk the tree recursively (#173).
+mut PARSE_DEPTH: Any = 0;
+let PARSE_DEPTH_LIMIT: Any = 1000;
 fun parse_pratt(ctx: Any, minimum: Any) -> Any {
+    PARSE_DEPTH = PARSE_DEPTH + 1;
+    if (PARSE_DEPTH > PARSE_DEPTH_LIMIT) {
+        PARSE_DEPTH = 0;
+        diagnostic(parser_span(), "expression nested too deeply (the limit is 1000 levels)");
+    }
+    let result: Any = parse_pratt_body(ctx, minimum);
+    PARSE_DEPTH = PARSE_DEPTH - 1;
+    return result;
+}
+
+fun parse_pratt_body(ctx: Any, minimum: Any) -> Any {
     let span: Any = parser_span();
+    let entered: Any = PARSE_DEPTH;
     mut left: Any = 0;
     if (ptok() == TK_MINUS or ptok() == TK_NOT or ptok() == TK_BITNOT) {
         let op: Any = ptok();
@@ -1071,6 +1088,12 @@ fun parse_pratt(ctx: Any, minimum: Any) -> Any {
         if (power < minimum) { break; }
         adv();
         if (op == TK_QUEST) { expect(TK_QUEST); }
+        // Each operator of a chain deepens the left operand's tree by one.
+        PARSE_DEPTH = PARSE_DEPTH + 1;
+        if (PARSE_DEPTH > PARSE_DEPTH_LIMIT) {
+            PARSE_DEPTH = 0;
+            diagnostic(parser_span(), "expression nested too deeply (the limit is 1000 levels)");
+        }
         mut rightPower: Any = power + 1;
         if (op == TK_POW) { rightPower = power; }
         let right: Any = parse_pratt(ctx, rightPower);
@@ -1085,6 +1108,7 @@ fun parse_pratt(ctx: Any, minimum: Any) -> Any {
             left = RangeExpr(E_RANGE, span, 0, left, right, inclusive);
         } else { left = Binary(E_BIN, span, 0, op, left, right); }
     }
+    PARSE_DEPTH = entered;
     return left;
 }
 
