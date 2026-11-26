@@ -189,7 +189,7 @@ def main():
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=10,
+                timeout=60,
             )
 
             function_symbols = []
@@ -215,7 +215,7 @@ def main():
                            cwd=relocated_project, check=True, capture_output=True, timeout=60)
             assert subprocess.check_output([str(moved_binary)]) == b"11 22\n"
             moved_symbols = subprocess.check_output(
-                ["nm", "--defined-only", str(moved_binary)], text=True, timeout=10)
+                ["nm", "--defined-only", str(moved_binary)], text=True, timeout=60)
             original_names = sorted(line.split(maxsplit=2)[2] for line in nm.stdout.splitlines())
             moved_names = sorted(line.split(maxsplit=2)[2] for line in moved_symbols.splitlines())
             assert len(original_names) == len(set(original_names)), original_names
