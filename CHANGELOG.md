@@ -1,6 +1,6 @@
 # Unreleased
 
-# Maylang 0.15.2 — Fern
+# Maylang 0.15.3 — Fern
 
 Released 2026-11-26 UTC. A patch release with the fixes from the language
 audit (#144-#188): the runtime raises faults where it used to return wrong
@@ -11,6 +11,10 @@ they are listed under breaking changes below. The standard library gains a
 structural `equal(a, b)`, which `assert_eq` now uses, and expressions nested
 deeper than 1000 levels get a located diagnostic instead of exhausting the
 compiler's stack.
+
+0.15.2 was tagged but never published: a test's 10-second `nm` timeout kept
+failing on the CI runners, so its release check did not pass. 0.15.3 has the
+same changes and gives that check 60 seconds.
 
 ## Breaking changes
 
