@@ -1,8 +1,16 @@
 # Unreleased
 
-Fixes from the language audit (#144-#188): the runtime raises faults where it
-used to return wrong values, the type checker closes several soundness gaps,
-and the frontend rejects programs it used to misread.
+# Maylang 0.15.2 — Fern
+
+Released 2026-11-26 UTC. A patch release with the fixes from the language
+audit (#144-#188): the runtime raises faults where it used to return wrong
+values, the type checker closes several soundness gaps, and the frontend
+rejects programs it used to misread. Several of these fixes change behavior
+that programs may have relied on, such as out-of-range reads returning nil;
+they are listed under breaking changes below. The standard library gains a
+structural `equal(a, b)`, which `assert_eq` now uses, and expressions nested
+deeper than 1000 levels get a located diagnostic instead of exhausting the
+compiler's stack.
 
 ## Breaking changes
 
@@ -41,6 +49,8 @@ and the frontend rejects programs it used to misread.
   E_IMPORT diagnostics at the import line; non-ASCII characters are reported
   correctly (#177); `mayc -o` refuses to overwrite its source and names bad
   options and paths (#180).
+- Expressions nested deeper than 1000 levels are rejected with a located
+  diagnostic instead of overflowing the parser's stack.
 
 ## Runtime and library
 
